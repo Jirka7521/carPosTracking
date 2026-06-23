@@ -55,7 +55,14 @@ bool GnssModule::enableGnss() {
 
 bool GnssModule::disableGnss() {
   ESP_LOGI(TAG, "Disabling GNSS engine.");
-  return modem_.sendCommand("AT+CGNSPWR=0", 2000);
+  bool ok = modem_.sendCommand("AT+CGNSPWR=0", 2000);
+
+  // Cut power to the active GNSS antenna (modem GPIO4) so its amplifier isn't
+  // left drawing current once the engine is off. Mirrors enableGnss().
+  ESP_LOGI(TAG, "Powering GNSS antenna off (modem GPIO4).");
+  modem_.sendCommand("AT+SGPIO=0,4,1,0", 1000);
+
+  return ok;
 }
 
 bool GnssModule::setConstellations(bool gps, bool glonass, bool beidou,
