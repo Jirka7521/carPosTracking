@@ -17,6 +17,8 @@ reuse.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
 - 🔋 **Power the whole modem off** between reads to minimise battery drain
   (plus a lighter "GNSS engine only" off switch).
+- 📶 **Optional WiFi** (station mode): connect to a network with one flag, or
+  disable it entirely. Credentials are kept out of Git.
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -30,13 +32,17 @@ src/
 ├── main.cpp                 ← Example app: wires the classes together & loops
 │
 ├── config/
-│   └── Config.h             ← ★ EDIT ME: pins, baud, constellations, debug flag
+│   ├── Config.example.h     ← Committed template (NO secrets) — copy to Config.h
+│   └── Config.h             ← ★ EDIT ME (git-ignored): pins, WiFi creds, flags
 │
 ├── serial/
 │   ├── SerialPort.h/.cpp    ← Thin wrapper over the ESP-IDF UART driver
 │
 ├── modem/
 │   ├── Sim7000Modem.h/.cpp  ← Modem power (PWRKEY) + AT command transport
+│
+├── wifi/
+│   ├── WifiManager.h/.cpp   ← Optional WiFi station: begin / connect / status
 │
 └── gnss/
     ├── GnssData.h           ← Plain data structs (GnssFix, GnssSatelliteCounts…)
@@ -74,6 +80,7 @@ test:
 |-------|----------------|
 | `SerialPort` | Send/receive bytes over a UART; read a line. Nothing else. |
 | `Sim7000Modem` | Turn the modem on/off (PWRKEY) and run AT commands. |
+| `WifiManager` | Optional WiFi station: init the stack, connect, report status. |
 | `CgnsinfParser` | Turn one `+CGNSINF:` line into a `GnssFix`. |
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
@@ -81,6 +88,20 @@ test:
 ---
 
 ## Configuration
+
+> ⚠️ **First-time setup — create your config file.**
+> [`Config.h`](src/config/Config.h) holds your private WiFi credentials and is
+> **git-ignored** so it never reaches GitHub. The repository only ships the
+> credential-free template [`Config.example.h`](src/config/Config.example.h).
+> Before your first build, copy it and fill in your network:
+>
+> ```bash
+> cp src/config/Config.example.h src/config/Config.h
+> ```
+>
+> Then edit `Config.h` and set `kWifiSsid` / `kWifiPassword`. **Never commit
+> `Config.h`** — keep real credentials only in `Config.example.h`'s untracked
+> copy.
 
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 
@@ -94,9 +115,48 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | **`kGnssDebug`** | `true` | **Turn the serial debug report on/off** |
 | `kFixPollIntervalMs` | `5000` | Delay between reads in the example loop |
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
+| **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
+| `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
+| `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
+| `kWifiMaxRetries` | `5` | Association retries before reporting failure |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
-> is removed by the compiler — zero runtime cost in production.
+> is removed by the compiler — zero runtime cost in production. Likewise, when
+> `kWifiEnabled` is `false` the WiFi connect code is dropped entirely.
+
+---
+
+## WiFi
+
+WiFi runs in **station mode** and is fully optional, handled by the standalone
+[`WifiManager`](src/wifi/WifiManager.h) class.
+
+- **To enable:** set `kWifiEnabled = true` in `Config.h` and provide
+  `kWifiSsid` / `kWifiPassword`. On boot, the app connects before starting GNSS.
+  A failed connection is logged as a warning and tracking continues regardless.
+- **To disable:** set `kWifiEnabled = false`. The WiFi stack is never
+  initialised and the connect code is compiled out.
+
+Using it directly:
+
+```cpp
+#include "config/Config.h"
+#include "wifi/WifiManager.h"
+
+static WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
+                        config::kWifiMaxRetries);
+
+wifi.begin();                                  // init NVS + WiFi stack (once)
+if (wifi.connect(config::kWifiConnectTimeoutMs)) {
+    // wifi.isConnected() == true, we hold an IP
+}
+
+wifi.disconnect();                             // drop the link + stop the driver
+```
+
+> **Keeping secrets safe:** credentials live only in the git-ignored `Config.h`.
+> The committed `Config.example.h` carries empty placeholders, so cloning the
+> repo never exposes a network. Don't paste credentials anywhere else.
 
 ---
 
@@ -167,6 +227,7 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
 ## Build & flash
 
 ```bash
+cp src/config/Config.example.h src/config/Config.h   # first time only, then edit
 pio run                 # compile
 pio run -t upload       # flash
 pio device monitor      # watch the serial output (115200 baud)

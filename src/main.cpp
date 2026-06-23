@@ -6,11 +6,26 @@
 #include "gnss/GnssModule.h"
 #include "modem/Sim7000Modem.h"
 #include "serial/SerialPort.h"
+#include "wifi/WifiManager.h"
 
 static const char* TAG = "main";
 
 extern "C" void app_main(void) {
   ESP_LOGI(TAG, "Car position tracker starting...");
+
+  // Bring up WiFi first (if enabled in Config.h). It is an independent
+  // subsystem, so a connection failure is logged but does not stop tracking.
+  if (config::kWifiEnabled) {
+    static WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
+                            config::kWifiMaxRetries);
+    if (wifi.begin() && wifi.connect(config::kWifiConnectTimeoutMs)) {
+      ESP_LOGI(TAG, "WiFi connected.");
+    } else {
+      ESP_LOGW(TAG, "WiFi not connected - continuing without it.");
+    }
+  } else {
+    ESP_LOGI(TAG, "WiFi disabled in Config.h.");
+  }
 
   static SerialPort serial(config::kModemUartPort, config::kModemTxPin,
                            config::kModemRxPin, config::kModemBaudRate);
