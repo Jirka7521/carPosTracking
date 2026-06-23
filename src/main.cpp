@@ -17,11 +17,15 @@ extern "C" void app_main(void) {
   // subsystem, so a connection failure is logged but does not stop tracking.
   if (config::kWifiEnabled) {
     static WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
-                            config::kWifiMaxRetries);
+                            config::kWifiMaxRetries,
+                            config::kWifiReconnectIntervalMs);
     if (wifi.begin() && wifi.connect(config::kWifiConnectTimeoutMs)) {
       ESP_LOGI(TAG, "WiFi connected.");
     } else {
-      ESP_LOGW(TAG, "WiFi not connected - continuing without it.");
+      // Not connected yet - WifiManager keeps retrying in the background, so we
+      // start tracking now rather than blocking on the network.
+      ESP_LOGW(TAG,
+               "WiFi not connected - continuing; retrying in background.");
     }
   } else {
     ESP_LOGI(TAG, "WiFi disabled in Config.h.");

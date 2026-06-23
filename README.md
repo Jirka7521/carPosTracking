@@ -118,7 +118,8 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
-| `kWifiMaxRetries` | `5` | Association retries before reporting failure |
+| `kWifiMaxRetries` | `5` | Fast retries in a burst before it's deemed failed |
+| `kWifiReconnectIntervalMs` | `30000` | Background reconnect interval after a failed burst |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
 > is removed by the compiler — zero runtime cost in production. Likewise, when

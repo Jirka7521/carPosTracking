@@ -12,14 +12,20 @@
 //
 //  Typical lifecycle:
 //      WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
-//                       config::kWifiMaxRetries);
+//                       config::kWifiMaxRetries,
+//                       config::kWifiReconnectIntervalMs);
 //      wifi.begin();                               // init the WiFi stack
 //      wifi.connect(config::kWifiConnectTimeoutMs);// associate + get an IP
 //      if (wifi.isConnected()) { ...use network... }
+//
+//  If the initial connect() fails, the manager keeps retrying on its own in the
+//  background every reconnectIntervalMs until it gets an IP - no extra calls
+//  needed. Poll isConnected() whenever you need to know the current state.
 // =============================================================================
 
 #include <cstdint>
 
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
@@ -27,10 +33,14 @@ class WifiManager {
  public:
   // Borrows (does not copy) the credential strings - they must outlive this
   // object. With Config.h that is automatic (they are constexpr globals).
-  //   ssid       : network name to join
-  //   password   : network password ("" for an open network)
-  //   maxRetries : association attempts before connect() reports failure
-  WifiManager(const char* ssid, const char* password, int maxRetries);
+  //   ssid                : network name to join
+  //   password            : network password ("" for an open network)
+  //   maxRetries          : fast association attempts in one burst before the
+  //                         burst is considered failed
+  //   reconnectIntervalMs : after a failed burst, gap between background
+  //                         reconnect bursts (until an IP is obtained)
+  WifiManager(const char* ssid, const char* password, int maxRetries,
+              uint32_t reconnectIntervalMs);
 
   // Initialise the WiFi stack in station mode: NVS flash, the default event
   // loop, the network interface and the esp_wifi driver. Call once before
@@ -55,12 +65,18 @@ class WifiManager {
   static void eventHandler(void* arg, const char* eventBase, int32_t eventId,
                            void* eventData);
 
+  // esp_timer callback fired reconnectIntervalMs after a failed burst. `arg` is
+  // the WifiManager instance; it starts a fresh association burst.
+  static void reconnectTimerCb(void* arg);
+
   const char* ssid_;
   const char* password_;
   int         maxRetries_;
+  uint32_t    reconnectIntervalMs_;
 
-  bool             initialised_;   // begin() has set up the WiFi stack
-  bool             connected_;      // we currently hold an IP
-  int              retryCount_;     // association retries so far
-  EventGroupHandle_t events_;       // signals connect success / failure
+  bool               initialised_;   // begin() has set up the WiFi stack
+  bool               connected_;     // we currently hold an IP
+  int                retryCount_;    // association retries in the current burst
+  EventGroupHandle_t events_;        // signals connect success / failure
+  esp_timer_handle_t reconnectTimer_;  // periodic background reconnect
 };

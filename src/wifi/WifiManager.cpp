@@ -5,6 +5,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 
@@ -15,14 +16,17 @@ static const char* TAG = "WifiManager";
 static constexpr EventBits_t kConnectedBit = BIT0;  // Got an IP address
 static constexpr EventBits_t kFailedBit    = BIT1;  // Gave up after retries
 
-WifiManager::WifiManager(const char* ssid, const char* password, int maxRetries)
+WifiManager::WifiManager(const char* ssid, const char* password, int maxRetries,
+                         uint32_t reconnectIntervalMs)
     : ssid_(ssid),
       password_(password),
       maxRetries_(maxRetries),
+      reconnectIntervalMs_(reconnectIntervalMs),
       initialised_(false),
       connected_(false),
       retryCount_(0),
-      events_(nullptr) {}
+      events_(nullptr),
+      reconnectTimer_(nullptr) {}
 
 bool WifiManager::begin() {
   if (initialised_) {
@@ -69,6 +73,14 @@ bool WifiManager::begin() {
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifiConfig));
 
+  // 6. One-shot timer used to space out background reconnect bursts after the
+  //    initial fast retries fail. It is (re)armed only when a burst gives up.
+  esp_timer_create_args_t timerArgs = {};
+  timerArgs.callback = &WifiManager::reconnectTimerCb;
+  timerArgs.arg      = this;
+  timerArgs.name     = "wifi_reconnect";
+  ESP_ERROR_CHECK(esp_timer_create(&timerArgs, &reconnectTimer_));
+
   initialised_ = true;
   ESP_LOGI(TAG, "WiFi stack initialised (SSID \"%s\").", ssid_);
   return true;
@@ -114,6 +126,7 @@ void WifiManager::disconnect() {
     return;
   }
   ESP_LOGI(TAG, "Disconnecting WiFi.");
+  esp_timer_stop(reconnectTimer_);  // Stop background reconnects first.
   esp_wifi_disconnect();
   esp_wifi_stop();
   connected_ = false;
@@ -132,13 +145,22 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_DISCONNECTED) {
     self->connected_ = false;
     if (self->retryCount_ < self->maxRetries_) {
+      // Still inside the current fast burst: retry immediately.
       ++self->retryCount_;
       ESP_LOGW(TAG, "Disconnected; retry %d/%d.", self->retryCount_,
                self->maxRetries_);
       esp_wifi_connect();
     } else {
-      // Out of retries - unblock connect() with a failure.
+      // Burst exhausted. Unblock any waiting connect() with a failure, then
+      // schedule another burst in reconnectIntervalMs so we keep trying in the
+      // background until the network comes back.
+      ESP_LOGW(TAG, "Burst of %d retries failed; reconnecting in %lu ms.",
+               self->maxRetries_,
+               (unsigned long)self->reconnectIntervalMs_);
       xEventGroupSetBits(self->events_, kFailedBit);
+      esp_timer_stop(self->reconnectTimer_);  // No-op if not running.
+      esp_timer_start_once(self->reconnectTimer_,
+                           (uint64_t)self->reconnectIntervalMs_ * 1000);
     }
     return;
   }
@@ -148,7 +170,17 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
     ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
     self->connected_  = true;
     self->retryCount_ = 0;
+    esp_timer_stop(self->reconnectTimer_);  // Connected - cancel any pending retry.
     xEventGroupSetBits(self->events_, kConnectedBit);
     return;
   }
+}
+
+void WifiManager::reconnectTimerCb(void* arg) {
+  auto* self = static_cast<WifiManager*>(arg);
+  // Start a fresh burst: reset the counter and re-attempt the association. If
+  // it fails again, the disconnect handler re-arms this timer for another cycle.
+  ESP_LOGI(TAG, "Background reconnect attempt to \"%s\"...", self->ssid_);
+  self->retryCount_ = 0;
+  esp_wifi_connect();
 }

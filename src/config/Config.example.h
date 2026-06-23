@@ -80,4 +80,8 @@ constexpr char kWifiPassword[] = "";  // <-- your network password (set in Confi
 constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 constexpr int      kWifiMaxRetries       = 5;
 
+// After the burst of kWifiMaxRetries fast retries fails, keep trying to
+// reconnect in the background at this interval until an IP is obtained.
+constexpr uint32_t kWifiReconnectIntervalMs = 30000;
+
 }  // namespace config
