@@ -43,13 +43,26 @@ bool GnssModule::powerOffModule() {
 }
 
 bool GnssModule::enableGnss() {
+  // The active GNSS antenna's amplifier is powered through the modem's GPIO4 on
+  // the T-SIM7000G. Without this the receiver can list satellites but the signal
+  // is too weak to ever lock a fix, so power it before starting the engine.
+  ESP_LOGI(TAG, "Powering GNSS antenna (modem GPIO4).");
+  modem_.sendCommand("AT+SGPIO=0,4,1,1", 1000);
+
   ESP_LOGI(TAG, "Enabling GNSS engine.");
   return modem_.sendCommand("AT+CGNSPWR=1", 2000);
 }
 
 bool GnssModule::disableGnss() {
   ESP_LOGI(TAG, "Disabling GNSS engine.");
-  return modem_.sendCommand("AT+CGNSPWR=0", 2000);
+  bool ok = modem_.sendCommand("AT+CGNSPWR=0", 2000);
+
+  // Cut power to the active GNSS antenna (modem GPIO4) so its amplifier isn't
+  // left drawing current once the engine is off. Mirrors enableGnss().
+  ESP_LOGI(TAG, "Powering GNSS antenna off (modem GPIO4).");
+  modem_.sendCommand("AT+SGPIO=0,4,1,0", 1000);
+
+  return ok;
 }
 
 bool GnssModule::setConstellations(bool gps, bool glonass, bool beidou,

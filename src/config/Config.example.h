@@ -1,5 +1,21 @@
 #pragma once
+#include <cstdint>
+
 #include "driver/uart.h"
+
+// =============================================================================
+//  Config.example.h  -  Committed template (NO secrets).
+// -----------------------------------------------------------------------------
+//  This is the version-controlled template for `Config.h`. The real `Config.h`
+//  holds your private WiFi credentials and is git-ignored so it never reaches
+//  GitHub.
+//
+//  First-time setup:
+//      cp src/config/Config.example.h src/config/Config.h
+//  then open Config.h and fill in kWifiSsid / kWifiPassword.
+//
+//  Keep this template free of real credentials.
+// =============================================================================
 
 namespace config {
 
@@ -44,4 +60,28 @@ constexpr bool kGnssDebug = true;
 constexpr uint32_t kFixPollIntervalMs = 5000;  // Gap between position reads
 constexpr uint32_t kSatelliteScanMs   = 3000;  // How long to listen to NMEA
                                                // when counting satellites
+
+// -----------------------------------------------------------------------------
+//  WiFi (station mode).
+//
+//  ⚠ SECRETS: fill kWifiSsid / kWifiPassword in your local Config.h only. Leave
+//  them blank here in the committed template.
+//
+//  Set kWifiEnabled to `false` to skip WiFi entirely; the connect code is then
+//  removed by the optimiser and the SSID/password below are ignored.
+// -----------------------------------------------------------------------------
+constexpr bool kWifiEnabled = true;
+
+constexpr char kWifiSsid[]     = "";  // <-- your network name (set in Config.h)
+constexpr char kWifiPassword[] = "";  // <-- your network password (set in Config.h)
+
+// How long to wait for an IP address before giving up a connection attempt, and
+// how many times to retry the association before reporting failure.
+constexpr uint32_t kWifiConnectTimeoutMs = 15000;
+constexpr int      kWifiMaxRetries       = 5;
+
+// After the burst of kWifiMaxRetries fast retries fails, keep trying to
+// reconnect in the background at this interval until an IP is obtained.
+constexpr uint32_t kWifiReconnectIntervalMs = 30000;
+
 }  // namespace config
