@@ -1,0 +1,25 @@
+# Project-level ESP-IDF defaults.
+#
+# These are applied on top of the board defaults every time PlatformIO
+# (re)generates `sdkconfig.ttgo-t7-v14-mini32`, so the flash/size settings
+# below survive a `menuconfig` or a framework upgrade. Keep this file as the
+# source of truth; do not hand-tune only the generated sdkconfig.
+#
+# See README "Build & flash" -> "Flash usage / size" for the rationale.
+
+# --- Use the board's full 4 MB flash (it ships with 4 MB, not 2 MB) ---
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# --- Larger single-app partition (~1.5 MB app vs. the stock 1 MB) ---
+# NOTE: under PlatformIO the partition table is chosen by `board_build.partitions`
+# in platformio.ini, NOT by these symbols (the espidf builder overrides them).
+# They are kept here only so a raw `idf.py` build picks the same layout.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+CONFIG_PARTITION_TABLE_FILENAME="partitions_singleapp_large.csv"
+
+# --- Optimise for size (-Os) instead of debug (-Og) ---
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Smaller "nano" printf/scanf from newlib ---
+CONFIG_NEWLIB_NANO_FORMAT=y

@@ -238,6 +238,40 @@ pio device monitor      # watch the serial output (115200 baud)
 > module as the T-SIM7000G). The board name only affects flash/RAM layout, not
 > the modem pins, which are set in `Config.h`.
 
+### Flash usage / size
+
+The full firmware (WiFi + lwIP + the mbedTLS/TLS stack for `wss://`) is large.
+Out of the box ESP-IDF only gave the app a **1 MB** partition, so the build
+reported **~99% flash used**. The project tunes four settings to fix this:
+
+| Setting | Where | Default | Now | Why |
+|---------|-------|---------|-----|-----|
+| Partition table | [`platformio.ini`](platformio.ini) `board_build.partitions` | `partitions_singleapp.csv` (1 MB app) | **`partitions_singleapp_large.csv`** (1.5 MB app) | Biggest win — gives the app 50% more room. |
+| `CONFIG_ESPTOOLPY_FLASHSIZE` | [`sdkconfig.defaults`](sdkconfig.defaults) | `2MB` | **`4MB`** | The board actually ships with 4 MB flash — the stock config wasted half of it. |
+| `CONFIG_COMPILER_OPTIMIZATION_*` | [`sdkconfig.defaults`](sdkconfig.defaults) | `DEBUG` (`-Og`) | **`SIZE`** (`-Os`) | Smaller code (~10–15%). |
+| `CONFIG_NEWLIB_NANO_FORMAT` | [`sdkconfig.defaults`](sdkconfig.defaults) | off | **on** | Links the compact "nano" `printf`/`scanf`. |
+
+> ⚠️ **The partition table lives in `platformio.ini`, not sdkconfig.**
+> PlatformIO's ESP-IDF builder picks the partition CSV from
+> `board_build.partitions` and **ignores** `CONFIG_PARTITION_TABLE_*`. Setting it
+> only in sdkconfig has no effect on the size check or the flashed layout.
+> The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
+> they survive a `menuconfig` run or a framework upgrade.
+
+Together these take the build from **~99% of 1 MB** down to **~58% of 1.5 MB**
+(≈896 KB firmware). After pulling these changes do a clean rebuild so the new
+flash size and partition layout take effect:
+
+```bash
+pio run -t fullclean
+pio run
+```
+
+> ℹ️ **Nano `printf` caveat:** the nano formatter has reduced support for some
+> conversions (e.g. `%ll`, full floating-point width/precision). The firmware's
+> log lines are fine with it, but keep it in mind if you add new `printf`-style
+> formatting.
+
 > ⚠️ **Why the platform is pinned to `espressif32@6.9.0`.**
 > [`platformio.ini`](platformio.ini) pins `platform = espressif32@6.9.0`
 > (ESP-IDF 5.3) **on purpose — do not let it float to the latest version.**
