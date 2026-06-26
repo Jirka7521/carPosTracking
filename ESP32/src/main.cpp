@@ -1,10 +1,13 @@
 
 #include "config/Config.h"
+#include "crypto/PayloadCrypto.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "gnss/GnssModule.h"
 #include "modem/Sim7000Modem.h"
+#include "mqtt/MqttClient.h"
+#include "mqtt/TelemetryPublisher.h"
 #include "serial/SerialPort.h"
 #include "wifi/WifiManager.h"
 
@@ -45,6 +48,25 @@ extern "C" void app_main(void) {
   ESP_LOGI(TAG, "GNSS ready. Reading position every %lu ms.",
            (unsigned long)config::kFixPollIntervalMs);
 
+  // Bring up MQTT (if enabled). The client connects and reconnects in the
+  // background, so we never block on it. Each fix is end-to-end encrypted by
+  // PayloadCrypto before TelemetryPublisher hands it to the broker.
+  static MqttClient     mqtt(config::kMqttBrokerUri, config::kMqttUsername,
+                             config::kMqttPassword, config::kMqttClientId);
+  static PayloadCrypto  crypto(config::kReceiverPublicKeyPem);
+  static TelemetryPublisher publisher(mqtt, crypto, config::kTelemetryTopic,
+                                      config::kDeviceId);
+  if (config::kMqttEnabled) {
+    if (mqtt.begin()) {
+      ESP_LOGI(TAG, "MQTT enabled; publishing fixes to %s.",
+               config::kTelemetryTopic);
+    } else {
+      ESP_LOGW(TAG, "MQTT failed to start; continuing without publishing.");
+    }
+  } else {
+    ESP_LOGI(TAG, "MQTT disabled in Config.h.");
+  }
+
   // Main loop
   while (true) {
     GnssFix fix;  // Holds the latest position/speed/time and satellite counts
@@ -54,6 +76,11 @@ extern "C" void app_main(void) {
         ESP_LOGI(TAG, "Fix: %.6f, %.6f  %.1f km/h",
                  fix.position.latitudeDeg, fix.position.longitudeDeg,
                  fix.speedKmph);
+
+        // Publish the encrypted position (only when MQTT is up).
+        if (config::kMqttEnabled && mqtt.isConnected()) {
+          publisher.publishFix(fix);
+        }
       } else {
         ESP_LOGI(TAG, "Waiting for satellite fix...");
       }

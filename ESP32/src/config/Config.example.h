@@ -84,4 +84,52 @@ constexpr int      kWifiMaxRetries       = 5;
 // reconnect in the background at this interval until an IP is obtained.
 constexpr uint32_t kWifiReconnectIntervalMs = 30000;
 
+// -----------------------------------------------------------------------------
+//  MQTT broker.
+//
+//
+//  The broker URI scheme decides the transport AND whether the hop is TLS:
+//      wss://host:port/path   encrypted MQTT-over-WebSocket  (recommended)
+//      ws://host:port/path    plain MQTT-over-WebSocket
+//      mqtts://host:port      encrypted MQTT-over-TCP
+//      mqtt://host:port       plain MQTT-over-TCP
+//
+//  ⚠ SECRET: put kMqttPassword in your local Config.h only; leave it blank in
+//  this committed template.
+// -----------------------------------------------------------------------------
+constexpr bool kMqttEnabled = true;
+
+// Full broker URI. Build it from your host, port and (for WebSocket) path.
+constexpr char kMqttBrokerUri[] = "url for mqtt broker";  // <-- set in Config.h, leave blank here
+
+// Broker login. Username is not secret; the password is (keep it in Config.h).
+constexpr char kMqttUsername[] = "admin";
+constexpr char kMqttPassword[] = "";  // <-- set in Config.h, leave blank here
+
+// MQTT client id shown in the broker's logs.
+constexpr char kMqttClientId[] = "gnss-tracker";
+
+// -----------------------------------------------------------------------------
+//  Telemetry topic + device identity.
+//  The single place the publish path is defined (matches the desktop tools).
+// -----------------------------------------------------------------------------
+constexpr char kDeviceId[]       = "GNSS";
+constexpr char kTelemetryTopic[] = "/path/pos";
+
+// -----------------------------------------------------------------------------
+//  End-to-end encryption.
+//  The GNSS payload is encrypted (RSA-OAEP-SHA256 + AES-256-GCM) for the holder
+//  of the receiver PRIVATE key, so the broker only ever sees ciphertext. This
+//  device only needs the receiver PUBLIC key.
+//
+//  Generate the key pair with desktop/create_certificates.py, then paste the
+//  contents of desktop/certs/receiver_public.pem below (in your Config.h). The
+//  public key is not a secret, but keep this template's copy as a placeholder.
+// -----------------------------------------------------------------------------
+constexpr char kReceiverPublicKeyPem[] =
+    "-----BEGIN PUBLIC KEY-----\n"
+    "PASTE receiver_public.pem HERE (one C string line per PEM line, each\n"
+    "ending with \\n). See desktop/certs/receiver_public.pem.\n"
+    "-----END PUBLIC KEY-----\n";
+
 }  // namespace config

@@ -238,6 +238,21 @@ pio device monitor      # watch the serial output (115200 baud)
 > module as the T-SIM7000G). The board name only affects flash/RAM layout, not
 > the modem pins, which are set in `Config.h`.
 
+> ⚠️ **Why the platform is pinned to `espressif32@6.9.0`.**
+> [`platformio.ini`](platformio.ini) pins `platform = espressif32@6.9.0`
+> (ESP-IDF 5.3) **on purpose — do not let it float to the latest version.**
+> The newer `espressif32 @ 7.0.0` pulls in `framework-espidf 6.0.0`, whose
+> bundled **`mqtt` (esp-mqtt) and `json` (cJSON) components ship without their
+> sources**: the `mqtt` folder contains no `CMakeLists.txt` and the `json`
+> component is absent entirely. Because [`src/CMakeLists.txt`](src/CMakeLists.txt)
+> requires both — `mqtt` for `mqtt_client.h` and `json` for `cJSON.h` — the
+> build aborts at the CMake configuration stage with *"Failed to resolve
+> component 'mqtt'"*, before a single source file is compiled. Reinstalling the
+> framework does **not** fix it; the published 6.0.0 package itself is
+> incomplete. `6.9.0` bundles both components correctly, so the project builds
+> with no source changes. Revisit the pin only once a later `espressif32`
+> release is confirmed to bundle `mqtt` and `json` properly.
+
 ---
 
 ## How GNSS is driven (reference)

@@ -16,3 +16,12 @@ desktop.ini
 # Secrets: the real config holds WiFi credentials and must never be committed.
 # The committed template is src/config/Config.example.h (no credentials).
 src/config/Config.h
+
+# Desktop tools: generated key material. The private key protects every
+# message and must never be committed.
+#desktop/certs/
+desktop
+
+# Python tool caches
+__pycache__/
+*.pyc

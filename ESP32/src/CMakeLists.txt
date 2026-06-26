@@ -12,4 +12,5 @@ idf_component_register(
     SRCS ${app_sources}
     INCLUDE_DIRS "."
     REQUIRES driver esp_wifi esp_netif esp_event nvs_flash
+             mqtt mbedtls json esp-tls
 )
