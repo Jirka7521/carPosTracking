@@ -107,14 +107,14 @@ constexpr char kMqttUsername[] = "admin";
 constexpr char kMqttPassword[] = "";  // <-- set in Config.h, leave blank here
 
 // MQTT client id shown in the broker's logs.
-constexpr char kMqttClientId[] = "gnss-tracker";
+constexpr char kMqttClientId[] = "GNSSXX";
 
 // -----------------------------------------------------------------------------
 //  Telemetry topic + device identity.
 //  The single place the publish path is defined (matches the desktop tools).
 // -----------------------------------------------------------------------------
-constexpr char kDeviceId[]       = "GNSS";
-constexpr char kTelemetryTopic[] = "/path/pos";
+constexpr char kDeviceId[]       = "GNSSXX";
+constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 
 // -----------------------------------------------------------------------------
 //  End-to-end encryption.
