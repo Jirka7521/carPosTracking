@@ -2,8 +2,12 @@
 
 Firmware for the **LilyGO TTGO T-SIM7000G** (ESP32-WROVER-B + SIMCom SIM7000G)
 that reads the GNSS position from the modem's *integrated* GNSS receiver using
-**all available constellations** (GPS, GLONASS, BeiDou, Galileo) and returns
-**position, speed and time**.
+**all available constellations** (GPS, GLONASS, BeiDou, Galileo), returns
+**position, speed and time**, and **publishes each fix — end-to-end encrypted —
+to an MQTT broker** over a secure WebSocket (`wss://`).
+
+The [desktop companion](../DESKTOP/README.md) subscribes to the broker and
+decrypts the stream; the broker itself only ever sees ciphertext.
 
 It is written in **C++** on top of **ESP-IDF** (built with **PlatformIO**) and
 is split into small, single-purpose classes so it is easy to read, extend and
@@ -19,6 +23,11 @@ reuse.
   (plus a lighter "GNSS engine only" off switch).
 - 📶 **Optional WiFi** (station mode): connect to a network with one flag, or
   disable it entirely. Credentials are kept out of Git.
+- 📡 **Optional MQTT publishing**: each fix is pushed to a broker over secure
+  WebSocket (`wss://`), with automatic background (re)connection.
+- 🔒 **End-to-end encryption** of every payload (RSA-OAEP-SHA256 + AES-256-GCM):
+  only the holder of the receiver's private key can read a position — the broker
+  cannot.
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -44,11 +53,18 @@ src/
 ├── wifi/
 │   ├── WifiManager.h/.cpp   ← Optional WiFi station: begin / connect / status
 │
-└── gnss/
-    ├── GnssData.h           ← Plain data structs (GnssFix, GnssSatelliteCounts…)
-    ├── CgnsinfParser.h/.cpp ← Decodes the AT+CGNSINF position reply
-    ├── NmeaParser.h/.cpp    ← Counts satellites per constellation (NMEA GSV)
-    └── GnssModule.h/.cpp    ← ★ The high-level API you call from your code
+├── gnss/
+│   ├── GnssData.h           ← Plain data structs (GnssFix, GnssSatelliteCounts…)
+│   ├── CgnsinfParser.h/.cpp ← Decodes the AT+CGNSINF position reply
+│   ├── NmeaParser.h/.cpp    ← Counts satellites per constellation (NMEA GSV)
+│   └── GnssModule.h/.cpp    ← ★ The high-level API you call from your code
+│
+├── crypto/
+│   ├── PayloadCrypto.h/.cpp ← Hybrid RSA-OAEP + AES-256-GCM payload encryption
+│
+└── mqtt/
+    ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
+    └── TelemetryPublisher.h/.cpp← Fix → JSON → encrypt → publish
 ```
 
 ### How the layers fit together
@@ -56,21 +72,21 @@ src/
 ```
         ┌─────────────────────────────┐
         │          main.cpp           │   your application
-        └──────────────┬──────────────┘
-                       │ uses
-        ┌──────────────▼──────────────┐
-        │          GnssModule         │   high-level GNSS API
-        │  begin / readFix / power…   │
-        └───────┬───────────────┬─────┘
-         uses   │               │ uses
-   ┌────────────▼───┐   ┌───────▼──────────────┐
-   │ Sim7000Modem   │   │ CgnsinfParser        │  text → GnssFix
-   │ power + AT I/O │   │ NmeaParser           │  GSV  → sat counts
-   └────────┬───────┘   └──────────────────────┘
-            │ uses
-   ┌────────▼───────┐
-   │   SerialPort   │   raw UART bytes
-   └────────────────┘
+        └───────┬─────────────────┬───┘
+          uses  │                 │ uses
+   ┌────────────▼────────┐  ┌─────▼────────────────┐
+   │      GnssModule     │  │  TelemetryPublisher  │  fix → JSON → publish
+   │ begin/readFix/power…│  └──┬───────────────┬───┘
+   └───────┬─────────┬───┘     │ uses          │ uses
+    uses   │         │ uses    │         ┌─────▼──────────┐
+   ┌───────▼──────┐ ┌▼────────────┐      │ PayloadCrypto  │  seal envelope
+   │ Sim7000Modem │ │CgnsinfParser│      │ RSA-OAEP+GCM   │
+   │ power + AT   │ │NmeaParser   │      └────────────────┘
+   └───────┬──────┘ └─────────────┘      ┌────────────────┐
+    uses   │                             │   MqttClient   │  → broker (wss)
+   ┌───────▼──────┐                      │  esp-mqtt/TLS  │
+   │  SerialPort  │  raw UART bytes      └────────────────┘
+   └──────────────┘
 ```
 
 Each class has exactly one job, which makes the system easy to follow and to
@@ -84,24 +100,28 @@ test:
 | `CgnsinfParser` | Turn one `+CGNSINF:` line into a `GnssFix`. |
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
+| `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope. |
+| `MqttClient` | Connect to the broker (esp-mqtt/TLS) and publish opaque bytes. |
+| `TelemetryPublisher` | Format a `GnssFix` as JSON, encrypt it, publish it. |
 
 ---
 
 ## Configuration
 
 > ⚠️ **First-time setup — create your config file.**
-> [`Config.h`](src/config/Config.h) holds your private WiFi credentials and is
-> **git-ignored** so it never reaches GitHub. The repository only ships the
-> credential-free template [`Config.example.h`](src/config/Config.example.h).
-> Before your first build, copy it and fill in your network:
+> [`Config.h`](src/config/Config.h) holds your private WiFi and MQTT credentials
+> and is **git-ignored** so it never reaches GitHub. The repository only ships
+> the credential-free template [`Config.example.h`](src/config/Config.example.h).
+> Before your first build, copy it and fill it in:
 >
 > ```bash
 > cp src/config/Config.example.h src/config/Config.h
 > ```
 >
-> Then edit `Config.h` and set `kWifiSsid` / `kWifiPassword`. **Never commit
-> `Config.h`** — keep real credentials only in `Config.example.h`'s untracked
-> copy.
+> Then edit `Config.h` and set at least `kWifiSsid` / `kWifiPassword`,
+> `kMqttPassword`, and `kReceiverPublicKeyPem` (see
+> [MQTT & end-to-end encryption](#mqtt--end-to-end-encryption) below). **Never
+> commit `Config.h`** — keep real secrets only in the untracked copy.
 
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 
@@ -120,10 +140,19 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
 | `kWifiMaxRetries` | `5` | Fast retries in a burst before it's deemed failed |
 | `kWifiReconnectIntervalMs` | `30000` | Background reconnect interval after a failed burst |
+| **`kMqttEnabled`** | `true` | **Enable/disable MQTT publishing entirely** |
+| `kMqttBrokerUri` | — | Full broker URI; scheme sets transport + TLS (`wss://…`) |
+| `kMqttUsername` | `admin` | Broker login name (not secret) |
+| `kMqttPassword` | — | **Broker login password (secret)** |
+| `kMqttClientId` | `GNSSXX` | Client id shown in the broker's logs |
+| `kDeviceId` | `GNSSXX` | Device id placed inside each payload |
+| `kTelemetryTopic` | `devices/GNSSXX` | Topic each fix is published to |
+| `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
 > is removed by the compiler — zero runtime cost in production. Likewise, when
-> `kWifiEnabled` is `false` the WiFi connect code is dropped entirely.
+> `kWifiEnabled` is `false` the WiFi connect code is dropped entirely, and when
+> `kMqttEnabled` is `false` the publish path is skipped.
 
 ---
 
@@ -161,12 +190,93 @@ wifi.disconnect();                             // drop the link + stop the drive
 
 ---
 
+## MQTT & end-to-end encryption
+
+Once a fix is read, it is published to an MQTT broker — but only *after* being
+encrypted so that **the broker never sees a position**. Two independent classes
+handle this, and [`TelemetryPublisher`](src/mqtt/TelemetryPublisher.h) glues
+them together:
+
+```
+GnssFix ──(TelemetryPublisher formats)──► plaintext JSON
+        ──(PayloadCrypto seals)─────────► encrypted envelope
+        ──(MqttClient publishes)────────► broker topic  (devices/GNSSxx)
+```
+
+### Transport — `MqttClient`
+
+[`MqttClient`](src/mqtt/MqttClient.h) wraps the ESP-IDF **esp-mqtt** client. The
+scheme in `kMqttBrokerUri` selects the transport *and* whether the hop is TLS:
+
+| URI scheme | Transport | Encrypted hop? |
+|------------|-----------|----------------|
+| `wss://host:port/path` | MQTT over WebSocket | ✅ (recommended) |
+| `ws://host:port/path`  | MQTT over WebSocket | ❌ |
+| `mqtts://host:port`    | MQTT over TCP | ✅ |
+| `mqtt://host:port`     | MQTT over TCP | ❌ |
+
+For the secure schemes the broker's certificate is verified against the built-in
+CA bundle. The client connects and **auto-reconnects in the background**, so the
+main loop never blocks on the network; it publishes each fix at **QoS 1** only
+while `mqtt.isConnected()`.
+
+### Payload encryption — `PayloadCrypto`
+
+[`PayloadCrypto`](src/crypto/PayloadCrypto.h) applies hybrid **KEM-DEM**
+encryption that mirrors the desktop
+[`crypto_box.py`](../DESKTOP/crypto_box.py) byte-for-byte:
+
+1. A fresh random **AES-256** key is generated for every message.
+2. The JSON payload is sealed with **AES-256-GCM** (12-byte nonce, 16-byte tag).
+3. That one-time AES key is encrypted with **RSA-OAEP (SHA-256)** using the
+   **receiver's public key** (`kReceiverPublicKeyPem`).
+
+The published message is a compact JSON envelope:
+
+```json
+{"alg":"RSA-OAEP-SHA256+AES-256-GCM",
+ "k":"<RSA-OAEP encrypted AES key>",
+ "iv":"<12-byte GCM nonce>",
+ "ct":"<AES-GCM ciphertext>",
+ "tag":"<16-byte GCM tag>"}
+```
+
+Only the holder of the matching **private** key — the desktop companion — can
+recover the AES key and read the position. The device only ever needs the
+**public** key, which is not a secret.
+
+### Getting the receiver's public key
+
+The keypair is created and held by the [desktop companion](../DESKTOP/README.md).
+Each device has its own key, so compromising one never exposes the others:
+
+```bash
+cd ../DESKTOP
+python app.py generate-certs GNSS01     # creates certs/GNSS01/{private,public}.pem
+```
+
+Copy the printed **public** key into this device's `Config.h`
+(`kReceiverPublicKeyPem`, one C-string line per PEM line, each ending with `\n`)
+and set `kDeviceId` / `kTelemetryTopic` to match (e.g. `GNSS01` /
+`devices/GNSS01`). The desktop `read` mode then decrypts that device's traffic
+automatically. Keep the matching `private.pem` safe — losing it means the
+device's messages can no longer be read.
+
+> **Two layers, on purpose.** TLS (`wss://`) protects the hop to the broker;
+> `PayloadCrypto` *additionally* encrypts the payload end-to-end so the broker
+> operator, and anyone on the path, only ever see ciphertext.
+
+---
+
 ## Using it in your own code
 
 ```cpp
 #include "config/Config.h"
+#include "crypto/PayloadCrypto.h"
 #include "gnss/GnssModule.h"
 #include "modem/Sim7000Modem.h"
+#include "mqtt/MqttClient.h"
+#include "mqtt/TelemetryPublisher.h"
 #include "serial/SerialPort.h"
 
 static SerialPort   serial(config::kModemUartPort, config::kModemTxPin,
@@ -174,7 +284,15 @@ static SerialPort   serial(config::kModemUartPort, config::kModemTxPin,
 static Sim7000Modem modem(serial, config::kModemPwrKeyPin);
 static GnssModule   gnss(modem);
 
+// Transport + encryption + the glue that publishes a fix.
+static MqttClient         mqtt(config::kMqttBrokerUri, config::kMqttUsername,
+                               config::kMqttPassword, config::kMqttClientId);
+static PayloadCrypto      crypto(config::kReceiverPublicKeyPem);
+static TelemetryPublisher publisher(mqtt, crypto, config::kTelemetryTopic,
+                                    config::kDeviceId);
+
 gnss.begin();                 // power on + enable engine + select constellations
+mqtt.begin();                 // connects + auto-reconnects in the background
 
 GnssFix fix;
 if (gnss.readFix(fix) && fix.hasFix()) {
@@ -182,6 +300,10 @@ if (gnss.readFix(fix) && fix.hasFix()) {
     double lon   = fix.position.longitudeDeg;
     double speed = fix.speedKmph;
     // fix.time.{year,month,day,hour,minute,second}
+
+    if (mqtt.isConnected()) {
+        publisher.publishFix(fix);   // format → encrypt → publish the envelope
+    }
 }
 
 gnss.powerOffModule();        // lowest power until the next powerOnModule()

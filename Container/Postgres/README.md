@@ -1,7 +1,9 @@
 # PostgreSQL + PostGIS container
 
-PostgreSQL **18.4** with the **PostGIS 3.7** geospatial extension, for storing car
-position data. The image is multi-arch and runs natively on arm64 (ARM Ubuntu).
+PostgreSQL **18** with the **PostGIS 3.6** geospatial extension, for storing car
+position data. Uses the `imresamu/postgis` image (the PostGIS project's multi-arch
+mirror), which runs natively on arm64 — the official `postgis/postgis` image is
+amd64-only.
 
 ## Setup
 
@@ -29,12 +31,20 @@ PostGIS is enabled automatically on first start (see `initdb/01-enable-postgis.s
 
 ## Connecting
 
+Two roles are created on first init (set their names/passwords in `.env`):
+
+- **`admin`** — superuser / owner, full read/write + DDL.
+- **`dashboard`** — read-only (`SELECT`) on all current and future tables.
+
 ```bash
-# from the host
-psql -h localhost -p 5432 -U carpos -d carpos
+# from the host, as admin (use the value of ADMIN_USER)
+psql -h localhost -p 5432 -U admin -d carpos
+
+# read-only, as dashboard
+psql -h localhost -p 5432 -U dashboard -d carpos
 
 # or via the container
-docker compose exec postgres psql -U carpos -d carpos
+docker compose exec postgres psql -U admin -d carpos
 ```
 
 Verify PostGIS:

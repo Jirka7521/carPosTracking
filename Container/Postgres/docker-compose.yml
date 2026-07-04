@@ -1,13 +1,18 @@
 services:
   postgres:
-    # PostgreSQL 18.4 + PostGIS 3.7. Multi-arch image, runs natively on arm64.
-    image: postgis/postgis:18.4-3.7
+    # PostgreSQL 18 + PostGIS 3.6. The official postgis/postgis image is amd64-only,
+    # so we use imresamu/postgis, the project's multi-arch mirror with native arm64.
+    image: imresamu/postgis:18-3.6
     container_name: carpos-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # admin is the bootstrap superuser / owner the image creates.
+      POSTGRES_USER: ${ADMIN_USER}
+      POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # dashboard (read-only) is created by initdb/02-create-users.sh.
+      DASHBOARD_USER: ${DASHBOARD_USER}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
       # Keep the data dir in a subfolder so the volume mount root stays clean.
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
@@ -16,6 +21,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Scripts here run once, only on first init of an empty data dir.
       - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - mqtt
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -25,3 +32,9 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  # Shared network created by the Mosquitto broker stack; joined, not created here.
+  mqtt:
+    external: true
+    name: MQTT
