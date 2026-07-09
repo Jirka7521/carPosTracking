@@ -28,6 +28,10 @@ reuse.
 - 🔒 **End-to-end encryption** of every payload (RSA-OAEP-SHA256 + AES-256-GCM):
   only the holder of the receiver's private key can read a position — the broker
   cannot.
+- 💾 **microSD store-and-forward**: a fix the broker doesn't acknowledge is
+  saved — *already encrypted* — to a queue file on the SD card and re-sent in an
+  encrypted **burst** once the link returns. Nothing is lost during an outage,
+  and only ciphertext ever touches the card.
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -62,9 +66,14 @@ src/
 ├── crypto/
 │   ├── PayloadCrypto.h/.cpp ← Hybrid RSA-OAEP + AES-256-GCM payload encryption
 │
-└── mqtt/
-    ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
-    └── TelemetryPublisher.h/.cpp← Fix → JSON → encrypt → publish
+├── mqtt/
+│   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
+│   └── TelemetryPublisher.h/.cpp← Fix → JSON → encrypt (seal/publish)
+│
+└── sdcard/
+    ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
+    ├── FixQueue.h/.cpp      ← Persistent FIFO of encrypted envelopes on the card
+    └── FixForwarder.h/.cpp  ← Publish-now-or-store; drain the backlog as a burst
 ```
 
 ### How the layers fit together
@@ -74,19 +83,25 @@ src/
         │          main.cpp           │   your application
         └───────┬─────────────────┬───┘
           uses  │                 │ uses
-   ┌────────────▼────────┐  ┌─────▼────────────────┐
-   │      GnssModule     │  │  TelemetryPublisher  │  fix → JSON → publish
-   │ begin/readFix/power…│  └──┬───────────────┬───┘
-   └───────┬─────────┬───┘     │ uses          │ uses
-    uses   │         │ uses    │         ┌─────▼──────────┐
-   ┌───────▼──────┐ ┌▼────────────┐      │ PayloadCrypto  │  seal envelope
-   │ Sim7000Modem │ │CgnsinfParser│      │ RSA-OAEP+GCM   │
-   │ power + AT   │ │NmeaParser   │      └────────────────┘
-   └───────┬──────┘ └─────────────┘      ┌────────────────┐
-    uses   │                             │   MqttClient   │  → broker (wss)
-   ┌───────▼──────┐                      │  esp-mqtt/TLS  │
-   │  SerialPort  │  raw UART bytes      └────────────────┘
-   └──────────────┘
+   ┌────────────▼────────┐  ┌─────▼──────────────┐
+   │      GnssModule     │  │    FixForwarder    │  publish now, or store
+   │ begin/readFix/power…│  │ process / drain    │  & burst on reconnect
+   └───────┬─────────┬───┘  └──┬──────┬───────┬──┘
+    uses   │         │ uses    │ uses │ uses  │ uses
+   ┌───────▼──────┐ ┌▼─────────▼──┐ ┌─▼──────────────┐ ┌──────────────┐
+   │ Sim7000Modem │ │CgnsinfParser│ │TelemetryPublish│ │   FixQueue   │
+   │ power + AT   │ │NmeaParser   │ │ er (seal fix)  │ │ SD FIFO      │
+   └───────┬──────┘ └─────────────┘ └──┬──────────┬──┘ └──────┬───────┘
+    uses   │                    uses   │          │ uses      │ uses
+   ┌───────▼──────┐          ┌─────────▼──────┐ ┌─▼──────────┐ │
+   │  SerialPort  │          │ PayloadCrypto  │ │ MqttClient │ │
+   │  UART bytes  │          │ RSA-OAEP+GCM   │ │ esp-mqtt   │ │
+   └──────────────┘          └────────────────┘ │ QoS-2 ack  │ │
+                                                 └────────────┘ │
+                                              ┌─────────────────▼┐
+                                              │      SdCard       │  FAT on µSD
+                                              │  mount + file IO  │
+                                              └───────────────────┘
 ```
 
 Each class has exactly one job, which makes the system easy to follow and to
@@ -101,8 +116,11 @@ test:
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope. |
-| `MqttClient` | Connect to the broker (esp-mqtt/TLS) and publish opaque bytes. |
-| `TelemetryPublisher` | Format a `GnssFix` as JSON, encrypt it, publish it. |
+| `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, and confirm QoS-2 delivery. |
+| `TelemetryPublisher` | Format a `GnssFix` as JSON and encrypt it (`sealFix`); publish one. |
+| `SdCard` | Mount/format the microSD (FAT) and read/append/trim lines of a file. |
+| `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
+| `FixForwarder` | Publish a fix (plus any backlog) or store it; drain the queue as a burst. |
 
 ---
 
@@ -147,12 +165,21 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kMqttClientId` | `GNSSXX` | Client id shown in the broker's logs |
 | `kDeviceId` | `GNSSXX` | Device id placed inside each payload |
 | `kTelemetryTopic` | `devices/GNSSXX` | Topic each fix is published to |
+| `kMqttPublishAckTimeoutMs` | `8000` | How long to wait for the broker's QoS-2 delivery ack |
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
+| **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
+| `kSdSpiHost` | `SPI2_HOST` | SPI peripheral the card is wired to (HSPI) |
+| `kSdPinMiso/Mosi/Sclk/Cs` | `2/15/14/13` | T-SIM7000G microSD SPI pins |
+| `kSdMountPoint` | `/sdcard` | FAT mount point |
+| `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
+| `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
+| `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
 > is removed by the compiler — zero runtime cost in production. Likewise, when
-> `kWifiEnabled` is `false` the WiFi connect code is dropped entirely, and when
-> `kMqttEnabled` is `false` the publish path is skipped.
+> `kWifiEnabled` is `false` the WiFi connect code is dropped entirely, when
+> `kMqttEnabled` is `false` the publish path is skipped, and when `kSdEnabled`
+> is `false` the card is never mounted.
 
 ---
 
@@ -268,6 +295,47 @@ device's messages can no longer be read.
 
 ---
 
+## microSD store-and-forward
+
+A fix must never be lost just because the broker was briefly unreachable. Three
+classes give the device a **persistent, encrypted outbox** on its microSD card,
+coordinated by [`FixForwarder`](src/sdcard/FixForwarder.h):
+
+```
+GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
+   link up, nothing queued  ──► publish [envelope]  ──(QoS-2 ack)─► done
+   link up, backlog present ──► queue it, then drain the queue in bursts
+   link down                ──► FixQueue.enqueue → /sdcard/queue.jsonl
+```
+
+- **Same encryption as transmit.** What is stored is the *exact* envelope that
+  would have been sent (`RSA-OAEP-SHA256 + AES-256-GCM`), one per line in
+  `queue.jsonl`. A lost/stolen card therefore leaks nothing — the device holds
+  only the public key and cannot even read back its own stored positions.
+- **Format only if needed.** The card is mounted with `format_if_mount_failed`,
+  so a blank/corrupt card is formatted once, but an existing queue **survives
+  reboots** (fixes saved before a power cut are recovered and sent on boot).
+- **Delivered means acked.** A fix (or a whole burst) leaves the queue **only**
+  after the broker's **QoS-2** delivery ack (`publishConfirmed`). If the ack
+  never comes, the data stays on the card for the next attempt — the healthy,
+  online path never writes to the card at all.
+- **Always a JSON array.** Every message — a single live fix or a drained
+  backlog — is published as a JSON **array of envelopes** (`[env]` or
+  `[env1,env2,…]`), so the subscriber always parses one shape. A long backlog is
+  drained in several back-to-back bursts of up to `kSdMaxBurstFixes` so the
+  array and MQTT buffer stay within this board's (PSRAM-less) RAM.
+
+> ⚠️ **Desktop change required (not included here).** Because the wire format is
+> now a JSON *array* of envelopes, the [desktop companion](../DESKTOP/README.md)
+> must be updated to iterate the array and decrypt each element (a single fix is
+> just an array of one). That change was intentionally left out of this commit —
+> update the subscriber before relying on live decoding.
+
+To disable the card entirely, set `kSdEnabled = false`: the forwarder still
+publishes live fixes, it simply cannot store the ones it misses.
+
+---
+
 ## Using it in your own code
 
 ```cpp
@@ -380,9 +448,10 @@ reported **~99% flash used**. The project tunes four settings to fix this:
 > The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
 > they survive a `menuconfig` run or a framework upgrade.
 
-Together these take the build from **~99% of 1 MB** down to **~58% of 1.5 MB**
-(≈896 KB firmware). After pulling these changes do a clean rebuild so the new
-flash size and partition layout take effect:
+Together these take the build from **~99% of 1 MB** down to **~63% of 1.5 MB**
+(≈966 KB firmware, including the FAT/SD store-and-forward stack). After pulling
+these changes do a clean rebuild so the new flash size and partition layout take
+effect:
 
 ```bash
 pio run -t fullclean

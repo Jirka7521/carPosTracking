@@ -41,7 +41,8 @@ std::string TelemetryPublisher::buildPayloadJson(const GnssFix& fix) const {
   return json;
 }
 
-bool TelemetryPublisher::publishFix(const GnssFix& fix) {
+bool TelemetryPublisher::sealFix(const GnssFix& fix,
+                                 std::string& envelopeOut) const {
   // 1. Format the position as plaintext JSON.
   const std::string plaintext = buildPayloadJson(fix);
   if (plaintext.empty()) {
@@ -49,14 +50,20 @@ bool TelemetryPublisher::publishFix(const GnssFix& fix) {
     return false;
   }
 
-  // 2. End-to-end encrypt it (the broker will only ever see this envelope).
-  std::string envelope;
-  if (!crypto_.encrypt(plaintext, envelope)) {
-    ESP_LOGE(TAG, "encryption failed - not publishing");
+  // 2. End-to-end encrypt it (the broker/SD card only ever see this envelope).
+  if (!crypto_.encrypt(plaintext, envelopeOut)) {
+    ESP_LOGE(TAG, "encryption failed");
     return false;
   }
+  return true;
+}
 
-  // 3. Publish the encrypted envelope.
+bool TelemetryPublisher::publishFix(const GnssFix& fix) {
+  // Seal the fix into its encrypted envelope, then hand it to the broker.
+  std::string envelope;
+  if (!sealFix(fix, envelope)) {
+    return false;
+  }
   if (!mqtt_.publish(topic_, envelope)) {
     return false;
   }

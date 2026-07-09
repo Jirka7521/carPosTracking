@@ -35,6 +35,12 @@ class TelemetryPublisher {
   // publish it. Returns true if the encrypted message was handed to the broker.
   bool publishFix(const GnssFix& fix);
 
+  // Format `fix` and encrypt it into the wire envelope, WITHOUT publishing.
+  // On success writes the envelope to `envelopeOut` and returns true. This is
+  // what the store-and-forward path (FixForwarder) uses so it can either
+  // transmit the envelope now or persist the very same bytes to the SD queue.
+  bool sealFix(const GnssFix& fix, std::string& envelopeOut) const;
+
  private:
   // Build the compact plaintext JSON for `fix`. Field names mirror the desktop
   // GnssPayload so both sides agree on the format.

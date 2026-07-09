@@ -8,6 +8,9 @@
 #include "modem/Sim7000Modem.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
+#include "sdcard/FixForwarder.h"
+#include "sdcard/FixQueue.h"
+#include "sdcard/SdCard.h"
 #include "serial/SerialPort.h"
 #include "wifi/WifiManager.h"
 
@@ -67,6 +70,33 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MQTT disabled in Config.h.");
   }
 
+  // microSD store-and-forward. When the broker cannot be reached, each fix is
+  // sealed (same encrypted envelope as transmit) and appended to a queue file
+  // on the card; once the link is back the backlog is drained in encrypted
+  // bursts. The FixForwarder owns this decide-publish-or-store logic so the
+  // loop below stays trivial. All optional (kSdEnabled): if the card is absent
+  // the forwarder still publishes live fixes, it just cannot store missed ones.
+  static SdCard sdCard(config::kSdSpiHost, config::kSdPinMiso,
+                       config::kSdPinMosi, config::kSdPinSclk, config::kSdPinCs,
+                       config::kSdMountPoint);
+  static FixQueue fixQueue(sdCard, config::kSdQueueFilePath,
+                           config::kSdMaxQueuedFixes);
+  static FixForwarder forwarder(publisher, mqtt, fixQueue,
+                                config::kTelemetryTopic,
+                                config::kMqttPublishAckTimeoutMs,
+                                config::kSdMaxBurstFixes);
+  if (config::kSdEnabled) {
+    if (sdCard.begin() && fixQueue.begin()) {
+      ESP_LOGI(TAG, "SD store-and-forward ready (%u fix(es) recovered).",
+               (unsigned)fixQueue.size());
+    } else {
+      ESP_LOGW(TAG,
+               "SD card unavailable - undeliverable fixes will be dropped.");
+    }
+  } else {
+    ESP_LOGI(TAG, "SD store-and-forward disabled in Config.h.");
+  }
+
   // Main loop
   while (true) {
     GnssFix fix;  // Holds the latest position/speed/time and satellite counts
@@ -77,9 +107,11 @@ extern "C" void app_main(void) {
                  fix.position.latitudeDeg, fix.position.longitudeDeg,
                  fix.speedKmph);
 
-        // Publish the encrypted position (only when MQTT is up).
-        if (config::kMqttEnabled && mqtt.isConnected()) {
-          publisher.publishFix(fix);
+        // Hand the fix to the forwarder: it publishes it (plus any backlog) as
+        // an encrypted burst when the broker is reachable, or stores it on the
+        // SD card when it is not - so nothing is lost during an outage.
+        if (config::kMqttEnabled) {
+          forwarder.process(fix);
         }
       } else {
         ESP_LOGI(TAG, "Waiting for satellite fix...");

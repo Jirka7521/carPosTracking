@@ -13,4 +13,5 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES driver esp_wifi esp_netif esp_event nvs_flash
              mqtt mbedtls json esp-tls
+             fatfs sdmmc
 )

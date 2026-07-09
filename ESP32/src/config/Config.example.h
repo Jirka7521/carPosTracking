@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+#include "driver/spi_common.h"
 #include "driver/uart.h"
 
 // =============================================================================
@@ -109,6 +110,12 @@ constexpr char kMqttPassword[] = "";  // <-- set in Config.h, leave blank here
 // MQTT client id shown in the broker's logs.
 constexpr char kMqttClientId[] = "GNSSXX";
 
+// How long publishConfirmed() waits for the broker's QoS-2 delivery ack before
+// treating a publish as failed. A fix (or a whole burst) is only removed from
+// the SD queue once this ack arrives, so it must be comfortably longer than a
+// normal round-trip to the broker over the (possibly slow) cellular/WiFi link.
+constexpr uint32_t kMqttPublishAckTimeoutMs = 8000;
+
 // -----------------------------------------------------------------------------
 //  Telemetry topic + device identity.
 //  The single place the publish path is defined (matches the desktop tools).
@@ -131,5 +138,45 @@ constexpr char kReceiverPublicKeyPem[] =
     "PASTE receiver_public.pem HERE (one C string line per PEM line, each\n"
     "ending with \\n). See desktop/certs/receiver_public.pem.\n"
     "-----END PUBLIC KEY-----\n";
+
+// -----------------------------------------------------------------------------
+//  microSD store-and-forward queue.
+//
+//  When the broker cannot be reached, each fix is sealed into the very same
+//  encrypted envelope that would have been transmitted and appended to a queue
+//  file on the microSD card (one envelope per line). On reconnect the whole
+//  queue is drained in a single MQTT burst (a JSON array of envelopes) and the
+//  file is cleared only after the broker's QoS-2 ack. Because only ciphertext
+//  ever touches the card, a stolen card leaks nothing.
+//
+//  Set kSdEnabled to `false` to skip the card entirely; the SD/queue code is
+//  then compiled out and undelivered fixes are simply dropped.
+// -----------------------------------------------------------------------------
+constexpr bool kSdEnabled = true;
+
+// SPI pins for the microSD slot. These are the factory wiring of the
+// T-SIM7000G board (shared HSPI bus dedicated to the card).
+constexpr spi_host_device_t kSdSpiHost = SPI2_HOST;  // a.k.a. HSPI on the ESP32
+constexpr int kSdPinMiso = 2;   // card DO  -> ESP32
+constexpr int kSdPinMosi = 15;  // card DI  <- ESP32
+constexpr int kSdPinSclk = 14;  // SPI clock
+constexpr int kSdPinCs   = 13;  // chip select
+
+// Where the FAT filesystem is mounted and the queue file lives inside it. The
+// queue is line-delimited JSON (".jsonl"): one encrypted envelope per line.
+constexpr char kSdMountPoint[]    = "/sdcard";
+constexpr char kSdQueueFilePath[] = "/sdcard/queue.jsonl";
+
+// Safety cap on how many undelivered fixes the queue may hold. During a long
+// outage the oldest entries are dropped once this many have accumulated, so the
+// card can never fill up. Each envelope is ~0.5-1 KB, so the default is a few
+// MB at most - tiny next to any real card.
+constexpr uint32_t kSdMaxQueuedFixes = 20000;
+
+// How many queued envelopes go into a single burst message. A typical outage
+// fits in one burst; a very long backlog is drained in several back-to-back
+// bursts so the JSON array and the MQTT buffer never exceed the modest internal
+// RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
+constexpr uint32_t kSdMaxBurstFixes = 40;
 
 }  // namespace config

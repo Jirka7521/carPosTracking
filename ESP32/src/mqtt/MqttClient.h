@@ -44,9 +44,19 @@ class MqttClient {
   // True while we currently have a live connection to the broker.
   bool isConnected() const;
 
-  // Publish `payload` to `topic` at QoS 1. Returns true if the message was
+  // Publish `payload` to `topic` at QoS 2. Returns true if the message was
   // accepted by the client for sending (false if not connected / on error).
+  // "Accepted" is not "delivered" - use publishConfirmed() when you need to know
+  // the broker actually received it (e.g. before deleting it from the SD queue).
   bool publish(const std::string& topic, const std::string& payload);
+
+  // Publish `payload` at QoS 2 and block until the broker's PUBLISHED (PUBCOMP)
+  // ack for *this* message arrives, or `timeoutMs` elapses / the link drops.
+  // Returns true only on a confirmed delivery. This is the guarantee the
+  // store-and-forward queue relies on: a fix is removed from SD only once the
+  // broker has taken responsibility for it.
+  bool publishConfirmed(const std::string& topic, const std::string& payload,
+                        uint32_t timeoutMs);
 
  private:
   // ESP-IDF C-style event callback. `arg` is the MqttClient instance so we can
@@ -61,4 +71,9 @@ class MqttClient {
 
   esp_mqtt_client_handle_t client_;     // underlying esp-mqtt handle
   volatile bool            connected_;  // updated from the event callback
+
+  // Message id of the most recent broker-acked publish (MQTT_EVENT_PUBLISHED),
+  // written from the event callback and polled by publishConfirmed(). -1 means
+  // "nothing acked yet".
+  volatile int             lastAckedMsgId_;
 };
