@@ -8,12 +8,11 @@ instructions override default behaviour — follow them exactly.
 ## ⭐ Working agreement (read first, every time)
 
 1. **Only touch [`API/CarPosAPI/`](.).** This is the only project you may edit.
-   **Never** modify [`../../FE/`](../../FE/), [`../../DESKTOP/`](../../DESKTOP/),
-   [`../../ESP32/`](../../ESP32/), [`../../Container/`](../../Container/), or any
-   root file. Those are the API's *counterparties* — read them to learn the
-   contract, never "fix" them. If a task genuinely needs a change outside this
-   folder, **stop and ask explicitly**, explain what and why, and wait for
-   approval.
+   **Never** modify [`../../ESP32/`](../../ESP32/),
+   [`../../Container/`](../../Container/), or any root file. Those are the API's
+   *counterparties* — read them to learn the contract, never "fix" them. If a
+   task genuinely needs a change outside this folder, **stop and ask
+   explicitly**, explain what and why, and wait for approval.
 2. **Confirm the assignment before writing code.** Restate what you understood
    the task to be, ask any clarifying questions, and **present a short plan**.
    Wait for the go-ahead before you start editing source files. Do not jump
@@ -33,8 +32,7 @@ instructions override default behaviour — follow them exactly.
    banner on every class describing its one job and its collaborators;
    `<param>`/`<returns>` on public methods; inline comments for the reasoning
    behind a decision, not a restatement of the line below it. Match the density
-   of the sibling projects ([`../../ESP32/src/`](../../ESP32/src/),
-   [`../../DESKTOP/`](../../DESKTOP/)).
+   of the sibling projects ([`../../ESP32/src/`](../../ESP32/src/)).
 6. **Never change what doesn't need to be changed.** Touch only what the task
    requires. No drive-by reformatting, renaming, reordering, or "while I'm here"
    edits; keep diffs minimal and focused so they are easy to review. If you spot
@@ -43,43 +41,30 @@ instructions override default behaviour — follow them exactly.
 7. **Build after changing code.** Run `dotnet build` and report whether it
    succeeded or list the errors. Do not claim a change is done without a clean
    build. If tests exist, run them too.
-8. **Keep [`README.md`](README.md) current.** When endpoints, configuration,
-   schema, or run steps change, update this project's README in the **same**
-   change. If a change also breaks the frontend or the Python services, say so
-   loudly — do not edit them yourself (rule 1).
+8. **Keep [`README.md`](README.md) current.** When endpoints, configuration, or
+   run steps change, update this project's README in the **same** change.
 
 ---
 
 ## What this project is
 
 **CarPosAPI** is the **web backend** of the *carPosTracking* system: a REST API
-over PostgreSQL that serves the React dashboard with users, devices, GNSS
-positions, and device sharing (access control), authenticated with **JWT bearer
-tokens**.
+over PostgreSQL that serves users, devices, GNSS positions, and device sharing
+(access control), authenticated with **JWT bearer tokens**.
 
 - **Framework:** ASP.NET Core on **.NET 10** (`net10.0`), `Nullable` and
   `ImplicitUsings` enabled. Built with the **.NET CLI**.
 - **API style:** **MVC controllers** (`[ApiController]`, attribute routing) — one
   controller per resource, thin, delegating to services.
-- **Data access:** **EF Core + Npgsql**, mapped onto the **existing** database
-  schema (see below). C# owns the schema from now on, via migrations.
+- **Data access:** **EF Core + Npgsql**.
 
 ### Where it sits in the system
 
-```
-ESP32 firmware ──encrypted MQTT──► Mosquitto broker ──► DESKTOP subscriber (Python)
-   (GNSS fixes)                                          decrypts, writes rows
-                                                                  │
-                                                                  ▼
-   FE (React SPA) ──HTTPS/JWT──► ★ CarPosAPI (this project) ──► PostgreSQL 18 + PostGIS
-```
-
-- The ESP32 encrypts every fix end-to-end; the **DESKTOP** subscriber holds the
-  RSA private key, decrypts, and inserts into `positions`.
-- **This API never touches MQTT and never decrypts anything.** It reads what the
-  subscriber has already written. Do not add MQTT or crypto here without asking.
-- The **FE is the only client**, and it is **already written against this API** —
-  see the contract below. The API adapts to the FE, not the other way round.
+The ESP32 firmware encrypts every GNSS fix end-to-end and publishes it over
+MQTT; a separate subscriber decrypts those messages and writes the resulting
+rows. **This API never touches MQTT and never decrypts anything.** It reads what
+has already been written and exposes it over HTTPS. Do not add MQTT or crypto
+here without asking.
 
 > **Current state: this is still the stock `dotnet new webapi` scaffold.**
 > [`Program.cs`](Program.cs) serves `/weatherforecast` and the `WeatherForecast`
@@ -89,13 +74,6 @@ ESP32 firmware ──encrypted MQTT──► Mosquitto broker ──► DESKTOP 
 ---
 
 ## The contract you must implement
-
-[`../../DESKTOP/api.py`](../../DESKTOP/api.py) is a **Flask implementation of this
-exact API** — treat it as the reference spec (status codes, validation, ordering,
-limits), not as code to copy stylistically. The FE's expectations are pinned in
-[`../../FE/src/services/apiTypes.ts`](../../FE/src/services/apiTypes.ts) and
-[`apiClient.ts`](../../FE/src/services/apiClient.ts). **Read both before adding or
-changing an endpoint.** Changing a shape here breaks the FE silently.
 
 | Method & route | Purpose |
 |---|---|
@@ -116,38 +94,15 @@ changing an endpoint.** Changing a shape here breaks the FE silently.
   `CanModifySettings`** (coerce it on, don't reject).
 - **Creating a device grants the creator all four capabilities.**
   `additionalAccesses` entries reference users by **email**; unknown emails are
-  **skipped silently**, and each produces one `access` row.
-- **Deleting a device is a soft delete**: `is_active = false`,
-  `date_deactivated = now`. Rows are never physically removed.
+  **skipped silently**, and each produces one access grant.
+- **Deleting a device is a soft delete**: it is marked inactive and stamped with
+  a deactivation time. Records are never physically removed.
 - Device `uuid` is stored **upper-cased**; user `email` **lower-cased**.
-- The `permissions` flags the FE receives are **UX hints**. Every mutation must
-  be **re-authorized from the caller's `access` row** — never trust the client.
-
----
-
-## Data model (PostgreSQL 18 + PostGIS)
-
-The database is the container in
-[`../../Container/Postgres/`](../../Container/Postgres/); the schema is currently
-created by [`../../DESKTOP/schema.py`](../../DESKTOP/schema.py). Tables:
-**`users`**, **`devices`**, **`positions`**, **`access`**, **`device_aliases`**.
-
-- Columns are **`snake_case`**; C# properties are `PascalCase` — map them
-  explicitly in `IEntityTypeConfiguration<T>` (or configure a global snake_case
-  naming convention). Do **not** rename database columns to suit C#.
-- Two DB roles exist: **`admin`** (owner, read/write — what this API uses) and
-  **`dashboard`** (read-only). Never ship the API with the admin password baked
-  in; see *Configuration & secrets*.
-- **`devices.private_key_pem` holds RSA-3072 private keys.** It is a **secret**:
-  never select it into a DTO, never log it, never expose it on any endpoint,
-  never include it in an OpenAPI example. Only the DESKTOP subscriber needs it.
-  Exclude it from the entity or mark it clearly and guard every projection.
-
-**Schema ownership:** once you add EF Core, the C# side owns the schema. Add a
-migration for any model change (`dotnet ef migrations add <Name>`), keep it
-compatible with what `schema.py` already created, and call out any divergence
-from the Python side rather than silently drifting — both write to the same
-database.
+- The `permissions` flags a client receives are **UX hints**. Every mutation must
+  be **re-authorized from the caller's access grant** — never trust the client.
+- **Device RSA private keys are secrets.** Never select one into a DTO, never
+  log it, never expose it on any endpoint, never include it in an OpenAPI
+  example. Exclude it from the entity or guard every projection.
 
 ---
 
@@ -173,8 +128,8 @@ Nothing to register by hand — the SDK project picks up new files automatically
 
 **Never let an EF entity reach the wire.** Controllers accept and return **DTOs**
 (`record`s in `Dtos/`); entities stay behind the service layer. Serialization is
-**camelCase** (System.Text.Json's default) — which is exactly what the FE
-expects, so don't change the JSON naming policy.
+**camelCase** (System.Text.Json's default) — clients expect that, so don't change
+the JSON naming policy.
 
 ---
 
@@ -191,9 +146,9 @@ dotnet format                      # style/whitespace, before finishing
   OpenAPI is mapped **in Development only**.
 - The database must be running first:
   `docker compose up -d` in [`../../Container/Postgres/`](../../Container/Postgres/).
-- The **FE dev server runs on `http://localhost:61074`** (fixed port). CORS must
-  allow that origin explicitly in Development — **never `AllowAnyOrigin()` with
-  credentials**, and never a wildcard policy in Production.
+- CORS must name allowed origins **explicitly** in Development — **never
+  `AllowAnyOrigin()` with credentials**, and never a wildcard policy in
+  Production.
 - Poke endpoints with [`CarPosAPI.http`](CarPosAPI.http) (its `/weatherforecast`
   request dies with the scaffold — replace it with the real ones).
 
@@ -201,7 +156,7 @@ dotnet format                      # style/whitespace, before finishing
 
 ## Configuration & secrets
 
-- **No secret is ever committed.** The connection string (with the `admin`
+- **No secret is ever committed.** The connection string (with the database
   password) and the **JWT signing key** come from **user-secrets** in
   development (`dotnet user-secrets set "ConnectionStrings:CarPos" "…"`) and from
   **environment variables** in production. `appsettings.json` carries only
@@ -213,9 +168,8 @@ dotnet format                      # style/whitespace, before finishing
   .ValidateOnStart()`, so a missing key fails **at startup**, not on first
   request. Never read `IConfiguration` deep inside a service.
 - **The API must refuse to start in Production without a real JWT key.** No
-  fallback default — [`api.py`](../../DESKTOP/api.py) ships
-  `'your-secret-key-change-in-production'`; **do not reproduce that.**
-- Never print, log, or echo: the JWT key, DB passwords, `private_key_pem`,
+  fallback default, and never a placeholder key checked into the repo.
+- Never print, log, or echo: the JWT key, DB passwords, device private keys,
   password hashes, or raw tokens.
 
 ---
@@ -244,7 +198,7 @@ dotnet format                      # style/whitespace, before finishing
 - Return `ActionResult<T>` with the **right status code**: `200`/`201 Created`
   (with a location) / `204 No Content` / `400` / `401` / `403` / `404` / `409`.
   A permission failure is **403**, a missing row is **404**, a duplicate is
-  **409** — match [`api.py`](../../DESKTOP/api.py).
+  **409**.
 - Validate input with **DataAnnotations on the request DTO** (`[Required]`,
   `[EmailAddress]`, `[StringLength]`, `[Range]`) so the rules live with the
   contract.
@@ -259,16 +213,15 @@ dotnet format                      # style/whitespace, before finishing
 
 **Security**
 - Passwords: **ASP.NET Core `PasswordHasher<T>`** (PBKDF2) or **BCrypt** —
-  never SHA-256, never MD5, never unsalted. `hashlib` appears in the Python
-  code for *payload de-duplication*, not for passwords; don't be misled.
+  never SHA-256, never MD5, never unsalted.
 - JWT: validate **issuer, audience, lifetime and signing key**
   (`ValidateIssuerSigningKey = true`), use a **≥ 32-byte** HMAC key, and put the
   user id in `sub`. `[Authorize]` on every controller;
   **`[AllowAnonymous]` only on register, login and `/health`.**
 - **Authorize the resource, not just the request.** A valid token says *who* the
   caller is; every device/position/access operation must additionally check that
-  caller's `access` row. This is the single most likely place to introduce a
-  real vulnerability — the FE cannot protect you.
+  caller's access grant. This is the single most likely place to introduce a
+  real vulnerability — the client cannot protect you.
 - Always parameterised queries (EF Core does this; if you ever write raw SQL, use
   `FromSqlInterpolated`, never string concatenation). Enable HTTPS redirection,
   and add **rate limiting** on the auth endpoints.
@@ -276,19 +229,19 @@ dotnet format                      # style/whitespace, before finishing
 **EF Core**
 - **`AsNoTracking()` on every read-only query** — all GET paths.
 - Project to the DTO **in the query** (`Select(...)`) so you don't fetch columns
-  you don't need — this is also how `private_key_pem` stays out of memory.
+  you don't need — this is also how device private keys stay out of memory.
 - **Beware N+1**: no queries inside a `foreach`; use `Include`/`Select` or a
   single join. Filter and paginate **in SQL**, never with `ToList()` then LINQ in
   memory (positions is `ORDER BY timestamp DESC LIMIT 1000` — in the query).
 - One `SaveChangesAsync` per unit of work; wrap multi-table writes (create device
-  + its access rows) in a **transaction**.
+  + its access grants) in a **transaction**.
 - Migrations are **reviewed before they're applied**; never call
   `EnsureCreated()`, and never auto-migrate a production database on startup.
 
 **Logging & observability**
 - `ILogger<T>` with **structured** messages (`_logger.LogInformation("Device
   {DeviceId} deactivated by {UserId}", …)`) — never string interpolation into the
-  template, never `Console.WriteLine` (the Python code does; we don't).
+  template, never `Console.WriteLine`.
 - Log at the right level, **never log secrets or PII** (no passwords, tokens,
   keys, or full request bodies).
 - Keep `/health` cheap and unauthenticated (`AddHealthChecks()`, plus a DB check).
@@ -311,13 +264,13 @@ dotnet format                      # style/whitespace, before finishing
       asked for and granted explicitly.
 - [ ] **No `var`** — every declaration has an explicit static type.
 - [ ] One type per file, in the right layer folder; controllers stayed thin.
-- [ ] Entities never crossed the wire; the FE's DTO shapes still match
-      [`apiTypes.ts`](../../FE/src/services/apiTypes.ts).
+- [ ] Entities never crossed the wire; DTO shapes still match the documented
+      contract.
 - [ ] Every endpoint `[Authorize]`d and **re-authorized against the caller's
-      `access` row**; `CanRead`/`CanShare` invariants enforced server-side.
+      access grant**; `CanRead`/`CanShare` invariants enforced server-side.
 - [ ] `async` all the way down with `CancellationToken` plumbed through; reads
       use `AsNoTracking()`; no N+1.
-- [ ] No secrets in tracked files, logs, or OpenAPI; `private_key_pem` never
+- [ ] No secrets in tracked files, logs, or OpenAPI; device private keys never
       selected or returned.
 - [ ] Code is thoroughly commented (why, not what), XML `<summary>` on new types.
 - [ ] `dotnet build` succeeds (and `dotnet format` run); result reported.
@@ -328,28 +281,15 @@ dotnet format                      # style/whitespace, before finishing
 
 ## Gotchas
 
-- **The FE is a fixed target.** It is already built and expects `camelCase` JSON,
-  the exact DTO fields in
-  [`apiTypes.ts`](../../FE/src/services/apiTypes.ts), and bearer auth. It reads
-  `VITE_BACKEND_API_URL` at **build** time. A shape change here is a breaking
-  change there — flag it, don't absorb it.
-- **Two writers, one database.** The Python subscriber inserts into `positions`
-  while this API reads them. Don't restructure a table without accounting for
-  [`../../DESKTOP/`](../../DESKTOP/) — call it out and ask.
-- **Npgsql and `DateTime` kinds.** The existing columns are `TIMESTAMP`
-  (*without* time zone). Npgsql maps those to `DateTimeKind.Unspecified` and will
-  **throw** if you hand it a `Kind.Utc` `DateTime` (and vice-versa for
-  `timestamptz`). Decide this deliberately, be consistent, and store UTC.
-- **Position de-duplication does not actually exist.** `schema.py` has **no**
-  unique constraint on `positions`, so the Python `save_position` "duplicate
-  detected" branch can never fire. If a task asks for dedup, it needs a real
-  constraint (a migration) — say so rather than assuming it's handled.
-- **`positions` is the table that grows without bound.** Always bound the query
-  (`deviceId` + time range + `LIMIT`). An unfiltered `SELECT *` will eventually
-  take the API down.
-- **PostGIS is enabled but unused** by the current schema (`latitude`/`longitude`
-  are plain `DOUBLE PRECISION`). Don't assume a `geometry` column exists; adding
-  one is a schema change → migration → ask.
+- **The wire contract is a fixed target.** Clients are already built against the
+  endpoints above and expect `camelCase` JSON and bearer auth. A shape change
+  here is a breaking change there — flag it, don't absorb it.
+- **Npgsql and `DateTime` kinds.** `TIMESTAMP` (*without* time zone) maps to
+  `DateTimeKind.Unspecified` and Npgsql will **throw** if you hand it a
+  `Kind.Utc` `DateTime` (and vice-versa for `timestamptz`). Decide this
+  deliberately, be consistent, and store UTC.
+- **`positions` grows without bound.** Always bound the query (`deviceId` + time
+  range + `LIMIT`). An unfiltered `SELECT *` will eventually take the API down.
 - **`.NET 10` + minimal-API scaffold.** The default template is minimal APIs; we
   are deliberately on **controllers** — you must add
   `AddControllers()` / `MapControllers()` yourself, and delete the

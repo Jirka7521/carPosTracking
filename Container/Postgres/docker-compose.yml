@@ -10,9 +10,9 @@ services:
       POSTGRES_USER: ${ADMIN_USER}
       POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      # dashboard (read-only) is created by initdb/02-create-users.sh.
-      DASHBOARD_USER: ${DASHBOARD_USER}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # BE (read/write, no DDL) is created by initdb/02-create-users.sh.
+      BE_USER: ${BE_USER}
+      BE_PASSWORD: ${BE_PASSWORD}
       # Keep the data dir in a subfolder so the volume mount root stays clean.
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
@@ -22,7 +22,7 @@ services:
       # Scripts here run once, only on first init of an empty data dir.
       - ./initdb:/docker-entrypoint-initdb.d:ro
     networks:
-      - mqtt
+      - MQTTpublic
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -35,6 +35,5 @@ volumes:
 
 networks:
   # Shared network created by the Mosquitto broker stack; joined, not created here.
-  mqtt:
+  MQTTpublic:
     external: true
-    name: MQTT

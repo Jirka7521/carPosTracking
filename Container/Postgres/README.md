@@ -34,14 +34,14 @@ PostGIS is enabled automatically on first start (see `initdb/01-enable-postgis.s
 Two roles are created on first init (set their names/passwords in `.env`):
 
 - **`admin`** — superuser / owner, full read/write + DDL.
-- **`dashboard`** — read-only (`SELECT`) on all current and future tables.
+- **`BE`** — read/write (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on all current and future tables; no DDL (can't `DROP`/`ALTER`).
 
 ```bash
 # from the host, as admin (use the value of ADMIN_USER)
 psql -h localhost -p 5432 -U admin -d carpos
 
-# read-only, as dashboard
-psql -h localhost -p 5432 -U dashboard -d carpos
+# read/write, as BE (use the value of BE_USER)
+psql -h localhost -p 5432 -U BE -d carpos
 
 # or via the container
 docker compose exec postgres psql -U admin -d carpos
