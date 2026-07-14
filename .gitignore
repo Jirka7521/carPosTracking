@@ -1,2 +1,89 @@
+# ─────────────────────────────────────────────────────────────
+# Top-level build/output folders
+# ─────────────────────────────────────────────────────────────
 DESKTOP
 FE
+
+# ─────────────────────────────────────────────────────────────
+# OS files
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────
+# Editor / IDE
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.vs/
+
+# ─────────────────────────────────────────────────────────────
+# Container/Postgres — local secrets (never commit)
+# ─────────────────────────────────────────────────────────────
+Container/Postgres/.env
+
+# ─────────────────────────────────────────────────────────────
+# ESP32 firmware (PlatformIO / ESP-IDF)
+# ─────────────────────────────────────────────────────────────
+# PlatformIO
+ESP32/.pio
+ESP32/.pioenvs
+ESP32/.piolibdeps
+ESP32/.clang_complete
+ESP32/.gcc-flags.json
+
+# Secrets: the real config holds WiFi credentials and must never be committed.
+# The committed template is src/config/Config.example.h (no credentials).
+ESP32/src/config/Config.h
+
+# Desktop tools: generated key material. The private key protects every
+# message and must never be committed.
+ESP32/desktop
+
+# Python tool caches
+__pycache__/
+*.pyc
+
+# ─────────────────────────────────────────────────────────────
+# API — C# / .NET
+# ─────────────────────────────────────────────────────────────
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+build/
+bld/
+
+# Rider / Visual Studio user-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ASP.NET secrets / local settings
+# Note: appsettings.Development.json is intentionally NOT ignored (VS convention —
+# it holds no real secrets; use user-secrets / secrets.json for those).
+appsettings.*.local.json
+secrets.json
+
+# Test / coverage results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
