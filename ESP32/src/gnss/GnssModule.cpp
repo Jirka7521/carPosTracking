@@ -5,6 +5,7 @@
 
 #include "config/Config.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "gnss/CgnsinfParser.h"
@@ -113,6 +114,31 @@ bool GnssModule::readFix(GnssFix& fix) {
   }
 
   return true;
+}
+
+bool GnssModule::waitForFix(GnssFix& fix, uint32_t timeoutMs,
+                            uint32_t pollStepMs) {
+  const int64_t deadlineUs =
+      esp_timer_get_time() + static_cast<int64_t>(timeoutMs) * 1000;
+
+  // Guard against a mis-set config value hammering the modem with AT commands.
+  const uint32_t stepMs = pollStepMs == 0 ? 1000 : pollStepMs;
+
+  while (true) {
+    // A transport failure is not fatal here - the modem may still be settling
+    // after power-on - so we log it and keep polling until the deadline.
+    if (readFix(fix) && fix.hasFix()) {
+      return true;
+    }
+
+    if (esp_timer_get_time() >= deadlineUs) {
+      ESP_LOGW(TAG, "No fix within %us - giving up on this cycle.",
+               (unsigned)(timeoutMs / 1000));
+      return false;
+    }
+    ESP_LOGI(TAG, "Waiting for satellite fix...");
+    vTaskDelay(pdMS_TO_TICKS(stepMs));
+  }
 }
 
 bool GnssModule::readSatelliteCounts(GnssSatelliteCounts& counts,

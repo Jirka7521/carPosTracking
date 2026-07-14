@@ -32,6 +32,12 @@ reuse.
   saved — *already encrypted* — to a queue file on the SD card and re-sent in an
   encrypted **burst** once the link returns. Nothing is lost during an outage,
   and only ciphertext ever touches the card.
+- ⚙️ **Remote settings over MQTT**: the reporting interval and a
+  power-down-between-reports flag are pushed from the broker on a config topic,
+  validated, and cached on the SD card so they survive a reboot with no network.
+- 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
+  right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
+  the ESP32 into deep sleep for the rest of the interval.
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -70,10 +76,19 @@ src/
 │   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
 │   └── TelemetryPublisher.h/.cpp← Fix → JSON → encrypt (seal/publish)
 │
-└── sdcard/
-    ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
-    ├── FixQueue.h/.cpp      ← Persistent FIFO of encrypted envelopes on the card
-    └── FixForwarder.h/.cpp  ← Publish-now-or-store; drain the backlog as a burst
+├── sdcard/
+│   ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
+│   ├── FixQueue.h/.cpp      ← Persistent FIFO of encrypted envelopes on the card
+│   └── FixForwarder.h/.cpp  ← Publish-now-or-store; drain the backlog as a burst
+│
+├── settings/
+│   ├── DeviceSettings.h/.cpp ← The two runtime knobs, validated & clamped
+│   ├── SettingsCodec.h/.cpp  ← DeviceSettings ⇄ the config JSON (one format)
+│   ├── SettingsStore.h/.cpp  ← Cache them, in the clear, on the SD card
+│   └── RemoteSettings.h/.cpp ← Subscribe to the config topic; apply & persist
+│
+└── power/
+    └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
 
 ### How the layers fit together
@@ -116,11 +131,16 @@ test:
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope. |
-| `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, and confirm QoS-2 delivery. |
+| `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `GnssFix` as JSON and encrypt it (`sealFix`); publish one. |
-| `SdCard` | Mount/format the microSD (FAT) and read/append/trim lines of a file. |
+| `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; drain the queue as a burst. |
+| `DeviceSettings` | Hold a *valid* interval + sleep flag; clamp anything out of range. |
+| `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
+| `SettingsStore` | Cache the settings on the card; fall back to defaults when unreadable. |
+| `RemoteSettings` | Subscribe to the config topic; validate, apply and persist what arrives. |
+| `DeepSleepController` | Quiesce MQTT/WiFi/modem/card in order, arm the wake sources, sleep. |
 
 ---
 
@@ -151,8 +171,9 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kModemPwrKeyPin` | `4` | PWRKEY (power on/off) |
 | `kEnableGps/Glonass/Beidou/Galileo` | all `true` | Constellations to use |
 | **`kGnssDebug`** | `true` | **Turn the serial debug report on/off** |
-| `kFixPollIntervalMs` | `5000` | Delay between reads in the example loop |
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
+| `kFixAcquireTimeoutSeconds` | `180` | Give up waiting for a fix after this long |
+| `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
@@ -167,19 +188,33 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kTelemetryTopic` | `devices/GNSSXX` | Topic each fix is published to |
 | `kMqttPublishAckTimeoutMs` | `8000` | How long to wait for the broker's QoS-2 delivery ack |
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
+| `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
+| `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
+| `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
+| `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
+| `kMinSendIntervalSeconds` | `5` | Lower clamp on a broker-supplied `interval_s` |
+| `kMaxSendIntervalSeconds` | `86400` | Upper clamp on a broker-supplied `interval_s` |
 | **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
 | `kSdSpiHost` | `SPI2_HOST` | SPI peripheral the card is wired to (HSPI) |
 | `kSdPinMiso/Mosi/Sclk/Cs` | `2/15/14/13` | T-SIM7000G microSD SPI pins |
 | `kSdMountPoint` | `/sdcard` | FAT mount point |
 | `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
+| `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
 | `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
 | `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
+| `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
+| `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
+| `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
 > is removed by the compiler — zero runtime cost in production. Likewise, when
 > `kWifiEnabled` is `false` the WiFi connect code is dropped entirely, when
 > `kMqttEnabled` is `false` the publish path is skipped, and when `kSdEnabled`
 > is `false` the card is never mounted.
+>
+> The reporting interval and the sleep flag are the exception: they are **not**
+> compile-time constants. The values above are only the defaults a device falls
+> back to — see [Remote settings](#remote-settings-broker--device) below.
 
 ---
 
@@ -336,6 +371,60 @@ publishes live fixes, it simply cannot store the ones it misses.
 
 ---
 
+## Remote settings (broker → device)
+
+Two things about the device are tunable at runtime, from the broker, without a
+reflash: **how often it reports a position**, and **whether it powers itself down
+in between**. The device subscribes to `kConfigTopic`
+(`devices/GNSS01/config`) and expects a small **plaintext** JSON document:
+
+```json
+{ "interval_s": 60, "sleep_between": true }
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `interval_s` | number | Seconds between position reports. Clamped to `[kMinSendIntervalSeconds, kMaxSendIntervalSeconds]`. |
+| `sleep_between` | boolean | Power the modem down and deep-sleep the ESP32 between reports. |
+
+Either field may be omitted; what is absent is simply left as it was.
+
+### ⚠️ Publish it **retained**
+
+```bash
+mosquitto_pub -h jimajer.cz -t 'devices/GNSS01/config' -r \
+              -m '{"interval_s":60,"sleep_between":true}'
+```
+
+The `-r` (retain) flag is **not optional in practice**. With `sleep_between` on,
+the device is only connected for a few seconds per cycle, so it will essentially
+never be online at the moment you publish a live message. Retaining it makes the
+broker replay the current config the instant the device subscribes — which is
+exactly what it waits `kConfigFetchTimeoutMs` for on every boot.
+
+### Why it is not encrypted
+
+The fix payload is end-to-end encrypted because a position is private. This
+document holds a cadence and a boolean — nothing a broker operator or a thief
+with the SD card should not see. It travels inside the `wss://` TLS hop like
+everything else, and is written to `/sdcard/settings.json` in the clear.
+
+### Precedence
+
+```
+Config.h defaults  ←  /sdcard/settings.json  ←  retained MQTT config
+   (weakest)              (survives reboot)         (strongest, wins)
+```
+
+On boot the device loads the cached file (falling back to the `Config.h` defaults
+if the card is missing, the file absent, or its contents corrupt), then waits
+briefly for the broker. Anything that arrives is validated, clamped, adopted, and
+— only if it actually differs from what was already in force — written back to
+the card. That cache is what lets a device that boots in a tunnel still know it
+is meant to be sleeping.
+
+---
+
 ## Using it in your own code
 
 ```cpp
@@ -379,10 +468,74 @@ gnss.powerOffModule();        // lowest power until the next powerOnModule()
 
 ### Power saving
 
+The manual switches, if you are driving `GnssModule` yourself:
+
 - `powerOffModule()` / `powerOnModule()` — switch the **entire modem** off/on
   via PWRKEY. Lowest current draw; re-enabling takes a few seconds (modem boot).
+  Powering the modem off also cuts the active GNSS antenna's amplifier (the modem
+  drives it from its own GPIO4) and the LTE PA.
 - `disableGnss()` / `enableGnss()` — switch only the **GNSS engine**. Faster to
   toggle, but the modem itself keeps running (higher idle current).
+
+---
+
+## Deep sleep between reports
+
+When the broker sets `"sleep_between": true`,
+[`DeepSleepController`](src/power/DeepSleepController.h) takes over the end of
+every cycle. The order matters, and it owns it:
+
+1. **MQTT** — `stop()`, so the broker sees a clean DISCONNECT rather than waiting
+   out the keep-alive on a session that is already gone.
+2. **WiFi** — stop the driver. ESP-IDF wants the radio *stopped* before deep
+   sleep, not merely idle.
+3. **Modem** — `powerOffModule()`. This is the big one: the GNSS engine, the
+   antenna amplifier and the LTE PA all go down with it.
+4. **microSD** — unmount, leaving a clean FAT and releasing the SPI pins.
+5. **PWRKEY** — latch the pin HIGH with `gpio_hold_en()` for the duration. During
+   deep sleep the digital IO matrix is powered down and pins float; a floating
+   PWRKEY reads as a pulse and would switch the modem straight back on — undoing
+   everything step 3 just achieved.
+
+`releasePinHolds()` undoes step 5 at the top of `app_main()`, before any driver
+touches those pins again.
+
+### It reboots, it does not resume
+
+Deep sleep is not a pause. The chip **restarts**: `app_main()` runs from the top,
+the card is remounted, WiFi re-associates, TLS re-handshakes, the subscription is
+re-issued and the GNSS engine acquires from cold. Nothing on the stack or the
+heap survives.
+
+Budget for that. A cold GNSS acquisition alone can take 30 s or more (bounded by
+`kFixAcquireTimeoutSeconds`), so at `interval_s = 60` the device spends most of
+its cycle awake anyway and saves little. **Deep sleep starts paying off at
+intervals of several minutes.** This is inherent to a full modem power-down, not
+something the firmware can work around.
+
+### Wake sources
+
+The **RTC timer** is always armed, for `interval_s` minus the time already spent
+since the position was captured — so the cadence stays steady no matter how long
+publishing took, rather than drifting later every cycle. If no fix was obtained
+this cycle, a fresh full interval is started instead (otherwise a device that
+just spent `kFixAcquireTimeoutSeconds` finding no satellites would be "late" the
+moment it gave up, and would reboot-retry in a tight, battery-eating loop).
+
+An **external GPIO** (ext0) can wake the device early — an ignition sense or a
+motion line, say. It is off by default:
+
+```cpp
+constexpr int kWakeGpioPin   = 33;  // -1 disables it; 32/33 are free & RTC-capable
+constexpr int kWakeGpioLevel = 1;   // wake when the pin reads HIGH
+```
+
+Set the pin and it arms itself; the matching internal pull (down for level `1`,
+up for level `0`) is held through the sleep so a floating input cannot wake the
+device at random. Pins 2, 4, 13, 14, 15, 26 and 27 are already taken by the modem
+and the card, and 34–39 are input-only with no internal pulls (they need an
+external resistor). `DeepSleepController::wakeCauseName()` reports which source
+fired, so the serial log tells you whether a wake was scheduled or external.
 
 ---
 
@@ -448,10 +601,10 @@ reported **~99% flash used**. The project tunes four settings to fix this:
 > The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
 > they survive a `menuconfig` run or a framework upgrade.
 
-Together these take the build from **~99% of 1 MB** down to **~63% of 1.5 MB**
-(≈966 KB firmware, including the FAT/SD store-and-forward stack). After pulling
-these changes do a clean rebuild so the new flash size and partition layout take
-effect:
+Together these take the build from **~99% of 1 MB** down to **~64% of 1.5 MB**
+(≈983 KB firmware, including the FAT/SD store-and-forward stack and the
+remote-settings/deep-sleep paths). After pulling these changes do a clean rebuild
+so the new flash size and partition layout take effect:
 
 ```bash
 pio run -t fullclean

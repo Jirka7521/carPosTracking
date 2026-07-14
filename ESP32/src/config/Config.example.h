@@ -58,9 +58,18 @@ constexpr bool kGnssDebug = true;
 // -----------------------------------------------------------------------------
 //  Timing knobs.
 // -----------------------------------------------------------------------------
-constexpr uint32_t kFixPollIntervalMs = 5000;  // Gap between position reads
-constexpr uint32_t kSatelliteScanMs   = 3000;  // How long to listen to NMEA
-                                               // when counting satellites
+constexpr uint32_t kSatelliteScanMs = 3000;  // How long to listen to NMEA when
+                                             // counting satellites
+
+// How long to keep asking the engine for a position before giving up on this
+// cycle, and how long to pause between those AT+CGNSINF polls. The timeout
+// matters most when kDefaultSleepBetweenSends is on: after a full modem
+// power-down every wake-up is a cold start, which can legitimately take a
+// couple of minutes under a poor sky view. Without a bound the device would sit
+// awake forever in a tunnel or a garage, draining exactly the battery the sleep
+// was meant to save.
+constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
+constexpr uint32_t kFixPollStepMs            = 2000;
 
 // -----------------------------------------------------------------------------
 //  WiFi (station mode).
@@ -124,6 +133,47 @@ constexpr char kDeviceId[]       = "GNSSXX";
 constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 
 // -----------------------------------------------------------------------------
+//  Remote settings (broker -> device).
+//
+//  The device subscribes to this topic and expects a small *plaintext* JSON
+//  document (it carries no position data, so there is nothing to protect
+//  end-to-end; the wss:// hop still encrypts it in transit):
+//
+//      { "interval_s": 60, "sleep_between": true }
+//
+//      interval_s     seconds between position reports
+//      sleep_between  power the modem down and deep-sleep the ESP32 in between
+//
+//  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET. When sleep_between is on the
+//  device is only online for a few seconds per cycle, so it will essentially
+//  never catch a live publish - it relies on the broker replaying the retained
+//  message the instant it subscribes. See the README.
+//
+//  Whatever arrives is validated, clamped to the bounds below, and cached on the
+//  SD card (kSdSettingsFilePath) so the last known-good configuration survives a
+//  reboot with no network. The defaults below are only used by a device that has
+//  never successfully received a config message.
+// -----------------------------------------------------------------------------
+constexpr char kConfigTopic[] = "devices/GNSSXX/config";
+
+// How long to wait, after starting the MQTT client, for the broker to replay the
+// retained config before getting on with the first position report. This window
+// has to cover the TCP connect and the TLS handshake as well as the delivery
+// itself, so it is a good deal longer than the message alone would need. A
+// timeout is not fatal - we simply carry on with the cached settings.
+constexpr uint32_t kConfigFetchTimeoutMs = 8000;
+
+// Defaults for a device with no cached settings and no broker message yet.
+constexpr uint32_t kDefaultSendIntervalSeconds = 60;
+constexpr bool     kDefaultSleepBetweenSends   = false;
+
+// Accepted range for interval_s. A broker message outside this range is clamped
+// rather than rejected, so a typo can never wedge the device into a busy-loop
+// (interval 0) or an effectively dead one.
+constexpr uint32_t kMinSendIntervalSeconds = 5;
+constexpr uint32_t kMaxSendIntervalSeconds = 86400;  // 24 h
+
+// -----------------------------------------------------------------------------
 //  End-to-end encryption.
 //  The GNSS payload is encrypted (RSA-OAEP-SHA256 + AES-256-GCM) for the holder
 //  of the receiver PRIVATE key, so the broker only ever sees ciphertext. This
@@ -167,6 +217,11 @@ constexpr int kSdPinCs   = 13;  // chip select
 constexpr char kSdMountPoint[]    = "/sdcard";
 constexpr char kSdQueueFilePath[] = "/sdcard/queue.jsonl";
 
+// Cached copy of the runtime settings last received from the broker. Unlike the
+// queue this file is written in the CLEAR: it holds no position data, only the
+// reporting interval and the sleep flag, so there is nothing worth encrypting.
+constexpr char kSdSettingsFilePath[] = "/sdcard/settings.json";
+
 // Safety cap on how many undelivered fixes the queue may hold. During a long
 // outage the oldest entries are dropped once this many have accumulated, so the
 // card can never fill up. Each envelope is ~0.5-1 KB, so the default is a few
@@ -178,5 +233,41 @@ constexpr uint32_t kSdMaxQueuedFixes = 20000;
 // bursts so the JSON array and the MQTT buffer never exceed the modest internal
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
 constexpr uint32_t kSdMaxBurstFixes = 40;
+
+// -----------------------------------------------------------------------------
+//  Deep sleep (only used when the "sleep_between" setting is on).
+//
+//  Between reports the modem is powered right down - which also cuts the GNSS
+//  engine, the active antenna's amplifier and the LTE PA - the SD card is
+//  unmounted, and the ESP32 enters deep sleep. Deep sleep does not resume: the
+//  chip REBOOTS on wake and app_main() runs from the top, re-mounting the card
+//  and reconnecting WiFi/MQTT. Budget for that: every cycle pays a fresh TLS
+//  handshake and a cold GNSS acquisition, so an interval of a few minutes or
+//  more is where this actually starts saving energy.
+//
+//  The RTC timer is always armed, for (interval_s - time spent since the fix was
+//  captured), so reports stay on a steady cadence rather than drifting by however
+//  long the publish took.
+// -----------------------------------------------------------------------------
+
+// Optional second wake source: an external signal on an RTC-capable GPIO (ext0),
+// e.g. an ignition-sense or motion line that should report a position early.
+//
+//   kWakeGpioPin = -1  ->  disabled; the timer is the only wake source.
+//   kWakeGpioPin >= 0  ->  ext0 wake is armed on that pin, and the matching
+//                          internal pull (down for level 1, up for level 0) is
+//                          held through sleep.
+//
+// Pins 2, 4, 13, 14, 15, 26 and 27 are already taken by the modem and the SD
+// card. Free RTC-capable choices on the T-SIM7000G are 32 and 33. Note that
+// 34-39 are input-only and have no internal pull resistors, so those need an
+// external one.
+constexpr int kWakeGpioPin   = -1;  // -1 = timer-only (no external wake)
+constexpr int kWakeGpioLevel = 1;   // 1 = wake when the pin reads HIGH
+
+// Floor on the deep-sleep duration. If publishing a fix overran the interval
+// there is no time left to sleep, but bouncing straight back through a reboot
+// would be worse than pausing briefly first.
+constexpr uint32_t kMinDeepSleepMs = 1000;
 
 }  // namespace config

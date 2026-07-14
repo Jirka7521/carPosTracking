@@ -21,11 +21,14 @@ SdCard::SdCard(spi_host_device_t spiHost, int misoPin, int mosiPin, int sclkPin,
       card_(nullptr),
       mounted_(false) {}
 
-SdCard::~SdCard() {
+SdCard::~SdCard() { end(); }
+
+void SdCard::end() {
   // Unmount the filesystem and free the SPI bus so the peripheral can be reused.
   if (mounted_) {
     esp_vfs_fat_sdcard_unmount(mountPoint_, card_);
     mounted_ = false;
+    ESP_LOGI(TAG, "microSD unmounted.");
   }
   if (card_ != nullptr) {
     spi_bus_free(spiHost_);
@@ -101,6 +104,42 @@ bool SdCard::appendLine(const char* path, const std::string& line) {
     ESP_LOGE(TAG, "append: write to %s failed", path);
   }
   return ok;
+}
+
+bool SdCard::writeFile(const char* path, const std::string& content) {
+  if (!mounted_) {
+    return false;
+  }
+
+  // Stage the new contents beside the target. Only once they are safely closed
+  // do we displace the original, so a crash mid-write leaves the old file (or,
+  // in the worst case, no file) rather than a truncated one.
+  const std::string tmpPath = std::string(path) + ".tmp";
+  std::FILE*        f       = std::fopen(tmpPath.c_str(), "w");
+  if (f == nullptr) {
+    ESP_LOGE(TAG, "write: cannot open temp %s", tmpPath.c_str());
+    return false;
+  }
+  const bool ok =
+      std::fwrite(content.data(), 1, content.size(), f) == content.size() &&
+      std::fputc('\n', f) != EOF;
+  std::fclose(f);
+
+  if (!ok) {
+    ESP_LOGE(TAG, "write: writing %s failed", tmpPath.c_str());
+    std::remove(tmpPath.c_str());
+    return false;
+  }
+
+  // FAT's rename() refuses to clobber an existing name, so the old file has to
+  // go first. This is the one instant where neither file exists.
+  std::remove(path);
+  if (std::rename(tmpPath.c_str(), path) != 0) {
+    ESP_LOGE(TAG, "write: rename %s -> %s failed", tmpPath.c_str(), path);
+    std::remove(tmpPath.c_str());
+    return false;
+  }
+  return true;
 }
 
 bool SdCard::readLine(std::FILE* f, std::string& out) {

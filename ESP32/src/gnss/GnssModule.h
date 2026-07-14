@@ -51,6 +51,16 @@ class GnssModule {
   // When debugging is enabled in Config.h this also prints a full report.
   bool readFix(GnssFix& fix);
 
+  // Poll readFix() every `pollStepMs` until a *real* position is available, or
+  // `timeoutMs` elapses. Returns true only when `fix` holds an actual fix.
+  //
+  // This exists because the engine reports "no fix" for the whole acquisition
+  // window - 30 s to several minutes from a cold start - and a caller that
+  // powers the modem down between reports pays that cost on every single wake.
+  // The timeout is what stops a device parked in a garage from staying awake
+  // indefinitely waiting for satellites it will never see.
+  bool waitForFix(GnssFix& fix, uint32_t timeoutMs, uint32_t pollStepMs);
+
   // Count satellites in view per constellation by listening to NMEA output for
   // `scanMs` milliseconds. Heavier than readFix(); mainly used for debugging.
   bool readSatelliteCounts(GnssSatelliteCounts& counts, uint32_t scanMs);

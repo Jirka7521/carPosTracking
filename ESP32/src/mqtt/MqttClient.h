@@ -20,12 +20,20 @@
 //  so the broker itself never sees the position data.
 // =============================================================================
 
+#include <functional>
 #include <string>
 
 #include "mqtt_client.h"
 
 class MqttClient {
  public:
+  // Called with the topic and the raw bytes of every message we receive on a
+  // subscribed topic. It runs on the *esp-mqtt event task*, so it must return
+  // promptly and must not block on slow IO (SD writes, network) - copy the
+  // payload and let an application task do the real work. See RemoteSettings.
+  using MessageHandler =
+      std::function<void(const std::string& topic, const std::string& payload)>;
+
   // Borrows all string arguments (does not copy) - they must outlive this
   // object. With Config.h that is automatic (they are constexpr globals).
   //   uri      : broker URI, e.g. "wss://broker.example:443/mqtt"
@@ -41,8 +49,24 @@ class MqttClient {
   // learn when the link is actually up.
   bool begin();
 
+  // Disconnect cleanly and stop the client task. Called before deep sleep so the
+  // broker sees a proper DISCONNECT instead of waiting out the keep-alive.
+  // Safe to call on a client that never started.
+  void stop();
+
   // True while we currently have a live connection to the broker.
   bool isConnected() const;
+
+  // Install the callback that receives every subscribed message. Set it before
+  // begin() so a retained message cannot arrive before there is a handler.
+  void setMessageHandler(MessageHandler handler);
+
+  // Subscribe to `topic`. Safe to call before the link is up: the topic is
+  // remembered and (re-)subscribed on every MQTT_EVENT_CONNECTED, which matters
+  // because a broker with a clean session forgets our subscriptions across the
+  // reconnect that follows each deep-sleep wake. One subscription is all this
+  // firmware needs, so a later call simply replaces the remembered topic.
+  bool subscribe(const char* topic, int qos);
 
   // Publish `payload` to `topic` at QoS 2. Returns true if the message was
   // accepted by the client for sending (false if not connected / on error).
@@ -64,6 +88,11 @@ class MqttClient {
   static void eventHandler(void* arg, esp_event_base_t base, int32_t eventId,
                            void* eventData);
 
+  // Accumulate one MQTT_EVENT_DATA. A payload larger than the client's RX buffer
+  // is delivered in several events, and only the first carries the topic - so we
+  // stitch the pieces together and dispatch once the last one lands.
+  void handleData(const esp_mqtt_event_t& event);
+
   const char* uri_;
   const char* username_;
   const char* password_;
@@ -76,4 +105,15 @@ class MqttClient {
   // written from the event callback and polled by publishConfirmed(). -1 means
   // "nothing acked yet".
   volatile int             lastAckedMsgId_;
+
+  // The single remembered subscription, replayed on every reconnect. Empty topic
+  // means "nothing subscribed".
+  std::string subscribedTopic_;
+  int         subscribedQos_;
+
+  MessageHandler messageHandler_;  // empty until setMessageHandler()
+
+  // Reassembly state for a fragmented incoming message (event-task only).
+  std::string rxTopic_;
+  std::string rxPayload_;
 };

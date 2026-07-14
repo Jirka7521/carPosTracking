@@ -36,12 +36,29 @@ class SdCard {
   // it cannot be mounted). Returns true once the card is ready to use.
   bool begin();
 
+  // Unmount the filesystem and release the SPI bus. Idempotent, and safe to call
+  // on a card that never mounted. Call this before deep sleep so the card is not
+  // left with a dirty FAT, and so its pins stop being driven; the destructor
+  // calls it too.
+  void end();
+
   // True while the filesystem is mounted and file operations are usable.
   bool isMounted() const { return mounted_; }
 
   // Append one line to `path` (a trailing '\n' is added). Creates the file if it
   // does not exist. Returns false on any IO error.
   bool appendLine(const char* path, const std::string& line);
+
+  // Replace the whole contents of `path` with `content` (a trailing '\n' is
+  // added). Used for small documents that are rewritten as a unit - the settings
+  // file - rather than appended to like the queue.
+  //
+  // The write goes to a sibling ".tmp" first and only then displaces the
+  // original, so an interrupted write cannot leave a half-rewritten file behind.
+  // FAT gives us no atomic replace, so a power cut in the narrow window between
+  // the remove and the rename loses the file outright - the caller must treat a
+  // missing file as "fall back to defaults", never as an error.
+  bool writeFile(const char* path, const std::string& content);
 
   // Read up to `maxLines` lines from the start of `path` into `linesOut`
   // (newlines stripped, empty lines skipped). A missing file yields zero lines
