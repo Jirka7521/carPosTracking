@@ -10,6 +10,7 @@ desktop.ini
 # ─────────────────────────────────────────────────────────────
 .vscode/
 .vs/
+carPosTracking.code-workspace
 
 # ─────────────────────────────────────────────────────────────
 # Container/Postgres — local secrets (never commit)

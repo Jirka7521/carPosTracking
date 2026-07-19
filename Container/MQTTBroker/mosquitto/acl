@@ -1,0 +1,36 @@
+# Mosquitto ACL - carPosTracking.
+#
+# Nothing is permitted unless it is granted below: a topic with no matching rule
+# for that user is denied, and anonymous clients are refused at connect time
+# (allow_anonymous false in mosquitto.conf). There are deliberately no rules
+# outside a `user` block - such rules would apply to every client, which is
+# exactly the unauthorized access this file exists to prevent.
+#
+# Mosquitto also needs an explicit `read` rule for a topic before it will DELIVER
+# a message to a subscriber. Without one it still ACKs the SUBSCRIBE and then
+# silently drops every message, which looks exactly like a broken broker. If a
+# client connects and subscribes fine but never receives anything, the missing
+# rule is almost always here.
+#
+# Usernames below are literal and must match the *_USER values in .env.
+
+# admin: full access, including $SYS for manual debugging.
+user admin
+topic readwrite #
+topic read $SYS/#
+
+# GNSS01: the tracker. Publishes its fixes, reads only its own command topic.
+user GNSS01
+topic write devices/GNSS01
+topic read devices/GNSS01/cmd
+
+# dashboard: consumes every device's fixes and sends commands back.
+user dashboard
+topic read devices/#
+topic write devices/+/cmd
+
+# healthcheck: the container's own liveness probe, and nothing else. It is scoped
+# to a single throwaway topic on purpose - the probe never needs to see device
+# data, so a leak of these credentials exposes nothing.
+user healthcheck
+topic readwrite healthcheck/probe
