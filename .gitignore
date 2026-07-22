@@ -42,6 +42,7 @@ __pycache__/
 # ─────────────────────────────────────────────────────────────
 # API — C# / .NET
 # ─────────────────────────────────────────────────────────────
+API
 # Build output
 [Bb]in/
 [Oo]bj/
@@ -72,6 +73,9 @@ artifacts/
 # ASP.NET secrets / local settings
 # Note: appsettings.Development.json is intentionally NOT ignored (VS convention —
 # it holds no real secrets; use user-secrets / secrets.json for those).
+# appsettings.json is the committed, secret-free example; appsettings.Local.json
+# holds the real connection string, broker password and device master key.
+appsettings.Local.json
 appsettings.*.local.json
 secrets.json
 
