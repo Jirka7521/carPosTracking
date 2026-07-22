@@ -38,6 +38,23 @@ class Sim7000Modem {
   // Quick liveness check: send a bare "AT" and expect "OK".
   bool isResponsive();
 
+  // Same check, but retried up to `attempts` times. A single "AT" is not proof
+  // of anything: a modem that is up but still emitting its boot URCs will miss
+  // the first one or two, and an autobaud modem needs a few before it locks on.
+  bool isResponsive(int attempts);
+
+  // Hunt for the modem's actual bit rate: try the configured kModemBaudRate
+  // first, then each of kModemBaudCandidates, leaving the port on whichever one
+  // answered. Returns false if none did. Safe to call repeatedly - it starts
+  // from the rate currently set, so a second call after a power-on pulse is
+  // cheap when nothing changed.
+  bool detectBaudRate();
+
+  // The level PWRKEY sits at when idle, derived from kModemPwrKeyActiveLow.
+  // Exposed so the deep-sleep path can latch the pin at the same idle level
+  // this class uses, instead of hard-coding a polarity of its own.
+  static int pwrKeyIdleLevel();
+
   // Send an AT command and capture the full multi-line reply.
   //   cmd          : command WITHOUT trailing CR (e.g. "AT+CGNSINF")
   //   response     : buffer that receives every reply line, '\n'-separated

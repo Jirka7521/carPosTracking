@@ -36,18 +36,44 @@ struct GnssPosition {
   bool   valid          = false; // true only when the modem reports a fix
 };
 
-// Per-constellation count of satellites currently *in view*.
-// Populated from NMEA "GSV" sentences (see NmeaParser). Each member is the
-// number of satellites the modem can see for that system - more systems and
-// more satellites generally mean a faster, more accurate fix.
+// Per-constellation satellite statistics, populated from NMEA "GSV" sentences
+// (see NmeaParser).
+//
+// Two very different numbers live here, and confusing them makes a dead antenna
+// look like a slow cold start:
+//
+//   *in view*  is computed by the receiver from its stored almanac - i.e. where
+//              satellites *ought* to be given the rough time and last known
+//              position. It is reported even with the antenna unplugged, so on
+//              its own it says nothing at all about signal.
+//   *tracked*  counts satellites whose GSV entry carried a non-zero SNR, which
+//              means real RF is arriving and being demodulated. This is the
+//              number that has to climb before a fix is possible.
 struct GnssSatelliteCounts {
+  // Satellites in view (almanac-derived - see the note above).
   uint8_t gps     = 0;   // USA
   uint8_t glonass = 0;   // Russia
   uint8_t beidou  = 0;   // China
   uint8_t galileo = 0;   // Europe
-  bool    valid   = false;
+
+  // Satellites actually being tracked (GSV reported SNR > 0).
+  uint8_t gpsTracked     = 0;
+  uint8_t glonassTracked = 0;
+  uint8_t beidouTracked  = 0;
+  uint8_t galileoTracked = 0;
+
+  // Strongest carrier-to-noise density seen during the scan, in dB-Hz. The
+  // single most diagnostic number available: 0 means no RF at all, below ~25
+  // is too weak to decode the ephemeris (so a fix never arrives however long
+  // you wait), and 35+ is a healthy open-sky signal.
+  uint8_t maxSnr = 0;
+
+  bool valid = false;
 
   uint8_t total() const { return gps + glonass + beidou + galileo; }
+  uint8_t totalTracked() const {
+    return gpsTracked + glonassTracked + beidouTracked + galileoTracked;
+  }
 };
 
 // The full result of a single GNSS read.

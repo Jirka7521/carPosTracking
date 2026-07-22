@@ -47,8 +47,19 @@ bool GnssModule::enableGnss() {
   // The active GNSS antenna's amplifier is powered through the modem's GPIO4 on
   // the T-SIM7000G. Without this the receiver can list satellites but the signal
   // is too weak to ever lock a fix, so power it before starting the engine.
+  //
+  // The result is checked rather than discarded: some SIM7000G firmware builds
+  // reject SGPIO, and a silent failure here is indistinguishable in the logs
+  // from a slow cold start - the engine runs, satellites are listed from the
+  // almanac, and no fix ever arrives. Not fatal (a passive antenna, or a board
+  // wiring the amplifier to permanent power, works fine without it), so we warn
+  // and carry on.
   ESP_LOGI(TAG, "Powering GNSS antenna (modem GPIO4).");
-  modem_.sendCommand("AT+SGPIO=0,4,1,1", 1000);
+  if (!modem_.sendCommand("AT+SGPIO=0,4,1,1", 1000)) {
+    ESP_LOGW(TAG, "AT+SGPIO antenna power command failed. If this board uses an "
+                  "ACTIVE GNSS antenna it is now unpowered, and no fix will "
+                  "ever be acquired - check the satellite SNR report below.");
+  }
 
   ESP_LOGI(TAG, "Enabling GNSS engine.");
   return modem_.sendCommand("AT+CGNSPWR=1", 2000);
@@ -204,11 +215,35 @@ void GnssModule::debugPrintFix(const GnssFix& fix) {
 }
 
 void GnssModule::debugPrintSatellites(const GnssSatelliteCounts& counts) {
-  printf("----------- SATELLITES IN VIEW ----------\n");
-  printf("  GPS     (USA)    : %u\n", counts.gps);
-  printf("  GLONASS (Russia) : %u\n", counts.glonass);
-  printf("  BeiDou  (China)  : %u\n", counts.beidou);
-  printf("  Galileo (Europe) : %u\n", counts.galileo);
-  printf("  TOTAL            : %u\n", counts.total());
+  // "In view" is almanac-derived and appears even with no antenna connected;
+  // "tracked" counts real signal. Printing them side by side is what makes an
+  // RF fault obvious at a glance - see GnssSatelliteCounts.
+  printf("--------------- SATELLITES --------------\n");
+  printf("                     in view   tracked\n");
+  printf("  GPS     (USA)    : %5u     %5u\n", counts.gps, counts.gpsTracked);
+  printf("  GLONASS (Russia) : %5u     %5u\n", counts.glonass,
+         counts.glonassTracked);
+  printf("  BeiDou  (China)  : %5u     %5u\n", counts.beidou,
+         counts.beidouTracked);
+  printf("  Galileo (Europe) : %5u     %5u\n", counts.galileo,
+         counts.galileoTracked);
+  printf("  TOTAL            : %5u     %5u\n", counts.total(),
+         counts.totalTracked());
+  printf("  Strongest signal : %u dB-Hz\n", counts.maxSnr);
+
+  // Turn the raw SNR into the actual next step, so the log diagnoses itself
+  // instead of leaving the reader to interpret dB-Hz.
+  if (counts.totalTracked() == 0) {
+    printf("  -> NO SIGNAL. Satellites are listed from the almanac, not\n");
+    printf("     received. Check the GNSS antenna is an ACTIVE one and is in\n");
+    printf("     the GPS u.FL socket (not the LTE one).\n");
+  } else if (counts.maxSnr < 25) {
+    printf("  -> SIGNAL TOO WEAK (<25 dB-Hz) to decode the ephemeris, so a\n");
+    printf("     fix will never arrive. Move to open sky.\n");
+  } else if (counts.totalTracked() < 4) {
+    printf("  -> Signal is good but only %u satellite(s) tracked; 4 are\n",
+           counts.totalTracked());
+    printf("     needed for a fix. Acquiring...\n");
+  }
   printf("-----------------------------------------\n\n");
 }

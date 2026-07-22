@@ -45,6 +45,16 @@ class SerialPort {
   //            before `timeoutMs` elapsed.
   int readLine(char* buffer, size_t bufferSize, uint32_t timeoutMs);
 
+  // Retune the live port to a different bit rate. Needed because the modem's
+  // configured baud is not knowable up front (see Sim7000Modem::detectBaudRate),
+  // so we have to try several against the running driver. Pending input is
+  // dropped, since bytes clocked in at the old rate would decode as garbage.
+  // Returns false if the port is not open or the driver rejects the rate.
+  bool setBaudRate(int baud);
+
+  // The rate currently in use - handy for logging which probe succeeded.
+  int baudRate() const { return baud_; }
+
  private:
   uart_port_t port_;
   int         txPin_;

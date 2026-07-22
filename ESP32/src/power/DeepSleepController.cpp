@@ -6,6 +6,7 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "modem/Sim7000Modem.h"
 
 static const char* TAG = "DeepSleep";
 
@@ -70,9 +71,10 @@ void DeepSleepController::shutdownPeripherals() {
 void DeepSleepController::holdModemOff() {
   const gpio_num_t pwrKey = static_cast<gpio_num_t>(modemPwrKeyPin_);
 
-  // PWRKEY idles HIGH on this board; make that explicit before latching it, so
-  // we cannot freeze the pin mid-pulse.
-  gpio_set_level(pwrKey, 1);
+  // Park PWRKEY at its idle level before latching it, so we cannot freeze the
+  // pin mid-pulse. The level comes from Sim7000Modem rather than being repeated
+  // here, so the two agree even on an inverted board (kModemPwrKeyActiveLow).
+  gpio_set_level(pwrKey, Sim7000Modem::pwrKeyIdleLevel());
   gpio_hold_en(pwrKey);
 
   // gpio_hold_en() alone stops holding once the chip powers down the digital

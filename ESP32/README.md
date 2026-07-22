@@ -167,8 +167,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 |---------|---------|---------|
 | `kModemUartPort` | `UART_NUM_1` | UART used for the modem (UART0 is the console) |
 | `kModemTxPin` / `kModemRxPin` | `27` / `26` | T-SIM7000G factory pins |
-| `kModemBaudRate` | `9600` | SIM7000G default |
+| `kModemBaudRate` | `9600` | SIM7000G default; tried first at start-up |
+| `kModemBaudCandidates` | `115200, 9600, 57600, 38400, 19200` | Fallback rates probed if the modem stays silent |
 | `kModemPwrKeyPin` | `4` | PWRKEY (power on/off) |
+| `kModemPwrKeyActiveLow` | `true` | PWRKEY polarity: `true` = idles HIGH, pulses LOW (most boards) |
 | `kEnableGps/Glonass/Beidou/Galileo` | all `true` | Constellations to use |
 | **`kGnssDebug`** | `true` | **Turn the serial debug report on/off** |
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
@@ -492,10 +494,11 @@ every cycle. The order matters, and it owns it:
 3. **Modem** — `powerOffModule()`. This is the big one: the GNSS engine, the
    antenna amplifier and the LTE PA all go down with it.
 4. **microSD** — unmount, leaving a clean FAT and releasing the SPI pins.
-5. **PWRKEY** — latch the pin HIGH with `gpio_hold_en()` for the duration. During
-   deep sleep the digital IO matrix is powered down and pins float; a floating
-   PWRKEY reads as a pulse and would switch the modem straight back on — undoing
-   everything step 3 just achieved.
+5. **PWRKEY** — latch the pin at its idle level with `gpio_hold_en()` for the
+   duration (the level comes from `Sim7000Modem::pwrKeyIdleLevel()`, so it
+   follows `kModemPwrKeyActiveLow`). During deep sleep the digital IO matrix is
+   powered down and pins float; a floating PWRKEY reads as a pulse and would
+   switch the modem straight back on — undoing everything step 3 just achieved.
 
 `releasePinHolds()` undoes step 5 at the top of `app_main()`, before any driver
 touches those pins again.
@@ -557,14 +560,35 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
   Sats used      : 9
   HDOP/PDOP/VDOP : 1.1 / 1.4 / 0.9
 =========================================
------------ SATELLITES IN VIEW ----------
-  GPS     (USA)    : 8
-  GLONASS (Russia) : 5
-  BeiDou  (China)  : 6
-  Galileo (Europe) : 4
-  TOTAL            : 23
+--------------- SATELLITES --------------
+                     in view   tracked
+  GPS     (USA)    :     8         6
+  GLONASS (Russia) :     5         4
+  BeiDou  (China)  :     6         3
+  Galileo (Europe) :     4         2
+  TOTAL            :    23        15
+  Strongest signal : 44 dB-Hz
 -----------------------------------------
 ```
+
+**Read the two satellite columns carefully — they mean different things:**
+
+| Column | Source | What it proves |
+|--------|--------|----------------|
+| **in view** | the receiver's stored **almanac** — where satellites *ought* to be given the rough time and last position | **nothing about signal.** A board with the antenna unplugged still reports 20+ in view |
+| **tracked** | GSV entries carrying a **non-zero SNR** | real RF is arriving and being demodulated. This is the number that must reach 4 for a fix |
+
+`Strongest signal` is the most diagnostic value in the whole report:
+
+| dB-Hz | Meaning |
+|-------|---------|
+| `0` | no RF at all — antenna, u.FL socket, or antenna power |
+| `< 25` | too weak to decode the ephemeris; **a fix will never arrive**, however long you wait |
+| `25–35` | marginal — a fix is possible but slow |
+| `35+` | healthy open-sky signal |
+
+When the numbers indicate a problem the report appends the concrete next step,
+so the log diagnoses itself rather than leaving you to interpret dB-Hz.
 
 ---
 
@@ -649,3 +673,74 @@ The SIM7000G exposes its GNSS engine over the same UART used for AT commands:
 First fix outdoors from cold can take **30 s – several minutes**; until then
 `fix.hasFix()` is `false`. Make sure the GNSS antenna is connected and has a
 clear view of the sky.
+
+---
+
+## Troubleshooting: "Modem did not respond after power-on"
+
+`Sim7000Modem::powerOn()` logs this when no AT command was answered, which ends
+the run (`GNSS init failed … Halting.`). It means **no `OK` came back over the
+UART** — which is not the same as "the modem stayed off". The start-up sequence
+is built to rule out the software-side causes on its own:
+
+1. **Probe before pulsing.** The modem keeps its power state across an ESP32
+   reset, so after a re-flash it is often *already on*. PWRKEY is a toggle, so
+   pulsing a running modem would switch it **off**. `powerOn()` therefore probes
+   first and only pulses if the modem is genuinely silent. The probe retries
+   `AT` several times (`isResponsive(int)`), because a modem that is up but
+   still emitting boot URCs (`RDY`, `+CPIN: READY`) will miss the first one.
+2. **Baud-rate hunt.** `detectBaudRate()` tries `kModemBaudRate` and then each
+   of `kModemBaudCandidates`, two `AT`s per rate (an autobaud modem spends the
+   first one measuring the bit timing). The rate that answered is logged. This
+   matters because SIM7000G firmware ships at 115200 as often as at 9600, and a
+   wrong rate looks identical to a dead modem.
+3. **Patience after the pulse.** The poll runs for 30 × 1 s, re-probing every
+   candidate rate each second, and logs each failed attempt. The datasheet
+   quotes ~4.5 s to a usable UART, but a cold module on a sagging supply is
+   slower.
+
+If it still fails, the cause is on the hardware side — the error log repeats
+this checklist:
+
+| Check | What to do |
+|-------|------------|
+| **Supply** | The SIM7000G draws **~2 A peaks**. USB alone frequently cannot boot it. Attach a charged LiPo to the JST connector — this is the most common cause. |
+| **PWRKEY polarity** | Most boards idle HIGH and pulse LOW. Some revisions invert this through a transistor: set `kModemPwrKeyActiveLow = false` in `Config.h`. |
+| **TX/RX** | `kModemTxPin` / `kModemRxPin` (`27` / `26`) are the T-SIM7000G factory pins; swapped wiring gives exactly this silence. |
+
+A *garbled* log (stray bytes rather than silence) points at the baud rate; total
+silence points at power or PWRKEY.
+
+---
+
+## Troubleshooting: satellites in view, but never a fix
+
+The engine runs, the report lists 20+ satellites in view, `Sats used` stays at
+**0**, all DOP values stay at **0.0**, and `waitForFix` eventually gives up.
+
+This is almost always an **RF problem, not a slow cold start**, and the "in
+view" count is what misleads: it comes from the almanac and is reported with no
+antenna attached at all. Check the **tracked** column and **Strongest signal**
+in the satellite report (see [Debug output](#debug-output)) — those measure
+actual received signal.
+
+A real cold start looks different: tracked climbs 0 → 1 → 4 over a minute or
+two, and the DOP values become non-zero *before* the fix appears. Flat zeros for
+minutes mean nothing is being received.
+
+| Symptom in the report | Cause | Fix |
+|---|---|---|
+| `tracked: 0`, `Strongest signal: 0 dB-Hz` | No RF reaching the receiver | See the three checks below |
+| `tracked: 1-3`, signal `< 25 dB-Hz` | Indoors / obstructed. The ephemeris needs ~30 s of *continuous* clean signal to decode, so this never resolves | Move to open sky |
+| `tracked: 4+`, signal `35+`, still no fix | Genuinely unusual | Check `AT+CGNSMOD` constellation settings |
+
+When there is no signal at all, in order of likelihood:
+
+1. **Wrong u.FL socket.** The T-SIM7000G has two, and ships with two
+   similar-looking antennas. The GNSS antenna belongs in the socket nearest the
+   SIM7000G module (marked `GPS`), *not* the LTE one.
+2. **Wrong antenna type.** The GNSS antenna is the small square ceramic patch on
+   a cable — an **active** antenna. The LTE whip will not work.
+3. **Antenna power.** The active antenna's amplifier is fed from the modem's own
+   GPIO4 via `AT+SGPIO=0,4,1,1`. `enableGnss()` checks this command's result and
+   logs a warning if the modem rejected it, which some firmware builds do.

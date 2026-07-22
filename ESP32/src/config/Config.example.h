@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 #include "driver/spi_common.h"
@@ -30,12 +31,20 @@ constexpr int         kModemTxPin    = 27;          // ESP32 TX  -> modem RX
 constexpr int         kModemRxPin    = 26;          // ESP32 RX  <- modem TX
 constexpr int         kModemBaudRate = 9600;        // SIM7000G default baud
 
+// Baud rates tried, in order, when the modem does not answer at kModemBaudRate.
+constexpr int    kModemBaudCandidates[]  = {115200, 9600, 57600, 38400, 19200};
+constexpr size_t kModemBaudCandidateCount =
+    sizeof(kModemBaudCandidates) / sizeof(kModemBaudCandidates[0]);
+
 // -----------------------------------------------------------------------------
 //  Power control pin.
 //  PWRKEY toggles the whole modem on/off. On the T-SIM7000G it idles HIGH and
 //  is pulsed LOW to switch the modem state.
 // -----------------------------------------------------------------------------
 constexpr int kModemPwrKeyPin = 4;
+
+// PWRKEY polarity as seen *from the ESP32*, which is not the same across board
+constexpr bool kModemPwrKeyActiveLow = true;
 
 // -----------------------------------------------------------------------------
 //  Which satellite constellations to use.
