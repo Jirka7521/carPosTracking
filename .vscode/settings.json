@@ -1,4 +1,10 @@
 {
+    // Pin the solution for the C# extension. Without it, this multi-root
+    // workspace has no .sln at its root and the extension can fail to associate
+    // Program.cs with CarPosAPI.csproj — it then compiles the file on its own as
+    // a .NET 10 "file-based app", and every project namespace and NuGet
+    // reference reports as missing (CS0246 / CS0234 on the using directives).
+    "dotnet.defaultSolution": "API/CarPos.sln",
     "python-envs.pythonProjects": [
         {
             "path": ".",
