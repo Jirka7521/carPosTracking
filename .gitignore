@@ -13,9 +13,12 @@ desktop.ini
 carPosTracking.code-workspace
 
 # ─────────────────────────────────────────────────────────────
-# Container/Postgres — local secrets (never commit)
+# Container stacks — local secrets (never commit)
 # ─────────────────────────────────────────────────────────────
-Container/Postgres/.env
+# Covers Postgres, MQTTBroker and App. Each stack keeps a committed
+# .env.example listing every key with the secret values left empty; the real
+# .env sits beside it and stays out of git.
+Container/**/.env
 
 # ─────────────────────────────────────────────────────────────
 # ESP32 firmware (PlatformIO / ESP-IDF)
@@ -40,3 +43,5 @@ __pycache__/
 # ─────────────────────────────────────────────────────────────
 API/
 FE/
+Container/App/.env.example
+Container/App/docker-compose.yml
