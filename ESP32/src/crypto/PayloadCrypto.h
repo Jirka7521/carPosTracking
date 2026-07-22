@@ -27,11 +27,21 @@
 
 #include <string>
 
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/pk.h"
+
 class PayloadCrypto {
  public:
   // Borrows the PEM public-key string (does not copy) - it must outlive this
   // object. With Config.h that is automatic (it is a constexpr global).
   explicit PayloadCrypto(const char* receiverPublicKeyPem);
+  ~PayloadCrypto();
+
+  // Owns mbedTLS contexts, which are not safe to copy - and there is never a
+  // reason to duplicate one anyway.
+  PayloadCrypto(const PayloadCrypto&)            = delete;
+  PayloadCrypto& operator=(const PayloadCrypto&) = delete;
 
   // Encrypt `plaintext`. On success, writes the JSON envelope to `envelopeOut`
   // and returns true. Returns false on any cryptographic error (e.g. the public
@@ -39,5 +49,18 @@ class PayloadCrypto {
   bool encrypt(const std::string& plaintext, std::string& envelopeOut);
 
  private:
+  // One-time, lazy setup of `rng_` and `pk_` (see the .cpp for why it is lazy
+  // and not done in the constructor). Returns false if seeding or key parsing
+  // failed; safe to call again on the next message.
+  bool ensureReady();
+
   const char* publicKeyPem_;  // receiver RSA public key, PEM text
+
+  // Seeded once, then reused for every message. Both the entropy poll and the
+  // PEM parse are expensive in time *and* in stack, so paying for them per fix
+  // was what pushed the main task over its stack limit.
+  mbedtls_entropy_context  entropy_;
+  mbedtls_ctr_drbg_context rng_;
+  mbedtls_pk_context       pk_;
+  bool                     ready_;  // rng_ seeded and pk_ parsed
 };

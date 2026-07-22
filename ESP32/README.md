@@ -309,6 +309,13 @@ Only the holder of the matching **private** key — the desktop companion — ca
 recover the AES key and read the position. The device only ever needs the
 **public** key, which is not a secret.
 
+> ℹ️ **The RNG and the public key are set up once**, on the first `encrypt()`
+> call, and then reused for every message: seeding CTR_DRBG from the hardware
+> entropy source and parsing the PEM are expensive in both time and *stack*, and
+> doing them per fix was enough to overflow the main task's stack (see
+> [Main task stack](#main-task-stack) below). CTR_DRBG reseeds itself as it is
+> consumed, so each message still gets a fresh, unpredictable AES key and nonce.
+
 ### Getting the receiver's public key
 
 The keypair is created and held by the [desktop companion](../DESKTOP/README.md).
@@ -609,7 +616,7 @@ pio device monitor      # watch the serial output (115200 baud)
 
 The full firmware (WiFi + lwIP + the mbedTLS/TLS stack for `wss://`) is large.
 Out of the box ESP-IDF only gave the app a **1 MB** partition, so the build
-reported **~99% flash used**. The project tunes four settings to fix this:
+reported **~99% flash used**. The project tunes these four settings to fix this:
 
 | Setting | Where | Default | Now | Why |
 |---------|-------|---------|-----|-----|
@@ -617,6 +624,31 @@ reported **~99% flash used**. The project tunes four settings to fix this:
 | `CONFIG_ESPTOOLPY_FLASHSIZE` | [`sdkconfig.defaults`](sdkconfig.defaults) | `2MB` | **`4MB`** | The board actually ships with 4 MB flash — the stock config wasted half of it. |
 | `CONFIG_COMPILER_OPTIMIZATION_*` | [`sdkconfig.defaults`](sdkconfig.defaults) | `DEBUG` (`-Og`) | **`SIZE`** (`-Os`) | Smaller code (~10–15%). |
 | `CONFIG_NEWLIB_NANO_FORMAT` | [`sdkconfig.defaults`](sdkconfig.defaults) | off | **on** | Links the compact "nano" `printf`/`scanf`. |
+
+### Main task stack
+
+```
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288   # sdkconfig.defaults; stock is 3584
+```
+
+`app_main()` is not just wiring — the whole tracking loop runs on the **main**
+task, so every RSA-OAEP encryption in [`PayloadCrypto`](src/crypto/PayloadCrypto.h)
+happens on that task's stack. A single mbedTLS modular exponentiation on a
+3072-bit key costs a few kB by itself, with the SD-queue and MQTT publish calls
+stacked on top. With the stock 3584 B the **first fix** reliably panicked:
+
+```
+I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
+***ERROR*** A stack overflow in task main has been detected.
+```
+
+12 KB leaves comfortable headroom (RAM is not the constraint on this board —
+the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
+this at 12 KB or above.
+
+> ⚠️ **Changing `sdkconfig.defaults` may not regenerate the sdkconfig.**
+> PlatformIO does not always notice the edit. If `sdkconfig.ttgo-t7-v14-mini32`
+> still shows the old value, delete that generated file and run `pio run` again.
 
 > ⚠️ **The partition table lives in `platformio.ini`, not sdkconfig.**
 > PlatformIO's ESP-IDF builder picks the partition CSV from

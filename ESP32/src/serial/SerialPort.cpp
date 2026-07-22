@@ -50,6 +50,21 @@ void SerialPort::end() {
   }
 }
 
+bool SerialPort::setBaudRate(int baud) {
+  if (!installed_) {
+    return false;
+  }
+  if (uart_set_baudrate(port_, baud) != ESP_OK) {
+    return false;
+  }
+  baud_ = baud;
+
+  // Anything already buffered arrived at the previous rate and would decode as
+  // noise, which a subsequent readLine() could mistake for a real reply.
+  uart_flush_input(port_);
+  return true;
+}
+
 void SerialPort::flushInput() {
   if (installed_) {
     uart_flush_input(port_);
