@@ -23,3 +23,12 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 # --- Smaller "nano" printf/scanf from newlib ---
 CONFIG_NEWLIB_NANO_FORMAT=y
+
+# --- Bigger main task stack (default 3584 B is not enough) ---
+# app_main() does not just wire objects together: it runs the whole tracking
+# loop, and that loop calls PayloadCrypto::encrypt() -> mbedTLS RSA-OAEP on the
+# main task's own stack. A single RSA modexp on a 3072/4096-bit key costs a few
+# kB of stack on its own, and the SD queue + MQTT publish calls that follow sit
+# on top of it. With the stock 3584 B the first fix reliably tripped
+# "***ERROR*** A stack overflow in task main has been detected."
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
