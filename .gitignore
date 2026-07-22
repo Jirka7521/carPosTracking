@@ -31,10 +31,6 @@ ESP32/.gcc-flags.json
 # The committed template is src/config/Config.example.h (no credentials).
 ESP32/src/config/Config.h
 
-# Desktop tools: generated key material. The private key protects every
-# message and must never be committed.
-ESP32/desktop
-
 # Python tool caches
 __pycache__/
 *.pyc
@@ -42,47 +38,4 @@ __pycache__/
 # ─────────────────────────────────────────────────────────────
 # API — C# / .NET
 # ─────────────────────────────────────────────────────────────
-API
-# Build output
-[Bb]in/
-[Oo]bj/
-[Dd]ebug/
-[Rr]elease/
-x64/
-x86/
-[Ww][Ii][Nn]32/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-build/
-bld/
-
-# Rider / Visual Studio user-specific files
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-.idea/
-
-# NuGet
-*.nupkg
-*.snupkg
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# ASP.NET secrets / local settings
-# Note: appsettings.Development.json is intentionally NOT ignored (VS convention —
-# it holds no real secrets; use user-secrets / secrets.json for those).
-# appsettings.json is the committed, secret-free example; appsettings.Local.json
-# holds the real connection string, broker password and device master key.
-appsettings.Local.json
-appsettings.*.local.json
-secrets.json
-
-# Test / coverage results
-[Tt]est[Rr]esult*/
-*.trx
-*.coverage
-*.coveragexml
-coverage*.json
-coverage*.xml
+API/
