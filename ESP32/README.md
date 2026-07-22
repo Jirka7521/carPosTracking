@@ -646,6 +646,37 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
+### Long filenames on the SD card
+
+```
+CONFIG_FATFS_LFN_HEAP=y     # sdkconfig.defaults; stock is CONFIG_FATFS_LFN_NONE
+CONFIG_FATFS_MAX_LFN=255
+```
+
+FatFs ships with long-filename support **off**, which limits the card to classic
+**8.3** names. Every file this firmware uses breaks that rule —
+`queue.jsonl` (5-char extension), `settings.json` (4-char), and the sibling
+`.tmp` files [`SdCard`](src/sdcard/SdCard.h) stages writes through
+(`queue.jsonl.tmp` — two dots). With LFN off the card mounts perfectly and then
+every `fopen()` fails with `ENOENT`, because FatFs rejects the *name*, not the
+card:
+
+```
+E (281850) SdCard: append: cannot open /sdcard/queue.jsonl
+E (281850) FixForwarder: offline and SD queue write failed - fix lost
+```
+
+This is easy to miss for two reasons: the healthy online path in
+[`FixForwarder`](src/sdcard/FixForwarder.h) never writes to the card, so the
+queue only breaks during an outage; and the settings cache fails *silently* —
+[`SdCard::readLines()`](src/sdcard/SdCard.h) treats "cannot open" as "no file
+yet", so the device just falls back to the `Config.h` defaults on every boot.
+
+`LFN_HEAP` keeps the name buffer on the heap rather than the (already tight)
+main-task stack. If you ever turn LFN back off, rename both files to 8.3 **and**
+change the temp-file naming to replace the extension instead of appending
+`.tmp`.
+
 > ⚠️ **Changing `sdkconfig.defaults` may not regenerate the sdkconfig.**
 > PlatformIO does not always notice the edit. If `sdkconfig.ttgo-t7-v14-mini32`
 > still shows the old value, delete that generated file and run `pio run` again.

@@ -24,6 +24,17 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # --- Smaller "nano" printf/scanf from newlib ---
 CONFIG_NEWLIB_NANO_FORMAT=y
 
+# --- Long filenames on the microSD card ---
+# FatFs defaults to CONFIG_FATFS_LFN_NONE, i.e. 8.3 names only. Under that rule
+# the card's files (`queue.jsonl`, `settings.json`, and the sibling `.tmp` files
+# SdCard stages writes through) are *invalid names*: fopen() fails with ENOENT
+# even though the card mounted fine. The queue only writes when the broker is
+# unreachable, so this stayed hidden until the first outage - and the settings
+# cache failed silently, falling back to the Config.h defaults every boot.
+# LFN_HEAP keeps the name buffer off the (already tight) stack.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
 # --- Bigger main task stack (default 3584 B is not enough) ---
 # app_main() does not just wire objects together: it runs the whole tracking
 # loop, and that loop calls PayloadCrypto::encrypt() -> mbedTLS RSA-OAEP on the
