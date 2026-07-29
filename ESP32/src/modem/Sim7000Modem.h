@@ -69,6 +69,15 @@ class Sim7000Modem {
   bool sendCommand(const char* cmd, uint32_t timeoutMs = 1000,
                    const char* terminator = "OK");
 
+  // Read the modem's own die temperature in degrees Celsius via AT+CPMUTEMP.
+  // This is the SIM7000's internal sensor - the board carries no battery/ambient
+  // sensor of its own, so it doubles as a "how hot is the device running?" proxy
+  // (the tracker has been seen to cut off in a 60 C+ car). Returns true and fills
+  // `celsiusOut` on success; on firmware that does not support the command, or a
+  // reply that will not parse, it logs a warning and returns false so the caller
+  // simply omits the temperature rather than reporting a bogus value.
+  bool readTemperatureC(float& celsiusOut);
+
   // Direct access for components (like the NMEA scanner) that need to read raw
   // lines straight from the UART.
   SerialPort& serial() { return serial_; }

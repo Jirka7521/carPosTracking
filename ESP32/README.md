@@ -19,6 +19,12 @@ reuse.
 
 - 📍 Read latitude, longitude, altitude, **speed** and **UTC time**.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
+- 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw instantaneous X/Y/Z
+  acceleration (in g) rides along with every position report.
+- 🔋 **Battery monitor**: pack state of charge from the modem's `AT+CBC`, mapped
+  through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
+  pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
+  the **modem die temperature** (`AT+CPMUTEMP`, published as `temp_c`).
 - 🔋 **Power the whole modem off** between reads to minimise battery drain
   (plus a lighter "GNSS engine only" off switch).
 - 📶 **Optional WiFi** (station mode): connect to a network with one flag, or
@@ -72,9 +78,14 @@ src/
 ├── crypto/
 │   ├── PayloadCrypto.h/.cpp ← Hybrid RSA-OAEP + AES-256-GCM payload encryption
 │
+├── sensors/
+│   ├── AccelData.h             ← Plain AccelSample struct (X/Y/Z in g)
+│   └── Adxl345.h/.cpp          ← I2C driver for the ADXL345 accelerometer
+│
 ├── mqtt/
 │   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
-│   └── TelemetryPublisher.h/.cpp← Fix → JSON → encrypt (seal/publish)
+│   ├── TelemetrySample.h        ← Aggregate: position + battery + accel
+│   └── TelemetryPublisher.h/.cpp← Sample → JSON → encrypt (seal/publish)
 │
 ├── sdcard/
 │   ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
@@ -88,6 +99,8 @@ src/
 │   └── RemoteSettings.h/.cpp ← Subscribe to the config topic; apply & persist
 │
 └── power/
+    ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
+    ├── BatteryMonitor.h/.cpp      ← Pack % via AT+CBC + charge-sense on GPIO35
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
 
@@ -130,9 +143,11 @@ test:
 | `CgnsinfParser` | Turn one `+CGNSINF:` line into a `GnssFix`. |
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
+| `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
+| `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35). |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope. |
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
-| `TelemetryPublisher` | Format a `GnssFix` as JSON and encrypt it (`sealFix`); publish one. |
+| `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
 | `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; drain the queue as a burst. |
@@ -176,6 +191,15 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
 | `kFixAcquireTimeoutSeconds` | `180` | Give up waiting for a fix after this long |
 | `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
+| **`kAdxlEnabled`** | `true` | **Enable/disable the ADXL345 accelerometer** |
+| `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
+| `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
+| `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
+| `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
+| **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
+| `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
+| `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
+| `kBatteryEmptyMv` / `kBatteryFullMv` | `3300` / `4200` | Clamp ends of the Li-ion SoC curve (≤empty→1 %, ≥full→100 %) |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
@@ -262,10 +286,26 @@ handle this, and [`TelemetryPublisher`](src/mqtt/TelemetryPublisher.h) glues
 them together:
 
 ```
-GnssFix ──(TelemetryPublisher formats)──► plaintext JSON
-        ──(PayloadCrypto seals)─────────► encrypted envelope
-        ──(MqttClient publishes)────────► broker topic  (devices/GNSSxx)
+TelemetrySample ──(TelemetryPublisher formats)──► plaintext JSON
+                ──(PayloadCrypto seals)─────────► encrypted envelope
+                ──(MqttClient publishes)────────► broker topic  (devices/GNSSxx)
 ```
+
+The plaintext JSON (before sealing) carries the position plus the optional
+sensor fields; the field names match the API's `PositionPayloadDto` exactly:
+
+```json
+{"device":"GNSS01","latitude_deg":50.08,"longitude_deg":14.42,
+ "speed_kmph":0.0,"altitude_m":210.0,"time_utc":"2026-07-23T10:00:00Z",
+ "battery_pct":87,"accel_x_g":0.01,"accel_y_g":-0.02,"accel_z_g":0.99,
+ "temp_c":31.0}
+```
+
+`battery_pct` (`0` = charging), `accel_x/y/z_g` and `temp_c` (modem die
+temperature in °C) are **omitted** when their sensor is disabled or a read
+failed, so an older decoder still parses the six location fields it knows. The
+raw pack millivolts are **not** on the wire — they stay on the serial console as
+a curve-calibration aid only.
 
 ### Transport — `MqttClient`
 
@@ -576,7 +616,21 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
   TOTAL            :    23        15
   Strongest signal : 44 dB-Hz
 -----------------------------------------
+---------------- SENSORS ----------------
+  Battery        : 87 % (3892 mV)
+  Accel X/Y/Z    : 0.01 / -0.02 / 0.99 g
+  Temperature    : 31.0 C
+-----------------------------------------
 ```
+
+The **SENSORS** block is printed beneath the satellite table after **every fix
+poll** while the device waits for a lock, so battery/accel/temperature are
+visible even before a fix arrives. `Battery` shows the percent with the raw pack
+millivolts in parentheses — a calibration aid for the Li-ion curve, and
+deliberately **not** published — or `charging (sentinel 0)` while the charger is
+connected, or `n/a` when the monitor is disabled or a read failed; `Accel X/Y/Z`
+shows the raw ADXL345 sample in g, or `n/a`; `Temperature` is the modem die
+temperature (published as `temp_c`), or `n/a` when unavailable.
 
 **Read the two satellite columns carefully — they mean different things:**
 
@@ -770,6 +824,17 @@ this checklist:
 | **Supply** | The SIM7000G draws **~2 A peaks**. USB alone frequently cannot boot it. Attach a charged LiPo to the JST connector — this is the most common cause. |
 | **PWRKEY polarity** | Most boards idle HIGH and pulse LOW. Some revisions invert this through a transistor: set `kModemPwrKeyActiveLow = false` in `Config.h`. |
 | **TX/RX** | `kModemTxPin` / `kModemRxPin` (`27` / `26`) are the T-SIM7000G factory pins; swapped wiring gives exactly this silence. |
+
+> **Big external / protected packs and heat.** A protected Li-ion pack (one with
+> a BMS / "load balancer") disconnects its own output on over-temperature,
+> over-current or over-discharge, and many stay latched until a **charger voltage
+> resets the protection FET** — so a device that "won't boot until you plug in the
+> charger" after a hot day (a 60 °C+ car is beyond Li-ion's safe range) is the
+> pack protecting itself, not a firmware fault, and `battery_pct` can read high at
+> the moment it cuts off. There is no software low-battery shutdown in this
+> firmware. Soften the ~2 A transmit sag with a bulk capacitor (1000–4700 µF)
+> across VBAT, short/thick leads, and a BMS rated for the peak current — and watch
+> `temp_c` to catch the heat before the cut-off.
 
 A *garbled* log (stray bytes rather than silence) points at the baud rate; total
 silence points at power or PWRKEY.

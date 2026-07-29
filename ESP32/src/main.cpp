@@ -1,4 +1,7 @@
 
+#include <cstdio>
+#include <functional>
+
 #include "config/Config.h"
 #include "crypto/PayloadCrypto.h"
 #include "esp_log.h"
@@ -6,10 +9,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "gnss/GnssModule.h"
+#include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
+#include "mqtt/TelemetrySample.h"
+#include "power/BatteryMonitor.h"
 #include "power/DeepSleepController.h"
+#include "sensors/Adxl345.h"
 #include "sdcard/FixForwarder.h"
 #include "sdcard/FixQueue.h"
 #include "sdcard/SdCard.h"
@@ -20,6 +27,42 @@
 #include "wifi/WifiManager.h"
 
 static const char* TAG = "main";
+
+// Pretty-print the onboard sensor readings to the serial console, styled to sit
+// directly alongside GnssModule's GNSS/satellite debug blocks. Only called when
+// config::kGnssDebug is on. Battery percent 0 is the "charging" sentinel, so it
+// is spelled out rather than shown as a misleading flat 0 %. The raw pack
+// millivolts are shown next to the percent purely as a calibration aid for the
+// Li-ion curve - they are deliberately kept out of the published payload. The
+// modem die temperature is shown too: it is the sensor that actually explains a
+// hot-car cut-off.
+static void debugPrintSensors(const BatteryStatus& battery,
+                              const AccelSample& accel,
+                              const ModemHealth& modem) {
+  printf("---------------- SENSORS ----------------\n");
+  if (!battery.valid) {
+    printf("  Battery        : n/a (disabled / read failed)\n");
+  } else if (battery.charging) {
+    printf("  Battery        : charging (sentinel 0)\n");
+  } else {
+    printf("  Battery        : %u %% (%u mV)\n", (unsigned)battery.percent,
+           (unsigned)battery.millivolts);
+  }
+
+  if (accel.valid) {
+    printf("  Accel X/Y/Z    : %.2f / %.2f / %.2f g\n", accel.xG, accel.yG,
+           accel.zG);
+  } else {
+    printf("  Accel X/Y/Z    : n/a (disabled / read failed)\n");
+  }
+
+  if (modem.valid) {
+    printf("  Temperature    : %.1f C\n", modem.temperatureC);
+  } else {
+    printf("  Temperature    : n/a (unavailable)\n");
+  }
+  printf("-----------------------------------------\n\n");
+}
 
 extern "C" void app_main(void) {
   // Undo the PWRKEY latch left behind by a previous deep sleep. This must happen
@@ -59,6 +102,36 @@ extern "C" void app_main(void) {
   if (!gnss.begin()) {
     ESP_LOGE(TAG, "GNSS init failed - check wiring and power. Halting.");
     return;
+  }
+
+  // Optional onboard sensors carried in every report: the ADXL345 accelerometer
+  // (I2C) and the battery monitor (charge-sense ADC + modem AT+CBC). Both are
+  // optional in the WiFi/SD sense - a failed bring-up logs a warning and tracking
+  // continues, just without that field in the payload.
+  static Adxl345 accel(config::kI2cSdaPin, config::kI2cSclPin,
+                       config::kI2cClockHz, config::kAdxlI2cAddress);
+  if (config::kAdxlEnabled) {
+    if (accel.begin()) {
+      ESP_LOGI(TAG, "ADXL345 accelerometer ready.");
+    } else {
+      ESP_LOGW(TAG, "ADXL345 unavailable - accel fields will be omitted.");
+    }
+  } else {
+    ESP_LOGI(TAG, "ADXL345 disabled in Config.h.");
+  }
+
+  static BatteryMonitor battery(modem, config::kBatteryChargeSensePin,
+                                config::kBatteryChargeAdcThreshold,
+                                config::kBatteryEmptyMv, config::kBatteryFullMv);
+  if (config::kBatteryEnabled) {
+    if (battery.begin()) {
+      ESP_LOGI(TAG, "Battery monitor ready.");
+    } else {
+      ESP_LOGW(TAG,
+               "Battery monitor unavailable - battery field will be omitted.");
+    }
+  } else {
+    ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
 
   // microSD store-and-forward. When the broker cannot be reached, each fix is
@@ -141,11 +214,34 @@ extern "C" void app_main(void) {
            (unsigned)settings.intervalSeconds(),
            settings.sleepBetweenSends() ? "yes" : "no");
 
+  // Debug-only hook run after every fix poll, so the battery and accelerometer
+  // status print beneath each satellite table while we wait for a fix - not just
+  // once the wait ends. Left empty in production builds (kGnssDebug == false),
+  // so there is no extra per-poll modem traffic between reports.
+  std::function<void()> reportSensors;
+  if (config::kGnssDebug) {
+    reportSensors = [&accel, &battery, &modem]() {
+      BatteryStatus batteryStatus;
+      AccelSample   accelSample;
+      ModemHealth   modemHealth;
+      if (config::kBatteryEnabled) {
+        battery.read(batteryStatus);
+        // Temperature rides along with the battery/health read (same modem, one
+        // extra AT round-trip) rather than earning its own feature flag.
+        modemHealth.valid = modem.readTemperatureC(modemHealth.temperatureC);
+      }
+      if (config::kAdxlEnabled) {
+        accel.read(accelSample);
+      }
+      debugPrintSensors(batteryStatus, accelSample, modemHealth);
+    };
+  }
+
   while (true) {
     GnssFix    fix;
     const bool haveFix =
         gnss.waitForFix(fix, config::kFixAcquireTimeoutSeconds * 1000,
-                        config::kFixPollStepMs);
+                        config::kFixPollStepMs, reportSensors);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
     // what keeps the cadence steady: however long sealing, connecting and
@@ -153,15 +249,33 @@ extern "C" void app_main(void) {
     // after this position was taken rather than drifting later every cycle.
     const int64_t fixCapturedUs = esp_timer_get_time();
 
+    // Assemble the report to forward: the position plus the optional onboard
+    // sensors. Each read fills in its own `valid` flag; a disabled or failed
+    // sensor simply leaves its slice absent from the published JSON. We read the
+    // sensors here only for a fix we will actually publish - the debug callback
+    // above is a separate, debug-only read that runs during the wait.
+    TelemetrySample sample;
+    sample.gnss = fix;
+
     if (haveFix) {
+      if (config::kAdxlEnabled) {
+        accel.read(sample.accel);
+      }
+      if (config::kBatteryEnabled) {
+        battery.read(sample.battery);
+        // The modem die temperature rides along with the battery read (see the
+        // debug lambda above). Published as temp_c when the read succeeds.
+        sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
+      }
+
       ESP_LOGI(TAG, "Fix: %.6f, %.6f  %.1f km/h", fix.position.latitudeDeg,
                fix.position.longitudeDeg, fix.speedKmph);
 
-      // Hand the fix to the forwarder: it publishes it (plus any backlog) as
+      // Hand the sample to the forwarder: it publishes it (plus any backlog) as
       // an encrypted burst when the broker is reachable, or stores it on the
       // SD card when it is not - so nothing is lost during an outage.
       if (config::kMqttEnabled) {
-        forwarder.process(fix);
+        forwarder.process(sample);
       }
     }
 

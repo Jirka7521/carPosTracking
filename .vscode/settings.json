@@ -5,6 +5,25 @@
     // a .NET 10 "file-based app", and every project namespace and NuGet
     // reference reports as missing (CS0246 / CS0234 on the using directives).
     "dotnet.defaultSolution": "API/CarPos.sln",
+    // The publisher (Ctrl+Shift+M) writes Application/, which holds a COPY of the
+    // API and FE sources — including CarPos.sln and both csproj files. Left visible
+    // to the tooling, the C# extension loads that second copy as another project:
+    // duplicate Go-to-Definition results, needless CPU, and — the reason these
+    // excludes exist — a language-server handle on Application\api-src that made a
+    // re-run of the publisher fail with "being used by another process".
+    //
+    // Application/ is a build artifact (git-ignored, regenerated on every publish),
+    // so hiding it here costs nothing; the script prints its absolute path when it
+    // finishes, and Windows Explorer still shows it for copying to the Pi.
+    "files.exclude": {
+        "**/Application": true
+    },
+    "search.exclude": {
+        "**/Application": true
+    },
+    "files.watcherExclude": {
+        "**/Application/**": true
+    },
     "python-envs.pythonProjects": [
         {
             "path": ".",

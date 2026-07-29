@@ -45,3 +45,11 @@ API/
 FE/
 Container/App/.env.example
 Container/App/docker-compose.yml
+scripts
+
+# ─────────────────────────────────────────────────────────────
+# Generated deployment bundle (scripts/Publish-Deployment.ps1, Ctrl+Shift+M)
+# ─────────────────────────────────────────────────────────────
+# The publisher writes Application/ with a real .env (live secrets) plus copies
+# of the API and FE sources. It is a build artifact — never commit it.
+/Application/

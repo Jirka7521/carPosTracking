@@ -81,6 +81,58 @@ constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
 constexpr uint32_t kFixPollStepMs            = 2000;
 
 // -----------------------------------------------------------------------------
+//  ADXL345 accelerometer (GY-291) over I2C.
+//
+//  A 3-axis accelerometer wired to the ESP32's I2C bus. With the
+//  breakout's CS tied to 3V3 and SDO to GND it answers on I2C address 0x53. Each
+//  position report carries the raw instantaneous X/Y/Z acceleration in g.
+//
+//  Set kAdxlEnabled to `false` to skip the sensor entirely; the driver is then
+//  compiled out and the accel fields are simply absent from the payload.
+//
+//  INT1/INT2 are physically wired (GPIO32/33) but unused for now - reserved for a
+//  future motion/tap interrupt that could wake the device early.
+// -----------------------------------------------------------------------------
+constexpr bool kAdxlEnabled = true;
+
+constexpr int      kI2cSdaPin      = 21;      // ESP32 SDA -> ADXL345 SDA
+constexpr int      kI2cSclPin      = 22;      // ESP32 SCL -> ADXL345 SCL
+constexpr uint32_t kI2cClockHz     = 400000;  // 400 kHz fast-mode I2C
+constexpr uint8_t  kAdxlI2cAddress = 0x53;    // CS->3V3, SDO->GND
+
+constexpr int kAdxlInt1Pin = 32;  // reserved (interrupts not used yet)
+constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
+
+// -----------------------------------------------------------------------------
+//  Battery monitor (single-cell Li-ion pack, incl. 1S parallel packs).
+//
+//  The pack percentage is read from the modem's AT+CBC (no extra ADC wiring) and
+//  mapped to 0-100 % through a Li-ion discharge curve (see BatteryMonitor.cpp).
+//  Charging is detected on GPIO35: the board's charger
+//  pulls that pin to ~0 while charging, so when its ADC reads below
+//  kBatteryChargeAdcThreshold the monitor reports the sentinel percent = 0, which
+//  the API/FE render as "charging".
+//
+//  While enabled the monitor ALSO reports the modem's die temperature (AT+CPMUTEMP,
+//  published as temp_c) - one extra AT round-trip on the same modem, no separate
+//  flag. It is a proxy for how hot the device is running (the pack has no sensor).
+//
+//  Set kBatteryEnabled to `false` to skip the monitor; the battery AND temperature
+//  fields are then absent from the payload.
+// -----------------------------------------------------------------------------
+constexpr bool kBatteryEnabled = true;
+
+constexpr int kBatteryChargeSensePin     = 35;   // ADC1_CH7, input-only
+constexpr int kBatteryChargeAdcThreshold = 200;  // raw counts; below => charging
+
+// Outer clamps for the Li-ion state-of-charge curve: at or below kBatteryEmptyMv
+// reads 1 %, at or above kBatteryFullMv reads 100 %, and the curve shapes
+// everything in between. They bracket a single Li-ion cell's usable range; the
+// result is clamped to 1..100 so that 0 stays an unambiguous "charging" sentinel.
+constexpr uint32_t kBatteryEmptyMv = 3300;  // ~0 %
+constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
+
+// -----------------------------------------------------------------------------
 //  WiFi (station mode).
 //
 //  ⚠ SECRETS: fill kWifiSsid / kWifiPassword in your local Config.h only. Leave

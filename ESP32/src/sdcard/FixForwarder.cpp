@@ -65,12 +65,12 @@ bool FixForwarder::drainQueue() {
   return true;
 }
 
-void FixForwarder::process(const GnssFix& fix) {
-  // 1. Seal the fix into the exact envelope that would be transmitted - the same
-  //    bytes are used whether we send now or store for later.
+void FixForwarder::process(const TelemetrySample& sample) {
+  // 1. Seal the sample into the exact envelope that would be transmitted - the
+  //    same bytes are used whether we send now or store for later.
   std::string envelope;
-  if (!publisher_.sealFix(fix, envelope)) {
-    ESP_LOGE(TAG, "could not seal fix - dropping this reading");
+  if (!publisher_.sealSample(sample, envelope)) {
+    ESP_LOGE(TAG, "could not seal sample - dropping this reading");
     return;
   }
 

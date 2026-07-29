@@ -28,9 +28,9 @@
 #include <string>
 #include <vector>
 
-#include "gnss/GnssData.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
+#include "mqtt/TelemetrySample.h"
 #include "sdcard/FixQueue.h"
 
 class FixForwarder {
@@ -45,8 +45,9 @@ class FixForwarder {
   FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt, FixQueue& queue,
                const char* topic, uint32_t ackTimeoutMs, std::size_t maxBurst);
 
-  // Handle one fix end to end: publish it (with any backlog) or store it.
-  void process(const GnssFix& fix);
+  // Handle one telemetry sample end to end: publish it (with any backlog) or
+  // store it.
+  void process(const TelemetrySample& sample);
 
  private:
   // Send queued envelopes in bursts of up to maxBurst_ until the queue is empty

@@ -1,5 +1,6 @@
 #include "Sim7000Modem.h"
 
+#include <cstdlib>
 #include <cstring>
 
 #include "config/Config.h"
@@ -212,4 +213,65 @@ bool Sim7000Modem::sendCommand(const char* cmd, char* response,
 bool Sim7000Modem::sendCommand(const char* cmd, uint32_t timeoutMs,
                                const char* terminator) {
   return sendCommand(cmd, nullptr, 0, timeoutMs, terminator);
+}
+
+bool Sim7000Modem::readTemperatureC(float& celsiusOut) {
+  // -------------------------------------------------------------------------
+  // TEMPORARY diagnostic (remove once the CPMUTEMP question is settled): the
+  // command errors either because RF is off (CFUN=0/4) or because the firmware
+  // does not implement it. Run the activation sequence ONCE, logging every raw
+  // reply, so a single boot tells us which it is: force full functionality,
+  // dump the firmware revision, then probe the sensor again.
+  static bool probed = false;
+  if (!probed) {
+    probed = true;
+    char dbg[64] = {0};
+    sendCommand("AT+CFUN?", dbg, sizeof(dbg), 1000, "OK");
+    ESP_LOGW(TAG, "[probe] AT+CFUN? -> [%s]", dbg);
+    dbg[0] = '\0';
+    const bool cfunOk = sendCommand("AT+CFUN=1", dbg, sizeof(dbg), 10000, "OK");
+    ESP_LOGW(TAG, "[probe] AT+CFUN=1 -> %s [%s]", cfunOk ? "OK" : "FAIL", dbg);
+    dbg[0] = '\0';
+    sendCommand("AT+GMR", dbg, sizeof(dbg), 1000, "OK");
+    ESP_LOGW(TAG, "[probe] AT+GMR -> [%s]", dbg);
+    dbg[0] = '\0';
+    const bool tOk = sendCommand("AT+CPMUTEMP", dbg, sizeof(dbg), 1000, "OK");
+    ESP_LOGW(TAG, "[probe] AT+CPMUTEMP after CFUN=1 -> %s [%s]",
+             tOk ? "OK" : "FAIL", dbg);
+  }
+  // -------------------------------------------------------------------------
+
+  // AT+CPMUTEMP answers "+CPMUTEMP: <celsius>" on SIM7000-series firmware. Some
+  // revisions (or builds without the sensor enabled) reply ERROR instead, which
+  // sendCommand reports as false - we treat that as "no reading available".
+  char resp[64] = {0};
+  if (!sendCommand("AT+CPMUTEMP", resp, sizeof(resp), 1000, "OK")) {
+    // Echo whatever the modem actually sent so the two failure modes can be told
+    // apart: a non-empty buffer holding "ERROR" means the firmware rejected the
+    // command (unsupported revision, or RF off in CFUN=0/4), while an empty
+    // buffer means it timed out with no reply at all - each needs a different fix.
+    ESP_LOGW(TAG,
+             "AT+CPMUTEMP did not answer (temperature unavailable); raw reply: [%s]",
+             resp);
+    return false;
+  }
+
+  const char* tag = strstr(resp, "+CPMUTEMP:");
+  if (tag == nullptr) {
+    ESP_LOGW(TAG, "AT+CPMUTEMP reply carried no +CPMUTEMP field");
+    return false;
+  }
+  tag += 10;  // skip past "+CPMUTEMP:"
+
+  // The value is the first (and only) number on the line; strtod skips the
+  // leading space and stops at the CR/LF.
+  char*        endPtr = nullptr;
+  const double value  = strtod(tag, &endPtr);
+  if (endPtr == tag) {
+    ESP_LOGW(TAG, "could not parse AT+CPMUTEMP temperature");
+    return false;
+  }
+
+  celsiusOut = static_cast<float>(value);
+  return true;
 }

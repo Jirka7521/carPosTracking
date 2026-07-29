@@ -128,7 +128,8 @@ bool GnssModule::readFix(GnssFix& fix) {
 }
 
 bool GnssModule::waitForFix(GnssFix& fix, uint32_t timeoutMs,
-                            uint32_t pollStepMs) {
+                            uint32_t pollStepMs,
+                            const std::function<void()>& onEachRead) {
   const int64_t deadlineUs =
       esp_timer_get_time() + static_cast<int64_t>(timeoutMs) * 1000;
 
@@ -138,7 +139,16 @@ bool GnssModule::waitForFix(GnssFix& fix, uint32_t timeoutMs,
   while (true) {
     // A transport failure is not fatal here - the modem may still be settling
     // after power-on - so we log it and keep polling until the deadline.
-    if (readFix(fix) && fix.hasFix()) {
+    const bool gotFix = readFix(fix) && fix.hasFix();
+
+    // Let the caller report after this poll (e.g. print battery/accel beneath
+    // the satellite table readFix just produced), on every poll including the
+    // one that finally gets the fix.
+    if (onEachRead) {
+      onEachRead();
+    }
+
+    if (gotFix) {
       return true;
     }
 

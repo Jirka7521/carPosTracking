@@ -1,24 +1,27 @@
 #pragma once
 
 // =============================================================================
-//  TelemetryPublisher  -  Turn a GNSS fix into an encrypted MQTT message.
+//  TelemetryPublisher  -  Turn a telemetry sample into an encrypted MQTT message.
 // -----------------------------------------------------------------------------
-//  Responsibility (single!): take one GnssFix, format it as the agreed JSON,
-//  encrypt that JSON end-to-end, and publish the envelope to the topic. It is
-//  the glue that wires GNSS + crypto + transport together, while each of those
-//  stays a small, independent class:
+//  Responsibility (single!): take one TelemetrySample (position + battery +
+//  accelerometer), format it as the agreed JSON, encrypt that JSON end-to-end,
+//  and publish the envelope to the topic. It is the glue that wires the sensors
+//  + crypto + transport together, while each of those stays a small, independent
+//  class:
 //
-//      GnssFix --(this class formats)--> plaintext JSON
-//              --(PayloadCrypto)-------> encrypted envelope
-//              --(MqttClient)----------> broker topic
+//      TelemetrySample --(this class formats)--> plaintext JSON
+//                      --(PayloadCrypto)-------> encrypted envelope
+//                      --(MqttClient)----------> broker topic
 //
-//  The plaintext JSON field names match the desktop GnssPayload exactly, so the
-//  Python subscriber decodes it directly.
+//  The plaintext JSON field names match the API's PositionPayloadDto exactly, so
+//  the ingest subscriber decodes it directly. Battery/accel fields are only
+//  emitted when their reading is valid, so an older decoder still parses the
+//  position fields it knows.
 // =============================================================================
 
 #include "crypto/PayloadCrypto.h"
-#include "gnss/GnssData.h"
 #include "mqtt/MqttClient.h"
+#include "mqtt/TelemetrySample.h"
 
 class TelemetryPublisher {
  public:
@@ -31,20 +34,20 @@ class TelemetryPublisher {
   TelemetryPublisher(MqttClient& mqtt, PayloadCrypto& crypto, const char* topic,
                      const char* deviceId);
 
-  // Format `fix` (latitude, longitude, speed, altitude, time), encrypt it and
-  // publish it. Returns true if the encrypted message was handed to the broker.
-  bool publishFix(const GnssFix& fix);
+  // Format `sample` (position + battery + accel), encrypt it and publish it.
+  // Returns true if the encrypted message was handed to the broker.
+  bool publishSample(const TelemetrySample& sample);
 
-  // Format `fix` and encrypt it into the wire envelope, WITHOUT publishing.
+  // Format `sample` and encrypt it into the wire envelope, WITHOUT publishing.
   // On success writes the envelope to `envelopeOut` and returns true. This is
   // what the store-and-forward path (FixForwarder) uses so it can either
   // transmit the envelope now or persist the very same bytes to the SD queue.
-  bool sealFix(const GnssFix& fix, std::string& envelopeOut) const;
+  bool sealSample(const TelemetrySample& sample, std::string& envelopeOut) const;
 
  private:
-  // Build the compact plaintext JSON for `fix`. Field names mirror the desktop
-  // GnssPayload so both sides agree on the format.
-  std::string buildPayloadJson(const GnssFix& fix) const;
+  // Build the compact plaintext JSON for `sample`. Field names mirror the API's
+  // PositionPayloadDto so both sides agree on the format.
+  std::string buildPayloadJson(const TelemetrySample& sample) const;
 
   MqttClient&    mqtt_;
   PayloadCrypto& crypto_;

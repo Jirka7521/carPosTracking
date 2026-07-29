@@ -17,6 +17,8 @@
 //      gnss.powerOffModule();     // sleep to save battery
 // =============================================================================
 
+#include <functional>
+
 #include "gnss/GnssData.h"
 #include "gnss/NmeaParser.h"
 #include "modem/Sim7000Modem.h"
@@ -59,7 +61,14 @@ class GnssModule {
   // powers the modem down between reports pays that cost on every single wake.
   // The timeout is what stops a device parked in a garage from staying awake
   // indefinitely waiting for satellites it will never see.
-  bool waitForFix(GnssFix& fix, uint32_t timeoutMs, uint32_t pollStepMs);
+  //
+  // `onEachRead`, if set, is called once after every poll (right after this
+  // module's own GNSS/satellite debug output), whether or not the fix arrived.
+  // It lets the caller interleave its own per-poll reporting - e.g. printing
+  // battery/accelerometer status beneath each satellite table - without this
+  // class needing to know anything about those sensors.
+  bool waitForFix(GnssFix& fix, uint32_t timeoutMs, uint32_t pollStepMs,
+                  const std::function<void()>& onEachRead = {});
 
   // Count satellites in view per constellation by listening to NMEA output for
   // `scanMs` milliseconds. Heavier than readFix(); mainly used for debugging.
