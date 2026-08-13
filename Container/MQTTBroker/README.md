@@ -18,12 +18,47 @@ browser / desktop ──wss://jimajer.cz/mqttBroker──►    │
   Cloudflare, so nothing here needs certificates.
 - **autoheal** — restarts a container that has gone unhealthy (see below).
 - **MQTTpublic** — the shared Docker network. Both this and the Postgres stack
-  join it as `external`, so it has to exist before either comes up.
+  join it as `external`, so it has to exist before either comes up. It is a
+  **macvlan** network on the LAN, so every container is an ordinary device on
+  `192.168.124.0/24` with its own address — not something reached through a
+  published port on the Pi.
+
+### Addresses
+
+Every container's address is **pinned** in its compose file (`ipv4_address`).
+Without that, Docker's IPAM hands out whatever is free at start-up, so the
+addresses depend on which container won the boot race — and a reboot could swap
+the API and the frontend, breaking what `carposbe.local` / `carposfe.local`
+resolve to. Pinning them makes start order irrelevant:
+
+| Address | Container | Compose file |
+|---|---|---|
+| `192.168.124.1` | the LAN gateway (router) | — |
+| `192.168.124.2` | `carpos-mosquitto` | `Container/MQTTBroker` |
+| `192.168.124.3` | `carpos-mqtt-nginx` | `Container/MQTTBroker` |
+| `192.168.124.4` | `carpos-postgres` | `Container/Postgres` |
+| `192.168.124.5` | `carpos-api` | the deployment bundle / `Container/App` |
+| `192.168.124.6` | `carpos-fe` | the deployment bundle / `Container/App` |
+
+`carpos-autoheal` is `network_mode: none` and has no address at all.
+
+Two consequences of macvlan worth knowing before debugging anything: the **Pi
+itself cannot reach its own containers** on these addresses (that is how macvlan
+works — test from another machine), and Docker's IPAM knows nothing about your
+router's DHCP pool, so keep `.2`–`.6` out of it or reserve them.
 
 ## Setup
 
 ```bash
-docker network create MQTTpublic   # once per host; shared with the Postgres stack
+# Once per host; shared with the Postgres stack and the deployment bundle.
+# The driver, subnet and gateway are NOT optional: compose can only pin an
+# ipv4_address on a network whose subnet was configured here, and `-o parent`
+# has to name the Pi's real LAN interface (check with `ip -4 addr`).
+docker network create -d macvlan \
+  --subnet 192.168.124.0/24 \
+  --gateway 192.168.124.1 \
+  -o parent=eth0 \
+  MQTTpublic
 
 cd Container/MQTTBroker
 cp .env.example .env
@@ -181,4 +216,8 @@ docker compose down -v       # also wipe retained messages and passwords
 ```
 
 The `MQTTpublic` network outlives both stacks; remove it with
-`docker network rm MQTTpublic` once nothing is attached.
+`docker network rm MQTTpublic` once nothing is attached. Re-create it with the
+full command from [Setup](#setup) — a bare `docker network create MQTTpublic`
+gives you a bridge with a Docker-picked subnet, and every container then fails to
+start with *"user specified IP address is supported only when connecting to
+networks with user configured subnets"*.

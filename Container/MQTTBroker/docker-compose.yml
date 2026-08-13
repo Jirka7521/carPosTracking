@@ -41,6 +41,11 @@ services:
       - mosquitto_secrets:/mosquitto/secrets
     networks:
       MQTTpublic:
+        # Pinned, because MQTTpublic is macvlan: this is a real address on the LAN,
+        # not an internal one, and without the pin it is whatever IPAM had free when
+        # this container happened to start - which after a reboot is a lottery.
+        # The subnet itself belongs to the network (see README), never to compose.
+        ipv4_address: 192.168.124.2
         aliases:
           # nginx.conf proxies to mqtt.local, which is mDNS on the LAN and does not
           # resolve inside a container. This alias makes the name resolve to this
@@ -78,7 +83,10 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
-      - MQTTpublic
+      MQTTpublic:
+        # Same reasoning as the broker above: a fixed LAN address, so a reboot
+        # cannot shuffle it with whatever else joins the network.
+        ipv4_address: 192.168.124.3
     healthcheck:
       # Proves nginx serves AND that its upstream is reachable - a bare /healthz
       # would still pass with a dead broker behind it.
