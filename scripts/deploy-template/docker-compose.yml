@@ -1,0 +1,186 @@
+# ---------------------------------------------------------------------------
+# CarPos deployment bundle — API + frontend in one stack.
+#
+# Copied verbatim into Application/ by scripts/Publish-Deployment.ps1, which also
+# drops the built sources next to it (./api-src, ./fe-src) and a .env with the
+# real secrets. Copy Application/ to the server and `docker compose up -d --build`.
+#
+# Addressing, in one place, because it is the thing that breaks deployments:
+# BE_HOST / FE_HOST are the LAN names your DHCP server serves (carposbe.local,
+# carposfe.local). Each is ALSO registered below as a network alias on
+# MQTTpublic, so the very same name resolves inside the containers — straight to
+# the container, never out to the LAN and back. That is what lets nginx, the
+# healthcheck and a browser all use one address.
+#
+# Both containers also have a PINNED ipv4_address below. MQTTpublic is a macvlan
+# network, so those are real LAN addresses - the ones your DNS answers BE_HOST and
+# FE_HOST with - and Docker's IPAM would otherwise hand them out in start order,
+# which after a reboot is a lottery. Pinning them is what makes boot order stop
+# mattering. The address map is in Container/MQTTBroker/README.md.
+#
+# The catch: an alias resolves to the CONTAINER port (8080 api, 80 fe), while the
+# LAN name resolves to the host and hits the PUBLISHED port. Keep BE_PORT=8080
+# and FE_PORT=80 and the two are identical everywhere; change them and the same
+# name needs a different port depending on which side you are on.
+# ---------------------------------------------------------------------------
+services:
+  api:
+    build:
+      context: ./api-src
+      dockerfile: Dockerfile
+    image: carpos-api:latest
+    container_name: carpos-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # --- Database -------------------------------------------------------
+      # The runtime role is BE (DML only, no DDL). Migrations are applied by
+      # hand as admin — never automatically on start-up, so a deploy can never
+      # rewrite the schema by surprise. "postgres" resolves on the shared
+      # network below.
+      ConnectionStrings__CarPos: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${BE_USER:?set BE_USER in .env};Password=${BE_PASSWORD:?set BE_PASSWORD in .env}
+
+      # --- MQTT ------------------------------------------------------------
+      # Points at Mosquitto on the shared network, so no MQTT traffic leaves the
+      # host — which is why plaintext ws:// is accepted here. Payloads are
+      # end-to-end encrypted by the firmware regardless.
+      #
+      # This same value is written into firmware as kMqttBrokerUri, and a
+      # container-internal address is NOT reachable by a device — generated
+      # provisioning snippets need that line replaced by hand.
+      Mqtt__BrokerUri: ${MQTT_BROKER_URI:?set MQTT_BROKER_URI in .env}
+      Mqtt__Username: ${MQTT_USERNAME:?set MQTT_USERNAME in .env}
+      Mqtt__Password: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+
+      # --- Secrets --------------------------------------------------------
+      # Both validated at start-up: the master key must decode to exactly 32
+      # bytes, the signing key must be at least 32. A deployment missing either
+      # fails fast instead of running broken.
+      DeviceKeyProtection__MasterKeyBase64: ${DEVICE_KEY_MASTER_KEY:?set DEVICE_KEY_MASTER_KEY in .env}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+
+      # --- Session cookie --------------------------------------------------
+      # A browser will not store or return a Secure cookie over plain http://, so
+      # serving the dashboard on a LAN address (no TLS) requires this to be false
+      # — otherwise sign-in appears to succeed and every request after it 401s.
+      # Leave it true whenever TLS terminates in front.
+      AuthCookie__SecureCookies: ${AUTH_SECURE_COOKIES:-true}
+
+      # --- Published path prefix -------------------------------------------
+      # The Cloudflare tunnel routes /carPosAPI/* to this container and forwards
+      # the prefix as part of the path — a tunnel cannot strip it — so the API
+      # strips it itself (UsePathBase). Only requests that actually carry the
+      # prefix are affected: /health from inside this network and
+      # /carPosAPI/health through the tunnel both work. Empty to turn it off.
+      Hosting__PathBase: ${API_PATH_BASE-/carPosAPI}
+    ports:
+      # Normal traffic reaches the API through the frontend's nginx. This mapping
+      # exists for what nginx deliberately will not forward: /health and /openapi.
+      #
+      # Setting BE_BIND_ADDR to a real interface publishes the ENTIRE API there in
+      # plaintext, sign-in endpoints included — a trusted-network choice, not a
+      # debugging convenience. Docker rejects a hostname on the host side of a
+      # port binding, hence the resolved BE_BIND_ADDR rather than BE_HOST.
+      - "${BE_BIND_ADDR:-127.0.0.1}:${BE_PORT:-8080}:8080"
+    networks:
+      MQTTpublic:
+        # Pinned, and it has to be: MQTTpublic is macvlan, so this is the real LAN
+        # address your DNS answers BE_HOST with. Left to IPAM it is simply the next
+        # free slot at start-up, so a reboot that brings the frontend up first hands
+        # this address to the wrong container and BE_BIND_ADDR in .env stops being
+        # true. The subnet belongs to the network (see the MQTTBroker README).
+        ipv4_address: 192.168.124.5
+        aliases:
+          # Makes BE_HOST (e.g. carposbe.local) resolve to this container for
+          # everything on the network — the frontend's nginx and this service's
+          # own healthcheck below. Without it the name only resolves via LAN DNS,
+          # which from inside a container means hairpinning back through the
+          # host's published port: that is exactly what left the API "unhealthy"
+          # while it was in fact serving fine.
+          - ${BE_HOST:?set BE_HOST in .env}
+    healthcheck:
+      # /health checks the database connection and the MQTT ingest's state, so
+      # this is real readiness, not "the process is up".
+      #
+      # Probed via BE_URL — the same address the frontend proxies to — so a broken
+      # name fails here, loudly, instead of surfacing as nginx refusing to boot
+      # with "host not found in upstream".
+      #
+      # -nv rather than -q: the body still goes to /dev/null, but wget's reason for
+      # failing (a DNS miss, a refused connection, a 503) reaches the health log,
+      # where `docker inspect --format '{{json .State.Health}}' carpos-api` shows
+      # it. A silent probe only ever tells you "unhealthy", which is the least
+      # useful half of the answer.
+      test: ["CMD-SHELL", "wget -nv -O /dev/null ${BE_URL:?set BE_URL in .env}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # RSA key generation and the first EF model build make a cold start slow.
+      start_period: 40s
+
+  fe:
+    build:
+      context: ./fe-src
+      dockerfile: Dockerfile
+    image: carpos-fe:latest
+    container_name: carpos-fe
+    restart: unless-stopped
+    depends_on:
+      api:
+        # nginx resolves its proxy_pass upstream at start-up and refuses to run if
+        # it cannot, so the API container must exist first. Waiting for healthy
+        # (not merely started) also keeps the first page load off a 502.
+        condition: service_healthy
+    environment:
+      # Written into /config.js at container start (docker-entrypoint.sh), so the
+      # image itself is environment-independent.
+      CARPOS_GOOGLE_MAPS_API_KEY: ${CARPOS_GOOGLE_MAPS_API_KEY:?set CARPOS_GOOGLE_MAPS_API_KEY in .env}
+
+      # Path prefix the dashboard is published under. The tunnel routes
+      # /carPosFE/* here with the prefix still on the path, so nginx strips it
+      # and stamps it into the served index.html as its <base href>; the SPA
+      # reads it back and prefixes its routes and /api calls to match. The
+      # un-prefixed root keeps working at the same time — that is what the
+      # published port and the healthcheck use. Empty disables the handling.
+      CARPOS_BASE_PATH: ${FE_BASE_PATH-/carPosFE}
+
+      # Where nginx proxies /api/ — substituted into the site config by the same
+      # entrypoint. The same BE_URL the healthcheck probes: one backend address
+      # in .env, not one per consumer.
+      CARPOS_BE_URL: ${BE_URL:?set BE_URL in .env}
+    ports:
+      # FE_BIND_ADDR is FE_HOST resolved (Docker rejects a hostname here). The
+      # address must already exist on the host or the container fails with
+      # "cannot assign requested address" — check with `ip -4 addr`.
+      #
+      # A LAN address serves the dashboard over plain HTTP: the session cookie
+      # crosses the network in clear and AUTH_SECURE_COOKIES must be false.
+      # Trusted networks only.
+      - "${FE_BIND_ADDR:-127.0.0.1}:${FE_PORT:-80}:80"
+    networks:
+      MQTTpublic:
+        # Same reasoning as the API's pin above - the LAN address FE_HOST resolves
+        # to, fixed here rather than handed out in start order.
+        ipv4_address: 192.168.124.6
+        aliases:
+          # Same reasoning as the API's alias: FE_HOST resolves to this container
+          # from inside the network, and to the host from the LAN.
+          - ${FE_HOST:?set FE_HOST in .env}
+    healthcheck:
+      # Loopback on purpose, not FE_URL: FE_URL is the public address, so probing
+      # it would leave the host, traverse the tunnel and come back — turning any
+      # DNS or tunnel hiccup into a container marked unhealthy.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/index.html >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Created by the Mosquitto broker stack (docker network create MQTTpublic);
+  # joined here, not created, so the API reaches postgres and the broker by name.
+  MQTTpublic:
+    name: MQTTpublic
+    external: true

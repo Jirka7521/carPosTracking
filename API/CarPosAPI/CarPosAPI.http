@@ -1,0 +1,31 @@
+@CarPosAPI_HostAddress = http://localhost:5135
+
+# Liveness probe — reports Healthy / Degraded (MQTT disconnected) / Unhealthy (DB down).
+GET {{CarPosAPI_HostAddress}}/health
+Accept: application/json
+
+###
+
+# Provision a device: generates its RSA-3072 key pair and returns the public half
+# plus a paste-ready Config.h block. Development only — the endpoint is not mapped
+# in Production (see Program.cs). Repeating the same deviceId answers 409.
+POST {{CarPosAPI_HostAddress}}/api/devices
+Content-Type: application/json
+Accept: application/json
+
+{
+  "deviceId": "GNSS02",
+  "displayName": "Test car"
+}
+
+###
+
+# Rejected by validation: '/' would break out of the devices/<id> topic segment.
+POST {{CarPosAPI_HostAddress}}/api/devices
+Content-Type: application/json
+
+{
+  "deviceId": "bad/id"
+}
+
+###

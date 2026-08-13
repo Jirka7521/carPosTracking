@@ -1,0 +1,153 @@
+/* ============================================================
+ * Global styles — Car Position Tracker
+ *
+ * Two-tone blue-and-red palette with a clean institutional feel.
+ *
+ * Key colors:
+ *   Primary Blue #0065BD  — primary, buttons, links, accents
+ *   Dark Blue    #004A8F  — header background, headings
+ *   Accent Red   #E31E24  — danger / destructive actions only
+ *   White        #FFFFFF  — cards, panels
+ *   Off-white    #F5F8FC  — page background (blue-tinted gray)
+ * ============================================================ */
+
+:root {
+  /* ------- Blue palette (dark → light) ------- */
+  --blue-900: #002D6E;   /* Deepest — rarely used */
+  --blue-800: #004A8F;   /* Dark blue — header backgrounds */
+  --blue-700: #0065BD;   /* Primary blue — buttons, focus rings */
+  --blue-600: #1A7FD4;   /* Slightly lighter */
+  --blue-400: #338FD1;   /* Medium — hover states */
+  --blue-200: #9DC4E8;   /* Light — subtle borders */
+  --blue-100: #D4E8F7;   /* Very light — selected row backgrounds */
+  --blue-50:  #EEF6FD;   /* Near-white — gentle tint backgrounds */
+
+  /* ------- Red (use ONLY for danger / delete) ------- */
+  --red-700: #A81019;
+  --red-600: #C41820;
+  --red-500: #E31E24;
+  --red-100: #FDE8E8;
+
+  /* ------- Blue-tinted neutral grays ------- */
+  --gray-900: #1A2B42;   /* Main headings */
+  --gray-800: #243447;
+  --gray-700: #3A4A5A;   /* Body text */
+  --gray-600: #4A5A6A;
+  --gray-500: #5A6A7A;   /* Secondary / muted text */
+  --gray-400: #7A8A9A;
+  --gray-300: #B8C8DA;   /* Disabled borders */
+  --gray-200: #D8E2EE;   /* Dividers, default borders */
+  --gray-100: #EEF2F7;   /* Table stripes, alt row bg */
+  --gray-50:  #F5F8FC;   /* Page background */
+
+  /* ------- Semantic aliases (used throughout components) ------- */
+  --text:           var(--gray-700);       /* Default body text */
+  --text-h:         var(--gray-900);       /* Headings & strong labels */
+  --text-muted:     var(--gray-500);       /* Hints, placeholders, meta */
+  --bg:             #FFFFFF;               /* Card / panel background */
+  --bg-page:        var(--gray-50);        /* Page background */
+  --border:         var(--gray-200);       /* Default border color */
+  --border-focus:   var(--blue-700);       /* Focus ring color */
+  --accent:         var(--blue-700);       /* Primary interactive color */
+  --accent-dark:    var(--blue-800);       /* Hover for primary elements */
+  --accent-bg:      var(--blue-50);        /* Subtle accent background */
+  --panel-bg:       #FFFFFF;              /* Panels and cards */
+  --input-bg:       var(--gray-50);        /* Form input background */
+
+  /* ------- Status colors ------- */
+  --success:        #1A9E4B;
+  --success-bg:     #E8F7EE;
+  --success-border: #A8DAB8;
+  --warning:        #C07900;
+  --warning-bg:     #FEF3C7;
+  --warning-border: #F6D060;
+  --danger:         var(--red-500);
+  --danger-dark:    var(--red-600);
+  --danger-bg:      var(--red-100);
+  --danger-border:  #F4A5A8;
+
+  /* ------- Elevation shadows (blue-tinted) ------- */
+  --shadow-xs: 0 1px 2px rgba(0, 45, 110, 0.06);
+  --shadow-sm: 0 2px 4px rgba(0, 45, 110, 0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow:    0 4px 12px rgba(0, 45, 110, 0.10), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-md: 0 8px 24px rgba(0, 45, 110, 0.12), 0 4px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 16px 40px rgba(0, 45, 110, 0.16), 0 8px 16px rgba(0,0,0,0.08);
+
+  /* ------- Border radii ------- */
+  --radius-sm: 6px;
+  --radius:    10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+
+  /* ------- Fonts ------- */
+  --sans: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+
+  /* ------- Base typography ------- */
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.1px;
+  color: var(--text);
+  background: var(--bg-page);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Universal box-sizing reset ---- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-page);
+}
+
+/* ---- App root fills the viewport ---- */
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Typography ---- */
+h1, h2, h3, h4, h5 {
+  font-family: var(--sans);
+  color: var(--text-h);
+  margin: 0;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+h1 { font-size: 1.875rem; font-weight: 700; letter-spacing: -0.4px; }
+h2 { font-size: 1.375rem; }
+h3 { font-size: 1.125rem; }
+h4 { font-size: 1rem; }
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Monospace code spans ---- */
+code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-50);
+  color: var(--blue-800);
+  word-break: break-all;
+}

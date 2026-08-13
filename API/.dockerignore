@@ -1,0 +1,18 @@
+# Build outputs — copying them in would poison the image with host-built
+# binaries and defeat the restore layer cache.
+**/bin/
+**/obj/
+
+# Developer secrets. The csproj already keeps this file out of publish output;
+# this keeps it out of the build context entirely, so it cannot end up in an
+# intermediate layer either.
+**/appsettings.Local.json
+
+# Everything else that has no business in a build context.
+**/.vs/
+**/.vscode/
+**/*.user
+**/.git/
+**/.gitignore
+**/Dockerfile
+**/.dockerignore
