@@ -13,6 +13,33 @@ desktop.ini
 carPosTracking.code-workspace
 
 # ─────────────────────────────────────────────────────────────
+# .NET (API/CarPosAPI, API/CarPosAPI.Tests)
+# ─────────────────────────────────────────────────────────────
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local developer secrets override — real DB connection string, MQTT creds,
+# JWT signing key, device-key protection master key. Never commit.
+appsettings.Local.json
+appsettings.*.Local.json
+
+# ─────────────────────────────────────────────────────────────
+# Node / FE (belt-and-suspenders — FE/ also has its own .gitignore)
+# ─────────────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─────────────────────────────────────────────────────────────
 # Container stacks — local secrets (never commit)
 # ─────────────────────────────────────────────────────────────
 # Covers Postgres, MQTTBroker and App. Each stack keeps a committed
