@@ -31,11 +31,20 @@ topic read devices/GNSS01/cmd
 topic read devices/GNSS01/config
 topic read devices/GNSS01/ack
 
-# dashboard: consumes every device's fixes and sends commands back.
+# dashboard: the backend. Consumes every device's fixes, confirms them, and
+# publishes each device's settings.
+#
+# The `config` write is what makes remote settings work at all. The API publishes
+# that topic RETAINED, which is load-bearing rather than an optimisation: a device
+# with sleep_between on is awake for a few seconds per cycle and would essentially
+# never catch a live publish - it relies on the broker replaying the retained
+# document the instant it subscribes. Without this rule the publish is silently
+# refused and every tracker keeps running whatever it was last flashed with.
 user dashboard
 topic read devices/#
 topic write devices/+/cmd
 topic write devices/+/ack
+topic write devices/+/config
 
 # healthcheck: the container's own liveness probe, and nothing else. It is scoped
 # to a single throwaway topic on purpose - the probe never needs to see device
