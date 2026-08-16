@@ -37,7 +37,7 @@ bool RemoteSettings::begin(const DeviceSettings& initial) {
     return false;
   }
 
-  mqtt_.setMessageHandler(
+  mqtt_.addMessageHandler(
       [this](const std::string& topic, const std::string& payload) {
         onMessage(topic, payload);
       });
@@ -48,8 +48,8 @@ bool RemoteSettings::begin(const DeviceSettings& initial) {
 
 void RemoteSettings::onMessage(const std::string& topic,
                                const std::string& payload) {
-  // We only ever subscribe to one topic, but check anyway - a wildcard
-  // subscription added later should not silently feed us the wrong document.
+  // Load-bearing: MqttClient hands every message to every handler, so this is
+  // what stops us trying to parse a delivery ack as a config document.
   if (topic != topic_) {
     return;
   }

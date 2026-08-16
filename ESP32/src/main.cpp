@@ -3,6 +3,7 @@
 #include <functional>
 
 #include "config/Config.h"
+#include "crypto/AckCrypto.h"
 #include "crypto/PayloadCrypto.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -11,6 +12,7 @@
 #include "gnss/GnssModule.h"
 #include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
+#include "mqtt/AckWatcher.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
@@ -19,6 +21,7 @@
 #include "sensors/Adxl345.h"
 #include "sdcard/FixForwarder.h"
 #include "sdcard/FixQueue.h"
+#include "sdcard/RetryQueue.h"
 #include "sdcard/SdCard.h"
 #include "serial/SerialPort.h"
 #include "settings/DeviceSettings.h"
@@ -148,8 +151,15 @@ extern "C" void app_main(void) {
                        config::kSdMountPoint);
   static FixQueue fixQueue(sdCard, config::kSdQueueFilePath,
                            config::kSdMaxQueuedFixes);
+  // Fixes the API rejected outright live in their own file, on a slow retry
+  // schedule, so one permanently unacceptable fix cannot block the live queue.
+  static RetryQueue retryQueue(sdCard, config::kSdRetryFilePath,
+                               config::kSdMaxRetryEntries,
+                               config::kRetryIntervalHours,
+                               config::kRetryMaxAgeHours);
   if (config::kSdEnabled) {
     if (sdCard.begin() && fixQueue.begin()) {
+      retryQueue.begin();
       ESP_LOGI(TAG, "SD store-and-forward ready (%u fix(es) recovered).",
                (unsigned)fixQueue.size());
     } else {
@@ -174,9 +184,16 @@ extern "C" void app_main(void) {
   static PayloadCrypto  crypto(config::kReceiverPublicKeyPem);
   static TelemetryPublisher publisher(mqtt, crypto, config::kTelemetryTopic,
                                       config::kDeviceId);
-  static FixForwarder forwarder(publisher, mqtt, fixQueue,
-                                config::kTelemetryTopic,
+  // Opens the API's delivery acks. Constructed unconditionally so the forwarder
+  // always has a collaborator to talk to; with kAckEnabled false it is simply
+  // never subscribed, so waitForAck() always reports Unknown straight away.
+  static AckCrypto  ackCrypto(config::kDeviceAckPrivateKeyPem);
+  static AckWatcher ackWatcher(mqtt, ackCrypto, config::kAckTopic,
+                               config::kDeviceId);
+  static FixForwarder forwarder(publisher, mqtt, ackWatcher, fixQueue,
+                                retryQueue, config::kTelemetryTopic,
                                 config::kMqttPublishAckTimeoutMs,
+                                config::kAckEnabled ? config::kAckTimeoutMs : 0,
                                 config::kSdMaxBurstFixes);
   static RemoteSettings remoteSettings(mqtt, settingsStore,
                                        config::kConfigTopic);
@@ -184,8 +201,21 @@ extern "C" void app_main(void) {
   if (config::kMqttEnabled) {
     // Subscribe before starting the client: the broker replays the retained
     // config the instant we connect, and that must not race the handler being
-    // installed.
+    // installed. The ack subscription is armed here for the same reason.
     remoteSettings.begin(settings);
+    if (config::kAckEnabled) {
+      if (ackWatcher.begin()) {
+        ESP_LOGI(TAG, "Delivery acks enabled; listening on %s.",
+                 config::kAckTopic);
+      } else {
+        ESP_LOGW(TAG, "Delivery acks could not start - falling back to "
+                      "broker-only confirmation.");
+      }
+    } else {
+      ESP_LOGW(TAG,
+               "Delivery acks disabled in Config.h - a fix is dropped once the "
+               "BROKER acks it, even if the API never stored it.");
+    }
 
     if (mqtt.begin()) {
       ESP_LOGI(TAG, "MQTT enabled; publishing fixes to %s.",

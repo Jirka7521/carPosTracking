@@ -224,6 +224,47 @@ constexpr char kConfigTopic[] = "devices/GNSSXX/config";
 // timeout is not fatal - we simply carry on with the cached settings.
 constexpr uint32_t kConfigFetchTimeoutMs = 8000;
 
+// -----------------------------------------------------------------------------
+//  Delivery acknowledgements.
+// -----------------------------------------------------------------------------
+//  A QoS-2 ack from the broker only proves Mosquitto took the message. It says
+//  nothing about whether the API decrypted it, accepted it, and wrote it to the
+//  database - so on its own it let a rejected (or never-received) fix be deleted
+//  from the SD queue and silently lost.
+//
+//  With acks on, the API publishes an encrypted verdict per envelope to the topic
+//  below, and a fix leaves the card only once it is confirmed stored. Rejected
+//  fixes move to the retry file (see the SD section) instead of being dropped.
+//
+//  Set kAckEnabled to false to restore the old behaviour exactly - useful if the
+//  broker ACL is not ready yet, since without a read grant on the ack topic the
+//  broker silently delivers nothing and every fix would wait out the timeout.
+// -----------------------------------------------------------------------------
+constexpr bool kAckEnabled = false;
+
+constexpr char kAckTopic[] = "devices/GNSSXX/ack";
+
+// How long to wait for the API's verdict after the broker has acked the publish.
+// This covers the API's decrypt, validate and database write, so it is generous:
+// a timeout is not fatal (the fix simply stays queued and is re-sent next cycle,
+// which the API dedupes) but it does block the main loop for this long.
+constexpr uint32_t kAckTimeoutMs = 10000;
+
+// This device's OWN RSA-3072 PRIVATE key, used to open the acks.
+//
+// NOTE the direction is the opposite of kReceiverPublicKeyPem: for telemetry we
+// hold the receiver's PUBLIC key, but an ack is sealed TO us, so here we hold the
+// private half and the server holds only the public one.
+//
+// Generate the pair yourself - it must never reach the server:
+//   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out GNSSXX_ack_private.pem
+//   openssl rsa -in GNSSXX_ack_private.pem -pubout -out GNSSXX_ack_public.pem
+//   dotnet run -- import-device-key --device GNSSXX --ack-public-pem GNSSXX_ack_public.pem
+//
+// Then paste the PRIVATE half here in your own Config.h. SECRET: never commit it
+// and never fill it in in this example file.
+constexpr char kDeviceAckPrivateKeyPem[] = "";
+
 // Defaults for a device with no cached settings and no broker message yet.
 constexpr uint32_t kDefaultSendIntervalSeconds = 60;
 constexpr bool     kDefaultSleepBetweenSends   = false;
@@ -294,6 +335,30 @@ constexpr uint32_t kSdMaxQueuedFixes = 20000;
 // bursts so the JSON array and the MQTT buffer never exceed the modest internal
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
 constexpr uint32_t kSdMaxBurstFixes = 40;
+
+// Fixes the API explicitly REJECTED (bad timestamp, out-of-range value, unknown
+// device, ...). They are kept apart from the live queue so a permanently
+// unacceptable fix cannot sit at its head blocking fresh ones, and are re-offered
+// on the slow schedule below.
+//
+// Retrying is worth it because several reject reasons are server-side and clear
+// on their own: an unknown or deactivated device starts working the moment its
+// row is provisioned, and a decrypt failure clears when the key is fixed.
+constexpr char kSdRetryFilePath[] = "/sdcard/retry.jsonl";
+
+// How long to wait between attempts on a rejected fix. Once a day: the reasons
+// that do clear are fixed by a human on the server, so retrying sooner would just
+// burn power and airtime to be told the same thing.
+constexpr uint32_t kRetryIntervalHours = 24;
+
+// Give up on a rejected fix that is still being refused after this long. This is
+// the only path that deliberately discards data, so it is logged at error level.
+// Zero disables the cap (retry forever - the file cap below still applies).
+constexpr uint32_t kRetryMaxAgeHours = 168;  // 7 days
+
+// Safety cap on the retry file. Much smaller than the live queue: a healthy
+// system rejects nothing, so a large number here would only mask a real problem.
+constexpr uint32_t kSdMaxRetryEntries = 2000;
 
 // -----------------------------------------------------------------------------
 //  Deep sleep (only used when the "sleep_between" setting is on).

@@ -18,11 +18,20 @@
 //  true end-to-end encryption of the GNSS positions.
 //
 //  Wire format (compact JSON, all binary fields base64):
-//    {"alg":"RSA-OAEP-SHA256+AES-256-GCM",
+//    {"id":"<16 lowercase hex chars>",
+//     "alg":"RSA-OAEP-SHA256+AES-256-GCM",
 //     "k":"<RSA-OAEP encrypted AES key>",
 //     "iv":"<12-byte GCM nonce>",
 //     "ct":"<AES-GCM ciphertext>",
 //     "tag":"<16-byte GCM tag>"}
+//
+//  `id` is cleartext and deliberately outside the ciphertext: the API echoes it
+//  in the delivery ack (see AckWatcher), and because FixQueue stores this
+//  envelope verbatim - one per line - the id survives deep sleep and reboots.
+//  That is what lets the device match an ack against a backlog it sealed days
+//  ago. It identifies a message, never its contents, so the broker learns
+//  nothing from it. Note this is the one field the desktop CryptoBox does not
+//  produce; both sides ignore unknown members, so the formats stay compatible.
 // =============================================================================
 
 #include <string>
@@ -53,6 +62,11 @@ class PayloadCrypto {
   // and not done in the constructor). Returns false if seeding or key parsing
   // failed; safe to call again on the next message.
   bool ensureReady();
+
+  // Write a fresh correlation id (16 lowercase hex chars + NUL) to `out`, which
+  // must have room for 17 bytes. Returns false if the DRBG failed. Only valid
+  // once ensureReady() has succeeded, since it draws from `rng_`.
+  bool makeEnvelopeId(char* out);
 
   const char* publicKeyPem_;  // receiver RSA public key, PEM text
 

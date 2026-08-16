@@ -18,8 +18,7 @@ MqttClient::MqttClient(const char* uri, const char* username,
       clientId_(clientId),
       client_(nullptr),
       connected_(false),
-      lastAckedMsgId_(-1),
-      subscribedQos_(0) {}
+      lastAckedMsgId_(-1) {}
 
 MqttClient::~MqttClient() {
   if (client_ != nullptr) {
@@ -76,8 +75,8 @@ bool MqttClient::begin() {
 
 bool MqttClient::isConnected() const { return connected_; }
 
-void MqttClient::setMessageHandler(MessageHandler handler) {
-  messageHandler_ = std::move(handler);
+void MqttClient::addMessageHandler(MessageHandler handler) {
+  messageHandlers_.push_back(std::move(handler));
 }
 
 bool MqttClient::subscribe(const char* topic, int qos) {
@@ -86,9 +85,20 @@ bool MqttClient::subscribe(const char* topic, int qos) {
   }
 
   // Remember it first: even if we are offline right now, MQTT_EVENT_CONNECTED
-  // will replay the subscription for us.
-  subscribedTopic_ = topic;
-  subscribedQos_   = qos;
+  // will replay the subscription for us. Re-subscribing to a topic we already
+  // know updates its QoS instead of remembering it twice, which would make the
+  // reconnect replay issue duplicate SUBSCRIBEs.
+  bool known = false;
+  for (Subscription& existing : subscriptions_) {
+    if (existing.topic == topic) {
+      existing.qos = qos;
+      known        = true;
+      break;
+    }
+  }
+  if (!known) {
+    subscriptions_.push_back(Subscription{topic, qos});
+  }
 
   if (client_ == nullptr || !connected_) {
     ESP_LOGI(TAG, "subscription to %s deferred until connected", topic);
@@ -182,8 +192,11 @@ void MqttClient::handleData(const esp_mqtt_event_t& event) {
     return;  // still waiting for the remaining slices
   }
 
-  if (messageHandler_) {
-    messageHandler_(rxTopic_, rxPayload_);
+  // Every handler sees every message and filters by topic itself.
+  for (const MessageHandler& handler : messageHandlers_) {
+    if (handler) {
+      handler(rxTopic_, rxPayload_);
+    }
   }
   rxTopic_.clear();
   rxPayload_.clear();
@@ -198,18 +211,17 @@ void MqttClient::eventHandler(void* arg, esp_event_base_t /*base*/,
     case MQTT_EVENT_CONNECTED:
       self->connected_ = true;
       ESP_LOGI(TAG, "connected to broker");
-      // Re-arm the subscription on every connect. A clean-session broker drops
-      // it on disconnect, and after a deep-sleep wake this is a brand new
-      // session anyway - without this the retained config would never arrive.
-      if (!self->subscribedTopic_.empty()) {
-        if (esp_mqtt_client_subscribe(self->client_,
-                                      self->subscribedTopic_.c_str(),
-                                      self->subscribedQos_) < 0) {
-          ESP_LOGW(TAG, "re-subscribe to %s failed",
-                   self->subscribedTopic_.c_str());
+      // Re-arm every subscription on each connect. A clean-session broker drops
+      // them on disconnect, and after a deep-sleep wake this is a brand new
+      // session anyway - without this neither the retained config nor the
+      // delivery acks would ever arrive.
+      for (const Subscription& subscription : self->subscriptions_) {
+        if (esp_mqtt_client_subscribe(self->client_, subscription.topic.c_str(),
+                                      subscription.qos) < 0) {
+          ESP_LOGW(TAG, "re-subscribe to %s failed", subscription.topic.c_str());
         } else {
-          ESP_LOGI(TAG, "subscribed to %s (QoS %d)",
-                   self->subscribedTopic_.c_str(), self->subscribedQos_);
+          ESP_LOGI(TAG, "subscribed to %s (QoS %d)", subscription.topic.c_str(),
+                   subscription.qos);
         }
       }
       break;

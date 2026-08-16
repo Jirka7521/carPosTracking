@@ -19,6 +19,12 @@ namespace {
   constexpr size_t kTagBytes    = 16;  // 128-bit GCM authentication tag
   constexpr char   kAlgorithm[] = "RSA-OAEP-SHA256+AES-256-GCM";
 
+  // Correlation id: 8 random bytes rendered as 16 LOWERCASE hex characters.
+  // The API validates this exact shape (EnvelopeCodec::IdLength and its hex
+  // check), so the two sides must agree - widening it here breaks ingestion.
+  constexpr size_t kEnvelopeIdBytes = 8;
+  constexpr size_t kEnvelopeIdChars = kEnvelopeIdBytes * 2;
+
   // Encode `len` raw bytes to a base64 std::string (empty string on failure).
   std::string base64Encode(const unsigned char* data, size_t len) {
     // First call with a null buffer asks mbedTLS for the required size.
@@ -36,6 +42,26 @@ namespace {
   }
 
 }  // namespace
+
+bool PayloadCrypto::makeEnvelopeId(char* out) {
+  // Drawn from the same seeded DRBG as the AES key and nonce rather than a plain
+  // PRNG: 8 random bytes only stay collision-free across a 20 000-entry backlog
+  // if they are genuinely random, and a repeated id would let one ack clear the
+  // wrong fix off the card.
+  unsigned char raw[kEnvelopeIdBytes];
+  if (mbedtls_ctr_drbg_random(&rng_, raw, sizeof(raw)) != 0) {
+    ESP_LOGE(TAG, "random envelope id failed");
+    return false;
+  }
+
+  static const char kHexDigits[] = "0123456789abcdef";
+  for (size_t i = 0; i < kEnvelopeIdBytes; ++i) {
+    out[i * 2]     = kHexDigits[(raw[i] >> 4) & 0x0F];
+    out[i * 2 + 1] = kHexDigits[raw[i] & 0x0F];
+  }
+  out[kEnvelopeIdChars] = '\0';
+  return true;
+}
 
 PayloadCrypto::PayloadCrypto(const char* receiverPublicKeyPem)
     : publicKeyPem_(receiverPublicKeyPem), ready_(false) {
@@ -170,6 +196,18 @@ bool PayloadCrypto::encrypt(const std::string& plaintext,
         ciphertext.size());
     const std::string tagB64 = base64Encode(tag, kTagBytes);
 
+    // The correlation id rides OUTSIDE the ciphertext on purpose: the API echoes
+    // it in the delivery ack, and FixQueue stores this envelope verbatim, so the
+    // id is still there after a reboot when we come to match an ack against a
+    // backlog sealed days earlier. It names a message, never its contents, so
+    // exposing it to the broker costs nothing.
+    char idHex[kEnvelopeIdChars + 1];
+    if (!makeEnvelopeId(idHex)) {
+      cJSON_Delete(root);
+      break;
+    }
+
+    cJSON_AddStringToObject(root, "id", idHex);
     cJSON_AddStringToObject(root, "alg", kAlgorithm);
     cJSON_AddStringToObject(root, "k", kB64.c_str());
     cJSON_AddStringToObject(root, "iv", ivB64.c_str());

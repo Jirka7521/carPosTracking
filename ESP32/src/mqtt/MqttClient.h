@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "mqtt_client.h"
 
@@ -57,15 +58,23 @@ class MqttClient {
   // True while we currently have a live connection to the broker.
   bool isConnected() const;
 
-  // Install the callback that receives every subscribed message. Set it before
-  // begin() so a retained message cannot arrive before there is a handler.
-  void setMessageHandler(MessageHandler handler);
+  // Add a callback that receives every subscribed message. Install handlers
+  // before begin() so a retained message cannot arrive before there is one.
+  //
+  // Handlers are additive, not exclusive: every registered handler sees every
+  // message, and each is expected to ignore topics that are not its own (see
+  // RemoteSettings::onMessage). That keeps the dispatch trivial - with two
+  // subscribers a topic-to-handler map would be more machinery than routing.
+  void addMessageHandler(MessageHandler handler);
 
   // Subscribe to `topic`. Safe to call before the link is up: the topic is
   // remembered and (re-)subscribed on every MQTT_EVENT_CONNECTED, which matters
   // because a broker with a clean session forgets our subscriptions across the
-  // reconnect that follows each deep-sleep wake. One subscription is all this
-  // firmware needs, so a later call simply replaces the remembered topic.
+  // reconnect that follows each deep-sleep wake.
+  //
+  // Subscriptions accumulate - the firmware needs two (the retained config and
+  // the delivery acks). Subscribing to a topic already remembered updates its
+  // QoS rather than adding a duplicate.
   bool subscribe(const char* topic, int qos);
 
   // Publish `payload` to `topic` at QoS 2. Returns true if the message was
@@ -106,12 +115,19 @@ class MqttClient {
   // "nothing acked yet".
   volatile int             lastAckedMsgId_;
 
-  // The single remembered subscription, replayed on every reconnect. Empty topic
-  // means "nothing subscribed".
-  std::string subscribedTopic_;
-  int         subscribedQos_;
+  // One remembered subscription. Kept as a named type rather than a pair so the
+  // replay loop in the event handler reads for itself.
+  struct Subscription {
+    std::string topic;
+    int         qos;
+  };
 
-  MessageHandler messageHandler_;  // empty until setMessageHandler()
+  // Every remembered subscription, replayed on each reconnect. Empty means
+  // "nothing subscribed".
+  std::vector<Subscription> subscriptions_;
+
+  // Every registered handler; each gets every message and filters by topic.
+  std::vector<MessageHandler> messageHandlers_;
 
   // Reassembly state for a fragmented incoming message (event-task only).
   std::string rxTopic_;

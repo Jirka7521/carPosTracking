@@ -1,17 +1,25 @@
 #include "sdcard/FixForwarder.h"
 
+#include <cstdio>
+
+#include "cJSON.h"
 #include "esp_log.h"
 
 static const char* TAG = "FixForwarder";
 
 FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
-                           FixQueue& queue, const char* topic,
-                           uint32_t ackTimeoutMs, std::size_t maxBurst)
+                           AckWatcher& ackWatcher, FixQueue& queue,
+                           RetryQueue& retryQueue, const char* topic,
+                           uint32_t ackTimeoutMs, uint32_t apiAckTimeoutMs,
+                           std::size_t maxBurst)
     : publisher_(publisher),
       mqtt_(mqtt),
+      ackWatcher_(ackWatcher),
       queue_(queue),
+      retryQueue_(retryQueue),
       topic_(topic),
       ackTimeoutMs_(ackTimeoutMs),
+      apiAckTimeoutMs_(apiAckTimeoutMs),
       // A burst of at least one; guard against a mis-set config value.
       maxBurst_(maxBurst == 0 ? 1 : maxBurst) {}
 
@@ -37,9 +45,99 @@ std::string FixForwarder::buildArrayMessage(
   return msg;
 }
 
-bool FixForwarder::drainQueue() {
+std::string FixForwarder::extractEnvelopeId(const std::string& envelope) {
+  cJSON* root = cJSON_Parse(envelope.c_str());
+  if (root == nullptr) {
+    return std::string();
+  }
+
+  std::string  id;
+  const cJSON* item = cJSON_GetObjectItemCaseSensitive(root, "id");
+  if (cJSON_IsString(item)) {
+    id.assign(item->valuestring);
+  }
+  cJSON_Delete(root);
+  return id;
+}
+
+std::string FixForwarder::sampleTimeUtc(const TelemetrySample& sample) {
+  const GnssTime& time = sample.gnss.time;
+  if (!time.valid) {
+    return std::string();
+  }
+
+  char iso[32];
+  std::snprintf(iso, sizeof(iso), "%04u-%02u-%02uT%02u:%02u:%02uZ", time.year,
+                time.month, time.day, time.hour, time.minute, time.second);
+  return std::string(iso);
+}
+
+std::size_t FixForwarder::leadingResolved(
+    const std::vector<AckWatcher::AckResult>& results) {
+  std::size_t count = 0;
+  for (const AckWatcher::AckResult& result : results) {
+    if (result.verdict == AckWatcher::AckVerdict::Unknown) {
+      break;
+    }
+    count++;
+  }
+  return count;
+}
+
+bool FixForwarder::deliverBatch(
+    const std::vector<std::string>& envelopes,
+    std::vector<AckWatcher::AckResult>& resultsOut) {
+  resultsOut.assign(envelopes.size(),
+                    AckWatcher::AckResult{AckWatcher::AckVerdict::Unknown, ""});
+
+  const std::string message = buildArrayMessage(envelopes);
+  if (!mqtt_.publishConfirmed(topic_, message, ackTimeoutMs_)) {
+    return false;  // never reached the broker; caller keeps everything
+  }
+
+  // Acks turned off (kAckEnabled false): the broker ack is all the confirmation
+  // there is, so treat the burst as delivered exactly as the pre-ack firmware
+  // did. Without this the wait below would time out on every fix and the queue
+  // would grow forever.
+  if (apiAckTimeoutMs_ == 0) {
+    resultsOut.assign(envelopes.size(),
+                      AckWatcher::AckResult{AckWatcher::AckVerdict::Stored, ""});
+    return true;
+  }
+
+  // The broker has it. Now find out what the API did with it. Envelopes sealed
+  // before the ack protocol existed carry no id and can never be resolved, so
+  // they are not worth waiting for - they are treated as delivered on the broker
+  // ack alone, exactly as the old firmware did.
+  std::vector<std::string> ids;
+  std::vector<std::size_t> idPositions;
+  ids.reserve(envelopes.size());
+  idPositions.reserve(envelopes.size());
+  for (std::size_t i = 0; i < envelopes.size(); ++i) {
+    const std::string id = extractEnvelopeId(envelopes[i]);
+    if (id.empty()) {
+      resultsOut[i] = AckWatcher::AckResult{AckWatcher::AckVerdict::Stored, ""};
+    } else {
+      ids.push_back(id);
+      idPositions.push_back(i);
+    }
+  }
+
+  if (ids.empty()) {
+    return true;
+  }
+
+  std::vector<AckWatcher::AckResult> acked;
+  ackWatcher_.waitForAck(ids, acked, apiAckTimeoutMs_);
+  for (std::size_t i = 0; i < idPositions.size() && i < acked.size(); ++i) {
+    resultsOut[idPositions[i]] = acked[i];
+  }
+  return true;
+}
+
+bool FixForwarder::drainQueue(const std::string& nowUtc) {
   // Repeatedly ship the oldest slice of the queue. We stop the moment a burst is
-  // not acked so nothing is ever deleted before the broker has it.
+  // not fully resolved, so nothing is deleted before the API has confirmed it.
   while (!queue_.isEmpty()) {
     std::vector<std::string> batch;
     if (!queue_.peekBatch(maxBurst_, batch) || batch.empty()) {
@@ -47,25 +145,94 @@ bool FixForwarder::drainQueue() {
       return false;
     }
 
-    const std::string message = buildArrayMessage(batch);
-    if (!mqtt_.publishConfirmed(topic_, message, ackTimeoutMs_)) {
-      ESP_LOGW(TAG, "drain: burst of %u not acked - %u still queued",
+    std::vector<AckWatcher::AckResult> results;
+    if (!deliverBatch(batch, results)) {
+      ESP_LOGW(TAG, "drain: burst of %u not acked by the broker - %u still queued",
                (unsigned)batch.size(), (unsigned)queue_.size());
       return false;
     }
 
-    // Delivered: drop exactly what we just sent and continue with the rest.
-    if (!queue_.popFront(batch.size())) {
+    // Only an unbroken run from the head can leave a FIFO. In practice the API
+    // resolves a whole message at once, so this is normally the entire batch.
+    const std::size_t resolved = leadingResolved(results);
+    if (resolved == 0) {
+      ESP_LOGW(TAG, "drain: no API verdict for this burst - %u still queued",
+               (unsigned)queue_.size());
+      return false;
+    }
+
+    // Park the rejected ones before dropping them from the live queue, so a
+    // failure here never loses the fix.
+    for (std::size_t i = 0; i < resolved; ++i) {
+      if (results[i].verdict == AckWatcher::AckVerdict::Rejected) {
+        retryQueue_.add(batch[i], nowUtc, results[i].reason.c_str());
+      }
+    }
+
+    if (!queue_.popFront(resolved)) {
       ESP_LOGE(TAG, "drain: failed to pop delivered burst from queue");
       return false;
     }
-    ESP_LOGI(TAG, "drain: delivered burst of %u (%u remaining)",
+    ESP_LOGI(TAG, "drain: %u of %u confirmed (%u remaining)", (unsigned)resolved,
              (unsigned)batch.size(), (unsigned)queue_.size());
+
+    if (resolved < batch.size()) {
+      return false;  // a gap - leave the rest for the next cycle
+    }
   }
   return true;
 }
 
+void FixForwarder::drainRetries(const std::string& nowUtc) {
+  if (retryQueue_.isEmpty() || !mqtt_.isConnected()) {
+    return;
+  }
+
+  std::vector<RetryQueue::Entry> due;
+  if (!retryQueue_.takeDue(nowUtc, maxBurst_, due) || due.empty()) {
+    return;
+  }
+
+  // These entries are off the card now, so every one of them must end up either
+  // confirmed stored or written back - there is no third option that does not
+  // lose data.
+  std::vector<std::string> envelopes;
+  envelopes.reserve(due.size());
+  for (const RetryQueue::Entry& entry : due) {
+    envelopes.push_back(entry.envelope);
+  }
+
+  std::vector<AckWatcher::AckResult> results;
+  const bool reachedBroker = deliverBatch(envelopes, results);
+
+  std::size_t stored = 0;
+  for (std::size_t i = 0; i < due.size(); ++i) {
+    const bool accepted =
+        reachedBroker && results[i].verdict == AckWatcher::AckVerdict::Stored;
+    if (accepted) {
+      stored++;
+      continue;
+    }
+
+    const char* reason =
+        reachedBroker && results[i].verdict == AckWatcher::AckVerdict::Rejected
+            ? results[i].reason.c_str()
+            : "NoVerdict";
+    retryQueue_.add(due[i].envelope, nowUtc, reason, due[i].firstUtc,
+                    due[i].attempts);
+  }
+
+  if (stored > 0) {
+    ESP_LOGI(TAG, "retry: %u of %u previously rejected fix(es) accepted.",
+             (unsigned)stored, (unsigned)due.size());
+  }
+}
+
 void FixForwarder::process(const TelemetrySample& sample) {
+  // The GNSS UTC time is the only wall clock we have, and it is what the retry
+  // schedule is measured in. Empty when this fix carries no valid time.
+  const std::string nowUtc = sampleTimeUtc(sample);
+
   // 1. Seal the sample into the exact envelope that would be transmitted - the
   //    same bytes are used whether we send now or store for later.
   std::string envelope;
@@ -86,25 +253,39 @@ void FixForwarder::process(const TelemetrySample& sample) {
   }
 
   // 3. Online with a backlog: make the new fix part of the backlog, then drain
-  //    the whole thing in one or more bursts. Anything not acked stays queued.
+  //    the whole thing in one or more bursts. Anything unconfirmed stays queued.
   if (!queue_.isEmpty()) {
     if (!queue_.enqueue(envelope)) {
       ESP_LOGE(TAG, "SD queue write failed - trying to drain existing backlog");
     }
-    drainQueue();
+    drainQueue(nowUtc);
+    drainRetries(nowUtc);
     return;
   }
 
   // 4. Online, nothing backlogged: publish this single fix as an array-of-one
-  //    and confirm it. Only a failed delivery falls back to the SD card, so the
-  //    healthy path never writes to the card at all.
-  const std::string message = buildArrayMessage({envelope});
-  if (mqtt_.publishConfirmed(topic_, message, ackTimeoutMs_)) {
-    ESP_LOGI(TAG, "fix delivered (%u bytes)", (unsigned)message.size());
-    return;
+  //    and see it all the way through to the API's verdict. Only a confirmed
+  //    store lets it go, so the healthy path still never writes to the card.
+  std::vector<AckWatcher::AckResult> results;
+  if (deliverBatch({envelope}, results) && !results.empty()) {
+    if (results[0].verdict == AckWatcher::AckVerdict::Stored) {
+      ESP_LOGI(TAG, "fix stored by the API.");
+      drainRetries(nowUtc);
+      return;
+    }
+
+    if (results[0].verdict == AckWatcher::AckVerdict::Rejected) {
+      ESP_LOGW(TAG, "API rejected this fix (%s)", results[0].reason.c_str());
+      if (retryQueue_.add(envelope, nowUtc, results[0].reason.c_str())) {
+        drainRetries(nowUtc);
+        return;
+      }
+      // No clock to schedule a retry with; fall through and keep it in the live
+      // queue rather than dropping it.
+    }
   }
 
-  ESP_LOGW(TAG, "delivery not acked - queuing fix to SD");
+  ESP_LOGW(TAG, "no confirmation from the API - queuing fix to SD");
   if (!queue_.enqueue(envelope)) {
     ESP_LOGE(TAG, "SD queue write failed - fix lost");
   }

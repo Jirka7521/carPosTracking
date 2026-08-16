@@ -77,6 +77,7 @@ src/
 │
 ├── crypto/
 │   ├── PayloadCrypto.h/.cpp ← Hybrid RSA-OAEP + AES-256-GCM payload encryption
+│   └── AckCrypto.h/.cpp     ← The mirror image: opens the API's encrypted acks
 │
 ├── sensors/
 │   ├── AccelData.h             ← Plain AccelSample struct (X/Y/Z in g)
@@ -85,11 +86,13 @@ src/
 ├── mqtt/
 │   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
 │   ├── TelemetrySample.h        ← Aggregate: position + battery + accel
-│   └── TelemetryPublisher.h/.cpp← Sample → JSON → encrypt (seal/publish)
+│   ├── TelemetryPublisher.h/.cpp← Sample → JSON → encrypt (seal/publish)
+│   └── AckWatcher.h/.cpp       ← Did the API actually store it? (per-envelope)
 │
 ├── sdcard/
 │   ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
 │   ├── FixQueue.h/.cpp      ← Persistent FIFO of encrypted envelopes on the card
+│   ├── RetryQueue.h/.cpp    ← Rejected fixes, re-offered on a slow schedule
 │   └── FixForwarder.h/.cpp  ← Publish-now-or-store; drain the backlog as a burst
 │
 ├── settings/
@@ -145,11 +148,14 @@ test:
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35). |
-| `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope. |
+| `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope (and stamp its `id`). |
+| `AckCrypto` | The inverse: open an ack sealed to this device's own private key. |
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
+| `AckWatcher` | Collect the API's per-envelope verdicts; answer "was this fix actually stored?". |
 | `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
+| `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; drain the queue as a burst. |
 | `DeviceSettings` | Hold a *valid* interval + sleep flag; clamp anything out of range. |
 | `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
@@ -216,6 +222,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
+| `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
+| `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
+| `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
+| `kDeviceAckPrivateKeyPem` | — | **This device's RSA private key (secret)** — decrypts the acks |
 | `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` | `5` | Lower clamp on a broker-supplied `interval_s` |
@@ -228,6 +238,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
 | `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
 | `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
+| `kSdRetryFilePath` | `/sdcard/retry.jsonl` | Fixes the API **rejected**, awaiting a scheduled retry |
+| `kRetryIntervalHours` | `24` | How long to wait between attempts on a rejected fix |
+| `kRetryMaxAgeHours` | `168` | Give up on a fix still refused after this long (`0` = never) |
+| `kSdMaxRetryEntries` | `2000` | Cap on the retry file; oldest are dropped past this |
 | `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
 | `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
 | `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
@@ -387,9 +401,10 @@ coordinated by [`FixForwarder`](src/sdcard/FixForwarder.h):
 
 ```
 GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
-   link up, nothing queued  ──► publish [envelope]  ──(QoS-2 ack)─► done
+   link up, nothing queued  ──► publish [envelope] ──(QoS-2)─► ──(API ack)─► done
    link up, backlog present ──► queue it, then drain the queue in bursts
    link down                ──► FixQueue.enqueue → /sdcard/queue.jsonl
+   API rejected it          ──► RetryQueue.add    → /sdcard/retry.jsonl
 ```
 
 - **Same encryption as transmit.** What is stored is the *exact* envelope that
@@ -399,10 +414,13 @@ GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
 - **Format only if needed.** The card is mounted with `format_if_mount_failed`,
   so a blank/corrupt card is formatted once, but an existing queue **survives
   reboots** (fixes saved before a power cut are recovered and sent on boot).
-- **Delivered means acked.** A fix (or a whole burst) leaves the queue **only**
-  after the broker's **QoS-2** delivery ack (`publishConfirmed`). If the ack
-  never comes, the data stays on the card for the next attempt — the healthy,
-  online path never writes to the card at all.
+- **Delivered means *stored*, not merely sent.** A fix leaves the queue only once
+  **two** acks have arrived: the broker's **QoS-2** ack (`publishConfirmed`) and
+  then the **API's verdict** (see [Delivery acknowledgements](#delivery-acknowledgements)).
+  The broker ack alone proves nothing about the database — with `kAckEnabled`
+  off, a fix the API rejects or never receives is still deleted. If either ack
+  never comes the data stays on the card for the next attempt, and the healthy
+  online path still never writes to the card at all.
 - **Always a JSON array.** Every message — a single live fix or a drained
   backlog — is published as a JSON **array of envelopes** (`[env]` or
   `[env1,env2,…]`), so the subscriber always parses one shape. A long backlog is
@@ -417,6 +435,93 @@ GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
 
 To disable the card entirely, set `kSdEnabled = false`: the forwarder still
 publishes live fixes, it simply cannot store the ones it misses.
+
+---
+
+## Delivery acknowledgements
+
+**A QoS-2 ack from the broker only proves Mosquitto took the message.** It says
+nothing about whether the API decrypted it, accepted it, and wrote a row. So on
+its own it let a fix that was rejected — or that arrived while the API was down —
+be deleted from the card and silently lost.
+
+With `kAckEnabled = true` the API publishes an **encrypted verdict per envelope**
+to `kAckTopic`, and a fix leaves the card only when that verdict says *stored*.
+
+### How an envelope is matched to its verdict
+
+`PayloadCrypto` adds a cleartext **`id`** (16 lowercase hex chars) to every
+envelope, alongside `alg`/`k`/`iv`/`ct`/`tag`. It sits *outside* the ciphertext
+deliberately: `FixQueue` stores the envelope verbatim, so the id survives deep
+sleep and reboots and can still be matched against an ack days later. It names a
+message, never its contents, so the broker learns nothing from it.
+
+The ack itself is one envelope of the same shape, wrapping:
+
+```json
+{"device":"GNSS01",
+ "stored":["9f2a7c41b8e05d36"],
+ "rejected":[{"id":"77aa01ffbe24c185","reason":"TimestampOutOfWindow"}]}
+```
+
+`stored` merges *inserted* and *already present* — the device does the same thing
+either way. Re-sending is safe: the API dedupes on `(device, fix time)`, so a
+lost ack costs one duplicate delivery, never a duplicate row.
+
+### The ack key runs the *opposite* way to the telemetry key
+
+| | Telemetry (device → API) | Ack (API → device) |
+|---|---|---|
+| Device holds | `kReceiverPublicKeyPem` (**public**) | `kDeviceAckPrivateKeyPem` (**private**) |
+| Server holds | the receiver private key | the device's ack public key |
+
+That inversion is the whole security point: only firmware holding the ack private
+key can read a verdict, so a compromised broker cannot forge one and make the
+device delete undelivered fixes. It also means **the ack private key must never
+reach the server** — generate the pair yourself and import only the public half:
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out GNSS01_ack_private.pem
+openssl rsa -in GNSS01_ack_private.pem -pubout -out GNSS01_ack_public.pem
+# in API/CarPosAPI:
+dotnet run -- import-device-key --device GNSS01 --ack-public-pem GNSS01_ack_public.pem
+```
+
+Paste the **private** PEM into `kDeviceAckPrivateKeyPem` in your `Config.h`
+(git-ignored), then delete the loose `.pem`.
+
+### ⚠️ The broker ACL must grant the read
+
+Mosquitto needs an explicit `topic read` rule before it will *deliver* to a
+subscriber. Without it the SUBSCRIBE is still ACKed and every ack is silently
+dropped — which looks exactly like a broken API, and makes every fix wait out
+`kAckTimeoutMs`. The rules live in
+[`Container/MQTTBroker/mosquitto/acl`](../Container/MQTTBroker/mosquitto/acl):
+
+```
+user GNSS01
+topic read devices/GNSS01/ack
+
+user carpos-api
+topic write devices/+/ack
+```
+
+### Rejected fixes are retried, not dropped
+
+A rejection goes to `kSdRetryFilePath` (`retry.jsonl`) with its first-seen time
+and attempt count, and is re-offered every `kRetryIntervalHours` until it is
+accepted or `kRetryMaxAgeHours` passes. This is worth doing because several
+reject reasons are **server-side and self-clearing**: an unknown or deactivated
+device starts working the moment its row is provisioned, and a decrypt failure
+clears when the key is fixed. Only the age cap ever discards data, and it logs at
+error level when it does.
+
+The schedule is measured in **GNSS UTC time** — the only trustworthy wall clock
+here, since `esp_timer` restarts across the deep-sleep reboot and there is no RTC
+battery. A cycle with no valid GNSS time simply treats nothing as due.
+
+Set `kAckEnabled = false` to restore the old behaviour exactly: the broker ack
+becomes the only confirmation, and nothing is written to `retry.jsonl`.
 
 ---
 
