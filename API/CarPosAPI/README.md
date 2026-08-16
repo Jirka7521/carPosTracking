@@ -215,13 +215,17 @@ and `BE` (runtime; SELECT/INSERT/UPDATE/DELETE only, granted automatically on
 future tables).
 
 Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
-`AddBatteryAndAccel`, `AddTemperature`):
+`AddBatteryAndAccel`, `AddTemperature`, `AddDeviceAckPublicKey`):
 
 - **devices** — `id` (uuid PK), `device_id` (unique MQTT identity, e.g.
   `GNSS01`), `display_name`, `public_key_pem`, `private_key_ciphertext`
-  (encrypted at rest), `last_seen_at` (only "device alive" signal — the
-  firmware sends no heartbeat), `is_active`/`deactivated_at` (soft delete),
-  `created_at`.
+  (encrypted at rest), `ack_public_key_pem` (nullable — the device's *public*
+  ack key, the mirror image of `private_key_ciphertext`: the server seals acks
+  with it and only the firmware can open them, so the private half never
+  reaches this database; null means acks are not configured for that device and
+  its fixes are stored but never confirmed), `last_seen_at` (only "device
+  alive" signal — the firmware sends no heartbeat), `is_active`/`deactivated_at`
+  (soft delete), `created_at`.
 - **positions** — `id` (bigint identity PK), `device_id` (FK, delete
   restricted), `fix_time` (GNSS time), `received_at`, `latitude`, `longitude`,
   `speed_kmph`, `altitude_m` (all CHECK-constrained), the optional sensor columns

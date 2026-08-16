@@ -31,18 +31,11 @@ topic read devices/GNSS01/cmd
 topic read devices/GNSS01/config
 topic read devices/GNSS01/ack
 
-# carpos-api: the ingest backend. Reads every device's telemetry and publishes the
-# per-device delivery ack back. It is scoped to `devices/+` (one segment) to match
-# the API's own subscription filter, and its write is confined to the ack suffix -
-# it has no business publishing anything that looks like device telemetry.
-user carpos-api
-topic read devices/+
-topic write devices/+/ack
-
 # dashboard: consumes every device's fixes and sends commands back.
 user dashboard
 topic read devices/#
 topic write devices/+/cmd
+topic write devices/+/ack
 
 # healthcheck: the container's own liveness probe, and nothing else. It is scoped
 # to a single throwaway topic on purpose - the probe never needs to see device
