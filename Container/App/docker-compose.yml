@@ -1,0 +1,142 @@
+services:
+  api:
+    # Built from API/, which is where the solution and both projects live.
+    build:
+      context: ../../API
+      dockerfile: Dockerfile
+    image: carpos-api:latest
+    container_name: carpos-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # --- Database -------------------------------------------------------
+      # The runtime role is BE (DML only, no DDL). Migrations are applied by
+      # hand as admin — never automatically on start-up, so a deploy can never
+      # rewrite the schema by surprise. "postgres" resolves on the shared
+      # network below.
+      ConnectionStrings__CarPos: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${BE_USER:?set BE_USER in .env};Password=${BE_PASSWORD:?set BE_PASSWORD in .env}
+
+      # --- MQTT ingest ----------------------------------------------------
+      # The broker URI must be wss:// or mqtts:// — the API validates this at
+      # start-up and refuses to run otherwise, because a plaintext scheme would
+      # silently downgrade the whole pipeline.
+      Mqtt__BrokerUri: ${MQTT_BROKER_URI:?set MQTT_BROKER_URI in .env}
+      Mqtt__Username: ${MQTT_USERNAME:?set MQTT_USERNAME in .env}
+      Mqtt__Password: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+
+      # --- Secrets --------------------------------------------------------
+      # Both are validated at start-up: the master key must decode to exactly
+      # 32 bytes, the signing key must be at least 32 bytes. A deployment with
+      # either missing fails fast instead of running in a broken state.
+      DeviceKeyProtection__MasterKeyBase64: ${DEVICE_KEY_MASTER_KEY:?set DEVICE_KEY_MASTER_KEY in .env}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+
+      # --- Session cookie --------------------------------------------------
+      # The session JWT rides in an HttpOnly cookie, Secure by default. A browser
+      # will not store or return a Secure cookie over plain http://, so if the
+      # dashboard is reached over anything but TLS the sign-in appears to succeed
+      # and then every request 401s. Serving it over plain HTTP (FE_BIND_ADDR on a
+      # LAN interface) therefore requires turning the flag off — at the cost that
+      # the cookie is no longer pinned to HTTPS on the tunnel path either. Leave
+      # it true whenever TLS terminates in front of this.
+      AuthCookie__SecureCookies: ${AUTH_SECURE_COOKIES:-true}
+
+      # --- Published path prefix -------------------------------------------
+      # The Cloudflare tunnel routes jimajer.cz/carPosAPI/* to this container and
+      # forwards the prefix as part of the path — a tunnel cannot strip it — so
+      # the API strips it itself (UsePathBase in Program.cs). Only requests that
+      # actually carry the prefix are affected, so /health from inside this
+      # network and /carPosAPI/health through the tunnel both keep working.
+      # Set it empty if the API is ever published at a root path.
+      Hosting__PathBase: ${API_PATH_BASE-/carPosAPI}
+    ports:
+      # The API is meant to be reached through the frontend's nginx, and normal
+      # traffic still is — the SPA calls the relative path /api, which nginx
+      # proxies over the network below. This mapping exists for the one thing
+      # nginx deliberately will not forward: /health (and /openapi). Without it
+      # there is no way to probe readiness from outside the container at all.
+      #
+      # Loopback and a non-default port by default, so out of the box this is
+      # reachable only from a shell on the host itself — the LAN still cannot
+      # see it, and it cannot collide with the frontend's default 127.0.0.1:8080.
+      #
+      # Setting BE_BIND_ADDR to a real interface publishes the ENTIRE API on that
+      # interface in plaintext, sign-in endpoints included, not just /health.
+      # That is a deliberate trusted-network choice, not a debugging convenience.
+      # Derived from BE_HOST in .env, same reason as the frontend binding below.
+      - "${BE_BIND_ADDR:-127.0.0.1}:${BE_PORT:-8081}:8080"
+    networks:
+      MQTTpublic:
+        # Pinned to the same address the deployment bundle uses. MQTTpublic is
+        # macvlan, so this is a real LAN address rather than an internal one, and
+        # left to IPAM it is whatever was free when the container started. This
+        # variant shares container_name with the bundle, so an unpinned dev run
+        # would leave the address depending on which compose file was used last.
+        ipv4_address: 192.168.124.5
+    healthcheck:
+      # The API's own /health checks the database connection and the MQTT
+      # ingest's state, so this is a real readiness signal rather than "the
+      # process is up".
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # RSA key generation and the first EF model build make a cold start slow.
+      start_period: 40s
+
+  fe:
+    build:
+      context: ../../FE
+      dockerfile: Dockerfile
+    image: carpos-fe:latest
+    container_name: carpos-fe
+    restart: unless-stopped
+    depends_on:
+      api:
+        # nginx refuses to start if it cannot resolve its proxy_pass upstream,
+        # so the API container has to exist first. Waiting for healthy (not just
+        # started) also means the first page load is not met with a 502.
+        condition: service_healthy
+    environment:
+      # Written into /config.js at container start (docker-entrypoint.sh). The
+      # image itself is environment-independent — the same build runs anywhere.
+      CARPOS_GOOGLE_MAPS_API_KEY: ${CARPOS_GOOGLE_MAPS_API_KEY:?set CARPOS_GOOGLE_MAPS_API_KEY in .env}
+
+      # Path prefix the dashboard is published under. The tunnel routes
+      # jimajer.cz/carPosFE/* here with the prefix still on the path, so nginx
+      # strips it and stamps it into the served index.html as its <base href>;
+      # the SPA then reads it back and prefixes its routes and /api calls. The
+      # un-prefixed root keeps working at the same time, which is what the
+      # loopback port and the healthcheck use. Empty disables the handling.
+      CARPOS_BASE_PATH: ${FE_BASE_PATH-/carPosFE}
+    ports:
+      # Derived from FE_HOST in .env: Docker parses the host side of a published
+      # port as an IP literal and rejects a hostname, so the name a browser uses
+      # cannot come through here directly — the publisher resolves it.
+      #
+      # The loopback default keeps the dashboard off the LAN entirely, reachable
+      # only through whatever terminates TLS in front of it. A LAN address serves
+      # it over plain HTTP instead, session cookie and all — see
+      # AUTH_SECURE_COOKIES above, which has to be turned off for that to work.
+      - "${FE_BIND_ADDR:-127.0.0.1}:${FE_PORT:-8080}:80"
+    networks:
+      MQTTpublic:
+        # Same reasoning as the API's pin above.
+        ipv4_address: 192.168.124.6
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/index.html >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Created by the Mosquitto broker stack (docker network create MQTTpublic);
+  # joined here, not created, so the API reaches postgres and the broker by
+  # name. `driver` cannot be combined with `external` — the network's settings
+  # belong to whoever created it.
+  MQTTpublic:
+    name: MQTTpublic
+    external: true

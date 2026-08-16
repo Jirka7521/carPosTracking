@@ -1,0 +1,45 @@
+# Project-level ESP-IDF defaults.
+#
+# These are applied on top of the board defaults every time PlatformIO
+# (re)generates `sdkconfig.ttgo-t7-v14-mini32`, so the flash/size settings
+# below survive a `menuconfig` or a framework upgrade. Keep this file as the
+# source of truth; do not hand-tune only the generated sdkconfig.
+#
+# See README "Build & flash" -> "Flash usage / size" for the rationale.
+
+# --- Use the board's full 4 MB flash (it ships with 4 MB, not 2 MB) ---
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# --- Larger single-app partition (~1.5 MB app vs. the stock 1 MB) ---
+# NOTE: under PlatformIO the partition table is chosen by `board_build.partitions`
+# in platformio.ini, NOT by these symbols (the espidf builder overrides them).
+# They are kept here only so a raw `idf.py` build picks the same layout.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+CONFIG_PARTITION_TABLE_FILENAME="partitions_singleapp_large.csv"
+
+# --- Optimise for size (-Os) instead of debug (-Og) ---
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# --- Smaller "nano" printf/scanf from newlib ---
+CONFIG_NEWLIB_NANO_FORMAT=y
+
+# --- Long filenames on the microSD card ---
+# FatFs defaults to CONFIG_FATFS_LFN_NONE, i.e. 8.3 names only. Under that rule
+# the card's files (`queue.jsonl`, `settings.json`, and the sibling `.tmp` files
+# SdCard stages writes through) are *invalid names*: fopen() fails with ENOENT
+# even though the card mounted fine. The queue only writes when the broker is
+# unreachable, so this stayed hidden until the first outage - and the settings
+# cache failed silently, falling back to the Config.h defaults every boot.
+# LFN_HEAP keeps the name buffer off the (already tight) stack.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
+# --- Bigger main task stack (default 3584 B is not enough) ---
+# app_main() does not just wire objects together: it runs the whole tracking
+# loop, and that loop calls PayloadCrypto::encrypt() -> mbedTLS RSA-OAEP on the
+# main task's own stack. A single RSA modexp on a 3072/4096-bit key costs a few
+# kB of stack on its own, and the SD queue + MQTT publish calls that follow sit
+# on top of it. With the stock 3584 B the first fix reliably tripped
+# "***ERROR*** A stack overflow in task main has been detected."
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288

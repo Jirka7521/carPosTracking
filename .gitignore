@@ -1,9 +1,73 @@
-.pio
-.vscode/.browse.c_cpp.db*
-.vscode/c_cpp_properties.json
-.vscode/launch.json
-.vscode/ipch
+# ─────────────────────────────────────────────────────────────
+# OS files
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────
+# Editor / IDE
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.vs/
+carPosTracking.code-workspace
+
+# ─────────────────────────────────────────────────────────────
+# .NET (API/CarPosAPI, API/CarPosAPI.Tests)
+# ─────────────────────────────────────────────────────────────
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local developer secrets override — real DB connection string, MQTT creds,
+# JWT signing key, device-key protection master key. Never commit.
+appsettings.Local.json
+appsettings.*.Local.json
+
+# ─────────────────────────────────────────────────────────────
+# Node / FE (belt-and-suspenders — FE/ also has its own .gitignore)
+# ─────────────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─────────────────────────────────────────────────────────────
+# Container stacks — local secrets (never commit)
+# ─────────────────────────────────────────────────────────────
+# Covers Postgres, MQTTBroker and App. Each stack keeps a committed
+# .env.example listing every key with the secret values left empty; the real
+# .env sits beside it and stays out of git.
+Container/**/.env
+
+# ─────────────────────────────────────────────────────────────
+# ESP32 firmware (PlatformIO / ESP-IDF)
+# ─────────────────────────────────────────────────────────────
+# PlatformIO
+ESP32/.pio
+ESP32/.pioenvs
+ESP32/.piolibdeps
+ESP32/.clang_complete
+ESP32/.gcc-flags.json
 
 # Secrets: the real config holds WiFi credentials and must never be committed.
 # The committed template is src/config/Config.example.h (no credentials).
-src/config/Config.h
+ESP32/src/config/Config.h
+
+# Python tool caches
+__pycache__/
+*.pyc
+
+# ─────────────────────────────────────────────────────────────
+# Generated deployment bundle (scripts/Publish-Deployment.ps1, Ctrl+Shift+M)
+# ─────────────────────────────────────────────────────────────
+# The publisher writes Application/ with a real .env (live secrets) plus copies
+# of the API and FE sources. It is a build artifact — never commit it.
+/Application/

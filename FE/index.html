@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!--
+      The base every relative URL on this page resolves against, and the single
+      thing that lets one build be served both at the site root and under a path
+      prefix. The Cloudflare tunnel publishes this app at /carPosFE and forwards
+      that prefix verbatim, so a page reached that way must ask for
+      /carPosFE/assets/… — which it does automatically once the base says so.
+
+      nginx rewrites the value below to the prefix the request actually came in
+      under (see nginx.conf); served at the root it stays "/" and nothing about
+      the app changes. It must be the first URL-bearing tag in <head>, because a
+      <base> only affects what follows it.
+
+      The app reads it back out of document.baseURI in
+      src/services/runtimeConfig.ts to derive React Router's basename and the
+      /api prefix, so the router and the API client cannot disagree with the
+      browser about where "here" is.
+    -->
+    <base href="/" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0065BD" />
+    <title>Car Position Tracking</title>
+
+    <!--
+      Runtime configuration. It must load *before* the bundle, and not as a
+      module, so window.__CARPOS_CONFIG__ is already populated by the time
+      services/runtimeConfig.ts reads it.
+
+      In the container this is served by nginx itself, generated from the
+      deployment's Maps key (see FE/nginx.conf); locally it is the git-ignored
+      public/config.js.
+
+      The URL is relative so it resolves against the <base> above and follows
+      whatever prefix we are served under. Writing it as "/config.js" is the
+      trap: Vite rewrites a root-absolute public-directory reference to a
+      relative one only when that file is actually present in the build context,
+      and public/config.js is git-ignored — so it is there on a developer's
+      machine and absent in the image build. The result was a page that asked
+      for /config.js at the origin, which works at the root and 404s behind the
+      prefix. Keep the leading "./" and the build no longer depends on it.
+    -->
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

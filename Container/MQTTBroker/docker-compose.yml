@@ -1,0 +1,130 @@
+services:
+  mosquitto:
+    # eclipse-mosquitto 2.0 is multi-arch; the arm64 variant runs natively on the Pi.
+    image: eclipse-mosquitto:2.0
+    container_name: carpos-mosquitto
+    restart: unless-stopped
+    # Invoked via sh so it does not depend on the exec bit surviving the checkout.
+    # Rebuilds the password file from .env on every boot, then hands over to the
+    # image's own entrypoint. Keeps credentials in .env only, never on disk in git.
+    entrypoint: ["/bin/sh", "/config-src/entrypoint-passwd.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    labels:
+      # Watched by the autoheal sidecar: unhealthy -> restarted. Docker's own
+      # restart policy only reacts to a container *exiting*, never to an unhealthy
+      # one that is still running.
+      autoheal: "true"
+    environment:
+      # All four are mandatory - the entrypoint aborts the boot if any is empty,
+      # rather than starting a broker with an account nobody can log into.
+      ADMIN_USER: ${ADMIN_USER:?set ADMIN_USER in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      DEVICE_USER: ${DEVICE_USER:?set DEVICE_USER in .env}
+      DEVICE_PASSWORD: ${DEVICE_PASSWORD:?set DEVICE_PASSWORD in .env}
+      DASHBOARD_USER: ${DASHBOARD_USER:?set DASHBOARD_USER in .env}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
+      # Read by healthcheck.sh; the probe authenticates like any other client.
+      HEALTHCHECK_USER: ${HEALTHCHECK_USER:?set HEALTHCHECK_USER in .env}
+      HEALTHCHECK_PASSWORD: ${HEALTHCHECK_PASSWORD:?set HEALTHCHECK_PASSWORD in .env}
+    ports:
+      # Plain MQTT for LAN clients (the ESP32) and local tests. The WebSocket
+      # listener (9001) is deliberately NOT published: it is reached only through
+      # nginx, which is what the Cloudflare tunnel talks to.
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      # Mounted at /config-src, NOT onto /mosquitto/config: the entrypoint copies
+      # these in and fixes ownership, which is impossible on a read-only mount and
+      # is what Mosquitto's "world readable / owner is not mosquitto" warnings and
+      # the image's own `chown -R /mosquitto` errors were both complaining about.
+      - ./mosquitto:/config-src:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_secrets:/mosquitto/secrets
+    networks:
+      MQTTpublic:
+        # Pinned, because MQTTpublic is macvlan: this is a real address on the LAN,
+        # not an internal one, and without the pin it is whatever IPAM had free when
+        # this container happened to start - which after a reboot is a lottery.
+        # The subnet itself belongs to the network (see README), never to compose.
+        ipv4_address: 192.168.124.2
+        aliases:
+          # nginx.conf proxies to mqtt.local, which is mDNS on the LAN and does not
+          # resolve inside a container. This alias makes the name resolve to this
+          # service on the Docker network, so the proxy config works either way.
+          - mqtt.local
+    healthcheck:
+      # Authenticated publish/subscribe round-trip. See healthcheck.sh.
+      test: ["CMD", "/bin/sh", "/config-src/healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 15s
+
+  nginx:
+    # Terminates the plain-HTTP side of the Cloudflare tunnel and upgrades
+    # /mqttBroker to a WebSocket connection against the broker's 9001 listener.
+    image: nginx:1.27-alpine
+    container_name: carpos-mqtt-nginx
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        # Do not start the proxy until the broker passes its healthcheck. nginx in
+        # front of a dead broker just turns the outage into 502s - and it refuses to
+        # start at all if it cannot resolve its upstream name.
+        condition: service_healthy
+        # If the broker gets restarted (by autoheal or by hand), restart nginx too,
+        # so it never holds connections to a container that has gone away.
+        restart: true
+    labels:
+      autoheal: "true"
+    ports:
+      # Only needed when cloudflared runs on the host rather than as a container
+      # on MQTTpublic. Bound to loopback so the proxy is never exposed on the LAN.
+      - "127.0.0.1:${NGINX_PORT:-8083}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      MQTTpublic:
+        # Same reasoning as the broker above: a fixed LAN address, so a reboot
+        # cannot shuffle it with whatever else joins the network.
+        ipv4_address: 192.168.124.3
+    healthcheck:
+      # Proves nginx serves AND that its upstream is reachable - a bare /healthz
+      # would still pass with a dead broker behind it.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null && nc -z mqtt.local 9001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  autoheal:
+    # Watches container health and restarts anything labelled autoheal=true that has
+    # gone unhealthy. Docker Engine has no built-in "restart when unhealthy".
+    image: willfarrell/autoheal:latest
+    container_name: carpos-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      # How often to poll health, and how long to leave a freshly restarted
+      # container alone before it is eligible to be restarted again.
+      AUTOHEAL_INTERVAL: 15
+      AUTOHEAL_START_PERIOD: 30
+    volumes:
+      # autoheal needs the Docker API to read health and issue restarts. Read-only,
+      # but socket access is still effectively root on the host - that is the price
+      # of unhealthy-restart. Drop this service if you would rather not pay it.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Talks only to the socket; it needs no network at all.
+    network_mode: none
+
+volumes:
+  mosquitto_data:
+  mosquitto_secrets:
+
+networks:
+  # Created outside this stack, so both this and the Postgres stack just join it:
+  #   docker network create MQTTpublic
+  # `driver` cannot be combined with `external` - the network's settings belong to
+  # whoever created it.
+  MQTTpublic:
+    name: MQTTpublic
+    external: true

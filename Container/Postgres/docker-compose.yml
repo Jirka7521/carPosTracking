@@ -1,0 +1,44 @@
+services:
+  postgres:
+    # PostgreSQL 18 + PostGIS 3.6. The official postgis/postgis image is amd64-only,
+    # so we use imresamu/postgis, the project's multi-arch mirror with native arm64.
+    image: imresamu/postgis:18-3.6
+    container_name: carpos-postgres
+    restart: unless-stopped
+    environment:
+      # admin is the bootstrap superuser / owner the image creates.
+      POSTGRES_USER: ${ADMIN_USER}
+      POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # BE (read/write, no DDL) is created by initdb/02-create-users.sh.
+      BE_USER: ${BE_USER}
+      BE_PASSWORD: ${BE_PASSWORD}
+      # Keep the data dir in a subfolder so the volume mount root stays clean.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Scripts here run once, only on first init of an empty data dir.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      MQTTpublic:
+        # Pinned: MQTTpublic is macvlan, so this is a real LAN address rather than an
+        # internal one. Without the pin the database lands wherever IPAM had a slot
+        # free when it started, which after a reboot is whoever won the race.
+        # The subnet belongs to the network itself (see the MQTTBroker README).
+        ipv4_address: 192.168.124.4
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  pgdata:
+
+networks:
+  # Shared network created by the Mosquitto broker stack; joined, not created here.
+  MQTTpublic:
+    external: true

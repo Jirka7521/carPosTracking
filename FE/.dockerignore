@@ -1,0 +1,31 @@
+# Installed by `npm ci` inside the image — copying the host's tree in would be
+# slow and could carry platform-specific binaries that do not run on Alpine.
+node_modules
+
+# Build output. The image builds its own; a stale dist/ copied in would be
+# overwritten anyway, but only after being uploaded as build context.
+dist
+dist-ssr
+
+# Local secrets. VITE_ variables are no longer used at build time, but a .env
+# here would still be an accident waiting to happen.
+.env
+*.local
+
+# The developer's runtime config, holding a real Google Maps key. It is
+# git-ignored, so it is absent from a clone and present on the machine it was
+# created on — which made the image build differ between the two. Excluding it
+# here makes the build identical everywhere, and keeps a real key out of an
+# image layer: the entrypoint deletes the file at start-up, but a layer that
+# once contained it keeps it forever. nginx answers /config.js from its own
+# config, so nothing in the image needs this file.
+public/config.js
+
+# Everything else with no business in a build context.
+.vscode
+.idea
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.log
