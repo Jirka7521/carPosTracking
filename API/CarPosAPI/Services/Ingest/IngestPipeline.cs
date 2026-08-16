@@ -24,6 +24,20 @@ internal sealed partial class IngestPipeline : IIngestPipeline
     private const string TopicPrefix = "devices/";
 
     /// <summary>
+    /// Reject reason for an envelope that would not decrypt. Not a
+    /// <see cref="PositionRejectReason"/> because it fails before there is a payload
+    /// to judge, but it travels in the same reason vocabulary on the wire.
+    /// </summary>
+    private const string DecryptFailedReason = "DecryptFailed";
+
+    /// <summary>
+    /// Reject reason for a batch the database refused on a constraint. Server-side
+    /// and potentially transient (a device row deactivated mid-flight, say), which is
+    /// exactly why the firmware retries these rather than discarding them.
+    /// </summary>
+    private const string StorageRejectedReason = "StorageRejected";
+
+    /// <summary>
     /// Strict parser for the decrypted inner payload (flat object, shallow depth).
     /// </summary>
     private static readonly JsonSerializerOptions s_jsonOptions = new JsonSerializerOptions
@@ -38,6 +52,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
     private readonly IPayloadCryptoService _crypto;
     private readonly PositionValidator _validator;
     private readonly IPositionWriter _writer;
+    private readonly IAckPublisher _ackPublisher;
     private readonly MqttConnectionState _state;
     private readonly IngestOptions _options;
     private readonly ILogger<IngestPipeline> _logger;
@@ -48,6 +63,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
     /// <param name="crypto">Envelope decryptor.</param>
     /// <param name="validator">Semantic payload validator.</param>
     /// <param name="writer">Idempotent batch persister.</param>
+    /// <param name="ackPublisher">Publishes the sealed delivery ack back to the device.</param>
     /// <param name="state">Shared counters for health reporting.</param>
     /// <param name="options">Retry configuration.</param>
     /// <param name="logger">Structured logger (no PII, no keys).</param>
@@ -57,6 +73,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
         IPayloadCryptoService crypto,
         PositionValidator validator,
         IPositionWriter writer,
+        IAckPublisher ackPublisher,
         MqttConnectionState state,
         IOptions<IngestOptions> options,
         ILogger<IngestPipeline> logger)
@@ -66,6 +83,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
         _crypto = crypto;
         _validator = validator;
         _writer = writer;
+        _ackPublisher = ackPublisher;
         _state = state;
         _options = options.Value;
         _logger = logger;
@@ -107,7 +125,15 @@ internal sealed partial class IngestPipeline : IIngestPipeline
 
         // Decrypt + parse + validate each envelope; failures are counted per reason
         // and skipped so one poison envelope never sinks its batch-mates.
+        //
+        // Alongside the counters we keep the per-envelope verdict keyed by the
+        // firmware's correlation id, which is what the delivery ack is built from.
+        // Envelopes without an id (pre-ack firmware) and envelopes the codec rejected
+        // structurally have no id to name, so they are counted but never acked — the
+        // device simply falls back to its own retry timeout for those.
         List<ValidatedPosition> validated = new List<ValidatedPosition>(decodeResult.Envelopes.Count);
+        List<string> storedIds = new List<string>(decodeResult.Envelopes.Count);
+        List<DeliveryAckRejectionDto> rejections = new List<DeliveryAckRejectionDto>();
         Dictionary<string, int> rejectCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         int rejected = decodeResult.RejectedEnvelopes;
         if (rejected > 0)
@@ -121,7 +147,8 @@ internal sealed partial class IngestPipeline : IIngestPipeline
             if (!_crypto.TryDecrypt(device, envelope, out byte[] plaintext))
             {
                 rejected++;
-                CountReject(rejectCounts, "DecryptFailed");
+                CountReject(rejectCounts, DecryptFailedReason);
+                RecordRejection(rejections, envelope.Id, DecryptFailedReason);
                 continue;
             }
 
@@ -139,6 +166,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
             {
                 rejected++;
                 CountReject(rejectCounts, nameof(PositionRejectReason.JsonInvalid));
+                RecordRejection(rejections, envelope.Id, nameof(PositionRejectReason.JsonInvalid));
                 continue;
             }
 
@@ -152,10 +180,17 @@ internal sealed partial class IngestPipeline : IIngestPipeline
             {
                 rejected++;
                 CountReject(rejectCounts, reason.ToString());
+                RecordRejection(rejections, envelope.Id, reason.ToString());
                 continue;
             }
 
             validated.Add(position);
+            if (envelope.Id is not null)
+            {
+                // Provisionally stored — promoted to the ack only once the write
+                // below actually succeeds.
+                storedIds.Add(envelope.Id);
+            }
         }
 
         if (rejected > 0)
@@ -172,14 +207,34 @@ internal sealed partial class IngestPipeline : IIngestPipeline
         if (validated.Count == 0)
         {
             _state.RecordOutcome(0, 0, rejected);
+            // Still ack: the device needs to hear about rejections just as much as
+            // about successes, otherwise it keeps re-sending fixes we will never take.
+            await _ackPublisher.PublishAsync(device, Array.Empty<string>(), rejections, cancellationToken);
             return IngestOutcome.Success;
         }
 
-        PositionWriteResult? writeResult = await TryWriteWithRetryAsync(device.Id, topicDeviceId, validated, cancellationToken);
+        PositionWriteAttempt attempt = await TryWriteWithRetryAsync(device.Id, topicDeviceId, validated, cancellationToken);
+        PositionWriteResult? writeResult = attempt.Result;
         if (writeResult is null)
         {
             _state.RecordOutcome(0, 0, rejected);
+            // Deliberately no ack. The message is not acknowledged to the broker
+            // either, so it will be redelivered — telling the device anything now
+            // would invite it to drop fixes that were never written.
             return IngestOutcome.RetryableFailure;
+        }
+
+        if (attempt.Poisoned)
+        {
+            // The batch was discarded, so nothing in it is stored. Report every fix
+            // as rejected instead, which routes them to the firmware's retry queue
+            // rather than silently destroying them.
+            foreach (string poisonedId in storedIds)
+            {
+                rejections.Add(new DeliveryAckRejectionDto(poisonedId, StorageRejectedReason));
+            }
+
+            storedIds.Clear();
         }
 
         _state.RecordOutcome(writeResult.Inserted, writeResult.Duplicates, rejected);
@@ -192,6 +247,10 @@ internal sealed partial class IngestPipeline : IIngestPipeline
             writeResult.Duplicates,
             rejected,
             (long)elapsed.TotalMilliseconds);
+
+        // Last, and only on the success path: tell the device what happened, so it can
+        // clear its SD queue with confidence instead of trusting a broker-level ack.
+        await _ackPublisher.PublishAsync(device, storedIds, rejections, cancellationToken);
         return IngestOutcome.Success;
     }
 
@@ -206,8 +265,11 @@ internal sealed partial class IngestPipeline : IIngestPipeline
     /// <param name="deviceId">MQTT device id, for logging only.</param>
     /// <param name="validated">The batch to persist.</param>
     /// <param name="cancellationToken">Application shutdown token.</param>
-    /// <returns>The write result, or null when the message must be redelivered.</returns>
-    private async Task<PositionWriteResult?> TryWriteWithRetryAsync(
+    /// <returns>
+    /// The attempt outcome — see <see cref="PositionWriteAttempt"/> for why the
+    /// poison case is flagged separately rather than folded into a zeroed result.
+    /// </returns>
+    private async Task<PositionWriteAttempt> TryWriteWithRetryAsync(
         Guid deviceRowId,
         string deviceId,
         IReadOnlyList<ValidatedPosition> validated,
@@ -217,7 +279,8 @@ internal sealed partial class IngestPipeline : IIngestPipeline
         {
             try
             {
-                return await _writer.WriteBatchAsync(deviceRowId, validated, cancellationToken);
+                PositionWriteResult written = await _writer.WriteBatchAsync(deviceRowId, validated, cancellationToken);
+                return new PositionWriteAttempt(written, false);
             }
             catch (PostgresException exception) when (exception.SqlState.StartsWith("23", StringComparison.Ordinal))
             {
@@ -226,7 +289,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
                     deviceId,
                     exception.ConstraintName,
                     exception.SqlState);
-                return new PositionWriteResult(0, 0);
+                return new PositionWriteAttempt(new PositionWriteResult(0, 0), true);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -254,7 +317,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
             "Device {DeviceId}: database unavailable after {MaxAttempts} attempts — requesting redelivery",
             deviceId,
             _options.DbRetryCount);
-        return null;
+        return new PositionWriteAttempt(null, false);
     }
 
     /// <summary>Extracts and validates the device id from a telemetry topic.</summary>
@@ -286,6 +349,28 @@ internal sealed partial class IngestPipeline : IIngestPipeline
     {
         counts.TryGetValue(reason, out int current);
         counts[reason] = current + 1;
+    }
+
+    /// <summary>
+    /// Records a rejection for the delivery ack, when the envelope carried an id to
+    /// name it by. An envelope without one still counts towards the aggregated log
+    /// line; it just cannot be reported back, which is the expected behaviour for
+    /// firmware that predates the ack protocol.
+    /// </summary>
+    /// <param name="rejections">The per-message rejection list being built.</param>
+    /// <param name="envelopeId">The envelope's correlation id, or null.</param>
+    /// <param name="reason">Reason name from the closed vocabulary.</param>
+    private static void RecordRejection(
+        List<DeliveryAckRejectionDto> rejections,
+        string? envelopeId,
+        string reason)
+    {
+        if (envelopeId is null)
+        {
+            return;
+        }
+
+        rejections.Add(new DeliveryAckRejectionDto(envelopeId, reason));
     }
 
     /// <summary>Allowed device-id shape — mirrors what the firmware can be flashed with.</summary>

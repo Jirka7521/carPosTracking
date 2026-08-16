@@ -68,6 +68,31 @@ public sealed class MqttOptions
     [Range(5, 300)]
     public int KeepAliveSeconds { get; set; } = 30;
 
+    /// <summary>
+    /// Master switch for publishing delivery acks to <c>devices/&lt;id&gt;/ack</c>.
+    /// Turning it off restores the pre-ack behaviour exactly: fixes are still
+    /// ingested, devices simply never hear back and fall back to their own retry
+    /// timeout. Useful as a kill switch if the broker ACL is wrong.
+    /// </summary>
+    public bool AckEnabled { get; set; } = true;
+
+    /// <summary>
+    /// QoS for the ack publish. 1 (at-least-once) is the right level: the device
+    /// keys everything on envelope ids, so a duplicate ack is idempotent, while
+    /// QoS 0 would silently lose acks and QoS 2 would add a round trip for nothing.
+    /// </summary>
+    [Range(0, 2)]
+    public int AckQos { get; set; } = 1;
+
+    /// <summary>
+    /// Upper bound on one ack publish. The ack is sent from inside the message
+    /// handler, which MQTTnet awaits before it processes further incoming packets —
+    /// so an unbounded wait for a PUBACK could wedge ingest behind its own reply.
+    /// This timeout makes that failure mode a logged warning instead of a stall.
+    /// </summary>
+    [Range(1, 60)]
+    public int AckPublishTimeoutSeconds { get; set; } = 5;
+
     /// <summary>Initial reconnect delay; doubles (with jitter) up to the max below.</summary>
     [Range(1, 3600)]
     public int ReconnectMinDelaySeconds { get; set; } = 1;

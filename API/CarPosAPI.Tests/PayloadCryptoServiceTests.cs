@@ -48,7 +48,10 @@ public sealed class PayloadCryptoServiceTests
         }
 
         byte[] wrappedKey = receiverPublicKey.Encrypt(aesKey, RSAEncryptionPadding.OaepSHA256);
-        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag);
+
+        // Null id: decryption is entirely independent of the ack correlation id, and
+        // pre-ack firmware sends none, so that is the honest case to exercise here.
+        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag, null);
     }
 
     /// <summary>Creates a cache entry around the shared receiver key.</summary>

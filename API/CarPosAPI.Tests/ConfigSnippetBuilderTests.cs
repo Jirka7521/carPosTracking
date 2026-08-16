@@ -21,13 +21,26 @@ public sealed class ConfigSnippetBuilderTests
 
     private static readonly DateTime s_generatedAt = new DateTime(2026, 7, 22, 10, 15, 0, DateTimeKind.Utc);
 
+    private const string AckFingerprint = "0123456789ABCDEF";
+
     /// <summary>Builds a snippet for a real generated key, as the service does.</summary>
+    /// <param name="ackPublicKeyFingerprint">
+    /// Ack key on file, or null for a device that has none yet — the state every
+    /// device is in immediately after <c>POST /api/devices</c>.
+    /// </param>
     /// <returns>The rendered snippet and the PEM it was built from.</returns>
-    private static (string Snippet, string PublicKeyPem) BuildSnippet()
+    private static (string Snippet, string PublicKeyPem) BuildSnippet(
+        string? ackPublicKeyFingerprint = null)
     {
         string publicKeyPem = TestKeys.ReceiverKey.ExportSubjectPublicKeyInfoPem();
         ConfigSnippetBuilder builder = new ConfigSnippetBuilder();
-        string snippet = builder.Build(DeviceId, BrokerUri, publicKeyPem, Fingerprint, s_generatedAt);
+        string snippet = builder.Build(
+            DeviceId,
+            BrokerUri,
+            publicKeyPem,
+            Fingerprint,
+            ackPublicKeyFingerprint,
+            s_generatedAt);
         return (snippet, publicKeyPem);
     }
 
@@ -38,6 +51,7 @@ public sealed class ConfigSnippetBuilderTests
 
         Assert.Equal("devices/GNSS01", builder.TelemetryTopicFor(DeviceId));
         Assert.Equal("devices/GNSS01/config", builder.ConfigTopicFor(DeviceId));
+        Assert.Equal("devices/GNSS01/ack", builder.AckTopicFor(DeviceId));
     }
 
     [Fact]
@@ -49,6 +63,7 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Contains("constexpr char kMqttClientId[]   = \"GNSS01\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kTelemetryTopic[] = \"devices/GNSS01\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kConfigTopic[]    = \"devices/GNSS01/config\";", snippet, StringComparison.Ordinal);
+        Assert.Contains("constexpr char kAckTopic[]       = \"devices/GNSS01/ack\";", snippet, StringComparison.Ordinal);
         Assert.Contains($"constexpr char kMqttBrokerUri[]  = \"{BrokerUri}\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kReceiverPublicKeyPem[] =", snippet, StringComparison.Ordinal);
         Assert.Contains("provisioned 2026-07-22T10:15:00Z", snippet, StringComparison.Ordinal);
@@ -97,6 +112,40 @@ public sealed class ConfigSnippetBuilderTests
     }
 
     [Fact]
+    public void NeverLeaksPrivateKeyMaterialWhenAnAckKeyIsOnFile()
+    {
+        // The ack direction inverts the key roles — the *device* holds that private
+        // key — which makes this snippet the obvious place to accidentally ship one.
+        // It is re-readable through the provisioning endpoint and gets copied to the
+        // clipboard, so the invariant has to hold in the ack-configured case too.
+        (string snippet, string _) = BuildSnippet(AckFingerprint);
+
+        Assert.DoesNotContain("PRIVATE", snippet, StringComparison.Ordinal);
+        Assert.DoesNotContain("BEGIN RSA", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReportsTheAckKeyFingerprintWhenOneIsImported()
+    {
+        (string snippet, string _) = BuildSnippet(AckFingerprint);
+
+        Assert.Contains($"SPKI-SHA256 {AckFingerprint}", snippet, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool kAckEnabled = true;", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SaysSoWhenNoAckKeyHasBeenImported()
+    {
+        // The state right after POST /api/devices. Silence here would be the worst
+        // outcome: the operator would flash firmware that waits for acks the API is
+        // not configured to send, and read the resulting retries as a bug.
+        (string snippet, string _) = BuildSnippet(null);
+
+        Assert.Contains("NOT YET CONFIGURED", snippet, StringComparison.Ordinal);
+        Assert.Contains("--ack-public-pem GNSS01_ack_public.pem", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UsesLfLineEndingsOnly()
     {
         (string snippet, string _) = BuildSnippet();
@@ -114,7 +163,13 @@ public sealed class ConfigSnippetBuilderTests
         string crlfPem = TestKeys.ReceiverKey.ExportSubjectPublicKeyInfoPem().ReplaceLineEndings("\r\n");
         ConfigSnippetBuilder builder = new ConfigSnippetBuilder();
 
-        string snippet = builder.Build(DeviceId, BrokerUri, crlfPem, Fingerprint, s_generatedAt);
+        string snippet = builder.Build(
+            DeviceId,
+            BrokerUri,
+            crlfPem,
+            Fingerprint,
+            AckFingerprint,
+            s_generatedAt);
 
         Assert.DoesNotContain("\r", snippet, StringComparison.Ordinal);
         Assert.EndsWith("\"-----END PUBLIC KEY-----\\n\";\n", snippet, StringComparison.Ordinal);

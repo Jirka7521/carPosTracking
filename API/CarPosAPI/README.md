@@ -24,6 +24,9 @@ ESP32 ──(WSS, QoS 2)──► Mosquitto ──(WSS, QoS 2)──► MqttInge
                                                             ▼
                                         PostgreSQL (devices, positions)
                                         INSERT … ON CONFLICT DO NOTHING
+                                                            │
+  ESP32 ◄──(encrypted ack)── Mosquitto ◄─────────── MqttAckPublisher
+        devices/GNSS01/ack             stored[] / rejected[] per envelope id
 ```
 
 Key properties:
@@ -36,13 +39,28 @@ Key properties:
   (aggregated, without coordinates — location data is personal data) and
   consumed; only database outages trigger redelivery (unacknowledged message +
   reconnect after a pause).
+- **Delivery is confirmed, not assumed.** After a successful write the API
+  publishes an encrypted ack to `devices/<id>/ack` naming, per envelope id, what
+  was `stored` and what was `rejected` (with the reason). The firmware clears a
+  fix from its SD card only on that ack — a broker QoS-2 ack alone proves only
+  that Mosquitto took the message. The ack is published **only** on the success
+  path: a database outage stays unacknowledged so the broker redelivers.
 - **Keys encrypted at rest.** Device RSA-3072 private keys are stored in
   `devices.private_key_ciphertext`, AES-256-GCM-encrypted under a 32-byte
   master key with the device id as associated data. They are never logged and
   must never be exposed by any endpoint.
+- **The ack key runs the other way, and never touches this server.** An ack is
+  sealed *to* the device, so the device holds the private half and
+  `devices.ack_public_key_pem` holds only the public one. That key pair is
+  generated off-server and imported with `--ack-public-pem`; no endpoint, DTO or
+  config snippet ever carries a device private key.
 - **Fail-fast startup.** Missing connection string, MQTT password, or a
-  missing/short master key aborts startup; a non-`wss`/`mqtts` broker URI is
-  refused (data in transit must be encrypted).
+  missing/short master key aborts startup, as does a broker URI that is not
+  `ws`/`wss`/`mqtt`/`mqtts` — so a typo like `http://` fails at boot rather than
+  surfacing as a warning inside the reconnect loop. Plaintext schemes *are*
+  allowed: the deployed API reaches Mosquitto over the host's container network,
+  and the telemetry is end-to-end encrypted either way (see
+  [`Options/MqttOptions.cs`](Options/MqttOptions.cs)).
 - **Single instance only.** The persistent session is keyed by the MQTT client
   id — two instances would kick each other off the broker.
 
@@ -61,6 +79,14 @@ These four keys are secrets and are blank in the committed file:
 | `Mqtt:Password` | Broker password for the `carpos-api` account |
 | `DeviceKeyProtection:MasterKeyBase64` | Base64 of exactly 32 random bytes |
 | `Jwt:SigningKey` | HMAC-SHA256 key for session tokens, **≥ 32 bytes** |
+
+Delivery acks are configured under the same `Mqtt` section, all non-secret:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Mqtt:AckEnabled` | `true` | Master switch. `false` restores the pre-ack behaviour (devices never hear back and fall back to their own timeout) — a useful kill switch if the broker ACL is wrong. |
+| `Mqtt:AckQos` | `1` | At-least-once is right: verdicts are keyed by envelope id, so a duplicate ack is idempotent. |
+| `Mqtt:AckPublishTimeoutSeconds` | `5` | Bounds the publish. The ack is sent from inside the message handler MQTTnet awaits, so an unbounded wait for a PUBACK could stall ingest behind its own reply. |
 
 `Jwt:SigningKey` has no default and no fallback: anyone holding it can mint a
 session for any account, so a deployment without a real one refuses to start.
@@ -399,6 +425,40 @@ given), encrypted under the master key and upserted. Only a SPKI-SHA256
 fingerprint is printed. **Restart the API afterwards** — keys are cached (the
 cache also refreshes itself every 60 minutes).
 
+### `--ack-public-pem` — enable delivery acks for a device
+
+Acks are sealed **to** the device, so the key roles invert: the device holds the
+private half and this server needs only the public one. Generate the pair
+yourself — **the private key must never reach this server** — and import only the
+public half:
+
+```powershell
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out GNSS01_ack_private.pem
+openssl rsa -in GNSS01_ack_private.pem -pubout -out GNSS01_ack_public.pem
+
+dotnet run -- import-device-key --device GNSS01 --ack-public-pem GNSS01_ack_public.pem
+```
+
+Then paste the **private** PEM into `kDeviceAckPrivateKeyPem` in the firmware's
+git-ignored `Config.h`, set `kAckEnabled = true`, and delete the loose `.pem`.
+
+`--ack-public-pem` may be given on its own — adding acks to an existing device
+must not require handling its receiver private key. The command refuses a file
+containing a private key, and there is deliberately no pairing round-trip: we do
+not have the private half and would not want it. Until a device has an ack key it
+is simply not sent acks; its fixes are still ingested normally.
+
+**The broker ACL must also allow it**, or Mosquitto ACKs the subscription and
+silently drops every ack:
+
+```
+user GNSS01
+topic read devices/GNSS01/ack
+
+user carpos-api
+topic write devices/+/ack
+```
+
 ## Build, test, run
 
 ```powershell
@@ -443,9 +503,14 @@ max_queued_messages 5000
 
 ```bash
 mosquitto_passwd -b /mosquitto/config/passwords carpos-api '<password>'
-# ACL for the ingest account (read-only on telemetry):
+# ACL for the ingest account: read telemetry, write delivery acks.
 #   user carpos-api
 #   topic read devices/+
+#   topic write devices/+/ack
+# ...and the device must be allowed to READ its ack topic, or the broker ACKs the
+# subscription and silently drops every ack:
+#   user GNSS01
+#   topic read devices/GNSS01/ack
 ```
 
 **Verify actual delivery, not just the SUBACK** — this broker once granted a

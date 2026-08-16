@@ -164,14 +164,68 @@ internal sealed class DeviceRegistry : IDeviceRegistry, IDisposable
             return null;
         }
 
-        _logger.LogInformation("Loaded decryption key for device {DeviceId}", deviceId);
+        // The ack key is strictly optional: a device without one still has its fixes
+        // ingested, it just never hears back. So an absent or unusable ack key
+        // degrades to "acks off for this device" rather than failing the load —
+        // refusing telemetry over a broken *reply* path would be the wrong trade.
+        RSA? ackPublicKey = TryImportAckPublicKey(device);
+
+        _logger.LogInformation(
+            "Loaded decryption key for device {DeviceId} (delivery acks {AckState})",
+            deviceId,
+            ackPublicKey is null ? "disabled" : "enabled");
         return new DeviceKeyEntry
         {
             Id = device.Id,
             DeviceId = device.DeviceId,
             PrivateKey = privateKey,
+            AckPublicKey = ackPublicKey,
             LoadedAtUtc = utcNow,
         };
+    }
+
+    /// <summary>
+    /// Imports the device's ack public key, if one is provisioned. Never throws:
+    /// every failure is logged and returns null, which disables acks for the device.
+    /// </summary>
+    /// <param name="device">The loaded device row.</param>
+    /// <returns>The imported public key, or null when absent or unusable.</returns>
+    private RSA? TryImportAckPublicKey(Device device)
+    {
+        if (string.IsNullOrWhiteSpace(device.AckPublicKeyPem))
+        {
+            return null;
+        }
+
+        RSA ackPublicKey = RSA.Create();
+        try
+        {
+            ackPublicKey.ImportFromPem(device.AckPublicKeyPem);
+            if (ackPublicKey.KeySize != ExpectedRsaKeySizeBits)
+            {
+                _logger.LogError(
+                    "Device {DeviceId} ack key size {KeySize} is not the expected {ExpectedKeySize} — acks disabled",
+                    device.DeviceId,
+                    ackPublicKey.KeySize,
+                    ExpectedRsaKeySizeBits);
+                ackPublicKey.Dispose();
+                return null;
+            }
+
+            return ackPublicKey;
+        }
+        catch (ArgumentException)
+        {
+            _logger.LogError("Stored ack public key for device {DeviceId} is not a valid PEM — acks disabled", device.DeviceId);
+            ackPublicKey.Dispose();
+            return null;
+        }
+        catch (CryptographicException)
+        {
+            _logger.LogError("Stored ack public key for device {DeviceId} could not be imported — acks disabled", device.DeviceId);
+            ackPublicKey.Dispose();
+            return null;
+        }
     }
 
     /// <summary>Disposes all cached RSA instances on application shutdown.</summary>

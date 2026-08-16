@@ -106,6 +106,10 @@ builder.Services.AddSingleton<PositionValidator>();
 builder.Services.AddSingleton<IPayloadCryptoService, PayloadCryptoService>();
 builder.Services.AddSingleton<IDeviceRegistry, DeviceRegistry>();
 builder.Services.AddSingleton<IPositionWriter, PositionWriter>();
+builder.Services.AddSingleton<IAckSealer, AckSealer>();
+// Singleton so the hosted service can hand it the live MQTT client while the
+// pipeline (also a singleton) publishes through it.
+builder.Services.AddSingleton<IAckPublisher, MqttAckPublisher>();
 builder.Services.AddSingleton<IIngestPipeline, IngestPipeline>();
 builder.Services.AddSingleton<MqttConnectionState>();
 builder.Services.AddHostedService<MqttIngestService>();

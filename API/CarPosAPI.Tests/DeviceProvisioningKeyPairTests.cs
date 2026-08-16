@@ -58,7 +58,10 @@ public sealed class DeviceProvisioningKeyPairTests
         aes.Encrypt(nonce, plaintext, ciphertext, tag);
 
         byte[] wrappedKey = receiverPublicKey.Encrypt(aesKey, RSAEncryptionPadding.OaepSHA256);
-        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag);
+
+        // Null id: this test is about the key pair round-tripping, which the ack
+        // correlation id plays no part in.
+        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag, null);
     }
 
     [Fact]

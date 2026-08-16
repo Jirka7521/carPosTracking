@@ -27,6 +27,12 @@ internal sealed class EnvelopeCodec
     public const int TagBytes = 16;
 
     /// <summary>
+    /// Length of the firmware's correlation id: 8 random bytes rendered as
+    /// lowercase hex. Fixed, so a deviation is corruption rather than a variant.
+    /// </summary>
+    public const int IdLength = 16;
+
+    /// <summary>
     /// Strict parser settings: no comments, no trailing commas, shallow depth.
     /// The payload is a flat array of flat objects — depth 4 already allows slack.
     /// </summary>
@@ -136,7 +142,43 @@ internal sealed class EnvelopeCodec
             return null;
         }
 
-        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag);
+        // The id is optional (pre-ack firmware omits it), but a *present* id must
+        // have the exact firmware shape. A malformed one is treated like any other
+        // structural deviation rather than being quietly ignored: silently dropping
+        // it would leave the device waiting for an ack that can never be addressed.
+        if (envelope.Id is not null && !IsWellFormedId(envelope.Id))
+        {
+            return null;
+        }
+
+        return new DecodedEnvelope(wrappedKey, nonce, ciphertext, tag, envelope.Id);
+    }
+
+    /// <summary>
+    /// Checks the correlation id is exactly <see cref="IdLength"/> lowercase hex
+    /// characters. Hand-rolled rather than a regex — this runs on every envelope of
+    /// every message, ahead of any crypto, and the grammar is three comparisons.
+    /// </summary>
+    /// <param name="value">The candidate id from the wire.</param>
+    /// <returns><c>true</c> when the id matches the firmware's format exactly.</returns>
+    private static bool IsWellFormedId(string value)
+    {
+        if (value.Length != IdLength)
+        {
+            return false;
+        }
+
+        foreach (char character in value)
+        {
+            bool isDigit = character >= '0' && character <= '9';
+            bool isLowerHexLetter = character >= 'a' && character <= 'f';
+            if (!isDigit && !isLowerHexLetter)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Base64-decodes a field, treating null/invalid input as absent.</summary>

@@ -119,11 +119,16 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             ExpectedRsaKeySizeBits,
             fingerprint);
 
+        // No ack key yet, and deliberately none generated here: the ack private key
+        // belongs to the device alone, so the operator mints the pair off-server and
+        // imports only the public half with import-device-key. Until they do, the
+        // snippet says so and the device simply receives no delivery acks.
         string snippet = _snippetBuilder.Build(
             device.DeviceId,
             _mqttOptions.BrokerUri,
             publicKeyPem,
             fingerprint,
+            null,
             DateTime.UtcNow);
 
         return DeviceProvisioningResult.Created(
@@ -132,9 +137,11 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
                 device.DisplayName,
                 _snippetBuilder.TelemetryTopicFor(device.DeviceId),
                 _snippetBuilder.ConfigTopicFor(device.DeviceId),
+                _snippetBuilder.AckTopicFor(device.DeviceId),
                 _mqttOptions.BrokerUri,
                 publicKeyPem,
                 fingerprint,
+                null,
                 snippet),
             device.Id);
     }
@@ -154,7 +161,10 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
         DeviceKeyDescription? description = await context.Devices
             .AsNoTracking()
             .Where(candidate => candidate.DeviceId == deviceId)
-            .Select(candidate => new DeviceKeyDescription(candidate.DisplayName, candidate.PublicKeyPem))
+            .Select(candidate => new DeviceKeyDescription(
+                candidate.DisplayName,
+                candidate.PublicKeyPem,
+                candidate.AckPublicKeyPem))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (description is null || string.IsNullOrWhiteSpace(description.PublicKeyPem))
@@ -167,6 +177,12 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 
         string fingerprint = ComputeSpkiFingerprint(description.PublicKeyPem);
 
+        // Null when no ack key has been imported — a normal state, not an error, so
+        // the snippet renders its "not yet configured" variant rather than failing.
+        string? ackFingerprint = string.IsNullOrWhiteSpace(description.AckPublicKeyPem)
+            ? null
+            : ComputeSpkiFingerprint(description.AckPublicKeyPem);
+
         // The generation timestamp is "now" rather than the row's created_at: the
         // comment it lands in describes when this block was rendered, and pretending
         // it is the original would hide that the device was provisioned long ago.
@@ -175,6 +191,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             _mqttOptions.BrokerUri,
             description.PublicKeyPem,
             fingerprint,
+            ackFingerprint,
             DateTime.UtcNow);
 
         return new DeviceProvisioningResultDto(
@@ -182,9 +199,11 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             description.DisplayName,
             _snippetBuilder.TelemetryTopicFor(deviceId),
             _snippetBuilder.ConfigTopicFor(deviceId),
+            _snippetBuilder.AckTopicFor(deviceId),
             _mqttOptions.BrokerUri,
             description.PublicKeyPem,
             fingerprint,
+            ackFingerprint,
             snippet);
     }
 

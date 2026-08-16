@@ -221,4 +221,70 @@ public sealed class EnvelopeCodecTests
         Assert.Null(result.FatalError);
         Assert.Single(result.Envelopes);
     }
+
+    /// <summary>Appends an <c>id</c> member to an envelope JSON fragment.</summary>
+    /// <param name="id">The correlation id to embed.</param>
+    /// <returns>The envelope JSON text carrying that id.</returns>
+    private static string BuildEnvelopeJsonWithId(string id)
+    {
+        return BuildEnvelopeJson().TrimEnd('}') + $",\"id\":{JsonSerializer.Serialize(id)}}}";
+    }
+
+    [Fact]
+    public void SurfacesTheCorrelationId()
+    {
+        // The id is what the delivery ack is keyed on, so it has to survive decoding
+        // intact — an id that silently vanished would leave the device unable to
+        // clear the matching fix from its SD queue.
+        EnvelopeDecodeResult result = CreateCodec()
+            .Decode(AsPayload(BuildEnvelopeJsonWithId("9f2a7c41b8e05d36")));
+
+        Assert.Null(result.FatalError);
+        DecodedEnvelope envelope = Assert.Single(result.Envelopes);
+        Assert.Equal("9f2a7c41b8e05d36", envelope.Id);
+    }
+
+    [Fact]
+    public void AcceptsAnEnvelopeWithoutACorrelationId()
+    {
+        // Firmware predating the ack protocol sends none. Such a fix must still be
+        // ingested normally; it simply cannot be acknowledged.
+        EnvelopeDecodeResult result = CreateCodec().Decode(AsPayload(BuildEnvelopeJson()));
+
+        Assert.Null(result.FatalError);
+        DecodedEnvelope envelope = Assert.Single(result.Envelopes);
+        Assert.Null(envelope.Id);
+    }
+
+    [Theory]
+    [InlineData("9F2A7C41B8E05D36")]  // uppercase hex
+    [InlineData("9f2a7c41b8e05d3")]   // too short
+    [InlineData("9f2a7c41b8e05d367")] // too long
+    [InlineData("9f2a7c41b8e05d3g")]  // non-hex character
+    [InlineData("")]
+    public void RejectsMalformedCorrelationId(string id)
+    {
+        // A present-but-malformed id is treated like any other structural deviation
+        // rather than being ignored: accepting the fix while dropping its id would
+        // leave the device waiting for an ack that could never name it.
+        EnvelopeDecodeResult result = CreateCodec().Decode(AsPayload(BuildEnvelopeJsonWithId(id)));
+
+        Assert.Null(result.FatalError);
+        Assert.Empty(result.Envelopes);
+        Assert.Equal(1, result.RejectedEnvelopes);
+    }
+
+    [Fact]
+    public void KeepsIdentifiedEnvelopesWhenOneCarriesABadId()
+    {
+        EnvelopeDecodeResult result = CreateCodec().Decode(AsPayload(
+            BuildEnvelopeJsonWithId("aaaaaaaaaaaaaaaa"),
+            BuildEnvelopeJsonWithId("not-hex"),
+            BuildEnvelopeJsonWithId("bbbbbbbbbbbbbbbb")));
+
+        Assert.Null(result.FatalError);
+        Assert.Equal(2, result.Envelopes.Count);
+        Assert.Equal(1, result.RejectedEnvelopes);
+        Assert.Equal(new[] { "aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb" }, result.Envelopes.Select(e => e.Id));
+    }
 }

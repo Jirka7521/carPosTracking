@@ -37,6 +37,22 @@ public sealed class Device
     public byte[]? PrivateKeyCiphertext { get; set; }
 
     /// <summary>
+    /// The device's own RSA-3072 <em>public</em> key (PEM), used to seal the delivery
+    /// ack published to <c>devices/&lt;id&gt;/ack</c>.
+    ///
+    /// Note the roles are the mirror image of <see cref="PrivateKeyCiphertext"/>: for
+    /// telemetry the device encrypts and this server decrypts, so the server holds the
+    /// private half; for acks the server encrypts and the device decrypts, so the
+    /// server holds only the public half. The matching private key is generated
+    /// offline and pasted straight into the firmware's git-ignored <c>Config.h</c> —
+    /// it deliberately never reaches this database, any DTO, or the dashboard.
+    ///
+    /// Null means acks are not configured for this device: ingest still stores its
+    /// fixes, it just cannot confirm them.
+    /// </summary>
+    public string? AckPublicKeyPem { get; set; }
+
+    /// <summary>
     /// When the last accepted message from this device arrived (UTC). The firmware
     /// sends no LWT or heartbeat, so this is the only "device is alive" signal the
     /// frontend will ever get.

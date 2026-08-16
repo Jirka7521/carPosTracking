@@ -20,6 +20,14 @@ internal sealed class DeviceKeyEntry : IDisposable
     /// <summary>The imported receiver private key.</summary>
     public required RSA PrivateKey { get; init; }
 
+    /// <summary>
+    /// The device's imported ack public key, or null when the device has no
+    /// <see cref="Data.Entities.Device.AckPublicKeyPem"/> provisioned. Cached for the
+    /// same reason as <see cref="PrivateKey"/>: it seals an ack for every message.
+    /// Null simply means this device gets no delivery acks.
+    /// </summary>
+    public RSA? AckPublicKey { get; init; }
+
     /// <summary>When this entry was loaded (UTC) — drives cache refresh.</summary>
     public required DateTime LoadedAtUtc { get; init; }
 
@@ -34,5 +42,6 @@ internal sealed class DeviceKeyEntry : IDisposable
     public void Dispose()
     {
         PrivateKey.Dispose();
+        AckPublicKey?.Dispose();
     }
 }

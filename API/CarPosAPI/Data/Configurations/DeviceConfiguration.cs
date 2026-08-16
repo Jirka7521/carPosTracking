@@ -45,6 +45,9 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.PrivateKeyCiphertext)
             .HasColumnName("private_key_ciphertext");
 
+        builder.Property(device => device.AckPublicKeyPem)
+            .HasColumnName("ack_public_key_pem");
+
         builder.Property(device => device.LastSeenAt)
             .HasColumnName("last_seen_at");
 

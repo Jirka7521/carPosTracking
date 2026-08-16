@@ -38,6 +38,7 @@ internal sealed class MqttIngestService : BackgroundService
     private readonly MqttOptions _mqttOptions;
     private readonly IngestOptions _ingestOptions;
     private readonly IIngestPipeline _pipeline;
+    private readonly IAckPublisher _ackPublisher;
     private readonly MqttConnectionState _state;
     private readonly ILogger<MqttIngestService> _logger;
 
@@ -54,18 +55,21 @@ internal sealed class MqttIngestService : BackgroundService
     /// <param name="mqttOptions">Broker connection settings.</param>
     /// <param name="ingestOptions">Retry/pause tuning.</param>
     /// <param name="pipeline">The message processing pipeline.</param>
+    /// <param name="ackPublisher">Given the live client so the pipeline can reply to devices.</param>
     /// <param name="state">Shared connection state for health reporting.</param>
     /// <param name="logger">Structured logger.</param>
     public MqttIngestService(
         IOptions<MqttOptions> mqttOptions,
         IOptions<IngestOptions> ingestOptions,
         IIngestPipeline pipeline,
+        IAckPublisher ackPublisher,
         MqttConnectionState state,
         ILogger<MqttIngestService> logger)
     {
         _mqttOptions = mqttOptions.Value;
         _ingestOptions = ingestOptions.Value;
         _pipeline = pipeline;
+        _ackPublisher = ackPublisher;
         _state = state;
         _logger = logger;
         _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
@@ -85,6 +89,12 @@ internal sealed class MqttIngestService : BackgroundService
         // queued messages immediately after CONNACK.
         client.ApplicationMessageReceivedAsync += HandleApplicationMessageReceivedAsync;
         client.DisconnectedAsync += HandleDisconnectedAsync;
+
+        // Hand the pipeline's ack publisher this client for the client's whole
+        // lifetime. It is deliberately not re-attached per reconnect: the same
+        // instance is reused across them, and the publisher checks IsConnected
+        // itself, so there is no window where it holds a client that no longer exists.
+        _ackPublisher.AttachClient(client);
 
         try
         {
@@ -149,6 +159,10 @@ internal sealed class MqttIngestService : BackgroundService
             // queued messages) intact for the next start.
             await DisconnectQuietlyAsync(client);
             _state.SetConnected(false);
+
+            // Release the client before the `using` disposes it, so a late ack
+            // attempt cannot touch a disposed instance.
+            _ackPublisher.AttachClient(null);
         }
     }
 

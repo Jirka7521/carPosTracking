@@ -26,6 +26,9 @@ internal sealed class ConfigSnippetBuilder
     /// <summary>Suffix of the retained per-device settings topic.</summary>
     private const string ConfigTopicSuffix = "/config";
 
+    /// <summary>Suffix of the per-device delivery-ack topic.</summary>
+    private const string AckTopicSuffix = "/ack";
+
     /// <summary>Indent of a continued C string literal, matching the firmware's style.</summary>
     private const string LiteralIndent = "    ";
 
@@ -45,11 +48,26 @@ internal sealed class ConfigSnippetBuilder
         return TopicPrefix + deviceId + ConfigTopicSuffix;
     }
 
+    /// <summary>Builds the delivery-ack topic for a device.</summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <returns>The topic the API confirms deliveries on, e.g. <c>devices/GNSS01/ack</c>.</returns>
+    public string AckTopicFor(string deviceId)
+    {
+        return TopicPrefix + deviceId + AckTopicSuffix;
+    }
+
     /// <summary>Renders the paste-ready <c>Config.h</c> block.</summary>
     /// <param name="deviceId">The device's MQTT identity.</param>
     /// <param name="brokerUri">Broker URI the API is configured against.</param>
     /// <param name="publicKeyPem">Receiver RSA-3072 public key in SPKI PEM form.</param>
     /// <param name="publicKeyFingerprint">SPKI-SHA256 hex, quoted in a comment for traceability.</param>
+    /// <param name="ackPublicKeyFingerprint">
+    /// SPKI-SHA256 of the device's imported ack public key, or null when none has
+    /// been imported. Only the fingerprint: the ack <em>private</em> key is generated
+    /// off-server and pasted into <c>Config.h</c> by hand, precisely so that no
+    /// device secret can ever travel in this snippet — which is re-readable through
+    /// the provisioning endpoint and lands on the operator's clipboard.
+    /// </param>
     /// <param name="generatedAtUtc">Provisioning time (UTC), stamped into the header comment.</param>
     /// <returns>The snippet, newline-separated with <c>\n</c>.</returns>
     public string Build(
@@ -57,6 +75,7 @@ internal sealed class ConfigSnippetBuilder
         string brokerUri,
         string publicKeyPem,
         string publicKeyFingerprint,
+        string? ackPublicKeyFingerprint,
         DateTime generatedAtUtc)
     {
         // '\n' rather than Environment.NewLine: the output travels through JSON to
@@ -74,6 +93,7 @@ internal sealed class ConfigSnippetBuilder
         builder.Append(CultureInfo.InvariantCulture, $"constexpr char kMqttClientId[]   = \"{deviceId}\";\n");
         builder.Append(CultureInfo.InvariantCulture, $"constexpr char kTelemetryTopic[] = \"{TelemetryTopicFor(deviceId)}\";\n");
         builder.Append(CultureInfo.InvariantCulture, $"constexpr char kConfigTopic[]    = \"{ConfigTopicFor(deviceId)}\";\n");
+        builder.Append(CultureInfo.InvariantCulture, $"constexpr char kAckTopic[]       = \"{AckTopicFor(deviceId)}\";\n");
         builder.Append(CultureInfo.InvariantCulture, $"constexpr char kMqttBrokerUri[]  = \"{brokerUri}\";\n");
         builder.Append('\n');
         builder.Append("// The broker account is created by hand on the server — the API does not\n");
@@ -81,6 +101,8 @@ internal sealed class ConfigSnippetBuilder
         builder.Append("// entry, and keep it in Config.h only (never in Config.example.h).\n");
         builder.Append(CultureInfo.InvariantCulture, $"constexpr char kMqttUsername[] = \"{deviceId}\";\n");
         builder.Append("constexpr char kMqttPassword[] = \"\";  // <-- set this yourself\n");
+        AppendAckBlock(builder, deviceId, ackPublicKeyFingerprint);
+
         builder.Append('\n');
         builder.Append(CultureInfo.InvariantCulture, $"// Receiver RSA-3072 public key (SPKI-SHA256 {publicKeyFingerprint}).\n");
         builder.Append("// The matching private key stays encrypted in the API database and never\n");
@@ -89,6 +111,54 @@ internal sealed class ConfigSnippetBuilder
         AppendPemLiteral(builder, publicKeyPem);
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Emits the delivery-ack section. It carries no key material by design — only
+    /// the fingerprint of what the server holds, plus the commands the operator runs
+    /// to mint the pair themselves. That asymmetry is the point: for telemetry the
+    /// server keeps the private half, but an ack is sealed <em>to</em> the device, so
+    /// the device's private key must never exist on the server or in this snippet.
+    /// </summary>
+    /// <param name="builder">Target buffer.</param>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="ackPublicKeyFingerprint">Fingerprint on file, or null when unimported.</param>
+    private static void AppendAckBlock(
+        StringBuilder builder,
+        string deviceId,
+        string? ackPublicKeyFingerprint)
+    {
+        builder.Append('\n');
+        builder.Append("// Delivery acks — the API confirms on the ack topic which fixes actually\n");
+        builder.Append("// reached the database, so the firmware only clears its SD queue for fixes\n");
+        builder.Append("// that were really stored (a broker QoS-2 ack alone does not prove that).\n");
+
+        if (ackPublicKeyFingerprint is null)
+        {
+            builder.Append("//\n");
+            builder.Append("// NOT YET CONFIGURED: no ack public key has been imported for this device,\n");
+            builder.Append("// so the API will not send acks. Generate the pair yourself (the private\n");
+            builder.Append("// half must never reach the server) and import the public half:\n");
+        }
+        else
+        {
+            builder.Append(CultureInfo.InvariantCulture, $"//\n// Ack public key on file: SPKI-SHA256 {ackPublicKeyFingerprint}.\n");
+            builder.Append("// Its matching private half belongs in Config.h only. To rotate, repeat:\n");
+        }
+
+        builder.Append("//   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \\\n");
+        builder.Append(CultureInfo.InvariantCulture, $"//       -out {deviceId}_ack_private.pem\n");
+        builder.Append(CultureInfo.InvariantCulture, $"//   openssl rsa -in {deviceId}_ack_private.pem -pubout -out {deviceId}_ack_public.pem\n");
+        builder.Append(CultureInfo.InvariantCulture, $"//   dotnet run -- import-device-key --device {deviceId} \\\n");
+        builder.Append(CultureInfo.InvariantCulture, $"//       --ack-public-pem {deviceId}_ack_public.pem\n");
+        builder.Append("//\n");
+        builder.Append("// Then set kDeviceAckPrivateKeyPem in Config.h to the private half, keep it\n");
+        builder.Append("// out of Config.example.h, and delete the loose .pem once it is pasted in.\n");
+        builder.Append("//\n");
+        builder.Append("// No key literal is emitted below — not even an empty placeholder. This block\n");
+        builder.Append("// is re-readable through the provisioning endpoint and lands on your clipboard,\n");
+        builder.Append("// so it must stay free of anything shaped like a private key.\n");
+        builder.Append("constexpr bool kAckEnabled = true;\n");
     }
 
     /// <summary>

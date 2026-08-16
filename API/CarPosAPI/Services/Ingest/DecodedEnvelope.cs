@@ -9,8 +9,15 @@ namespace CarPosAPI.Services.Ingest;
 /// <param name="Nonce">AES-GCM nonce (exactly 12 bytes).</param>
 /// <param name="Ciphertext">AES-GCM ciphertext (1 .. MaxCiphertextBytes).</param>
 /// <param name="Tag">AES-GCM authentication tag (exactly 16 bytes).</param>
+/// <param name="Id">
+/// The firmware's correlation id, already shape-checked (16 lowercase hex chars),
+/// or null when the envelope carried none. <see cref="IngestPipeline"/> keys the
+/// delivery ack on this; a null id means the envelope is ingested but silently
+/// unacknowledgeable, which is the intended behaviour for pre-ack firmware.
+/// </param>
 internal sealed record DecodedEnvelope(
     byte[] WrappedKey,
     byte[] Nonce,
     byte[] Ciphertext,
-    byte[] Tag);
+    byte[] Tag,
+    string? Id);
