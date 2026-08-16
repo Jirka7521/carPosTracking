@@ -194,7 +194,8 @@ extern "C" void app_main(void) {
                                 retryQueue, config::kTelemetryTopic,
                                 config::kMqttPublishAckTimeoutMs,
                                 config::kAckEnabled ? config::kAckTimeoutMs : 0,
-                                config::kSdMaxBurstFixes);
+                                config::kSdMaxBurstFixes,
+                                config::kBacklogFlushRetryMs);
   static RemoteSettings remoteSettings(mqtt, settingsStore,
                                        config::kConfigTopic);
 
@@ -244,13 +245,34 @@ extern "C" void app_main(void) {
            (unsigned)settings.intervalSeconds(),
            settings.sleepBetweenSends() ? "yes" : "no");
 
-  // Debug-only hook run after every fix poll, so the battery and accelerometer
-  // status print beneath each satellite table while we wait for a fix - not just
-  // once the wait ends. Left empty in production builds (kGnssDebug == false),
-  // so there is no extra per-poll modem traffic between reports.
-  std::function<void()> reportSensors;
-  if (config::kGnssDebug) {
-    reportSensors = [&accel, &battery, &modem]() {
+  // The fix currently being polled. Hoisted out of the loop so the per-poll hook
+  // below can read the UTC time of the poll that has just happened, and so the
+  // flush at the top of each cycle still has the last known clock to schedule
+  // retries with. Carrying it across iterations cannot leak a stale position
+  // into a report: CgnsinfParser resets the struct on every successful read, and
+  // nothing is published unless waitForFix() reported a fix from such a read.
+  GnssFix fix;
+
+  // Hook run after every fix poll - fix or no fix, every kFixPollStepMs. It does
+  // two things:
+  //   1. Offers whatever is on the SD card to the broker. This is what frees the
+  //      backlog from the position lock: a device that never gets one - parked
+  //      in a garage, antenna unplugged - still empties its card within seconds
+  //      of the link coming back, instead of sitting on it through a 3-minute
+  //      acquire it will lose anyway. The call is a cheap no-op when there is
+  //      nothing queued or the broker is unreachable.
+  //   2. In debug builds only, prints the battery and accelerometer status
+  //      beneath each satellite table while we wait - not just once the wait
+  //      ends. Compiled out entirely when kGnssDebug is false, so production
+  //      builds add no extra per-poll modem traffic.
+  // Only `fix` needs capturing - every collaborator it touches has static
+  // storage duration and is reachable without one.
+  std::function<void()> onEachPoll = [&fix]() {
+    if (config::kMqttEnabled) {
+      forwarder.flushBacklog(fix);
+    }
+
+    if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
       AccelSample   accelSample;
       ModemHealth   modemHealth;
@@ -264,14 +286,21 @@ extern "C" void app_main(void) {
         accel.read(accelSample);
       }
       debugPrintSensors(batteryStatus, accelSample, modemHealth);
-    };
-  }
+    }
+  };
 
   while (true) {
-    GnssFix    fix;
+    // Before committing to an acquire that may burn kFixAcquireTimeoutSeconds
+    // and come back empty-handed, give anything already on the card its chance:
+    // this is the first thing that runs after a cold boot or a deep-sleep wake,
+    // when WiFi and MQTT have just been brought up above.
+    if (config::kMqttEnabled) {
+      forwarder.flushBacklog(fix);
+    }
+
     const bool haveFix =
         gnss.waitForFix(fix, config::kFixAcquireTimeoutSeconds * 1000,
-                        config::kFixPollStepMs, reportSensors);
+                        config::kFixPollStepMs, onEachPoll);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
     // what keeps the cadence steady: however long sealing, connecting and

@@ -37,7 +37,9 @@ reuse.
 - 💾 **microSD store-and-forward**: a fix the broker doesn't acknowledge is
   saved — *already encrypted* — to a queue file on the SD card and re-sent in an
   encrypted **burst** once the link returns. Nothing is lost during an outage,
-  and only ciphertext ever touches the card.
+  and only ciphertext ever touches the card. The backlog goes out **as soon as
+  the link is back, with or without a current position lock** — a car parked in
+  a garage still empties its card.
 - ⚙️ **Remote settings over MQTT**: the reporting interval and a
   power-down-between-reports flag are pushed from the broker on a config topic,
   validated, and cached on the SD card so they survive a reboot with no network.
@@ -93,7 +95,7 @@ src/
 │   ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
 │   ├── FixQueue.h/.cpp      ← Persistent FIFO of encrypted envelopes on the card
 │   ├── RetryQueue.h/.cpp    ← Rejected fixes, re-offered on a slow schedule
-│   └── FixForwarder.h/.cpp  ← Publish-now-or-store; drain the backlog as a burst
+│   └── FixForwarder.h/.cpp  ← Publish-now-or-store; flush the backlog, lock or not
 │
 ├── settings/
 │   ├── DeviceSettings.h/.cpp ← The two runtime knobs, validated & clamped
@@ -116,7 +118,7 @@ src/
           uses  │                 │ uses
    ┌────────────▼────────┐  ┌─────▼──────────────┐
    │      GnssModule     │  │    FixForwarder    │  publish now, or store
-   │ begin/readFix/power…│  │ process / drain    │  & burst on reconnect
+   │ begin/readFix/power…│  │ process / flush    │  & flush without a lock
    └───────┬─────────┬───┘  └──┬──────┬───────┬──┘
     uses   │         │ uses    │ uses │ uses  │ uses
    ┌───────▼──────┐ ┌▼─────────▼──┐ ┌─▼──────────────┐ ┌──────────────┐
@@ -156,7 +158,7 @@ test:
 | `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
-| `FixForwarder` | Publish a fix (plus any backlog) or store it; drain the queue as a burst. |
+| `FixForwarder` | Publish a fix (plus any backlog) or store it; flush the card as a burst whenever the link is up — no position lock needed. |
 | `DeviceSettings` | Hold a *valid* interval + sleep flag; clamp anything out of range. |
 | `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
 | `SettingsStore` | Cache the settings on the card; fall back to defaults when unreadable. |
@@ -238,6 +240,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
 | `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
 | `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
+| `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that didn't fully drain (an MQTT reconnect cancels it) |
 | `kSdRetryFilePath` | `/sdcard/retry.jsonl` | Fixes the API **rejected**, awaiting a scheduled retry |
 | `kRetryIntervalHours` | `24` | How long to wait between attempts on a rejected fix |
 | `kRetryMaxAgeHours` | `168` | Give up on a fix still refused after this long (`0` = never) |
@@ -405,6 +408,8 @@ GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
    link up, backlog present ──► queue it, then drain the queue in bursts
    link down                ──► FixQueue.enqueue → /sdcard/queue.jsonl
    API rejected it          ──► RetryQueue.add    → /sdcard/retry.jsonl
+
+no fix at all, link up      ──► FixForwarder.flushBacklog() drains the card anyway
 ```
 
 - **Same encryption as transmit.** What is stored is the *exact* envelope that
@@ -426,6 +431,23 @@ GnssFix ──(TelemetryPublisher.sealFix)──► encrypted envelope
   `[env1,env2,…]`), so the subscriber always parses one shape. A long backlog is
   drained in several back-to-back bursts of up to `kSdMaxBurstFixes` so the
   array and MQTT buffer stay within this board's (PSRAM-less) RAM.
+- **Sending does not need a position lock.** `FixForwarder::flushBacklog()` is
+  called at the top of every cycle *and* after every GNSS poll (each
+  `kFixPollStepMs`) while waiting for a fix, so a queued backlog leaves within
+  seconds of MQTT reconnecting — even on a device that never gets a fix at all
+  (parked in a garage, antenna unplugged). Without this a fixless cycle could
+  never touch the card, and a car left indoors would sit on its backlog
+  indefinitely. The call costs two in-memory comparisons when there is nothing
+  queued or the broker is unreachable, so polling it is free on the healthy
+  path; after an attempt that leaves work behind it waits `kBacklogFlushRetryMs`
+  (an MQTT reconnect cancels that wait, since a reconnect is exactly the event
+  worth retrying on).
+- **The clock caveat.** The GNSS UTC time is the device's only wall clock, and
+  the `RetryQueue` schedule is measured in it. The modem reports that time as
+  soon as it decodes any satellite — well before it can compute a position — so
+  a fixless flush usually still has one. When it does not, the live queue still
+  drains in full; only the retry file sits the cycle out, and a rejected fix that
+  cannot be scheduled stays in the live queue instead of being dropped.
 
 > ⚠️ **Desktop change required (not included here).** Because the wire format is
 > now a JSON *array* of envelopes, the [desktop companion](../DESKTOP/README.md)
@@ -847,8 +869,8 @@ change the temp-file naming to replace the extension instead of appending
 > The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
 > they survive a `menuconfig` run or a framework upgrade.
 
-Together these take the build from **~99% of 1 MB** down to **~64% of 1.5 MB**
-(≈983 KB firmware, including the FAT/SD store-and-forward stack and the
+Together these take the build from **~99% of 1 MB** down to **~67% of 1.5 MB**
+(≈1,003 KB firmware, including the FAT/SD store-and-forward stack and the
 remote-settings/deep-sleep paths). After pulling these changes do a clean rebuild
 so the new flash size and partition layout take effect:
 

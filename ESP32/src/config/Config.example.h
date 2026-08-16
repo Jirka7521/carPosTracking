@@ -336,6 +336,15 @@ constexpr uint32_t kSdMaxQueuedFixes = 20000;
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
 constexpr uint32_t kSdMaxBurstFixes = 40;
 
+// How long to wait before re-attempting a backlog flush that failed or only
+// partly drained. The backlog is flushed whenever the link is up - including on
+// cycles with no position fix - and the attempt is offered on every GNSS poll
+// (~kFixPollStepMs) while waiting for one. Without this pause a broker that
+// accepts publishes but never acks would burn the whole acquire window in
+// back-to-back kMqttPublishAckTimeoutMs timeouts. An MQTT reconnect clears the
+// wait immediately, so a genuine link-up always drains at once.
+constexpr uint32_t kBacklogFlushRetryMs = 600000;  // 10 minutes
+
 // Fixes the API explicitly REJECTED (bad timestamp, out-of-range value, unknown
 // device, ...). They are kept apart from the live queue so a permanently
 // unacceptable fix cannot sit at its head blocking fresh ones, and are re-offered

@@ -4,6 +4,7 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char* TAG = "FixForwarder";
 
@@ -11,7 +12,7 @@ FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
                            AckWatcher& ackWatcher, FixQueue& queue,
                            RetryQueue& retryQueue, const char* topic,
                            uint32_t ackTimeoutMs, uint32_t apiAckTimeoutMs,
-                           std::size_t maxBurst)
+                           std::size_t maxBurst, uint32_t flushRetryMs)
     : publisher_(publisher),
       mqtt_(mqtt),
       ackWatcher_(ackWatcher),
@@ -21,7 +22,10 @@ FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
       ackTimeoutMs_(ackTimeoutMs),
       apiAckTimeoutMs_(apiAckTimeoutMs),
       // A burst of at least one; guard against a mis-set config value.
-      maxBurst_(maxBurst == 0 ? 1 : maxBurst) {}
+      maxBurst_(maxBurst == 0 ? 1 : maxBurst),
+      flushRetryMs_(flushRetryMs),
+      nextFlushUs_(0),
+      wasConnected_(false) {}
 
 std::string FixForwarder::buildArrayMessage(
     const std::vector<std::string>& envs) {
@@ -60,8 +64,7 @@ std::string FixForwarder::extractEnvelopeId(const std::string& envelope) {
   return id;
 }
 
-std::string FixForwarder::sampleTimeUtc(const TelemetrySample& sample) {
-  const GnssTime& time = sample.gnss.time;
+std::string FixForwarder::gnssTimeUtc(const GnssTime& time) {
   if (!time.valid) {
     return std::string();
   }
@@ -154,7 +157,7 @@ bool FixForwarder::drainQueue(const std::string& nowUtc) {
 
     // Only an unbroken run from the head can leave a FIFO. In practice the API
     // resolves a whole message at once, so this is normally the entire batch.
-    const std::size_t resolved = leadingResolved(results);
+    std::size_t resolved = leadingResolved(results);
     if (resolved == 0) {
       ESP_LOGW(TAG, "drain: no API verdict for this burst - %u still queued",
                (unsigned)queue_.size());
@@ -162,11 +165,23 @@ bool FixForwarder::drainQueue(const std::string& nowUtc) {
     }
 
     // Park the rejected ones before dropping them from the live queue, so a
-    // failure here never loses the fix.
+    // failure here never loses the fix. add() refuses when there is no GNSS
+    // clock to schedule against - which a fixless flush can well hit - so its
+    // result decides how far we may pop: everything ahead of the unparkable fix
+    // is still safely delivered, the fix itself stays queued for a cycle that
+    // does have a clock.
     for (std::size_t i = 0; i < resolved; ++i) {
-      if (results[i].verdict == AckWatcher::AckVerdict::Rejected) {
-        retryQueue_.add(batch[i], nowUtc, results[i].reason.c_str());
+      if (results[i].verdict == AckWatcher::AckVerdict::Rejected &&
+          !retryQueue_.add(batch[i], nowUtc, results[i].reason.c_str())) {
+        ESP_LOGW(TAG,
+                 "drain: a rejected fix could not be parked for retry - it "
+                 "stays in the live queue");
+        resolved = i;
+        break;
       }
+    }
+    if (resolved == 0) {
+      return false;  // nothing in this burst may be removed yet
     }
 
     if (!queue_.popFront(resolved)) {
@@ -231,7 +246,7 @@ void FixForwarder::drainRetries(const std::string& nowUtc) {
 void FixForwarder::process(const TelemetrySample& sample) {
   // The GNSS UTC time is the only wall clock we have, and it is what the retry
   // schedule is measured in. Empty when this fix carries no valid time.
-  const std::string nowUtc = sampleTimeUtc(sample);
+  const std::string nowUtc = gnssTimeUtc(sample.gnss.time);
 
   // 1. Seal the sample into the exact envelope that would be transmitted - the
   //    same bytes are used whether we send now or store for later.
@@ -289,4 +304,52 @@ void FixForwarder::process(const TelemetrySample& sample) {
   if (!queue_.enqueue(envelope)) {
     ESP_LOGE(TAG, "SD queue write failed - fix lost");
   }
+}
+
+void FixForwarder::flushBacklog(const GnssFix& fix) {
+  // A live MQTT connection implies the WiFi link is up, and it is the only
+  // signal that says the broker is actually reachable - so it is the same gate
+  // the live path uses.
+  const bool connected = mqtt_.isConnected();
+
+  // Coming back from a disconnect is precisely the event worth retrying on, so
+  // it cancels any pause left over from an attempt made on a dying link.
+  if (connected && !wasConnected_) {
+    nextFlushUs_ = 0;
+  }
+  wasConnected_ = connected;
+
+  if (!connected) {
+    return;
+  }
+
+  // Both sizes are cached in RAM, so the healthy path - nothing backlogged -
+  // costs two comparisons and never touches the card, which is what makes this
+  // safe to call on every GNSS poll.
+  if (queue_.isEmpty() && retryQueue_.isEmpty()) {
+    return;
+  }
+
+  const int64_t nowUs = esp_timer_get_time();
+  if (nowUs < nextFlushUs_) {
+    return;  // still pausing after an attempt that left work behind
+  }
+
+  // No position needed: only the fix's UTC time is read, and the modem knows
+  // that long before it can compute a position. Empty is tolerable - see the
+  // header - so we say so in the log rather than skipping the flush.
+  const std::string nowUtc = gnssTimeUtc(fix.time);
+  ESP_LOGI(TAG, "link up - flushing backlog (%u queued, %u awaiting retry)%s.",
+           (unsigned)queue_.size(), (unsigned)retryQueue_.size(),
+           nowUtc.empty() ? " [no GNSS clock this cycle]" : "");
+
+  const bool drained = drainQueue(nowUtc);
+  drainRetries(nowUtc);
+
+  // Only a card with nothing left on it earns an immediate next attempt.
+  // Anything else waits, so neither a broker that never acks nor a retry entry
+  // that is simply not due yet can be hammered on every poll.
+  const bool nothingLeft = drained && queue_.isEmpty() && retryQueue_.isEmpty();
+  nextFlushUs_ =
+      nothingLeft ? 0 : nowUs + static_cast<int64_t>(flushRetryMs_) * 1000;
 }
