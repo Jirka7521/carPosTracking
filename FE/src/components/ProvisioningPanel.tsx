@@ -6,10 +6,17 @@
 // Used in two places: right after a device is registered (Home page)
 // and later on demand from the device's Settings tab.
 //
-// What is NOT here, and never will be: the device's private key. It is
-// generated server-side, encrypted at rest under the API's master key,
-// and has no code path out of the database — which is what stops the
-// broker, or anyone who steals the tracker, from reading positions.
+// What is NOT here, and never will be: any private key. The receiver
+// private key is generated server-side, encrypted at rest under the
+// API's master key, and has no code path out of the database — which is
+// what stops the broker, or anyone who steals the tracker, from reading
+// positions.
+//
+// The ack key runs the other way (the device decrypts, so the device
+// holds the private half), which makes this panel the obvious place to
+// leak one. It never shows more than a fingerprint: the ack private key
+// is generated off-server and pasted straight into Config.h, so it never
+// reaches the API, this payload, or the clipboard.
 // ============================================================
 
 import { useState } from 'react'
@@ -61,6 +68,9 @@ export function ProvisioningPanel({ provisioning, title }: ProvisioningPanelProp
         <dt>Config topic</dt>
         <dd><code>{provisioning.configTopic}</code></dd>
 
+        <dt>Ack topic</dt>
+        <dd><code>{provisioning.ackTopic}</code></dd>
+
         <dt>Broker</dt>
         <dd><code>{provisioning.brokerUri}</code></dd>
 
@@ -69,7 +79,30 @@ export function ProvisioningPanel({ provisioning, title }: ProvisioningPanelProp
             firmware reports confirms the device carries the right key without
             either side handling key material. */}
         <dd><code style={{ wordBreak: 'break-all' }}>{provisioning.publicKeyFingerprint}</code></dd>
+
+        <dt>Ack key fingerprint</dt>
+        {/* Null until an ack public key is imported. Saying so explicitly matters:
+            firmware flashed with acks enabled against a device that has no ack key
+            would retry every fix forever, and the cause would be invisible here. */}
+        <dd>
+          {provisioning.ackPublicKeyFingerprint === null ? (
+            <span className="hint">Not configured — delivery acks are off</span>
+          ) : (
+            <code style={{ wordBreak: 'break-all' }}>{provisioning.ackPublicKeyFingerprint}</code>
+          )}
+        </dd>
       </dl>
+
+      {provisioning.ackPublicKeyFingerprint === null ? (
+        <p className="hint">
+          To turn on delivery acks — so the tracker only clears a fix from its SD
+          card once the API confirms it reached the database — generate an ack key
+          pair yourself and import the <strong>public</strong> half with{' '}
+          <code>import-device-key --ack-public-pem</code>. The private half goes
+          into <code>Config.h</code> and must never reach the server; the exact
+          commands are in the block below.
+        </p>
+      ) : null}
 
       <div className="provisioning-actions">
         <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleCopy()}>

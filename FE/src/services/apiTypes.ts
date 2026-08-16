@@ -128,11 +128,20 @@ export type DeviceProvisioningDto = {
   displayName: string | null
   telemetryTopic: string
   configTopic: string
+  // Topic the API confirms stored fixes on. The firmware only clears a fix from
+  // its SD queue once it is named here, so a fix the API rejects is no longer
+  // lost to a broker-level ack that proved nothing.
+  ackTopic: string
   brokerUri: string
   publicKeyPem: string
   // SHA-256 of the SPKI bytes, uppercase hex. Lets you confirm the flashed
   // firmware carries the key this device expects without handling key material.
   publicKeyFingerprint: string
+  // Fingerprint of the device's *ack* public key, or null when none has been
+  // imported — in which case the API sends this device no delivery acks.
+  // Note the key roles invert for acks: the device holds that private key, so it
+  // is generated off-server and never travels in this payload.
+  ackPublicKeyFingerprint: string | null
   // The above pre-formatted as C++ constexpr lines, ready to paste into
   // ESP32/src/config/Config.h.
   configSnippet: string
