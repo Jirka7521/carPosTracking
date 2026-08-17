@@ -82,6 +82,12 @@ export const SERIES: readonly SeriesDef[] = [
 // Total acceleration √(x² + y² + z²). Undefined unless all three axes were
 // reported for this fix — a missing axis would silently understate the result,
 // which is worse than showing a gap.
+//
+// Caveat when the device runs with `kAccelPeakEnabled`: the firmware then reports
+// each axis's own maximum over the reporting interval, and those three maxima can
+// come from three different moments. This magnitude is computed from them all the
+// same, so it reads HIGHER than any acceleration the device actually measured. It
+// is an upper bound in that mode, not a reading.
 function accelMagnitude(position: PositionDto): number | null {
   if (position.accelXG === null || position.accelYG === null || position.accelZG === null) {
     return null
