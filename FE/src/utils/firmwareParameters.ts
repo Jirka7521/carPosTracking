@@ -83,6 +83,8 @@ export const FIRMWARE_PARAMETER_GROUPS: readonly FirmwareParameterGroup[] = [
       { name: 'kI2cClockHz', value: '400000', origin: 'fixed', meaning: 'I2C bus speed (fast mode)' },
       { name: 'kAdxlI2cAddress', value: '0x53', origin: 'fixed', meaning: 'ADXL345 address (CS→3V3, SDO→GND)' },
       { name: 'kAdxlInt1Pin / kAdxlInt2Pin', value: '32 / 33', origin: 'fixed', meaning: 'INT pins — wired but reserved; interrupts are not used yet' },
+      { name: 'kAccelDebugStream', value: 'false', origin: 'fixed', meaning: 'Debug only: publish a full report every kAccelDebugIntervalMs with a fresh accel reading and the last known position. Stores one position per second and suppresses deep sleep — do not leave it on' },
+      { name: 'kAccelDebugIntervalMs', value: '1000', origin: 'fixed', meaning: 'Gap between reports while the accelerometer debug stream is on' },
     ],
   },
   {

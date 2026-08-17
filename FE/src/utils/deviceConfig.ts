@@ -32,7 +32,7 @@ export function resolveSyncState(state: DeviceConfigStateDto): ConfigSyncState {
 export const CONFIG_LIMITS = {
   intervalSeconds: { min: 5, max: 86400 },
   fixTimeoutSeconds: { min: 15, max: 900 },
-  queueMaxFixes: { min: 100, max: 100000 },
+  queueMaxFixes: { min: 100, max: 1000000 },
   retryIntervalHours: { min: 1, max: 720 },
   retryMaxAgeHours: { min: 0, max: 8760 },
   configCheckSeconds: { min: 60, max: 86400 },
