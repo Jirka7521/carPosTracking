@@ -278,7 +278,7 @@ namespace CarPosAPI.Data.Migrations
 
                             t.HasCheckConstraint("ck_device_config_versions_interval_s", "interval_s BETWEEN 5 AND 86400");
 
-                            t.HasCheckConstraint("ck_device_config_versions_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 1000000");
+                            t.HasCheckConstraint("ck_device_config_versions_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
 
                             t.HasCheckConstraint("ck_device_config_versions_retry_interval_h", "retry_interval_h BETWEEN 1 AND 720");
 

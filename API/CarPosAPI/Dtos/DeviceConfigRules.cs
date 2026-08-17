@@ -49,12 +49,11 @@ public static class DeviceConfigRules
     public const int MinQueueMaxFixes = 100;
 
     /// <summary>
-    /// Maximum size of the undelivered-fix queue on the SD card. Raised from 100 000
-    /// once the firmware's queue stopped rewriting its whole file on every pop: the
-    /// bound is now card space, not CPU. A million ~800 B envelopes is ~800 MB, which
-    /// covers more than a week at the firmware's fastest (1 Hz debug) reporting rate.
+    /// Maximum size of the undelivered-fix queue on the SD card. A policy bound on
+    /// card usage rather than a technical one: at ~1 KB per sealed envelope this is
+    /// roughly 100 MB, which is months of backlog at any sane reporting interval.
     /// </summary>
-    public const int MaxQueueMaxFixes = 1000000;
+    public const int MaxQueueMaxFixes = 100000;
 
     /// <summary>Factory default size of the undelivered-fix queue.</summary>
     public const int DefaultQueueMaxFixes = 20000;

@@ -235,7 +235,9 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   restricted), `fix_time` (GNSS time), `received_at`, `latitude`, `longitude`,
   `speed_kmph`, `altitude_m` (all CHECK-constrained), the optional sensor columns
   `battery_pct` (nullable, 0–100 with `0` = *charging*), `accel_x_g`/`accel_y_g`/
-  `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample) and `temperature_c`
+  `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample, or the strongest
+  per-axis reading of the reporting interval when the device runs with
+  `kAccelPeakEnabled`) and `temperature_c`
   (nullable, °C from the modem's `AT+CPMUTEMP`, [-40, 125] — the sensor that
   explains a hot-car cut-off; all sensor columns CHECK-constrained),
   **UNIQUE (device_id, fix_time)** (the dedupe key), and a database-generated
@@ -530,7 +532,7 @@ no reflash and without the device being online at the time:
 | `intervalSeconds` | seconds between position reports | 5 – 86400 | 60 |
 | `sleepBetween` | deep-sleep + modem power-down between reports | — | false |
 | `fixTimeoutSeconds` | how long to chase a GNSS lock before giving up on a cycle | 15 – 900 | 180 |
-| `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 1000000 | 20000 |
+| `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 100000 | 20000 |
 | `retryIntervalHours` | hours between attempts on a rejected fix | 1 – 720 | 24 |
 | `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never | 0 – 8760 | 168 |
 | `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 3600 |
@@ -541,14 +543,10 @@ enforce them differently on purpose: this API answers **400**, because a person 
 a dashboard can be told to fix their input, while the device *clamps*, because a
 tracker in a field has nobody to ask. Change one side and you must change the other.
 
-> **`queueMaxFixes` ranges are also a database check constraint.** They are
-> interpolated into `ck_device_config_versions_queue_max_fixes` by
+> **These ranges are also database check constraints.** They are interpolated into
+> `ck_device_config_versions_*` by
 > [`DeviceConfigVersionConfiguration`](Data/Configurations/DeviceConfigVersionConfiguration.cs),
-> so changing a bound needs a migration as well as the constant — see
-> `20260817152827_RaiseQueueMaxFixesCeiling`, which raised the ceiling to a
-> million once the firmware's queue stopped rewriting its whole file on every pop.
-> A week of the ESP32's 1 Hz accelerometer debug stream is 604 800 entries, which
-> is what that headroom is for.
+> so changing a bound needs a migration as well as the constant.
 
 ### The flow
 
