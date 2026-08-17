@@ -46,6 +46,13 @@
 //  available the caller passes an empty string and nothing is treated as due,
 //  which is the safe direction to fail: entries wait rather than being
 //  abandoned or hammered.
+//
+//  Thread safety: add(), takeDue() and clear() are serialised - two tasks reach
+//  this queue through FixForwarder (the main loop and AccelDebugStream), and
+//  both of those methods rewrite the whole file. Not locked, deliberately:
+//  begin() (start-up only, before the second task exists), size()/isEmpty()
+//  (advisory single-word reads) and the two setters (single-word writes whose
+//  timing is already documented as "applied on the following attempt").
 // =============================================================================
 
 #include <cstddef>
@@ -53,6 +60,8 @@
 #include <string>
 #include <vector>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sdcard/SdCard.h"
 
 class RetryQueue {
@@ -151,4 +160,8 @@ class RetryQueue {
   uint32_t    retryIntervalHours_;
   uint32_t    maxAgeHours_;
   std::size_t count_;  // cached number of stored entries
+
+  // Serialises add()/takeDue()/clear(); created by the constructor so it is
+  // armed even if begin() never runs.
+  SemaphoreHandle_t lock_;
 };

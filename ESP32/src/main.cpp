@@ -12,6 +12,7 @@
 #include "gnss/GnssModule.h"
 #include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
+#include "mqtt/AccelDebugStream.h"
 #include "mqtt/AckWatcher.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
@@ -207,6 +208,13 @@ extern "C" void app_main(void) {
   static RemoteSettings remoteSettings(mqtt, settingsStore,
                                        config::kConfigTopic);
 
+  // Debug-only 1 Hz accelerometer stream. Constructed unconditionally so the
+  // loop below can hand it every sample without a second feature check; with
+  // kAccelDebugStream false its task is never created and updateSnapshot() is
+  // the only thing that ever runs - a locked struct copy.
+  static AccelDebugStream accelDebug(accel, forwarder,
+                                     config::kAccelDebugIntervalMs);
+
   if (config::kMqttEnabled) {
     // Subscribe before starting the client: the broker replays the retained
     // config the instant we connect, and that must not race the handler being
@@ -245,6 +253,23 @@ extern "C" void app_main(void) {
     }
   } else {
     ESP_LOGI(TAG, "MQTT disabled in Config.h.");
+  }
+
+  // Start the debug stream last, once the broker is up: it publishes through the
+  // same forwarder as the main loop, and there is nothing to gain from it ticking
+  // against a link that has not been brought up yet.
+  if (config::kAccelDebugStream) {
+    // It rides the normal delivery path and needs a real sensor to sample, so
+    // both of those have to be on. Warn rather than fail: this is a debug knob,
+    // and tracking must still work if it was left set on a build that cannot
+    // honour it.
+    if (!config::kAdxlEnabled || !config::kMqttEnabled) {
+      ESP_LOGW(TAG,
+               "kAccelDebugStream needs kAdxlEnabled and kMqttEnabled - debug "
+               "stream not started.");
+    } else if (!accelDebug.start()) {
+      ESP_LOGW(TAG, "accelerometer debug stream failed to start.");
+    }
   }
 
   // Owns the ordered shutdown for the sleep_between path. Only ever used when
@@ -360,6 +385,14 @@ extern "C" void app_main(void) {
       ESP_LOGI(TAG, "Fix: %.6f, %.6f  %.1f km/h", fix.position.latitudeDeg,
                fix.position.longitudeDeg, fix.speedKmph);
 
+      // Give the debug stream the position it should repeat until the next fix.
+      // Done before the publish below, not after: process() can block for
+      // seconds on the broker/API acks, and there is no reason to make the
+      // stream keep quoting an older position throughout that.
+      if (config::kAccelDebugStream) {
+        accelDebug.updateSnapshot(sample);
+      }
+
       // Hand the sample to the forwarder: it publishes it (plus any backlog) as
       // an encrypted burst when the broker is reachable, or stores it on the
       // SD card when it is not - so nothing is lost during an outage.
@@ -406,10 +439,17 @@ extern "C" void app_main(void) {
       // Interval elapsed, or we have just been told to sleep - either way this
       // wait is over and the deep-sleep decision below is the freshest one.
       //
+      // The sleep half of that test is qualified by the debug flag for the same
+      // reason the sleep itself is (see below): with the stream on we are not
+      // going to sleep, so leaving early here would skip the wait entirely and
+      // spin straight into the next acquire.
+      //
       // The threshold is a millisecond rather than zero because the wait below is
       // expressed in ticks: a sub-millisecond remainder rounds to "no wait at
       // all", and looping on it would spin the CPU until the clock caught up.
-      if (remainingUs < 1000 || settings.sleepBetweenSends()) {
+      const bool willSleep =
+          settings.sleepBetweenSends() && !config::kAccelDebugStream;
+      if (remainingUs < 1000 || willSleep) {
         break;
       }
 
@@ -434,7 +474,19 @@ extern "C" void app_main(void) {
       remoteSettings.resyncIfDue(settings.configCheckSeconds());
     }
 
-    if (settings.sleepBetweenSends()) {
+    // Deep sleep and the debug stream are mutually exclusive: sleeping powers
+    // the chip down and reboots it on wake, which would kill the task after its
+    // first cycle and leave a "1 Hz" stream that produces a short burst per
+    // interval. Staying awake is the only way the flag can mean what it says, so
+    // it wins over the server's sleep_between - deliberately, and only in a
+    // build that was explicitly flagged for debugging.
+    if (config::kAccelDebugStream && settings.sleepBetweenSends()) {
+      ESP_LOGW(TAG,
+               "sleep_between is on, but kAccelDebugStream needs the device "
+               "awake - staying up. Turn the debug flag off to sleep again.");
+    }
+
+    if (settings.sleepBetweenSends() && !config::kAccelDebugStream) {
       // Power everything down and deep-sleep the rest of the interval. This does
       // not return: the chip reboots on wake and app_main() runs again from the
       // top, which is why every cycle re-reads the settings and re-subscribes.

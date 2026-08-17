@@ -20,7 +20,9 @@ reuse.
 - 📍 Read latitude, longitude, altitude, **speed** and **UTC time**.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
 - 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw instantaneous X/Y/Z
-  acceleration (in g) rides along with every position report.
+  acceleration (in g) rides along with every position report — plus an optional
+  **1 Hz debug stream** that reports the sensor against the last known position
+  so you can see what happens *between* two ordinary reports.
 - 🔋 **Battery monitor**: pack state of charge from the modem's `AT+CBC`, mapped
   through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
   pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
@@ -226,6 +228,8 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
+| **`kAccelDebugStream`** | `false` | **Debug: publish a full report every `kAccelDebugIntervalMs` with a fresh accel reading and the last known position** (see below) |
+| `kAccelDebugIntervalMs` | `1000` | Gap between those reports |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
@@ -256,16 +260,16 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
 | `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
-| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` |
+| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `1000000` | Clamps on `queue_max_fixes`. The ceiling is card space now that popping no longer rewrites the queue file |
 | `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
 | `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |
 | **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
 | `kSdSpiHost` | `SPI2_HOST` | SPI peripheral the card is wired to (HSPI) |
 | `kSdPinMiso/Mosi/Sclk/Cs` | `2/15/14/13` | T-SIM7000G microSD SPI pins |
 | `kSdMountPoint` | `/sdcard` | FAT mount point |
-| `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
+| `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line); its head offset lives in the sibling `.idx` |
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
-| `kSdMaxQueuedFixes` | `20000` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this |
+| `kSdMaxQueuedFixes` | `604800` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this. Sized for **one week at 1 Hz** (~484 MB), so the card needs ≥ 1 GB free |
 | `kSdMaxBurstFixes` | `10` | Max envelopes per burst message (RAM/MQTT safety bound — see below) |
 | `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that achieved **nothing** (an MQTT reconnect cancels it) |
 | `kBacklogFlushBudgetMs` | `30000` | How long one flush may keep draining before yielding to the poll loop; it resumes on the next poll |
@@ -444,6 +448,33 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   would have been sent (`RSA-OAEP-SHA256 + AES-256-GCM`), one per line in
   `queue.jsonl`. A lost/stolen card therefore leaks nothing — the device holds
   only the public key and cannot even read back its own stored positions.
+- **Append-only, with a head offset.** `queue.jsonl` is never rewritten to remove
+  delivered entries. A sidecar, `queue.jsonl.idx`, records where the live region
+  starts:
+
+  ```
+  queue.jsonl      [xxxx delivered xxxx][ live entries ................. ]
+                                        ▲ head
+  queue.jsonl.idx  head=12800000 count=421337
+  ```
+
+  Popping a burst moves `head` forward and rewrites nothing, so a pop costs
+  *O(burst)* rather than *O(file)*. The dead prefix is reclaimed when the queue
+  drains completely (the file is simply deleted — the normal end of an outage) or,
+  failing that, by a compaction that only runs once the prefix is both over 32 MB
+  **and** more than half the file. That threshold is what keeps the total copying
+  across a whole drain linear overall instead of quadratic.
+
+  This is what made a very deep backlog practical: the previous design rewrote
+  the entire file on every pop, which capped the queue at ~100 000 entries in
+  practice. See [`FixQueue`](src/sdcard/FixQueue.h) and
+  [`QueueIndex`](src/sdcard/QueueIndex.h).
+- **A missing or damaged index is safe.** The queue falls back to reading from
+  the top of the file and re-counting. That re-offers entries the API has already
+  stored, which costs airtime but never a duplicate row — the API dedupes on
+  `(device, fix time)`. The same property makes the crash window harmless: the
+  sidecar is written *after* the in-memory head moves, so a power cut re-delivers
+  rather than skips.
 - **Format only if needed.** The card is mounted with `format_if_mount_failed`,
   so a blank/corrupt card is formatted once, but an existing queue **survives
   reboots** (fixes saved before a power cut are recovered and sent on boot).
@@ -958,6 +989,79 @@ so the log diagnoses itself rather than leaving you to interpret dB-Hz.
 
 ---
 
+## High-rate accelerometer debug stream
+
+The normal report carries **one** accelerometer triple per reporting cycle — at
+the default 60 s interval, one sample a minute. That is useless for seeing what
+the sensor actually does in a moving car: braking, cornering and potholes all
+happen *between* two reports.
+
+Set **`kAccelDebugStream = true`** and
+[`AccelDebugStream`](src/mqtt/AccelDebugStream.h) starts a background task that
+publishes a **full telemetry report every `kAccelDebugIntervalMs`** (default
+1000 ms) — a freshly read X/Y/Z triple attached to the **most recent known**
+GNSS position.
+
+```
+app_main task : [ acquire fix ...... ][ publish ][ wait interval ......... ]
+                                          │
+                                          ▼  updateSnapshot(sample)
+debug task    :  * * * * * * * * * * * * * * * * * * * * * *   (1 Hz)
+                 each tick = snapshot + fresh accel → FixForwarder.process()
+```
+
+It is a **task** rather than a step in the main loop because the main loop is
+blocked almost all of the time — inside `waitForFix()` during an acquire that can
+run for minutes, and inside the interval wait afterwards. Nothing about the
+normal path changes when the flag is off.
+
+**What is in each report.** Same topic, same encrypted envelope, same full
+payload as any other position, so nothing downstream needs to know this mode
+exists. Only the accelerometer is re-read per tick; the battery percentage and
+modem temperature are the ones from the snapshot (≤ one interval old). The debug
+task deliberately never touches the modem — the main task owns that UART, and
+interleaved AT commands would corrupt GNSS parsing.
+
+**The timestamp advances.** Each report carries the snapshot's position with its
+UTC time moved forward by the seconds elapsed since the snapshot was taken (see
+[`UtcClock`](src/time/UtcClock.h)). This is not cosmetic: the API dedupes stored
+positions on `(device, fix time)`, so repeating the fix's own timestamp would
+mean all but one sample per interval is silently discarded. The position is
+honestly stale; the clock is honest about *now*.
+
+### ⚠️ What it costs — do not leave it on
+
+| | |
+|---|---|
+| **Server storage** | ~3600 rows/hour for that device |
+| **Link** | ~800 B/s of ciphertext, and one QoS-2 round trip per sample |
+| **SD queue** | during an outage it fills at ~1 entry/s and **competes with real fixes** for `queue_max_fixes`. Set that to `604800` for a full week (~484 MB, so a card with ≥ 1 GB free) |
+| **Deep sleep** | **suppressed.** `sleep_between` reboots the chip, which would kill the task after one cycle, so the flag wins over the server setting and the device stays awake. A warning is logged every cycle |
+
+It also needs `kAdxlEnabled` and `kMqttEnabled`; with either off the stream is
+not started and the reason is logged. Turn it on for a drive, then turn it off.
+
+### Making it concurrency-safe
+
+Two tasks now drive the delivery path, so four classes carry a mutex (via
+[`ScopedLock`](src/util/ScopedLock.h)). One of them covers most of the surface:
+
+- **`FixForwarder`** — `process()` and `flushBacklog()` are serialised against
+  each other. That single lock also protects `TelemetryPublisher` and, through
+  it, **`PayloadCrypto`** (whose mbedTLS DRBG and key contexts are not
+  thread-safe), and `MqttClient::publishConfirmed()`, which matches a *single*
+  most-recently-acked message id — overlapping publishes would let one task's ack
+  mask the other's, so a delivered fix would look undelivered and be queued twice.
+- **`FixQueue` / `RetryQueue`** — every card-touching method, because
+  `SettingsApplier` can change the caps from the main task mid-drain.
+- **`Adxl345`** — `read()`, since both tasks sample the same I2C device.
+
+Lock order is `AccelDebugStream → FixForwarder → FixQueue`/`RetryQueue`, with
+`Adxl345` a leaf; there are no cycles, so no deadlock. `begin()` is unlocked
+everywhere on purpose — it runs at start-up, before the second task exists.
+
+---
+
 ## Build & flash
 
 ```bash
@@ -1005,6 +1109,11 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
+[`AccelDebugStream`](src/mqtt/AccelDebugStream.h) runs the same delivery path on
+**its own** task and so needs the same kind of headroom: it is created with an
+8 KB stack, at the same priority as `app_main` so it can never preempt the task
+driving the modem. That task only exists while `kAccelDebugStream` is on.
+
 ### Long filenames on the SD card
 
 ```
@@ -1014,9 +1123,10 @@ CONFIG_FATFS_MAX_LFN=255
 
 FatFs ships with long-filename support **off**, which limits the card to classic
 **8.3** names. Every file this firmware uses breaks that rule —
-`queue.jsonl` (5-char extension), `settings.json` (4-char), and the sibling
-`.tmp` files [`SdCard`](src/sdcard/SdCard.h) stages writes through
-(`queue.jsonl.tmp` — two dots). With LFN off the card mounts perfectly and then
+`queue.jsonl` (5-char extension), `settings.json` (4-char), the queue's head-offset
+sidecar `queue.jsonl.idx` (two dots), and the sibling `.tmp` files
+[`SdCard`](src/sdcard/SdCard.h) stages writes through (`queue.jsonl.tmp` — two
+dots again). With LFN off the card mounts perfectly and then
 every `fopen()` fails with `ENOENT`, because FatFs rejects the *name*, not the
 card:
 

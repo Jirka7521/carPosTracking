@@ -5,6 +5,7 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "util/ScopedLock.h"
 
 static const char* TAG = "FixForwarder";
 
@@ -40,7 +41,8 @@ FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
       flushBudgetMs_(flushBudgetMs),
       nextFlushUs_(0),
       wasConnected_(false),
-      noVerdictRetries_(0) {}
+      noVerdictRetries_(0),
+      lock_(xSemaphoreCreateMutex()) {}
 
 std::string FixForwarder::buildArrayMessage(
     const std::vector<std::string>& envs) {
@@ -282,6 +284,10 @@ void FixForwarder::drainRetries(const std::string& nowUtc,
 }
 
 void FixForwarder::process(const TelemetrySample& sample) {
+  // Held for the whole publish, not just the queue work - see the banner. The
+  // wait is bounded by one burst's ack timeout.
+  ScopedLock guard(lock_);
+
   // The GNSS UTC time is the only wall clock we have, and it is what the retry
   // schedule is measured in. Empty when this fix carries no valid time.
   const std::string nowUtc = gnssTimeUtc(sample.gnss.time);
@@ -360,6 +366,8 @@ void FixForwarder::process(const TelemetrySample& sample) {
 }
 
 void FixForwarder::flushBacklog(const GnssFix& fix) {
+  ScopedLock guard(lock_);
+
   // A live MQTT connection implies the WiFi link is up, and it is the only
   // signal that says the broker is actually reachable - so it is the same gate
   // the live path uses.
