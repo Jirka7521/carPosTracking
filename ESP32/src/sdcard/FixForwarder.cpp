@@ -286,9 +286,6 @@ void FixForwarder::process(const TelemetrySample& sample) {
   // schedule is measured in. Empty when this fix carries no valid time.
   const std::string nowUtc = gnssTimeUtc(sample.gnss.time);
 
-  // This path runs once per reporting cycle, outside the GNSS poll loop, so it
-  // drains without a time budget and has no pause to arm - the counters below
-  // exist only to satisfy the shared signatures.
   std::size_t moved = 0;
 
   // 1. Seal the sample into the exact envelope that would be transmitted - the
@@ -316,8 +313,21 @@ void FixForwarder::process(const TelemetrySample& sample) {
     if (!queue_.enqueue(envelope)) {
       ESP_LOGE(TAG, "SD queue write failed - trying to drain existing backlog");
     }
-    drainQueue(nowUtc, 0, moved);
-    drainRetries(nowUtc, moved);
+    // Same pacing rules as flushBacklog(). This used to drain unbounded and
+    // ignore nextFlushUs_ entirely, which quietly defeated the pause the flush
+    // path had just armed: a link that could not take a burst was re-offered the
+    // very same burst once per reporting cycle. One pacing rule, honoured in
+    // both places, is what makes the pause mean anything.
+    const int64_t nowUs = esp_timer_get_time();
+    if (nowUs >= nextFlushUs_) {
+      const int64_t deadlineUs =
+          nowUs + static_cast<int64_t>(flushBudgetMs_) * 1000;
+      const DrainStop stop = drainQueue(nowUtc, deadlineUs, moved);
+      applyDrainPacing(stop, moved, nowUs);
+      if (drainWorthRetrying(stop)) {
+        drainRetries(nowUtc, moved);
+      }
+    }
     return;
   }
 
@@ -394,8 +404,27 @@ void FixForwarder::flushBacklog(const GnssFix& fix) {
       nowUs + static_cast<int64_t>(flushBudgetMs_) * 1000;
   std::size_t     moved = 0;
   const DrainStop stop  = drainQueue(nowUtc, deadlineUs, moved);
-  drainRetries(nowUtc, moved);
+  if (drainWorthRetrying(stop)) {
+    drainRetries(nowUtc, moved);
+  }
+  applyDrainPacing(stop, moved, nowUs);
+}
 
+bool FixForwarder::drainWorthRetrying(DrainStop stop) {
+  // A Transport stop means the publish never reached the broker at all - the
+  // link is down, or (the case that prompted this) the burst was too large for
+  // the MQTT client to accept. A CardError means we cannot read the queue file.
+  // Either way the retry drain that used to follow unconditionally was certain
+  // to fail in exactly the same way, and it is not a free attempt: takeDue()
+  // lifts entries OFF the card before publishing and writes every one of them
+  // back when the publish fails. That is a full rewrite of the retry file, plus
+  // a second doomed allocation, bought for nothing. Skip it and let the pause
+  // below give the real problem time to clear.
+  return stop != DrainStop::Transport && stop != DrainStop::CardError;
+}
+
+void FixForwarder::applyDrainPacing(DrainStop stop, std::size_t moved,
+                                    int64_t nowUs) {
   // Pacing, in one place. The rule is what the attempt ACHIEVED, not whether it
   // finished - judging by "is the card empty" is what used to reduce a fixless
   // device to a single burst per flushRetryMs, because a deep backlog and a

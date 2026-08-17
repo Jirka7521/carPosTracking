@@ -161,7 +161,7 @@ test:
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
 | `AckWatcher` | Collect the API's per-envelope verdicts; answer "was this fix actually stored?". |
-| `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
+| `SdCard` | Mount/format the microSD (FAT) and read/append/trim/filter files — every helper streams, one line at a time. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; flush the card as a burst whenever the link is up — no position lock needed. |
@@ -266,7 +266,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
 | `kSdMaxQueuedFixes` | `20000` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this |
-| `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
+| `kSdMaxBurstFixes` | `10` | Max envelopes per burst message (RAM/MQTT safety bound — see below) |
 | `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that achieved **nothing** (an MQTT reconnect cancels it) |
 | `kBacklogFlushBudgetMs` | `30000` | How long one flush may keep draining before yielding to the poll loop; it resumes on the next poll |
 | `kSdRetryFilePath` | `/sdcard/retry.jsonl` | Fixes the API **rejected**, awaiting a scheduled retry |
@@ -459,6 +459,38 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   `[env1,env2,…]`), so the subscriber always parses one shape. A long backlog is
   drained in several back-to-back bursts of up to `kSdMaxBurstFixes` so the
   array and MQTT buffer stay within this board's (PSRAM-less) RAM.
+- **The burst size is a memory budget, not a throughput knob.** One envelope is
+  ~1 KB — over half of it the base64 RSA-3072-wrapped AES key, which every
+  envelope carries separately — and a burst of *N* is held **three times over**
+  at the moment of publish: the batch read off the card (kept alive so rejected
+  fixes can be parked for retry), the joined JSON array (one *contiguous*
+  allocation), and esp-mqtt's outbox copy (also contiguous, because QoS 2 must be
+  re-sendable until PUBCOMP). Add the mbedTLS session buffers (~20 KB) and the
+  WebSocket buffer, all in the same internal DRAM. At `40` that reached ~117 KB
+  per burst and the outbox's ~39 KB contiguous request began failing outright
+  (`outbox_enqueue: Memory exhausted`) once the heap was fragmented; `10` keeps
+  the peak near 30 KB. Raising it costs no throughput worth measuring in return —
+  bursts already fire back-to-back within `kBacklogFlushBudgetMs`, and each one
+  is dominated by the broker and API ack waits, not by its size.
+- **A refused publish reports why.** `MqttClient` bounds esp-mqtt's outbox
+  (`outbox.limit`) so an oversized publish is refused cleanly instead of failing
+  a raw allocation deep inside the client, and logs the payload size, the free
+  heap **and the largest free block** — the pair that tells memory exhaustion
+  apart from fragmentation.
+- **A failed drain does not drag the retry queue down with it.** When a drain
+  stops on a transport or card error, the retry drain is skipped: it would fail
+  identically, and `takeDue()` lifts entries *off* the card before publishing and
+  rewrites every one of them back on failure — a full rewrite of the retry file
+  bought for nothing.
+- **No card file is ever held in RAM.** Every `SdCard` helper streams — including
+  `rewriteLines()`/`forEachLine()`, which `RetryQueue` walks its schedule with —
+  so memory scales with one **line** and one **burst**, never with the backlog.
+  This is load-bearing, not tidiness: the retry queue used to read and rebuild
+  its whole file as a single `std::string`, and since `CONFIG_COMPILER_CXX_EXCEPTIONS`
+  is off, the failed allocation aborted the device rather than throwing. It fired
+  right after a long backlog drain, which is precisely when the heap is most
+  fragmented *and* the retry file most likely to be busy. See
+  [`RetryQueue.h`](src/sdcard/RetryQueue.h).
 - **Sending does not need a position lock.** `FixForwarder::flushBacklog()` is
   called at the top of every cycle *and* after every GNSS poll (each
   `kFixPollStepMs`) while waiting for a fix, so a queued backlog leaves within
@@ -477,7 +509,10 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   few prompt retries first, because a verdict which merely arrived late is
   already held by the `AckWatcher` and clears the burst on the next try). An MQTT
   reconnect cancels the wait either way, since a reconnect is exactly the event
-  worth retrying on.
+  worth retrying on. The reporting-cycle path (`process()`) is paced by the same
+  rule and the same budget — previously it drained unbounded and ignored the
+  pause entirely, which meant a link that could not take a burst was re-offered
+  the identical burst once per cycle regardless.
 - **The budget is why one flush cannot hog the loop.** A full 20 000-fix queue is
   500 bursts, i.e. minutes of publishing and ack-waiting. `kBacklogFlushBudgetMs`
   caps how long one call keeps going before it hands the CPU back to the GNSS
@@ -582,6 +617,15 @@ error level when it does.
 The schedule is measured in **GNSS UTC time** — the only trustworthy wall clock
 here, since `esp_timer` restarts across the deep-sleep reboot and there is no RTC
 battery. A cycle with no valid GNSS time simply treats nothing as due.
+
+A line that cannot be parsed is **kept**, counted and logged — never discarded.
+cJSON returns the same `nullptr` for "malformed" as for "could not allocate", so
+a line that fails to parse while memory is tight is most likely a perfectly good
+fix; deleting it would be silent data loss, while keeping it costs a few hundred
+bytes on a card with gigabytes. The `kSdMaxRetryEntries` cap is what eventually
+clears them. Walking the file therefore takes two streaming passes — one to
+decide, one to rewrite — and the second is skipped entirely when nothing came
+due, which is the common cycle.
 
 Set `kAckEnabled = false` to restore the old behaviour exactly: the broker ack
 becomes the only confirmation, and nothing is written to `retry.jsonl`.

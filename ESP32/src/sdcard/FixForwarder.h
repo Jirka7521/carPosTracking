@@ -153,6 +153,17 @@ class FixForwarder {
   // finally accepted, so retry progress counts toward pacing too.
   void drainRetries(const std::string& nowUtc, std::size_t& storedOut);
 
+  // Whether a retry drain is worth attempting after a live-queue drain that
+  // stopped for the given reason. False when the link or the card has just
+  // proved unusable: the retry drain would fail identically, and it pays for the
+  // attempt by rewriting the whole retry file.
+  static bool drainWorthRetrying(DrainStop stop);
+
+  // Decide when the next drain attempt may run, from what this one achieved.
+  // Shared by both callers of drainQueue() so the backlog is paced by one rule
+  // rather than two - `nowUs` is the timestamp the attempt was judged against.
+  void applyDrainPacing(DrainStop stop, std::size_t moved, int64_t nowUs);
+
   // Number of leading entries in `results` that the API resolved (stored or
   // rejected). The queue is a FIFO popped from the front, so only an unbroken
   // run from the head can be removed - a gap means an earlier envelope is still

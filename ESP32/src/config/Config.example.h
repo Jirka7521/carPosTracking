@@ -401,7 +401,28 @@ constexpr uint32_t kSdMaxQueuedFixes = 20000;
 // fits in one burst; a very long backlog is drained in several back-to-back
 // bursts so the JSON array and the MQTT buffer never exceed the modest internal
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
-constexpr uint32_t kSdMaxBurstFixes = 40;
+//
+// Size this by the arithmetic, not by taste. One envelope is ~1 KB - over half
+// of it is the base64 RSA-3072-wrapped AES key, which every envelope carries
+// separately - so a burst of N costs roughly N KB. That N KB is then held THREE
+// times over at the moment of publish:
+//
+//   1. the batch vector read off the card (kept alive so rejected fixes can be
+//      parked for retry after the API's verdict),
+//   2. the joined JSON array, which must be ONE contiguous allocation, and
+//   3. esp-mqtt's outbox copy - also contiguous - because we publish at QoS 2
+//      and the client must be able to re-send until PUBCOMP.
+//
+// On top of that sit the mbedTLS session buffers (~20 KB) and the WebSocket
+// buffer, all in the same internal DRAM. At 40 that came to ~117 KB of burst
+// plus TLS, and the outbox's contiguous ~39 KB request began failing outright
+// ("outbox_enqueue: Memory exhausted") once the heap was fragmented. 10 keeps
+// the peak near 30 KB with comfortable margin.
+//
+// Lowering this costs no throughput worth measuring: the drain loop already
+// fires bursts back-to-back within kBacklogFlushBudgetMs, and each burst is
+// dominated by the broker and API ack waits, not by its size.
+constexpr uint32_t kSdMaxBurstFixes = 10;
 
 // How long to wait before re-attempting a backlog flush that achieved NOTHING.
 // The backlog is flushed whenever the link is up - including on cycles with no

@@ -1,7 +1,9 @@
 #include "mqtt/MqttClient.h"
 
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -9,6 +11,33 @@ static const char* TAG = "MqttClient";
 
 // How often publishConfirmed() re-checks for the broker's ack while waiting.
 static constexpr uint32_t kAckPollStepMs = 20;
+
+// Ceiling on how many bytes esp-mqtt may hold in its outbox - the pending-ack
+// store every QoS>0 publish is copied into until the broker completes the
+// handshake. Left at the default (0 = unlimited) the client skips its own size
+// check and instead fails the raw heap_caps_malloc deep inside outbox_enqueue,
+// which is how a too-large burst used to surface as a bare "Memory exhausted"
+// with no hint of the cause. With a limit set, an oversized publish is refused
+// cleanly and we can say why. Sized for several kSdMaxBurstFixes bursts so it
+// never bites during normal draining, only when something has gone wrong.
+static constexpr int kOutboxLimitBytes = 64 * 1024;
+
+// Outbound MQTT buffer. Anything larger than this is sent as a first fragment
+// from the buffer plus a remainder copied into the outbox, so a slightly larger
+// buffer means a slightly smaller outbox allocation. 2 KB is a cheap, permanent
+// trade against a burst message of ~10 KB; the default 1 KB is needlessly small.
+static constexpr int kMqttOutBufferBytes = 2048;
+
+// One place to render the heap situation for a failed publish. Free heap alone
+// does not explain an allocation failure - a fragmented heap can report plenty
+// free and still refuse a contiguous request - so the largest free block is
+// logged beside it. That is the number that tells "out of memory" apart from
+// "too fragmented for one big block".
+void MqttClient::logPublishFailure(const char* what, std::size_t payloadBytes) {
+  ESP_LOGW(TAG, "%s (payload %u B, free heap %u B, largest block %u B)", what,
+           (unsigned)payloadBytes, (unsigned)esp_get_free_heap_size(),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
 
 MqttClient::MqttClient(const char* uri, const char* username,
                        const char* password, const char* clientId)
@@ -42,6 +71,14 @@ bool MqttClient::begin() {
   // For TLS schemes (wss/mqtts) verify the broker's certificate against the
   // built-in public CA bundle. Ignored for the plain ws/mqtt schemes.
   cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+
+  // Bound the outbox and widen the outbound buffer - see the constants above for
+  // why. Both exist to keep a large backlog burst from ending in a failed
+  // allocation inside esp-mqtt rather than a diagnosable refusal here.
+  cfg.outbox.limit     = kOutboxLimitBytes;
+  cfg.buffer.out_size  = kMqttOutBufferBytes;
+  // cfg.buffer.size (inbound) stays at the default: the only thing we subscribe
+  // to is small ack and settings messages.
 
   // Only pass credentials we actually have, so an empty username/password is
   // treated as "no credential" rather than an empty string.
@@ -122,7 +159,7 @@ bool MqttClient::publish(const std::string& topic, const std::string& payload) {
                                             payload.data(), payload.size(),
                                             /*qos=*/2, /*retain=*/0);
   if (msgId < 0) {
-    ESP_LOGW(TAG, "publish failed");
+    logPublishFailure("publish failed", payload.size());
     return false;
   }
   return true;
@@ -147,7 +184,7 @@ bool MqttClient::publishConfirmed(const std::string& topic,
                                             payload.data(), payload.size(),
                                             /*qos=*/2, /*retain=*/0);
   if (msgId < 0) {
-    ESP_LOGW(TAG, "publishConfirmed: enqueue failed");
+    logPublishFailure("publishConfirmed: enqueue failed", payload.size());
     return false;
   }
 

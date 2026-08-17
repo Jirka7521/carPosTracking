@@ -20,6 +20,7 @@
 //  so the broker itself never sees the position data.
 // =============================================================================
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -106,6 +107,12 @@ class MqttClient {
   // is delivered in several events, and only the first carries the topic - so we
   // stitch the pieces together and dispatch once the last one lands.
   void handleData(const esp_mqtt_event_t& event);
+
+  // Log a refused publish together with the heap figures that explain it. A
+  // rejected enqueue is nearly always a memory problem, and "free heap" on its
+  // own does not distinguish exhaustion from fragmentation - so the largest
+  // contiguous free block is reported alongside it.
+  static void logPublishFailure(const char* what, std::size_t payloadBytes);
 
   const char* uri_;
   const char* username_;

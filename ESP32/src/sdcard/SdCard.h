@@ -18,6 +18,7 @@
 // =============================================================================
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -69,10 +70,36 @@ class SdCard {
   // Number of non-empty lines in `path` (0 if the file does not exist).
   std::size_t countLines(const char* path) const;
 
+  // Hand every non-empty line of `path` to `visit`, in file order, without
+  // modifying anything. A missing file is not an error - `visit` is simply never
+  // called. The read-only counterpart of rewriteLines(), for callers that need
+  // to inspect a whole file but must not pay readLines()'s cost of materialising
+  // it: only one line exists in memory at a time.
+  bool forEachLine(const char* path,
+                   const std::function<void(const std::string&)>& visit) const;
+
   // Rewrite `path` dropping its first `n` non-empty lines and keeping the rest.
   // If `n` covers the whole file, the file is removed. Used both to pop entries
   // that were just delivered and to trim the oldest when the queue is capped.
   bool dropFirstLines(const char* path, std::size_t n);
+
+  // Rewrite `path` keeping only the lines `keep` approves of, in order, and
+  // report how many survived. If none do, the file is removed. A missing file is
+  // not an error (zero survivors), and `keep` is never called for it.
+  //
+  // The generalisation of dropFirstLines() for callers whose "drop this one"
+  // decision depends on the line's *contents* rather than its position - the
+  // retry queue, which must weigh each entry's schedule. It streams exactly the
+  // same way: one line in memory at a time, survivors written to a sibling
+  // ".tmp" that is only then swapped in. That is the whole point of it. Deciding
+  // in RAM instead means holding the entire file, which on this board's internal
+  // heap is a crash waiting for a big enough backlog.
+  //
+  // `keep` must be a pure decision over the line: it is called once per line, in
+  // file order, and must not touch this file itself.
+  bool rewriteLines(const char* path,
+                    const std::function<bool(const std::string&)>& keep,
+                    std::size_t& survivorsOut);
 
   // Delete `path` entirely. Returns true if it is gone afterwards.
   bool removeFile(const char* path);

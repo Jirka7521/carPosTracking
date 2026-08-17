@@ -25,6 +25,21 @@
 //    {"env":{...encrypted envelope...},"attempts":2,
 //     "first":"2026-08-16T09:12:44Z","next":"2026-08-17T09:12:44Z"}
 //
+//  Memory: every path here STREAMS the file through SdCard - one line resident
+//  at a time - and never holds more than one burst (`maxCount`) of entries. This
+//  is not a micro-optimisation. An envelope is several hundred bytes, the file
+//  may hold thousands, and the internal heap is well under 200 KB once WiFi and
+//  mbedTLS are up; an earlier version that read and rewrote the file as one
+//  std::string aborted the whole device on a failed allocation, and did it right
+//  after a long backlog drain had fragmented the heap - exactly when the retry
+//  queue is most likely to have work.
+//
+//  Undecodable lines are KEPT, counted and logged - never dropped. cJSON cannot
+//  distinguish "malformed" from "could not allocate", so a line that fails to
+//  parse under memory pressure is very probably a perfectly good fix. Discarding
+//  it would be silent data loss, and a stale line costs a few hundred bytes on a
+//  card with gigabytes. The file cap in add() is what eventually clears them.
+//
 //  Clock: the GNSS UTC time of the current fix, passed in by the caller. That is
 //  the only trustworthy wall clock on this device - esp_timer restarts across
 //  the deep-sleep reboot, and there is no RTC battery. When no GNSS time is
@@ -106,13 +121,23 @@ class RetryQueue {
   bool clear();
 
  private:
-  // Read every entry currently on the card. Unparseable lines are skipped (and
-  // counted in `skipped`) rather than failing the whole read - one corrupt line
-  // must not strand the rest of the backlog.
-  bool readAll(std::vector<Entry>& entriesOut, std::size_t& skipped) const;
+  // What a single walk of the file decides about one of its lines.
+  enum class Disposition {
+    Keep,        // not due yet - leave it on the card untouched
+    Take,        // due, and there is room in this burst - hand it to the caller
+    Abandon,     // past the give-up age - the one path that discards data
+    Undecodable  // could not be parsed - kept anyway, see the header note
+  };
 
-  // Rewrite the file from `entries`, refreshing the cached count.
-  bool writeAll(const std::vector<Entry>& entries);
+  // Decide what happens to one raw line. `takenSoFar` counts the entries already
+  // claimed by this walk and is incremented on Take; passing the same file, the
+  // same `nowEpoch` and a fresh counter therefore reproduces the same verdicts,
+  // which is what lets takeDue() decide in one pass and rewrite in a second
+  // without remembering anything in between. `entryOut` is only filled in for
+  // Take.
+  Disposition classify(const std::string& line, int64_t nowEpoch,
+                       std::size_t maxCount, std::size_t& takenSoFar,
+                       Entry& entryOut) const;
 
   // Serialise one entry to its JSON line.
   static std::string encodeEntry(const Entry& entry);

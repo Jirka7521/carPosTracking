@@ -203,6 +203,26 @@ std::size_t SdCard::countLines(const char* path) const {
   return count;
 }
 
+bool SdCard::forEachLine(
+    const char* path, const std::function<void(const std::string&)>& visit) const {
+  if (!mounted_) {
+    return false;
+  }
+  std::FILE* f = std::fopen(path, "r");
+  if (f == nullptr) {
+    return true;  // no file yet == nothing to walk, not an error
+  }
+  std::string line;
+  while (readLine(f, line)) {
+    if (line.empty()) {
+      continue;  // skip blank lines defensively, as readLines() does
+    }
+    visit(line);
+  }
+  std::fclose(f);
+  return true;
+}
+
 bool SdCard::dropFirstLines(const char* path, std::size_t n) {
   if (!mounted_) {
     return false;
@@ -262,6 +282,68 @@ bool SdCard::dropFirstLines(const char* path, std::size_t n) {
   }
   if (std::rename(tmpPath.c_str(), path) != 0) {
     ESP_LOGE(TAG, "drop: rename %s -> %s failed", tmpPath.c_str(), path);
+    return false;
+  }
+  return true;
+}
+
+bool SdCard::rewriteLines(const char* path,
+                          const std::function<bool(const std::string&)>& keep,
+                          std::size_t& survivorsOut) {
+  survivorsOut = 0;
+  if (!mounted_) {
+    return false;
+  }
+
+  std::FILE* in = std::fopen(path, "r");
+  if (in == nullptr) {
+    return true;  // no file == nothing to filter
+  }
+
+  // Same streaming shape as dropFirstLines(): survivors go to a sibling temp
+  // file as we walk, so only one line is ever held in memory.
+  const std::string tmpPath = std::string(path) + ".tmp";
+  std::FILE*        out     = std::fopen(tmpPath.c_str(), "w");
+  if (out == nullptr) {
+    ESP_LOGE(TAG, "filter: cannot open temp %s", tmpPath.c_str());
+    std::fclose(in);
+    return false;
+  }
+
+  bool        ok = true;
+  std::string line;
+  while (readLine(in, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    if (!keep(line)) {
+      continue;  // caller has taken this one, or is discarding it
+    }
+    if (std::fwrite(line.data(), 1, line.size(), out) != line.size() ||
+        std::fputc('\n', out) == EOF) {
+      ok = false;
+      break;
+    }
+    ++survivorsOut;
+  }
+  std::fclose(in);
+  std::fclose(out);
+
+  if (!ok) {
+    ESP_LOGE(TAG, "filter: rewrite of %s failed", path);
+    std::remove(tmpPath.c_str());
+    survivorsOut = 0;
+    return false;
+  }
+
+  // Replace the original with the filtered copy (or drop both if nothing left).
+  std::remove(path);
+  if (survivorsOut == 0) {
+    std::remove(tmpPath.c_str());
+    return true;
+  }
+  if (std::rename(tmpPath.c_str(), path) != 0) {
+    ESP_LOGE(TAG, "filter: rename %s -> %s failed", tmpPath.c_str(), path);
     return false;
   }
   return true;
