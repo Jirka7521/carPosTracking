@@ -64,6 +64,7 @@ public sealed class ConfigSnippetBuilderTests
         // Accelerometer
         "kAdxlEnabled", "kI2cSdaPin", "kI2cSclPin", "kI2cClockHz", "kAdxlI2cAddress",
         "kAdxlInt1Pin", "kAdxlInt2Pin",
+        "kAccelDebugStream", "kAccelDebugIntervalMs",
 
         // Battery
         "kBatteryEnabled", "kBatteryChargeSensePin", "kBatteryChargeAdcThreshold",
