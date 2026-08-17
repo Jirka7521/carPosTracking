@@ -332,7 +332,17 @@ constexpr uint32_t kMaxRetryMaxAgeHours = 8760;
 // The floor of one minute is deliberate: each check is one SUBSCRIBE and one
 // wake-up, and a device that did it every few seconds would burn battery
 // chasing a message that push would have brought it anyway.
-constexpr uint32_t kDefaultConfigCheckSeconds = 900;  // 15 minutes
+//
+// An hour is the default for the same reason. Because the awake interval wait is
+// cut into chunks of at most this value, the number sets how often the device
+// wakes and puts a SUBSCRIBE on the wire while it is otherwise idle - so a
+// shorter check costs battery and airtime on every device, every hour, for ever.
+// What it buys is only faster recovery from a half-open socket, because a real
+// change already arrives by push within a second and a reconnect replays the
+// retained document anyway. Catching a dead-but-open connection within the hour
+// is ample for that; a quarter of an hour was four times the cost for no
+// practical gain.
+constexpr uint32_t kDefaultConfigCheckSeconds = 3600;  // 1 hour
 constexpr uint32_t kMinConfigCheckSeconds     = 60;
 constexpr uint32_t kMaxConfigCheckSeconds     = 86400;  // 24 h
 

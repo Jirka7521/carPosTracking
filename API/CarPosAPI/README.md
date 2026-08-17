@@ -533,7 +533,7 @@ no reflash and without the device being online at the time:
 | `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 100000 | 20000 |
 | `retryIntervalHours` | hours between attempts on a rejected fix | 1 – 720 | 24 |
 | `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never | 0 – 8760 | 168 |
-| `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 900 |
+| `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 3600 |
 
 The bounds live in [`Dtos/DeviceConfigRules.cs`](Dtos/DeviceConfigRules.cs) and
 **mirror the firmware's clamps** in `ESP32/src/config/Config.h`. The two sides

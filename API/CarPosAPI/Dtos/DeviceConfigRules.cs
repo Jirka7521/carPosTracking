@@ -87,8 +87,21 @@ public static class DeviceConfigRules
     /// <summary>Maximum interval for the periodic configuration re-check (24 h).</summary>
     public const int MaxConfigCheckSeconds = 86400;
 
-    /// <summary>Factory default configuration re-check interval, in seconds (15 min).</summary>
-    public const int DefaultConfigCheckSeconds = 900;
+    /// <summary>
+    /// Factory default configuration re-check interval, in seconds (1 h).
+    ///
+    /// <para>
+    /// An hour rather than something eager, because this only paces the
+    /// <em>backstop</em>. A real change reaches an awake device by push within a
+    /// second, and a device that reconnects or wakes from deep sleep is handed the
+    /// retained document automatically — so all a shorter interval buys is faster
+    /// recovery from a connection that looks alive but delivers nothing. The
+    /// firmware cuts its idle wait into chunks of at most this value, so the number
+    /// also sets how often every awake tracker wakes and puts a SUBSCRIBE on the
+    /// wire. Cheap per event, but paid by every device for ever.
+    /// </para>
+    /// </summary>
+    public const int DefaultConfigCheckSeconds = 3600;
 
     /// <summary>
     /// Version number every device's first configuration row is created with.

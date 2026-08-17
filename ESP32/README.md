@@ -246,7 +246,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
-| `kDefaultConfigCheckSeconds` | `900` | **Default** for `config_check_s` — awake-mode re-check interval |
+| `kDefaultConfigCheckSeconds` | `3600` | **Default** for `config_check_s` — awake-mode re-check interval |
 | `kMinConfigCheckSeconds` / `kMaxConfigCheckSeconds` | `60` / `86400` | Clamps on `config_check_s` |
 | `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
@@ -650,7 +650,7 @@ small **plaintext** JSON document:
   "queue_max_fixes": 20000,
   "retry_interval_h": 24,
   "retry_max_age_h": 168,
-  "config_check_s": 900
+  "config_check_s": 3600
 }
 ```
 

@@ -10,7 +10,7 @@
 //      { "version": 7, "interval_s": 60, "sleep_between": true,
 //        "fix_timeout_s": 180, "queue_max_fixes": 20000,
 //        "retry_interval_h": 24, "retry_max_age_h": 168,
-//        "config_check_s": 900 }
+//        "config_check_s": 3600 }
 //
 //  Keeping both sides of that format in one class is the point: the file we
 //  write and the message we accept can never drift apart, because there is only
