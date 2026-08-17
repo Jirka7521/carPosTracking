@@ -77,6 +77,11 @@ constexpr uint32_t kSatelliteScanMs = 3000;  // How long to listen to NMEA when
 // couple of minutes under a poor sky view. Without a bound the device would sit
 // awake forever in a tunnel or a garage, draining exactly the battery the sleep
 // was meant to save.
+//
+// The timeout is a runtime setting (`fix_timeout_s`) - this value is only the
+// DEFAULT for a device that has never received a config message. The poll step
+// stays compile-time: it is a property of how fast the modem answers, not
+// something an operator has any reason to tune from a dashboard.
 constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
 constexpr uint32_t kFixPollStepMs            = 2000;
 
@@ -200,10 +205,27 @@ constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 //  document (it carries no position data, so there is nothing to protect
 //  end-to-end; the wss:// hop still encrypts it in transit):
 //
-//      { "interval_s": 60, "sleep_between": true }
+//      { "version": 7, "interval_s": 60, "sleep_between": true,
+//        "fix_timeout_s": 180, "queue_max_fixes": 20000,
+//        "retry_interval_h": 24, "retry_max_age_h": 168 }
 //
-//      interval_s     seconds between position reports
-//      sleep_between  power the modem down and deep-sleep the ESP32 in between
+//      version          server-assigned revision number, echoed back in every
+//                       report as settings_version so the dashboard can tell
+//                       whether the device is actually running this document
+//      interval_s       seconds between position reports
+//      sleep_between    power the modem down and deep-sleep the ESP32 in between
+//      fix_timeout_s    how long to keep asking for a position before giving up
+//                       on the cycle (see kFixAcquireTimeoutSeconds)
+//      queue_max_fixes  how many undelivered fixes the SD queue may hold before
+//                       the oldest are dropped (see kSdMaxQueuedFixes)
+//      retry_interval_h hours between attempts on an API-rejected fix
+//      retry_max_age_h  give up on a rejected fix older than this (0 = never)
+//      config_check_s   how often an AWAKE device asks the broker to re-send
+//                       this document (a backstop - see kDefaultConfigCheckSeconds)
+//
+//  Every key is optional: the decoder merges what it finds into the settings
+//  already in force, so a document carrying only "interval_s" changes only that.
+//  That is what keeps this device compatible with an older, two-key publisher.
 //
 //  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET. When sleep_between is on the
 //  device is only online for a few seconds per cycle, so it will essentially
@@ -266,14 +288,53 @@ constexpr uint32_t kAckTimeoutMs = 10000;
 constexpr char kDeviceAckPrivateKeyPem[] = "";
 
 // Defaults for a device with no cached settings and no broker message yet.
+// The remaining four defaults are the constants they replace at runtime, and
+// live with the subsystem they belong to: kFixAcquireTimeoutSeconds (timing),
+// kSdMaxQueuedFixes, kRetryIntervalHours and kRetryMaxAgeHours (microSD).
 constexpr uint32_t kDefaultSendIntervalSeconds = 60;
 constexpr bool     kDefaultSleepBetweenSends   = false;
 
-// Accepted range for interval_s. A broker message outside this range is clamped
-// rather than rejected, so a typo can never wedge the device into a busy-loop
-// (interval 0) or an effectively dead one.
+// Accepted range for every numeric setting. A broker message outside these
+// bounds is clamped rather than rejected, so a typo can never wedge the device
+// into a busy-loop (interval 0) or an effectively dead one. The API validates
+// against exactly these numbers and answers 400 instead - see the bounds table
+// in its README. If you change one here, change it there too.
 constexpr uint32_t kMinSendIntervalSeconds = 5;
 constexpr uint32_t kMaxSendIntervalSeconds = 86400;  // 24 h
+
+// A fix timeout below the poll step could never see a single reply; the upper
+// bound stops a bad config parking a sleeping device awake for hours.
+constexpr uint32_t kMinFixTimeoutSeconds = 15;
+constexpr uint32_t kMaxFixTimeoutSeconds = 900;  // 15 min
+
+// The floor keeps a short outage survivable; the ceiling keeps the queue file
+// (and the rewrite cost of trimming it) within reach of a modest card.
+constexpr uint32_t kMinQueueMaxFixes = 100;
+constexpr uint32_t kMaxQueueMaxFixes = 100000;
+
+// Retry pacing bounds. The floor of one hour is deliberate: the reject reasons
+// that do clear are fixed by a human on the server, so retrying faster would
+// only burn power and airtime to be told the same thing.
+constexpr uint32_t kMinRetryIntervalHours = 1;
+constexpr uint32_t kMaxRetryIntervalHours = 720;  // 30 days
+
+// No floor: 0 is the meaningful "never give up" value. The ceiling is a year.
+constexpr uint32_t kMaxRetryMaxAgeHours = 8760;
+
+// How often an AWAKE device asks the broker to re-send the retained config.
+//
+// This is only a backstop. A config normally arrives by push, within a second,
+// because the subscription is already open - and a device that reconnects (or
+// wakes from deep sleep) is handed the retained document automatically. What
+// this recovers from is a connection that looks alive but delivers nothing,
+// which is invisible from this side. A deep-sleeping device ignores it entirely.
+//
+// The floor of one minute is deliberate: each check is one SUBSCRIBE and one
+// wake-up, and a device that did it every few seconds would burn battery
+// chasing a message that push would have brought it anyway.
+constexpr uint32_t kDefaultConfigCheckSeconds = 900;  // 15 minutes
+constexpr uint32_t kMinConfigCheckSeconds     = 60;
+constexpr uint32_t kMaxConfigCheckSeconds     = 86400;  // 24 h
 
 // -----------------------------------------------------------------------------
 //  End-to-end encryption.
@@ -328,6 +389,12 @@ constexpr char kSdSettingsFilePath[] = "/sdcard/settings.json";
 // outage the oldest entries are dropped once this many have accumulated, so the
 // card can never fill up. Each envelope is ~0.5-1 KB, so the default is a few
 // MB at most - tiny next to any real card.
+//
+// This is a runtime setting (`queue_max_fixes`); the value here is only the
+// DEFAULT. It is expressed as a count rather than a duration because a queued
+// line is bare ciphertext with no timestamp to age it by - one fix goes in per
+// reporting cycle, so the dashboard turns the count into "about N days at the
+// current interval" for the human.
 constexpr uint32_t kSdMaxQueuedFixes = 20000;
 
 // How many queued envelopes go into a single burst message. A typical outage
@@ -336,14 +403,26 @@ constexpr uint32_t kSdMaxQueuedFixes = 20000;
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
 constexpr uint32_t kSdMaxBurstFixes = 40;
 
-// How long to wait before re-attempting a backlog flush that failed or only
-// partly drained. The backlog is flushed whenever the link is up - including on
-// cycles with no position fix - and the attempt is offered on every GNSS poll
-// (~kFixPollStepMs) while waiting for one. Without this pause a broker that
-// accepts publishes but never acks would burn the whole acquire window in
-// back-to-back kMqttPublishAckTimeoutMs timeouts. An MQTT reconnect clears the
-// wait immediately, so a genuine link-up always drains at once.
+// How long to wait before re-attempting a backlog flush that achieved NOTHING.
+// The backlog is flushed whenever the link is up - including on cycles with no
+// position fix - and the attempt is offered on every GNSS poll (~kFixPollStepMs)
+// while waiting for one. Without this pause a broker that accepts publishes but
+// never acks would burn the whole acquire window in back-to-back
+// kMqttPublishAckTimeoutMs timeouts. Note it applies only to an attempt that
+// moved no data at all: a flush that shipped anything (or merely ran out of the
+// budget below) is repeated on the very next poll, which is what lets a long
+// backlog drain in back-to-back bursts. An MQTT reconnect clears the wait
+// immediately, so a genuine link-up always drains at once.
 constexpr uint32_t kBacklogFlushRetryMs = 600000;  // 10 minutes
+
+// How long a single backlog flush may keep draining before it hands the CPU
+// back. A flush keeps shipping bursts until the queue is empty, and the deepest
+// backlog kSdMaxQueuedFixes allows is 500 bursts - minutes of work - which would
+// otherwise all happen inside one GNSS poll callback, stalling the poll loop and
+// the remote-settings poll beside it. With this budget the drain is spread over
+// consecutive polls instead, losing nothing: whatever is already confirmed has
+// left the card, and the next poll resumes where this one stopped.
+constexpr uint32_t kBacklogFlushBudgetMs = 30000;  // 30 seconds
 
 // Fixes the API explicitly REJECTED (bad timestamp, out-of-range value, unknown
 // device, ...). They are kept apart from the live queue so a permanently
@@ -357,12 +436,14 @@ constexpr char kSdRetryFilePath[] = "/sdcard/retry.jsonl";
 
 // How long to wait between attempts on a rejected fix. Once a day: the reasons
 // that do clear are fixed by a human on the server, so retrying sooner would just
-// burn power and airtime to be told the same thing.
+// burn power and airtime to be told the same thing. Runtime setting
+// (`retry_interval_h`); this is only the DEFAULT.
 constexpr uint32_t kRetryIntervalHours = 24;
 
 // Give up on a rejected fix that is still being refused after this long. This is
 // the only path that deliberately discards data, so it is logged at error level.
 // Zero disables the cap (retry forever - the file cap below still applies).
+// Runtime setting (`retry_max_age_h`); this is only the DEFAULT.
 constexpr uint32_t kRetryMaxAgeHours = 168;  // 7 days
 
 // Safety cap on the retry file. Much smaller than the live queue: a healthy

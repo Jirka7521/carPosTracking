@@ -8,11 +8,24 @@
 
 static const char* TAG = "FixForwarder";
 
+namespace {
+
+  // Prompt re-attempts allowed after a burst the API did not answer, before
+  // falling back to the full flushRetryMs pause. A verdict that arrived just
+  // after the wait timed out is still held by the AckWatcher and clears the
+  // burst on the next attempt, so a few quick retries recover the common case;
+  // the bound is what stops a broker that accepts publishes but never acks from
+  // re-sending the same burst on every poll forever.
+  constexpr uint8_t kNoVerdictFastRetries = 3;
+
+}  // namespace
+
 FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
                            AckWatcher& ackWatcher, FixQueue& queue,
                            RetryQueue& retryQueue, const char* topic,
                            uint32_t ackTimeoutMs, uint32_t apiAckTimeoutMs,
-                           std::size_t maxBurst, uint32_t flushRetryMs)
+                           std::size_t maxBurst, uint32_t flushRetryMs,
+                           uint32_t flushBudgetMs)
     : publisher_(publisher),
       mqtt_(mqtt),
       ackWatcher_(ackWatcher),
@@ -24,8 +37,10 @@ FixForwarder::FixForwarder(TelemetryPublisher& publisher, MqttClient& mqtt,
       // A burst of at least one; guard against a mis-set config value.
       maxBurst_(maxBurst == 0 ? 1 : maxBurst),
       flushRetryMs_(flushRetryMs),
+      flushBudgetMs_(flushBudgetMs),
       nextFlushUs_(0),
-      wasConnected_(false) {}
+      wasConnected_(false),
+      noVerdictRetries_(0) {}
 
 std::string FixForwarder::buildArrayMessage(
     const std::vector<std::string>& envs) {
@@ -138,21 +153,36 @@ bool FixForwarder::deliverBatch(
   return true;
 }
 
-bool FixForwarder::drainQueue(const std::string& nowUtc) {
+FixForwarder::DrainStop FixForwarder::drainQueue(const std::string& nowUtc,
+                                                 int64_t      deadlineUs,
+                                                 std::size_t& poppedOut) {
   // Repeatedly ship the oldest slice of the queue. We stop the moment a burst is
   // not fully resolved, so nothing is deleted before the API has confirmed it.
+  std::size_t bursts = 0;
   while (!queue_.isEmpty()) {
+    // Yield between bursts once the caller's budget is spent. Everything popped
+    // so far is already off the card, so resuming later simply picks up where
+    // this left off - no state to carry, nothing re-sent. The first burst always
+    // goes out, however small the budget: a call that shipped nothing would keep
+    // asking to be called again and the backlog would never move.
+    if (bursts != 0 && deadlineUs != 0 && esp_timer_get_time() >= deadlineUs) {
+      ESP_LOGI(TAG, "drain: time budget spent - %u still queued, resuming shortly",
+               (unsigned)queue_.size());
+      return DrainStop::Budget;
+    }
+    bursts++;
+
     std::vector<std::string> batch;
     if (!queue_.peekBatch(maxBurst_, batch) || batch.empty()) {
       ESP_LOGE(TAG, "drain: could not read queue - will retry later");
-      return false;
+      return DrainStop::CardError;
     }
 
     std::vector<AckWatcher::AckResult> results;
     if (!deliverBatch(batch, results)) {
       ESP_LOGW(TAG, "drain: burst of %u not acked by the broker - %u still queued",
                (unsigned)batch.size(), (unsigned)queue_.size());
-      return false;
+      return DrainStop::Transport;
     }
 
     // Only an unbroken run from the head can leave a FIFO. In practice the API
@@ -161,7 +191,7 @@ bool FixForwarder::drainQueue(const std::string& nowUtc) {
     if (resolved == 0) {
       ESP_LOGW(TAG, "drain: no API verdict for this burst - %u still queued",
                (unsigned)queue_.size());
-      return false;
+      return DrainStop::NoVerdict;
     }
 
     // Park the rejected ones before dropping them from the live queue, so a
@@ -181,24 +211,31 @@ bool FixForwarder::drainQueue(const std::string& nowUtc) {
       }
     }
     if (resolved == 0) {
-      return false;  // nothing in this burst may be removed yet
+      // The head fix is rejected but unparkable (no clock). Nothing in this
+      // burst may be removed yet, and only a cycle with a valid GNSS time can
+      // change that - so this is a stall, not a transport problem.
+      return DrainStop::NoVerdict;
     }
 
     if (!queue_.popFront(resolved)) {
       ESP_LOGE(TAG, "drain: failed to pop delivered burst from queue");
-      return false;
+      return DrainStop::CardError;
     }
+    poppedOut += resolved;
     ESP_LOGI(TAG, "drain: %u of %u confirmed (%u remaining)", (unsigned)resolved,
              (unsigned)batch.size(), (unsigned)queue_.size());
 
     if (resolved < batch.size()) {
-      return false;  // a gap - leave the rest for the next cycle
+      // A gap: the leading run is delivered and gone, the rest waits. Progress
+      // was made, so the caller re-attempts promptly rather than pausing.
+      return DrainStop::NoVerdict;
     }
   }
-  return true;
+  return DrainStop::Empty;
 }
 
-void FixForwarder::drainRetries(const std::string& nowUtc) {
+void FixForwarder::drainRetries(const std::string& nowUtc,
+                                std::size_t&       storedOut) {
   if (retryQueue_.isEmpty() || !mqtt_.isConnected()) {
     return;
   }
@@ -238,6 +275,7 @@ void FixForwarder::drainRetries(const std::string& nowUtc) {
   }
 
   if (stored > 0) {
+    storedOut += stored;
     ESP_LOGI(TAG, "retry: %u of %u previously rejected fix(es) accepted.",
              (unsigned)stored, (unsigned)due.size());
   }
@@ -247,6 +285,11 @@ void FixForwarder::process(const TelemetrySample& sample) {
   // The GNSS UTC time is the only wall clock we have, and it is what the retry
   // schedule is measured in. Empty when this fix carries no valid time.
   const std::string nowUtc = gnssTimeUtc(sample.gnss.time);
+
+  // This path runs once per reporting cycle, outside the GNSS poll loop, so it
+  // drains without a time budget and has no pause to arm - the counters below
+  // exist only to satisfy the shared signatures.
+  std::size_t moved = 0;
 
   // 1. Seal the sample into the exact envelope that would be transmitted - the
   //    same bytes are used whether we send now or store for later.
@@ -273,8 +316,8 @@ void FixForwarder::process(const TelemetrySample& sample) {
     if (!queue_.enqueue(envelope)) {
       ESP_LOGE(TAG, "SD queue write failed - trying to drain existing backlog");
     }
-    drainQueue(nowUtc);
-    drainRetries(nowUtc);
+    drainQueue(nowUtc, 0, moved);
+    drainRetries(nowUtc, moved);
     return;
   }
 
@@ -285,14 +328,14 @@ void FixForwarder::process(const TelemetrySample& sample) {
   if (deliverBatch({envelope}, results) && !results.empty()) {
     if (results[0].verdict == AckWatcher::AckVerdict::Stored) {
       ESP_LOGI(TAG, "fix stored by the API.");
-      drainRetries(nowUtc);
+      drainRetries(nowUtc, moved);
       return;
     }
 
     if (results[0].verdict == AckWatcher::AckVerdict::Rejected) {
       ESP_LOGW(TAG, "API rejected this fix (%s)", results[0].reason.c_str());
       if (retryQueue_.add(envelope, nowUtc, results[0].reason.c_str())) {
-        drainRetries(nowUtc);
+        drainRetries(nowUtc, moved);
         return;
       }
       // No clock to schedule a retry with; fall through and keep it in the live
@@ -343,13 +386,49 @@ void FixForwarder::flushBacklog(const GnssFix& fix) {
            (unsigned)queue_.size(), (unsigned)retryQueue_.size(),
            nowUtc.empty() ? " [no GNSS clock this cycle]" : "");
 
-  const bool drained = drainQueue(nowUtc);
-  drainRetries(nowUtc);
+  // Drain for at most the budget, then hand the CPU back: the caller polls us
+  // again in ~kFixPollStepMs and we carry on from where this stopped. That is
+  // what lets a 20 000-fix backlog leave without ever monopolising the GNSS poll
+  // loop (which would also starve the remote-settings poll beside us).
+  const int64_t deadlineUs =
+      nowUs + static_cast<int64_t>(flushBudgetMs_) * 1000;
+  std::size_t     moved = 0;
+  const DrainStop stop  = drainQueue(nowUtc, deadlineUs, moved);
+  drainRetries(nowUtc, moved);
 
-  // Only a card with nothing left on it earns an immediate next attempt.
-  // Anything else waits, so neither a broker that never acks nor a retry entry
-  // that is simply not due yet can be hammered on every poll.
-  const bool nothingLeft = drained && queue_.isEmpty() && retryQueue_.isEmpty();
-  nextFlushUs_ =
-      nothingLeft ? 0 : nowUs + static_cast<int64_t>(flushRetryMs_) * 1000;
+  // Pacing, in one place. The rule is what the attempt ACHIEVED, not whether it
+  // finished - judging by "is the card empty" is what used to reduce a fixless
+  // device to a single burst per flushRetryMs, because a deep backlog and a
+  // retry entry that is merely not due yet both look identical to "unfinished".
+  //
+  //   * moved something, or simply ran out of budget -> go again on the next
+  //     poll. This is what drains a long backlog in back-to-back bursts.
+  //   * reached the broker but the API stayed silent -> a few prompt retries: a
+  //     verdict that landed just after the wait timed out is already held by the
+  //     AckWatcher and clears the burst immediately on the next attempt. Bounded
+  //     by kNoVerdictFastRetries so a broken ack path falls back to the pause
+  //     instead of re-publishing the same burst forever.
+  //   * the link or the card is the problem -> the full pause, as before.
+  bool retrySoon = false;
+  if (moved > 0 || stop == DrainStop::Budget) {
+    retrySoon        = true;
+    noVerdictRetries_ = 0;
+  } else if (stop == DrainStop::Empty) {
+    // Nothing moved and the live queue is drained: all that can be left is a
+    // retry entry that is not due yet (or has no clock to be judged against).
+    // Waiting is right - it will not become due within a poll interval.
+    noVerdictRetries_ = 0;
+  } else if (stop == DrainStop::NoVerdict) {
+    retrySoon = noVerdictRetries_ < kNoVerdictFastRetries;
+    if (retrySoon) {
+      noVerdictRetries_++;
+    }
+  } else {
+    noVerdictRetries_ = 0;  // Transport / CardError: pause and let it recover
+  }
+
+  const bool nothingLeft = queue_.isEmpty() && retryQueue_.isEmpty();
+  nextFlushUs_ = (nothingLeft || retrySoon)
+                     ? 0
+                     : nowUs + static_cast<int64_t>(flushRetryMs_) * 1000;
 }

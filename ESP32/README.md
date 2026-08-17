@@ -40,9 +40,15 @@ reuse.
   and only ciphertext ever touches the card. The backlog goes out **as soon as
   the link is back, with or without a current position lock** — a car parked in
   a garage still empties its card.
-- ⚙️ **Remote settings over MQTT**: the reporting interval and a
-  power-down-between-reports flag are pushed from the broker on a config topic,
-  validated, and cached on the SD card so they survive a reboot with no network.
+- ⚙️ **Remote settings over MQTT**: the reporting interval, the
+  power-down-between-reports flag, the GNSS lock timeout, the undelivered-fix cap,
+  the retry policy and the settings re-check interval are all pushed from the
+  broker on a retained config topic, validated, clamped, and cached on the SD card
+  so they survive a reboot with no network. An **awake device applies a change
+  within a second** — it blocks on an event group that the arriving message itself
+  signals, so the responsiveness costs no extra power. Each document carries a
+  revision number the device echoes back in every report, so the dashboard can
+  tell a published change from an applied one.
 - 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
@@ -184,6 +190,22 @@ test:
 > [MQTT & end-to-end encryption](#mqtt--end-to-end-encryption) below). **Never
 > commit `Config.h`** — keep real secrets only in the untracked copy.
 
+> 💡 **Or let the dashboard write it for you.** A device's *Settings → Firmware
+> configuration* tab renders a **complete `Config.h`** for that tracker — its id,
+> topics, broker URI, receiver public key and current remote settings already
+> filled in — with fields for your WiFi/MQTT secrets and a button that mints the
+> delivery-ack key pair in your browser. Download it straight to
+> `src/config/Config.h` and run `pio run`; nothing needs merging by hand. The
+> secrets and the ack private key are spliced in locally and never reach the
+> server. The same tab also lists every constant below, read-only.
+>
+> **If you add, remove or rename a constant in `Config.example.h`, update the
+> API's copy of it** —
+> [`API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
+> — and the dashboard's reference table in `FE/src/utils/firmwareParameters.ts`.
+> The API cannot read this file (its Docker build context does not include
+> `ESP32/`), so a test there asserts the two agree and fails when they drift.
+
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 
 | Setting | Default | Meaning |
@@ -197,7 +219,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kEnableGps/Glonass/Beidou/Galileo` | all `true` | Constellations to use |
 | **`kGnssDebug`** | `true` | **Turn the serial debug report on/off** |
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
-| `kFixAcquireTimeoutSeconds` | `180` | Give up waiting for a fix after this long |
+| `kFixAcquireTimeoutSeconds` | `180` | **Default** for `fix_timeout_s` — give up waiting for a fix after this long |
 | `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
 | **`kAdxlEnabled`** | `true` | **Enable/disable the ADXL345 accelerometer** |
 | `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
@@ -224,26 +246,32 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
+| `kDefaultConfigCheckSeconds` | `900` | **Default** for `config_check_s` — awake-mode re-check interval |
+| `kMinConfigCheckSeconds` / `kMaxConfigCheckSeconds` | `60` / `86400` | Clamps on `config_check_s` |
 | `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
 | `kDeviceAckPrivateKeyPem` | — | **This device's RSA private key (secret)** — decrypts the acks |
 | `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
-| `kMinSendIntervalSeconds` | `5` | Lower clamp on a broker-supplied `interval_s` |
-| `kMaxSendIntervalSeconds` | `86400` | Upper clamp on a broker-supplied `interval_s` |
+| `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
+| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
+| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` |
+| `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
+| `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |
 | **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
 | `kSdSpiHost` | `SPI2_HOST` | SPI peripheral the card is wired to (HSPI) |
 | `kSdPinMiso/Mosi/Sclk/Cs` | `2/15/14/13` | T-SIM7000G microSD SPI pins |
 | `kSdMountPoint` | `/sdcard` | FAT mount point |
 | `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
-| `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
+| `kSdMaxQueuedFixes` | `20000` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this |
 | `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
-| `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that didn't fully drain (an MQTT reconnect cancels it) |
+| `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that achieved **nothing** (an MQTT reconnect cancels it) |
+| `kBacklogFlushBudgetMs` | `30000` | How long one flush may keep draining before yielding to the poll loop; it resumes on the next poll |
 | `kSdRetryFilePath` | `/sdcard/retry.jsonl` | Fixes the API **rejected**, awaiting a scheduled retry |
-| `kRetryIntervalHours` | `24` | How long to wait between attempts on a rejected fix |
-| `kRetryMaxAgeHours` | `168` | Give up on a fix still refused after this long (`0` = never) |
+| `kRetryIntervalHours` | `24` | **Default** for `retry_interval_h` — wait between attempts on a rejected fix |
+| `kRetryMaxAgeHours` | `168` | **Default** for `retry_max_age_h` — give up on a fix still refused after this long (`0` = never) |
 | `kSdMaxRetryEntries` | `2000` | Cap on the retry file; oldest are dropped past this |
 | `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
 | `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
@@ -438,10 +466,23 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   (parked in a garage, antenna unplugged). Without this a fixless cycle could
   never touch the card, and a car left indoors would sit on its backlog
   indefinitely. The call costs two in-memory comparisons when there is nothing
-  queued or the broker is unreachable, so polling it is free on the healthy
-  path; after an attempt that leaves work behind it waits `kBacklogFlushRetryMs`
-  (an MQTT reconnect cancels that wait, since a reconnect is exactly the event
-  worth retrying on).
+  queued or the broker is unreachable, so polling it is free on the healthy path.
+- **A fixless flush drains the *whole* backlog, not one burst.** Flushes are
+  paced on what an attempt **achieved**, never on whether it finished. An attempt
+  that moved data off the card — or that simply spent its `kBacklogFlushBudgetMs`
+  budget mid-drain — is repeated on the very next poll, so however deep the queue
+  is it empties in back-to-back bursts a couple of seconds apart. Only an attempt
+  that achieved *nothing* waits out `kBacklogFlushRetryMs`: a dead link, an
+  unreadable card, or an API that has stopped answering (and that last one gets a
+  few prompt retries first, because a verdict which merely arrived late is
+  already held by the `AckWatcher` and clears the burst on the next try). An MQTT
+  reconnect cancels the wait either way, since a reconnect is exactly the event
+  worth retrying on.
+- **The budget is why one flush cannot hog the loop.** A full 20 000-fix queue is
+  500 bursts, i.e. minutes of publishing and ack-waiting. `kBacklogFlushBudgetMs`
+  caps how long one call keeps going before it hands the CPU back to the GNSS
+  poll and the remote-settings poll; the next call resumes exactly where it
+  stopped, since everything confirmed has already left the card.
 - **The clock caveat.** The GNSS UTC time is the device's only wall clock, and
   the `RetryQueue` schedule is measured in it. The modem reports that time as
   soon as it decodes any satellite — well before it can compute a position — so
@@ -549,27 +590,65 @@ becomes the only confirmation, and nothing is written to `retry.jsonl`.
 
 ## Remote settings (broker → device)
 
-Two things about the device are tunable at runtime, from the broker, without a
-reflash: **how often it reports a position**, and **whether it powers itself down
-in between**. The device subscribes to `kConfigTopic`
-(`devices/GNSS01/config`) and expects a small **plaintext** JSON document:
+Seven things about the device are tunable at runtime, from the broker, without a
+reflash: **how often it reports**, **whether it sleeps in between**, **how long it
+chases a GNSS lock**, **how many undelivered fixes it keeps**, the two knobs of its
+**rejected-fix retry policy**, and **how often it re-checks for its own settings**.
+The device subscribes to `kConfigTopic` (`devices/GNSS01/config`) and expects a
+small **plaintext** JSON document:
 
 ```json
-{ "interval_s": 60, "sleep_between": true }
+{
+  "version": 7,
+  "interval_s": 60,
+  "sleep_between": true,
+  "fix_timeout_s": 180,
+  "queue_max_fixes": 20000,
+  "retry_interval_h": 24,
+  "retry_max_age_h": 168,
+  "config_check_s": 900
+}
 ```
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `interval_s` | number | Seconds between position reports. Clamped to `[kMinSendIntervalSeconds, kMaxSendIntervalSeconds]`. |
-| `sleep_between` | boolean | Power the modem down and deep-sleep the ESP32 between reports. |
+| Field | Type | Meaning | Clamped to |
+|-------|------|---------|------------|
+| `version` | number | Server-assigned revision of this document. Not a setting — the device echoes it back in every report as `settings_version`, which is how the dashboard tells "published" from "actually running". | — |
+| `interval_s` | number | Seconds between position reports. | `[kMinSendIntervalSeconds, kMaxSendIntervalSeconds]` |
+| `sleep_between` | boolean | Power the modem down and deep-sleep the ESP32 between reports. | — |
+| `fix_timeout_s` | number | How long to keep asking for a position before giving up on the cycle. | `[kMinFixTimeoutSeconds, kMaxFixTimeoutSeconds]` |
+| `queue_max_fixes` | number | How many undelivered fixes the SD queue may hold before the oldest are dropped. | `[kMinQueueMaxFixes, kMaxQueueMaxFixes]` |
+| `retry_interval_h` | number | Hours between attempts on a fix the API rejected. | `[kMinRetryIntervalHours, kMaxRetryIntervalHours]` |
+| `retry_max_age_h` | number | Give up on a still-rejected fix after this long; `0` = never. | `[0, kMaxRetryMaxAgeHours]` |
+| `config_check_s` | number | How often an **awake** device asks the broker to re-send this document. A backstop only — see [Staying in step](#staying-in-step). Ignored while `sleep_between` is on. | `[kMinConfigCheckSeconds, kMaxConfigCheckSeconds]` |
 
-Either field may be omitted; what is absent is simply left as it was.
+Any field may be omitted; what is absent is simply left as it was. That merge
+behaviour is what keeps this firmware compatible with an older publisher that
+only knows `interval_s` and `sleep_between`.
+
+**Out-of-range values are clamped, never rejected** — a tracker in a field has
+nobody to ask, and must keep reporting whatever nonsense it is handed. The API
+enforces the same numbers by answering **400** instead, because a person at a
+dashboard *can* be told to fix their input. If you change a bound in `Config.h`,
+change it in the API's `DeviceConfigRules` too.
+
+`queue_max_fixes` is a **count rather than a duration** on purpose: a queued line
+is a bare encrypted envelope with no plaintext timestamp to age it by, and adding
+one would write fix times in the clear onto a card that today leaks nothing. One
+fix is queued per reporting cycle, so the dashboard converts the count into an
+approximate span ("≈ 13.9 days at a 60 s interval") for the reader.
+
+### Normally you do not publish this by hand
+
+The dashboard owns these settings: the API stores every revision, publishes the
+document retained, and shows whether the device has picked it up. See
+[`../API/CarPosAPI/README.md`](../API/CarPosAPI/README.md). The command below is
+for bench work and debugging.
 
 ### ⚠️ Publish it **retained**
 
 ```bash
 mosquitto_pub -h jimajer.cz -t 'devices/GNSS01/config' -r \
-              -m '{"interval_s":60,"sleep_between":true}'
+              -m '{"version":7,"interval_s":60,"sleep_between":true}'
 ```
 
 The `-r` (retain) flag is **not optional in practice**. With `sleep_between` on,
@@ -598,6 +677,61 @@ briefly for the broker. Anything that arrives is validated, clamped, adopted, an
 — only if it actually differs from what was already in force — written back to
 the card. That cache is what lets a device that boots in a tunnel still know it
 is meant to be sleeping.
+
+### Staying in step
+
+There is **one subscription** and **three ways** a document arrives through it.
+All three end in `RemoteSettings::poll()` on the application task, so there is
+exactly one parse → clamp → adopt → write-to-card path however the bytes got here.
+
+| Path | When it fires | Latency |
+|------|---------------|---------|
+| **Push** — the broker delivers a live publish on the open subscription | the device is awake and connected when someone saves | **under a second** |
+| **Retained replay on connect** — the broker re-sends the retained document on every SUBSCRIBE | cold boot, deep-sleep wake, reconnect after an outage | immediate on connect |
+| **Periodic re-check** (`config_check_s`) — the device re-subscribes on purpose | every `config_check_s` while awake | ≤ `config_check_s` |
+
+Push is the normal case and needs nothing from the device — it is already
+subscribed. The retained replay is what covers a device that was **offline when
+the change was saved**: nothing is lost, because the API publishes with the retain
+flag and the broker holds the document indefinitely. `MqttClient` re-issues every
+remembered subscription on each `MQTT_EVENT_CONNECTED`, which is required anyway
+because the session is clean and the broker forgets us on every disconnect.
+
+`RemoteSettings::resyncIfDue` is the third path, and it exists for one failure
+mode: a live publish only reaches us over a connection that is genuinely alive,
+and a half-open socket looks connected while delivering nothing. It is a **plain
+re-SUBSCRIBE**, not an unsubscribe/subscribe pair — MQTT 3.1.1 §3.8.4 requires a
+repeat SUBSCRIBE on an identical filter to re-send matching retained messages
+*without* interrupting the flow of publications (`[MQTT-3.8.4-3]`), so it costs one
+packet and has no window in which a live config could slip past.
+
+**How the wait is structured, and why it is free.** Between reports the
+application task blocks in `waitForUpdate`, which waits on a FreeRTOS event group
+that `onMessage` signals from the esp-mqtt event task. A blocked task is a blocked
+task — the same tickless idle and the same current draw as the plain delay it
+replaces — but this one is also woken the instant a config lands. The wait is cut
+into chunks of at most `config_check_s` purely so the re-check still happens on a
+device whose reporting interval is hours long; each chunk boundary is one wake-up
+and one SUBSCRIBE, and that is the whole ongoing cost.
+
+Adopting a config mid-wait **re-times the cadence without disturbing it**: the
+remaining time is recomputed from the fix that anchored the interval, so shortening
+`interval_s` past what has already elapsed sends the next report at once, and
+lengthening it simply extends the wait. No extra GNSS acquire, no extra airtime.
+Switching `sleep_between` on mid-wait ends the wait immediately, so the device
+sleeps promptly instead of staying awake for what could be another 24 hours.
+
+**With `sleep_between` on none of this runs** — the radio and the CPU are off, so
+there is nothing to push to and nothing to poll. Such a device gets its
+configuration through the retained replay on every wake, which is why
+`config_check_s` is documented as awake-mode-only.
+
+In the other direction, every position report carries `settings_version`. The API
+records it against the device row, so the dashboard can show whether a change it
+published has actually been adopted — and, because the API keeps every revision,
+*which* values the tracker is running while a newer one waits. The version is
+stamped when the fix is **captured**, not when it is published, so a backlog
+drained days later honestly reports the settings it was taken under.
 
 ---
 

@@ -75,6 +75,11 @@ class MqttClient {
   // Subscriptions accumulate - the firmware needs two (the retained config and
   // the delivery acks). Subscribing to a topic already remembered updates its
   // QoS rather than adding a duplicate.
+  //
+  // Re-subscribing to a topic already subscribed is also how the firmware asks
+  // the broker to re-send a retained message: the spec requires a repeat
+  // SUBSCRIBE to replace the subscription and re-send matching retained
+  // messages, without interrupting delivery. See RemoteSettings::resyncIfDue.
   bool subscribe(const char* topic, int qos);
 
   // Publish `payload` to `topic` at QoS 2. Returns true if the message was

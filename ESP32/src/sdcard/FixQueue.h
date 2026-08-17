@@ -37,6 +37,13 @@ class FixQueue {
   bool        isEmpty() const { return count_ == 0; }
   std::size_t size() const { return count_; }
 
+  // Change the cap at runtime (it is a remote setting - see SettingsApplier).
+  // A lower cap takes effect immediately: the excess oldest entries are trimmed
+  // right away rather than lingering until the next enqueue, so shrinking the
+  // queue from the dashboard actually frees the card. Returns false if that trim
+  // hit an IO error; the new cap is adopted either way.
+  bool setMaxEntries(std::size_t maxEntries);
+
   // Append one sealed envelope. If the queue is at its cap the oldest entries
   // are trimmed first, so a long outage can never overflow the card. Returns
   // false on IO error.

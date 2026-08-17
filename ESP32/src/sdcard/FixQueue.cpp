@@ -20,6 +20,36 @@ bool FixQueue::begin() {
   return true;
 }
 
+bool FixQueue::setMaxEntries(std::size_t maxEntries) {
+  if (maxEntries == maxEntries_) {
+    return true;
+  }
+  ESP_LOGI(TAG, "queue cap %u -> %u", (unsigned)maxEntries_,
+           (unsigned)maxEntries);
+  maxEntries_ = maxEntries;
+
+  // Nothing to do when the cap grew, was removed, or we are still under it.
+  if (maxEntries_ == 0 || count_ <= maxEntries_) {
+    return true;
+  }
+
+  // Shrunk below what we are holding: trim now. Doing this here rather than
+  // leaving it to the next enqueue matters because a device that has just been
+  // told to keep less may not enqueue again for a whole interval - or at all,
+  // if the link is healthy - and the point of lowering the cap is to reclaim
+  // the card straight away.
+  const std::size_t toDrop = count_ - maxEntries_;
+  if (!card_.dropFirstLines(filePath_, toDrop)) {
+    ESP_LOGW(TAG, "could not trim %u fix(es) to the new cap",
+             (unsigned)toDrop);
+    return false;
+  }
+  count_ -= toDrop;
+  ESP_LOGW(TAG, "new cap (%u) - dropped %u oldest fix(es)",
+           (unsigned)maxEntries_, (unsigned)toDrop);
+  return true;
+}
+
 bool FixQueue::enqueue(const std::string& envelope) {
   // Enforce the cap first: if we are at (or somehow over) the limit, drop enough
   // of the oldest entries to leave room for this one. Keeps the newest, most

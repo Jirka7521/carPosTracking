@@ -64,6 +64,20 @@ class RetryQueue {
   bool        isEmpty() const { return count_ == 0; }
   std::size_t size() const { return count_; }
 
+  // Retune the schedule at runtime (both are remote settings - see
+  // SettingsApplier). Plain setters, because add() and takeDue() re-read these
+  // members on every call and nothing on the card needs rewriting:
+  //   * the interval is applied when an entry is (re-)scheduled, so entries
+  //     already waiting keep the "next" time they were given and pick the new
+  //     pacing up on their following attempt;
+  //   * the max age is measured live from each entry's "first" timestamp, so a
+  //     shortened one takes effect on the very next walk.
+  // The asymmetry is deliberate: shortening the give-up age is how an operator
+  // stops a backlog they have decided is worthless, and that should not have to
+  // wait a day.
+  void setRetryIntervalHours(uint32_t hours) { retryIntervalHours_ = hours; }
+  void setMaxAgeHours(uint32_t hours) { maxAgeHours_ = hours; }
+
   // Record a rejected envelope, scheduling its next attempt one interval after
   // `nowUtc`. `reason` is logged, not stored - it is the API's verdict for this
   // attempt and may well differ on the next one. Returns false on IO error or
