@@ -19,10 +19,10 @@ reuse.
 
 - 📍 Read latitude, longitude, altitude, **speed** and **UTC time**.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
-- 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw instantaneous X/Y/Z
-  acceleration (in g) rides along with every position report — plus an optional
-  **1 Hz debug stream** that reports the sensor against the last known position
-  so you can see what happens *between* two ordinary reports.
+- 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw X/Y/Z acceleration
+  (in g) rides along with every position report — optionally as the **strongest
+  per-axis reading of the whole interval** rather than one instantaneous sample,
+  so braking and potholes between two reports are not missed.
 - 🔋 **Battery monitor**: pack state of charge from the modem's `AT+CBC`, mapped
   through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
   pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
@@ -228,8 +228,8 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
-| **`kAccelDebugStream`** | `false` | **Debug: publish a full report every `kAccelDebugIntervalMs` with a fresh accel reading and the last known position** (see below) |
-| `kAccelDebugIntervalMs` | `1000` | Gap between those reports |
+| **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
+| `kAccelSampleIntervalMs` | `1000` | How often the sensor is sampled while peak tracking is on |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
@@ -260,7 +260,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
 | `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
-| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `1000000` | Clamps on `queue_max_fixes`. The ceiling is card space now that popping no longer rewrites the queue file |
+| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` (~100 MB of envelopes at the ceiling) |
 | `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
 | `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |
 | **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
@@ -269,7 +269,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdMountPoint` | `/sdcard` | FAT mount point |
 | `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line); its head offset lives in the sibling `.idx` |
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
-| `kSdMaxQueuedFixes` | `604800` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this. Sized for **one week at 1 Hz** (~484 MB), so the card needs ≥ 1 GB free |
+| `kSdMaxQueuedFixes` | `20000` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this |
 | `kSdMaxBurstFixes` | `10` | Max envelopes per burst message (RAM/MQTT safety bound — see below) |
 | `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that achieved **nothing** (an MQTT reconnect cancels it) |
 | `kBacklogFlushBudgetMs` | `30000` | How long one flush may keep draining before yielding to the poll loop; it resumes on the next poll |
@@ -465,10 +465,10 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   **and** more than half the file. That threshold is what keeps the total copying
   across a whole drain linear overall instead of quadratic.
 
-  This is what made a very deep backlog practical: the previous design rewrote
-  the entire file on every pop, which capped the queue at ~100 000 entries in
-  practice. See [`FixQueue`](src/sdcard/FixQueue.h) and
-  [`QueueIndex`](src/sdcard/QueueIndex.h).
+  The previous design rewrote the entire file on every pop, so the cost of
+  draining a backlog grew with the square of its depth — which is what put a
+  practical ceiling on `queue_max_fixes`. See [`FixQueue`](src/sdcard/FixQueue.h)
+  and [`QueueIndex`](src/sdcard/QueueIndex.h).
 - **A missing or damaged index is safe.** The queue falls back to reading from
   the top of the file and re-counting. That re-offers entries the API has already
   stored, which costs airtime but never a duplicate row — the API dedupes on
@@ -989,76 +989,51 @@ so the log diagnoses itself rather than leaving you to interpret dB-Hz.
 
 ---
 
-## High-rate accelerometer debug stream
+## Peak accelerometer readings
 
-The normal report carries **one** accelerometer triple per reporting cycle — at
-the default 60 s interval, one sample a minute. That is useless for seeing what
-the sensor actually does in a moving car: braking, cornering and potholes all
-happen *between* two reports.
+The normal report carries **one instantaneous** accelerometer triple per cycle —
+at the default 60 s interval, one sample a minute. That says almost nothing about
+what the car did: braking, cornering and potholes all happen *between* two
+reports and are simply never seen.
 
-Set **`kAccelDebugStream = true`** and
-[`AccelDebugStream`](src/mqtt/AccelDebugStream.h) starts a background task that
-publishes a **full telemetry report every `kAccelDebugIntervalMs`** (default
-1000 ms) — a freshly read X/Y/Z triple attached to the **most recent known**
-GNSS position.
+Set **`kAccelPeakEnabled = true`** and
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) starts a small background
+task that samples the sensor every `kAccelSampleIntervalMs` (default 1000 ms) and
+keeps a running **per-axis maximum**. The ordinary report then carries that
+maximum instead of a live reading, and the window restarts:
 
 ```
-app_main task : [ acquire fix ...... ][ publish ][ wait interval ......... ]
-                                          │
-                                          ▼  updateSnapshot(sample)
-debug task    :  * * * * * * * * * * * * * * * * * * * * * *   (1 Hz)
-                 each tick = snapshot + fresh accel → FixForwarder.process()
+      report                                                  report
+         │                                                       │
+         │ * * * * * * * * * * * * * * * * * * * * * * * * * * * │
+         │ each sample folded into the running max               │
+         └───────────────────────────────────────────────────────┘
+                       takePeak() → the report, window reset
 ```
 
-It is a **task** rather than a step in the main loop because the main loop is
-blocked almost all of the time — inside `waitForFix()` during an acquire that can
-run for minutes, and inside the interval wait afterwards. Nothing about the
-normal path changes when the flag is off.
+**Nothing extra is published and nothing extra is queued** — it is the same one
+report per `interval_s` as always, and the payload format is unchanged. Memory is
+**O(1)**: one sample is kept, never a list, so the interval can be arbitrarily
+long. The very first report after boot falls back to a live reading, since no
+window has closed yet.
 
-**What is in each report.** Same topic, same encrypted envelope, same full
-payload as any other position, so nothing downstream needs to know this mode
-exists. Only the accelerometer is re-read per tick; the battery percentage and
-modem temperature are the ones from the snapshot (≤ one interval old). The debug
-task deliberately never touches the modem — the main task owns that UART, and
-interleaved AT commands would corrupt GNSS parsing.
-
-**The timestamp advances.** Each report carries the snapshot's position with its
-UTC time moved forward by the seconds elapsed since the snapshot was taken (see
-[`UtcClock`](src/time/UtcClock.h)). This is not cosmetic: the API dedupes stored
-positions on `(device, fix time)`, so repeating the fix's own timestamp would
-mean all but one sample per interval is silently discarded. The position is
-honestly stale; the clock is honest about *now*.
-
-### ⚠️ What it costs — do not leave it on
+### Three things to know before you trust the numbers
 
 | | |
 |---|---|
-| **Server storage** | ~3600 rows/hour for that device |
-| **Link** | ~800 B/s of ciphertext, and one QoS-2 round trip per sample |
-| **SD queue** | during an outage it fills at ~1 entry/s and **competes with real fixes** for `queue_max_fixes`. Set that to `604800` for a full week (~484 MB, so a card with ≥ 1 GB free) |
-| **Deep sleep** | **suppressed.** `sleep_between` reboots the chip, which would kill the task after one cycle, so the flag wins over the server setting and the device stays awake. A warning is logged every cycle |
+| **The triple is a composite** | The three axes are tracked *independently*, so the reported X, Y and Z can come from three different moments — it is not a reading that ever occurred. The dashboard derives a magnitude as √(x²+y²+z²) from these, so **that line reads higher than any real sample**. Tracking the largest \|a\| and keeping that whole sample is the alternative; it was considered and not chosen |
+| **Peaks clip at ±2 g** | The driver runs the sensor in its ±2 g range. Braking (~0.8 g) and cornering (~0.5 g) are comfortably inside; a sharp pothole saturates |
+| **1000 ms under-samples badly** | The ADXL345 free-runs at 100 Hz, so a 1 s poll sees **one sample in a hundred** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else |
 
-It also needs `kAdxlEnabled` and `kMqttEnabled`; with either off the stream is
-not started and the reason is logged. Turn it on for a drive, then turn it off.
+`sleep_between` narrows what this can see: the chip is powered down between
+reports, so the sampling task only covers the awake part of each cycle. The
+firmware logs that once rather than overriding the server's setting.
 
-### Making it concurrency-safe
-
-Two tasks now drive the delivery path, so four classes carry a mutex (via
-[`ScopedLock`](src/util/ScopedLock.h)). One of them covers most of the surface:
-
-- **`FixForwarder`** — `process()` and `flushBacklog()` are serialised against
-  each other. That single lock also protects `TelemetryPublisher` and, through
-  it, **`PayloadCrypto`** (whose mbedTLS DRBG and key contexts are not
-  thread-safe), and `MqttClient::publishConfirmed()`, which matches a *single*
-  most-recently-acked message id — overlapping publishes would let one task's ack
-  mask the other's, so a delivered fix would look undelivered and be queued twice.
-- **`FixQueue` / `RetryQueue`** — every card-touching method, because
-  `SettingsApplier` can change the caps from the main task mid-drain.
-- **`Adxl345`** — `read()`, since both tasks sample the same I2C device.
-
-Lock order is `AccelDebugStream → FixForwarder → FixQueue`/`RetryQueue`, with
-`Adxl345` a leaf; there are no cycles, so no deadlock. `begin()` is unlocked
-everywhere on purpose — it runs at start-up, before the second task exists.
+Sharing the sensor with the main loop's `kGnssDebug` console block means two
+tasks call `Adxl345::read()`, so that method takes a mutex (via
+[`ScopedLock`](src/util/ScopedLock.h)); the accumulator inside the tracker takes
+another. Nothing else in the firmware became concurrent — the delivery path is
+still driven entirely from the main task.
 
 ---
 
@@ -1109,10 +1084,9 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
-[`AccelDebugStream`](src/mqtt/AccelDebugStream.h) runs the same delivery path on
-**its own** task and so needs the same kind of headroom: it is created with an
-8 KB stack, at the same priority as `app_main` so it can never preempt the task
-driving the modem. That task only exists while `kAccelDebugStream` is on.
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) runs on its own task, but it
+only does one I2C read and three comparisons per tick — no crypto, no files — so
+2 KB is plenty there. That task only exists while `kAccelPeakEnabled` is on.
 
 ### Long filenames on the SD card
 

@@ -4,7 +4,6 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
-#include "util/ScopedLock.h"
 
 static const char* TAG = "RetryQueue";
 
@@ -103,8 +102,7 @@ RetryQueue::RetryQueue(SdCard& card, const char* filePath,
       maxEntries_(maxEntries),
       retryIntervalHours_(retryIntervalHours),
       maxAgeHours_(maxAgeHours),
-      count_(0),
-      lock_(xSemaphoreCreateMutex()) {}
+      count_(0) {}
 
 bool RetryQueue::begin() {
   if (!card_.isMounted()) {
@@ -217,8 +215,7 @@ RetryQueue::Disposition RetryQueue::classify(const std::string& line,
 bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
                      const char* reason, const std::string& firstUtc,
                      uint32_t priorAttempts) {
-  ScopedLock guard(lock_);
-  int64_t    nowEpoch = 0;
+  int64_t nowEpoch = 0;
   if (!parseIso(nowUtc, nowEpoch)) {
     // No usable clock: we cannot say when to try again, and guessing would
     // either hammer the API or abandon the fix. Better to report the failure and
@@ -269,7 +266,6 @@ bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
 
 bool RetryQueue::takeDue(const std::string& nowUtc, std::size_t maxCount,
                          std::vector<Entry>& dueOut) {
-  ScopedLock guard(lock_);
   dueOut.clear();
   if (count_ == 0) {
     return true;
@@ -364,7 +360,6 @@ bool RetryQueue::takeDue(const std::string& nowUtc, std::size_t maxCount,
 }
 
 bool RetryQueue::clear() {
-  ScopedLock guard(lock_);
   count_ = 0;
   return card_.removeFile(filePath_);
 }

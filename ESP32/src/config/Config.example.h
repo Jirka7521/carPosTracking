@@ -109,30 +109,40 @@ constexpr int kAdxlInt1Pin = 32;  // reserved (interrupts not used yet)
 constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 
 // -----------------------------------------------------------------------------
-//  Accelerometer debug stream.
+//  Peak accelerometer readings.
 //
-//  Set kAccelDebugStream to `true` and a background task publishes a FULL
-//  telemetry report every kAccelDebugIntervalMs - a freshly read X/Y/Z triple
-//  attached to the most recent GNSS position, with the timestamp advanced so
-//  each report is distinct. It is the only way to see what the accelerometer
-//  does between two ordinary reports: braking, cornering and potholes all
-//  happen inside a single reporting interval.
+//  A report normally carries ONE instantaneous accelerometer sample - at the
+//  default 60 s interval, one reading a minute. That says almost nothing about
+//  what the car did: braking, cornering and potholes all happen *between* two
+//  reports and are simply never seen.
 //
-//  It goes out on the normal telemetry topic, in the normal encrypted envelope,
-//  through the normal store-and-forward path - so nothing downstream needs to
-//  know about it.
+//  Set kAccelPeakEnabled to `true` and a small background task samples the
+//  sensor every kAccelSampleIntervalMs, keeping a running PER-AXIS maximum. The
+//  ordinary position report then carries that maximum instead of a single live
+//  reading, and the window restarts. Nothing extra is published and nothing
+//  extra is queued - it is the same one report per interval as always.
 //
-//  THIS IS EXPENSIVE. At one second it stores ~3600 positions per hour per
-//  device, and during an outage it fills the SD queue at ~1 entry/s, where it
-//  competes with real fixes for kSdMaxQueuedFixes. It also suppresses deep
-//  sleep, since sleeping would reboot the chip and kill the task. Turn it on for
-//  a drive, then turn it off. With it `false` the task is never created and the
-//  whole class is compiled out.
+//  Memory is O(1): one sample is kept, never a list, so the interval can be as
+//  long as you like.
 //
-//  Requires kAdxlEnabled and kMqttEnabled; the main loop warns if either is off.
+//  Two honest caveats:
+//    * The three axes are tracked INDEPENDENTLY, so the reported triple can be
+//      assembled from three different moments and is not a reading that ever
+//      occurred. Anything deriving a magnitude from it (the dashboard does) will
+//      read high.
+//    * At kAccelSampleIntervalMs = 1000 you see one sample in a hundred - the
+//      ADXL345 free-runs at 100 Hz - so most short transients are missed
+//      entirely. 100 ms is the value actually worth using if you care about
+//      catching events; it costs one extra I2C read per 100 ms and nothing else.
+//
+//  Note the sensor runs in its +/-2 g range, so a peak clips there. Braking
+//  (~0.8 g) and cornering (~0.5 g) are fine; a sharp pothole will saturate.
+//
+//  Requires kAdxlEnabled. With this `false` the task is never created and the
+//  report carries a live reading exactly as before.
 // -----------------------------------------------------------------------------
-constexpr bool     kAccelDebugStream     = false;
-constexpr uint32_t kAccelDebugIntervalMs = 1000;
+constexpr bool     kAccelPeakEnabled      = false;
+constexpr uint32_t kAccelSampleIntervalMs = 1000;
 
 // -----------------------------------------------------------------------------
 //  Battery monitor (single-cell Li-ion pack, incl. 1S parallel packs).
@@ -333,17 +343,16 @@ constexpr uint32_t kMaxSendIntervalSeconds = 86400;  // 24 h
 constexpr uint32_t kMinFixTimeoutSeconds = 15;
 constexpr uint32_t kMaxFixTimeoutSeconds = 900;  // 15 min
 
-// The floor keeps a short outage survivable. The ceiling used to be bounded by
-// the cost of trimming the queue file, which was rewritten in full on every pop;
-// FixQueue now carries a head offset instead, so popping is O(batch) and the
-// only real limit is card space. A million entries is ~800 MB of envelopes -
-// more than a week at the fastest rate the firmware can produce (see
-// kAccelDebugStream), and still comfortable on any modern card.
+// The floor keeps a short outage survivable; the ceiling bounds how much of the
+// card a runaway backlog may claim - at ~1 KB per sealed envelope this is about
+// 100 MB, which is months of queue at any sane reporting interval. It is a
+// policy bound, not a technical one: FixQueue carries a head offset, so popping
+// costs O(batch) however deep the file gets.
 //
 // Note the API enforces the same ceiling in a database check constraint, so
-// raising it here alone is not enough - see DeviceConfigRules.MaxQueueMaxFixes.
+// changing it here alone is not enough - see DeviceConfigRules.MaxQueueMaxFixes.
 constexpr uint32_t kMinQueueMaxFixes = 100;
-constexpr uint32_t kMaxQueueMaxFixes = 1000000;
+constexpr uint32_t kMaxQueueMaxFixes = 100000;
 
 // Retry pacing bounds. The floor of one hour is deliberate: the reject reasons
 // that do clear are fixed by a human on the server, so retrying faster would
@@ -430,23 +439,16 @@ constexpr char kSdSettingsFilePath[] = "/sdcard/settings.json";
 
 // Safety cap on how many undelivered fixes the queue may hold. During a long
 // outage the oldest entries are dropped once this many have accumulated, so the
-// card can never fill up. Each envelope is ~0.5-1 KB.
-//
-// The default is sized for ONE WEEK at the 1 Hz debug rate (7 * 24 * 3600 =
-// 604800 entries, ~484 MB), so a week-long outage with kAccelDebugStream on
-// loses nothing. At the normal reporting interval that same number is years of
-// backlog and the file never gets anywhere near that size. **This assumes a card
-// with at least 1 GB free** - see the README.
+// card can never fill up. Each envelope is ~1 KB, so the default is ~20 MB -
+// tiny next to any real card, and about two weeks of backlog at the default
+// reporting interval.
 //
 // This is a runtime setting (`queue_max_fixes`); the value here is only the
-// DEFAULT until the broker sends a document, and the server's default is lower
-// (20000). To actually hold a week, set it for that device in the dashboard.
-//
-// It is expressed as a count rather than a duration because a queued line is
-// bare ciphertext with no timestamp to age it by - one fix goes in per reporting
-// cycle, so the dashboard turns the count into "about N days at the current
-// interval" for the human.
-constexpr uint32_t kSdMaxQueuedFixes = 604800;
+// DEFAULT. It is expressed as a count rather than a duration because a queued
+// line is bare ciphertext with no timestamp to age it by - one fix goes in per
+// reporting cycle, so the dashboard turns the count into "about N days at the
+// current interval" for the human.
+constexpr uint32_t kSdMaxQueuedFixes = 20000;
 
 // How many queued envelopes go into a single burst message. A typical outage
 // fits in one burst; a very long backlog is drained in several back-to-back

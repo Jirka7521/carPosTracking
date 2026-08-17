@@ -38,24 +38,14 @@
 //  The live count is cached in memory (seeded by begin() from the sidecar) so
 //  the common outage path never rescans the file just to know how big it is.
 //
-//  Thread safety: every public method that touches the card is serialised. Two
-//  tasks reach this queue - the main loop (via FixForwarder, and via
-//  SettingsApplier changing the cap) and AccelDebugStream (via FixForwarder) -
-//  and an interleaved pop and enqueue would corrupt both the file and the cached
-//  position. Two deliberate exceptions:
-//    * begin() is not locked - it runs once at start-up, before any other task
-//      exists.
-//    * size()/isEmpty() are not locked - they are single-word reads whose answer
-//      is advisory anyway ("is there a backlog worth draining?"), and locking
-//      them would cost a context switch on a call FixForwarder makes constantly.
+//  Single-threaded by design: everything here is driven from the main task, via
+//  FixForwarder and SettingsApplier. There is no locking and none is needed.
 // =============================================================================
 
 #include <cstddef>
 #include <string>
 #include <vector>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "sdcard/QueueIndex.h"
 #include "sdcard/SdCard.h"
 
@@ -73,7 +63,6 @@ class FixQueue {
   // slow, but only on that path, and safe: see QueueIndex::load().
   bool begin();
 
-  // Advisory and unlocked - see the thread-safety note in the banner.
   bool        isEmpty() const { return count_ == 0; }
   std::size_t size() const { return count_; }
 
@@ -101,10 +90,6 @@ class FixQueue {
   bool clear();
 
  private:
-  // The private helpers below assume the caller already holds `lock_` - they are
-  // only ever reached from the locked public methods, and the mutex is not
-  // recursive, so they must never take it themselves.
-
   // Move `head_` forward past `n` live entries and persist the new position.
   // Costs one batch's worth of reading - no rewrite. `count_` is reduced by
   // what was actually found, so a file truncated behind our back self-corrects
@@ -130,8 +115,4 @@ class FixQueue {
   std::size_t maxEntries_;
   std::size_t count_;  // cached number of live envelopes
   long        head_;   // byte offset of the oldest live envelope
-
-  // Serialises the card-touching methods; created by the constructor so it is
-  // armed even if begin() never runs.
-  SemaphoreHandle_t lock_;
 };

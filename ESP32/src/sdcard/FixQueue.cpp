@@ -1,14 +1,12 @@
 #include "sdcard/FixQueue.h"
 
 #include "esp_log.h"
-#include "util/ScopedLock.h"
 
 static const char* TAG = "FixQueue";
 
 namespace {
 // How much dead prefix has to accumulate before compaction is worth its copy.
-// Below this the reclaimed space simply does not matter on a card sized for a
-// week of backlog, and the copy would cost more than it saves.
+// Below this the reclaimed space is not worth the read-and-rewrite it costs.
 constexpr long kCompactMinDeadBytes = 32L * 1024 * 1024;
 }  // namespace
 
@@ -19,8 +17,7 @@ FixQueue::FixQueue(SdCard& card, const char* filePath, std::size_t maxEntries)
       index_(card, indexPath_.c_str()),
       maxEntries_(maxEntries),
       count_(0),
-      head_(0),
-      lock_(xSemaphoreCreateMutex()) {}
+      head_(0) {}
 
 bool FixQueue::begin() {
   if (!card_.isMounted()) {
@@ -73,7 +70,6 @@ bool FixQueue::begin() {
 }
 
 bool FixQueue::setMaxEntries(std::size_t maxEntries) {
-  ScopedLock guard(lock_);
   if (maxEntries == maxEntries_) {
     return true;
   }
@@ -102,7 +98,6 @@ bool FixQueue::setMaxEntries(std::size_t maxEntries) {
 }
 
 bool FixQueue::enqueue(const std::string& envelope) {
-  ScopedLock guard(lock_);
   // Enforce the cap first: if we are at (or somehow over) the limit, drop enough
   // of the oldest entries to leave room for this one. Keeps the newest, most
   // relevant positions when an outage runs very long.
@@ -128,12 +123,10 @@ bool FixQueue::enqueue(const std::string& envelope) {
 
 bool FixQueue::peekBatch(std::size_t maxCount,
                          std::vector<std::string>& out) const {
-  ScopedLock guard(lock_);
   return card_.readLinesFrom(filePath_, head_, maxCount, out);
 }
 
 bool FixQueue::popFront(std::size_t count) {
-  ScopedLock guard(lock_);
   if (count == 0) {
     return true;
   }
@@ -147,10 +140,7 @@ bool FixQueue::popFront(std::size_t count) {
   return compactIfNeeded();
 }
 
-bool FixQueue::clear() {
-  ScopedLock guard(lock_);
-  return reset();
-}
+bool FixQueue::clear() { return reset(); }
 
 bool FixQueue::advanceHead(std::size_t n) {
   long        end   = head_;

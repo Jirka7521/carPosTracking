@@ -21,8 +21,8 @@
 //  out into a small shared I2cBus class and pass the handle in.
 //
 //  Thread safety: read() is safe to call from several tasks - the main loop
-//  samples it once per report while AccelDebugStream samples it every second,
-//  and two overlapping transactions on one I2C device handle would interleave.
+//  samples it while AccelPeakTracker samples it on its own cadence, and two
+//  overlapping transactions on one I2C device handle would interleave.
 //  begin() is deliberately NOT locked: it runs once at start-up, before any
 //  other task exists.
 // =============================================================================

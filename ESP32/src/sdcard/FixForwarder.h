@@ -51,32 +51,12 @@
 //  budget - is repeated on the very next poll, so a long backlog leaves in
 //  back-to-back bursts. Only an attempt that achieved nothing at all waits out
 //  `flushRetryMs`. See flushBacklog() and DrainStop below.
-//
-//  Thread safety: process() and flushBacklog() are serialised against each
-//  other, because two tasks drive them - the main loop for real fixes, and
-//  AccelDebugStream for its 1 Hz samples. One mutex here covers rather more than
-//  this class:
-//    * TelemetryPublisher and, through it, PayloadCrypto - whose mbedTLS DRBG
-//      and key contexts are not safe to use from two tasks at once;
-//    * MqttClient::publishConfirmed(), which matches a single most-recently-
-//      acked message id. Overlapping publishes would let one task's ack satisfy
-//      or mask the other's, so a delivered fix would look undelivered and be
-//      queued a second time;
-//    * the ordering of a burst against the queue pops that follow it.
-//  A caller may therefore block for as long as one publish takes. That is the
-//  intended trade: the debug stream skips a tick, and no fix is ever lost.
-//
-//  The lock is not recursive and the two public methods do not call each other,
-//  so this stays a single flat critical section.
 // =============================================================================
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 
 #include "gnss/GnssData.h"
 #include "mqtt/AckWatcher.h"
@@ -229,8 +209,4 @@ class FixForwarder {
   // genuinely broken cannot turn into a continuous re-publish loop. Reset by any
   // attempt that makes progress or fails for a different reason.
   uint8_t noVerdictRetries_;
-
-  // Serialises process() against flushBacklog() - see the thread-safety note in
-  // the banner for everything this one mutex is standing in front of.
-  SemaphoreHandle_t lock_;
 };
