@@ -51,6 +51,16 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.LastSeenAt)
             .HasColumnName("last_seen_at");
 
+        builder.Property(device => device.ConfigVersion)
+            .HasColumnName("config_version")
+            .HasDefaultValue(Dtos.DeviceConfigRules.InitialVersion);
+
+        builder.Property(device => device.ConfigAppliedVersion)
+            .HasColumnName("config_applied_version");
+
+        builder.Property(device => device.ConfigAppliedAt)
+            .HasColumnName("config_applied_at");
+
         builder.Property(device => device.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true);

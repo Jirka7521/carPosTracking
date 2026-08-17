@@ -114,6 +114,26 @@ internal sealed class DeviceService : IDeviceService
         // then cannot administer would have created an orphan.
         AddGrant(provisioning.DeviceRowId, userId, userId, CapabilitySet.Full());
 
+        // Revision 1, in the same transaction. Every device must always point at a row
+        // that exists — the settings endpoints and the retained-config sweep both
+        // resolve devices.config_version to one, and a device without it would answer
+        // 404 on a panel the dashboard shows unconditionally. No author is recorded:
+        // these are the factory defaults, not somebody's decision.
+        _context.DeviceConfigVersions.Add(new DeviceConfigVersion
+        {
+            DeviceId = provisioning.DeviceRowId,
+            Version = DeviceConfigRules.InitialVersion,
+            IntervalSeconds = DeviceConfigRules.DefaultIntervalSeconds,
+            SleepBetween = DeviceConfigRules.DefaultSleepBetween,
+            FixTimeoutSeconds = DeviceConfigRules.DefaultFixTimeoutSeconds,
+            QueueMaxFixes = DeviceConfigRules.DefaultQueueMaxFixes,
+            RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
+            RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
+            ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
+            CreatedByUserId = null,
+            CreatedAt = DateTime.UtcNow,
+        });
+
         int sharedCount = await AddAdditionalGrantsAsync(
             provisioning.DeviceRowId,
             userId,
@@ -281,6 +301,37 @@ internal sealed class DeviceService : IDeviceService
             ? OperationResult<DeviceProvisioningResultDto>.NotFound(
                 "This device has no stored public key, so no firmware configuration can be rendered.")
             : OperationResult<DeviceProvisioningResultDto>.Success(payload);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<AckKeyImportedDto>> ImportAckKeyAsync(
+        int userId,
+        string deviceId,
+        ImportAckKeyRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        DeviceAccessContext? access = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
+
+        if (access is null)
+        {
+            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+        }
+
+        // The same gate as reading the firmware configuration, and for a stronger
+        // reason: this one is a write that changes how the device is talked to.
+        if (!access.Permissions.CanModifySettings)
+        {
+            return OperationResult<AckKeyImportedDto>.Forbidden(
+                "You do not have permission to change this device's firmware configuration.");
+        }
+
+        return await _provisioningService.ImportAckPublicKeyAsync(
+            _context,
+            access.DeviceId,
+            request.AckPublicKeyPem,
+            cancellationToken);
     }
 
     /// <summary>

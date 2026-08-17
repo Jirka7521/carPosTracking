@@ -3,6 +3,7 @@ using System;
 using CarPosAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CarPosAPI.Data.Migrations
 {
     [DbContext(typeof(CarPosDbContext))]
-    partial class CarPosDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260816185639_AddDeviceConfigVersions")]
+    partial class AddDeviceConfigVersions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -214,12 +217,6 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
-                    b.Property<int>("ConfigCheckSeconds")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(900)
-                        .HasColumnName("config_check_s");
-
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -272,8 +269,6 @@ namespace CarPosAPI.Data.Migrations
 
                     b.ToTable("device_config_versions", null, t =>
                         {
-                            t.HasCheckConstraint("ck_device_config_versions_config_check_s", "config_check_s BETWEEN 60 AND 86400");
-
                             t.HasCheckConstraint("ck_device_config_versions_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 900");
 
                             t.HasCheckConstraint("ck_device_config_versions_interval_s", "interval_s BETWEEN 5 AND 86400");

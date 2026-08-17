@@ -3,6 +3,7 @@ using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
+using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -28,6 +29,21 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 {
     /// <summary>The only key size the firmware ecosystem uses.</summary>
     private const int ExpectedRsaKeySizeBits = 3072;
+
+    /// <summary>
+    /// What a device with no configuration revision is rendered with — a device being
+    /// provisioned right now (its revision row is written after this service returns),
+    /// or one whose row a hand-edited database has left behind. Immutable, so one
+    /// shared instance is enough.
+    /// </summary>
+    private static readonly DeviceConfigValuesDto s_factoryDefaults = new DeviceConfigValuesDto(
+        DeviceConfigRules.DefaultIntervalSeconds,
+        DeviceConfigRules.DefaultSleepBetween,
+        DeviceConfigRules.DefaultFixTimeoutSeconds,
+        DeviceConfigRules.DefaultQueueMaxFixes,
+        DeviceConfigRules.DefaultRetryIntervalHours,
+        DeviceConfigRules.DefaultRetryMaxAgeHours,
+        DeviceConfigRules.DefaultConfigCheckSeconds);
 
     private readonly IMasterKeyProtector _protector;
     private readonly ConfigSnippetBuilder _snippetBuilder;
@@ -120,15 +136,19 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             fingerprint);
 
         // No ack key yet, and deliberately none generated here: the ack private key
-        // belongs to the device alone, so the operator mints the pair off-server and
-        // imports only the public half with import-device-key. Until they do, the
-        // snippet says so and the device simply receives no delivery acks.
+        // belongs to the device alone, so it is minted off-server — in the operator's
+        // browser from the dashboard, or by hand — and only the public half is
+        // imported. Until then the file says so and the device receives no acks.
+        //
+        // Factory defaults, because this device has no configuration revision yet:
+        // the row that will carry them is written after this call returns.
         string snippet = _snippetBuilder.Build(
             device.DeviceId,
             _mqttOptions.BrokerUri,
             publicKeyPem,
             fingerprint,
             null,
+            s_factoryDefaults,
             DateTime.UtcNow);
 
         return DeviceProvisioningResult.Created(
@@ -155,16 +175,31 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(deviceId);
 
-        // Only the two columns the snippet needs are selected. That is not merely
-        // tidiness: never projecting PrivateKeyCiphertext is what keeps the device
-        // secret out of this process's memory entirely.
+        // Only the columns the file needs are selected. That is not merely tidiness:
+        // never projecting PrivateKeyCiphertext is what keeps the device secret out
+        // of this process's memory entirely.
+        //
+        // The settings come from a correlated subquery rather than a second round
+        // trip — the same trick DeviceConfigService uses for revision authors.
         DeviceKeyDescription? description = await context.Devices
             .AsNoTracking()
             .Where(candidate => candidate.DeviceId == deviceId)
             .Select(candidate => new DeviceKeyDescription(
                 candidate.DisplayName,
                 candidate.PublicKeyPem,
-                candidate.AckPublicKeyPem))
+                candidate.AckPublicKeyPem,
+                context.DeviceConfigVersions
+                    .Where(revision => revision.DeviceId == candidate.Id
+                        && revision.Version == candidate.ConfigVersion)
+                    .Select(revision => new DeviceConfigValuesDto(
+                        revision.IntervalSeconds,
+                        revision.SleepBetween,
+                        revision.FixTimeoutSeconds,
+                        revision.QueueMaxFixes,
+                        revision.RetryIntervalHours,
+                        revision.RetryMaxAgeHours,
+                        revision.ConfigCheckSeconds))
+                    .FirstOrDefault()))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (description is null || string.IsNullOrWhiteSpace(description.PublicKeyPem))
@@ -184,7 +219,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             : ComputeSpkiFingerprint(description.AckPublicKeyPem);
 
         // The generation timestamp is "now" rather than the row's created_at: the
-        // comment it lands in describes when this block was rendered, and pretending
+        // comment it lands in describes when this file was rendered, and pretending
         // it is the original would hide that the device was provisioned long ago.
         string snippet = _snippetBuilder.Build(
             deviceId,
@@ -192,6 +227,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             description.PublicKeyPem,
             fingerprint,
             ackFingerprint,
+            description.Settings ?? s_factoryDefaults,
             DateTime.UtcNow);
 
         return new DeviceProvisioningResultDto(
@@ -205,6 +241,55 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             fingerprint,
             ackFingerprint,
             snippet);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<AckKeyImportedDto>> ImportAckPublicKeyAsync(
+        CarPosDbContext context,
+        string deviceId,
+        string ackPublicKeyPem,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(ackPublicKeyPem);
+
+        // Validated before the database is touched, so a bad key cannot leave the row
+        // half-updated. The rules live in AckPublicKeyValidator because the CLI import
+        // path applies exactly the same ones.
+        AckPublicKeyValidation validation = AckPublicKeyValidator.Validate(ackPublicKeyPem);
+
+        if (!validation.IsValid)
+        {
+            return OperationResult<AckKeyImportedDto>.Invalid(validation.Error!);
+        }
+
+        // Tracked, not AsNoTracking: this one is a write.
+        Device? device = await context.Devices
+            .SingleOrDefaultAsync(row => row.DeviceId == deviceId, cancellationToken);
+
+        if (device is null)
+        {
+            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+        }
+
+        bool isRotation = !string.IsNullOrWhiteSpace(device.AckPublicKeyPem);
+
+        device.AckPublicKeyPem = ackPublicKeyPem;
+        await context.SaveChangesAsync(cancellationToken);
+
+        string fingerprint = validation.Fingerprint!;
+
+        // Logged at information level because it is a security-relevant change with a
+        // blast radius: from here on the API seals every ack to this key, so a device
+        // still carrying the old private half goes quiet until it is reflashed.
+        _logger.LogInformation(
+            "Stored ack public key (SPKI-SHA256 {Fingerprint}) for device {DeviceId}; rotation: {IsRotation}",
+            fingerprint,
+            deviceId,
+            isRotation);
+
+        return OperationResult<AckKeyImportedDto>.Success(new AckKeyImportedDto(fingerprint));
     }
 
     /// <summary>

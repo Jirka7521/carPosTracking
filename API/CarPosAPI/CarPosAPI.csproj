@@ -27,6 +27,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The firmware Config.h template the provisioning endpoint renders. It is
+         embedded rather than read from ESP32/ because the API image is built with
+         ../../API as its Docker context, so the firmware tree does not exist where
+         this code runs. LogicalName is pinned so moving the file breaks loudly in
+         ConfigSnippetBuilder instead of silently at first request. -->
+    <EmbeddedResource Include="Services\Provisioning\ConfigTemplate.h.txt"
+                      LogicalName="CarPosAPI.Services.Provisioning.ConfigTemplate.h.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Local developer secrets: copied next to the binaries so `dotnet run` picks
          them up, but never into a publish output — a deployed artefact must take
          its secrets from environment variables, not from a file that rode along. -->

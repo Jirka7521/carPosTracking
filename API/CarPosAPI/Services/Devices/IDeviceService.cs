@@ -50,7 +50,7 @@ public interface IDeviceService
         string alias,
         CancellationToken cancellationToken);
 
-    /// <summary>Re-renders the firmware config block. Requires <c>CanModifySettings</c>.</summary>
+    /// <summary>Re-renders the firmware config file. Requires <c>CanModifySettings</c>.</summary>
     /// <param name="userId">The authenticated caller.</param>
     /// <param name="deviceId">The device's MQTT identity.</param>
     /// <param name="cancellationToken">Cancels the database work.</param>
@@ -58,5 +58,20 @@ public interface IDeviceService
     Task<OperationResult<DeviceProvisioningResultDto>> GetProvisioningAsync(
         int userId,
         string deviceId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores a newly generated ack <em>public</em> key for a device, replacing any
+    /// previous one. Requires <c>CanModifySettings</c>.
+    /// </summary>
+    /// <param name="userId">The authenticated caller.</param>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="request">The candidate public key.</param>
+    /// <param name="cancellationToken">Cancels the database work.</param>
+    /// <returns>The stored key's fingerprint, or why it was refused.</returns>
+    Task<OperationResult<AckKeyImportedDto>> ImportAckKeyAsync(
+        int userId,
+        string deviceId,
+        ImportAckKeyRequestDto request,
         CancellationToken cancellationToken);
 }

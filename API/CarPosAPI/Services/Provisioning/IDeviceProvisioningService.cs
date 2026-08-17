@@ -1,5 +1,6 @@
 using CarPosAPI.Data;
 using CarPosAPI.Dtos;
+using CarPosAPI.Services.Common;
 
 namespace CarPosAPI.Services.Provisioning;
 
@@ -42,5 +43,33 @@ public interface IDeviceProvisioningService
     Task<DeviceProvisioningResultDto?> DescribeAsync(
         CarPosDbContext context,
         string deviceId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores the <em>public</em> half of an ack key pair generated off-server,
+    /// replacing whatever was on the device row before.
+    ///
+    /// <para>
+    /// Rotation is destructive by nature and cannot be undone from here: the private
+    /// half exists only in the operator's hands, so a key stored before that half has
+    /// been saved into a <c>Config.h</c> leaves the device unable to read the acks the
+    /// API will now start sealing to it. Callers must therefore only reach this once
+    /// the operator confirms they have kept the file — the dashboard enforces exactly
+    /// that ordering.
+    /// </para>
+    /// </summary>
+    /// <param name="context">Context to read and update the device row on.</param>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="ackPublicKeyPem">The candidate key, still unvalidated.</param>
+    /// <param name="cancellationToken">Cancels the database work.</param>
+    /// <returns>
+    /// The stored key's fingerprint; <see cref="Common.OperationOutcome.Invalid"/> when
+    /// the PEM is not an RSA-3072 public key (or contains private-key material), or
+    /// <see cref="Common.OperationOutcome.NotFound"/> when no such device row exists.
+    /// </returns>
+    Task<OperationResult<AckKeyImportedDto>> ImportAckPublicKeyAsync(
+        CarPosDbContext context,
+        string deviceId,
+        string ackPublicKeyPem,
         CancellationToken cancellationToken);
 }

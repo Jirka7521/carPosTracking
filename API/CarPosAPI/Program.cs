@@ -110,6 +110,9 @@ builder.Services.AddSingleton<IAckSealer, AckSealer>();
 // Singleton so the hosted service can hand it the live MQTT client while the
 // pipeline (also a singleton) publishes through it.
 builder.Services.AddSingleton<IAckPublisher, MqttAckPublisher>();
+// Singleton for the same reason, and shared with the scoped device-config service:
+// settings are published on the one broker connection this application owns.
+builder.Services.AddSingleton<IConfigPublisher, MqttConfigPublisher>();
 builder.Services.AddSingleton<IIngestPipeline, IngestPipeline>();
 builder.Services.AddSingleton<MqttConnectionState>();
 builder.Services.AddHostedService<MqttIngestService>();
@@ -142,6 +145,7 @@ builder.Services.AddScoped<IUserAccountService, UserAccountService>();
 // ---------------------------------------------------------------------------
 builder.Services.AddScoped<IDeviceAccessAuthorizer, DeviceAccessAuthorizer>();
 builder.Services.AddScoped<IDeviceService, DeviceService>();
+builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
 

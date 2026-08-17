@@ -35,6 +35,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Per-user private nicknames for devices.</summary>
     public DbSet<DeviceAlias> DeviceAliases => Set<DeviceAlias>();
 
+    /// <summary>Immutable history of every device's remote settings, one row per revision.</summary>
+    public DbSet<DeviceConfigVersion> DeviceConfigVersions => Set<DeviceConfigVersion>();
+
     /// <summary>Applies every IEntityTypeConfiguration in this assembly.</summary>
     /// <param name="modelBuilder">Model builder supplied by EF Core.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
