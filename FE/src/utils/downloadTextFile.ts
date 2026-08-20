@@ -11,10 +11,17 @@
 // secrets that must never be uploaded to render).
 // ---------------------------------------------------------------------------
 
-export function downloadTextFile(fileName: string, contents: string): void {
-  // text/plain rather than a C-header type: the point is a download, and naming
-  // an exotic type invites a browser to preview it instead.
-  const blob = new Blob([contents], { type: 'text/plain;charset=utf-8' })
+export function downloadTextFile(
+  fileName: string,
+  contents: string,
+  // Defaults to text/plain because that is the type least likely to make a
+  // browser PREVIEW the file instead of saving it — which is what the Config.h
+  // download wants from a C header. A caller with a type the browser handles
+  // properly, such as text/csv, should name it: some spreadsheet integrations
+  // and OS "open with" rules key off the MIME type rather than the extension.
+  mimeType: string = 'text/plain;charset=utf-8',
+): void {
+  const blob = new Blob([contents], { type: mimeType })
   const url = URL.createObjectURL(blob)
 
   const link = document.createElement('a')

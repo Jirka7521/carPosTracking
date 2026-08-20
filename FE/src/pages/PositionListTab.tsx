@@ -15,6 +15,8 @@
 //     "Latest" badge in the timestamp column, whichever way the table is sorted
 //   • Coordinates displayed in monospace for alignment
 //   • Pagination: N rows per page with Prev / Next controls
+//   • "Export CSV" writes the WHOLE selected range to a file, with the column
+//     separator the reader's spreadsheet expects
 //
 // The API hands out at most 1000 fixes per request, so a wide range holds more
 // than one answer's worth. Rather than fetching all of them up front, the table
@@ -31,8 +33,11 @@ import type { DevicePageContext } from './DevicePage'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchPositionChunk, mergeNewest } from '../services/positionPager'
+import type { CsvDelimiter } from '../utils/csv'
+import { buildCsv, CSV_DELIMITERS, isCsvDelimiter } from '../utils/csv'
 import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, getDefaultDateRange, parseApiTimestamp } from '../utils/dates'
+import { downloadTextFile } from '../utils/downloadTextFile'
 import { describeError } from '../utils/errors'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
@@ -45,6 +50,10 @@ const AUTO_REFRESH_SEC = 30
 // the Charts and Map tabs. Fifty sequential requests is already a long wait; a
 // table sorted across more rows than this is not what anyone is asking for.
 const MAX_TABLE_ROWS = 50_000
+
+// Where the chosen CSV separator is remembered. It is a property of the
+// reader's spreadsheet rather than of this session, so it outlives the tab.
+const CSV_DELIMITER_KEY = 'carpos.csvDelimiter'
 
 // ---- Sorting ----
 
@@ -109,6 +118,25 @@ function sortValue(position: PositionDto, key: SortKey): number | null {
   return position[key]
 }
 
+// The comparator for one sort, as a function of its own so that the table and
+// the CSV export cannot rank rows differently. The export needs it separately
+// because it sorts AFTER awaiting a chunk walk, at a point where the memo below
+// has not re-run and `sortedPositions` is still the pre-walk list.
+function comparePositions(sort: Sort): (a: PositionDto, b: PositionDto) => number {
+  return (a, b) => {
+    const left  = sortValue(a, sort.key)
+    const right = sortValue(b, sort.key)
+
+    // Rows with no reading sink to the bottom in BOTH directions — an em dash
+    // has no rank, so it should never displace real readings at the top.
+    if (left === null || right === null) {
+      return left === right ? 0 : left === null ? 1 : -1
+    }
+
+    return sort.dir === 'asc' ? left - right : right - left
+  }
+}
+
 // Format one accelerometer axis (in g) for the table, or an em dash when the
 // device sent no reading (accelerometer disabled or firmware predating it).
 function formatAccel(value: number | null): string {
@@ -138,6 +166,68 @@ function formatTimestamp(value: string): string {
   return parsed === null ? value : parsed.toLocaleString(undefined, { hour12: false })
 }
 
+// ---- CSV export ----
+
+// The header row, and with it the column order of the file. The keys of COLUMNS
+// are already the API's own field names and already carry their units
+// (speedKmph, altitudeMeters, temperatureC), which is exactly what belongs at
+// the top of a column something is going to compute on.
+//
+// "charging" is the one column with no counterpart on screen. A batteryPct of 0
+// is the agreed charging SENTINEL rather than a percentage (see formatBattery),
+// so leaving a 0 in a numeric percent column would read as a flat pack to
+// anything that imports it. The reading is split in two instead — the same split
+// toChartRows() makes in utils/telemetry.ts.
+const CSV_HEADERS: readonly string[] = [...COLUMNS.map((column) => column.key), 'charging']
+
+// One row's worth of cells, in CSV_HEADERS order.
+//
+// Deliberately NOT the strings the table shows. A cell here is meant to be read
+// back by a machine: timestamps in ISO-8601 UTC rather than in whatever locale
+// the browser happens to be in, numbers at full precision with a dot for a
+// decimal point, no unit suffixes, and an EMPTY cell — not an em dash — where
+// the device sent no reading at all.
+function positionToCsvRow(position: PositionDto): string[] {
+  const cells: string[] = COLUMNS.map((column) => {
+    if (column.key === 'timestamp') {
+      return parseApiTimestamp(position.timestamp)?.toISOString() ?? position.timestamp
+    }
+
+    // Reported in the "charging" column instead; 0 is not a percentage.
+    if (column.key === 'batteryPct' && position.batteryPct === 0) {
+      return ''
+    }
+
+    const value: number | null = position[column.key]
+
+    // Number.isFinite also catches a NaN or an Infinity that survived the wire —
+    // both of which a spreadsheet imports as text, silently turning the whole
+    // column into something that cannot be averaged.
+    return value !== null && Number.isFinite(value) ? String(value) : ''
+  })
+
+  // Empty rather than "false" when there was no reading: the device did not say
+  // it was not charging, it said nothing at all.
+  cells.push(position.batteryPct === null ? '' : String(position.batteryPct === 0))
+
+  return cells
+}
+
+// A file name that says which device and when. A device id is user-chosen text,
+// so anything outside the safe set becomes an underscore rather than a filename
+// some operating system refuses to write.
+function csvFileName(deviceId: string): string {
+  const safeDevice: string = deviceId.replace(/[^A-Za-z0-9_-]/g, '_')
+
+  const now: Date = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const stamp: string =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}`
+
+  return `positions_${safeDevice}_${stamp}.csv`
+}
+
 export function PositionListTab() {
   const { device } = useOutletContext<DevicePageContext>()
 
@@ -161,6 +251,23 @@ export function PositionListTab() {
 
   // Auto-refresh: bumps a token to re-run the query, never the date range
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // Which separator the exported CSV uses, and whether an export is running.
+  // The choice is read back from storage on mount: a reader whose spreadsheet
+  // wants semicolons wants them every time, not once per visit.
+  const [csvDelimiter, setCsvDelimiter] = useState<CsvDelimiter>(() => {
+    try {
+      const stored: string | null = window.localStorage.getItem(CSV_DELIMITER_KEY)
+      if (stored !== null && isCsvDelimiter(stored)) {
+        return stored
+      }
+    } catch {
+      // Storage can be unavailable (private mode, blocked cookies). The default
+      // separator is a perfectly good answer.
+    }
+    return ','
+  })
+  const [isExporting, setIsExporting] = useState<boolean>(false)
 
   // Current page index (0-based)
   const [page, setPage]         = useState<number>(0)
@@ -289,6 +396,75 @@ export function PositionListTab() {
     } finally {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)
+    }
+  }
+
+  function handleDelimiterChange(next: CsvDelimiter): void {
+    setCsvDelimiter(next)
+    try {
+      window.localStorage.setItem(CSV_DELIMITER_KEY, next)
+    } catch {
+      // Failing to REMEMBER the choice must not stop the reader making it.
+    }
+  }
+
+  // Writes every fix in the selected range to a .csv file.
+  //
+  // "Every fix in the range" is the whole point of the button, and it is why
+  // this is not simply a map over what is on screen: the table holds only the
+  // chunks the reader has paged into, so exporting those would quietly be
+  // exporting the newest thousand rows and calling it the range. The rest of the
+  // window is pulled in first — the same walk a non-default sort triggers, for
+  // the same reason — and those rows stay in the table afterwards.
+  async function handleExportCsv(): Promise<void> {
+    if (isExporting) {
+      return
+    }
+
+    const generation: number = generationRef.current
+    setIsExporting(true)
+
+    try {
+      if (cursorRef.current !== null) {
+        setStatusMessage('Loading the rest of the range for the export…')
+        // Reports its own failures in the status line and leaves the cursor
+        // untouched, so a blip mid-walk becomes a short export rather than a
+        // thrown error — and the count below says how short.
+        await loadMoreChunks(MAX_TABLE_ROWS)
+      }
+
+      // The device or the range moved while the walk was running: the rows now
+      // held are a different window than the one the export was asked for, and
+      // handing the reader a file of them would be worse than handing them none.
+      if (generationRef.current !== generation) {
+        return
+      }
+
+      // Sorted the way the table is, so the file and the screen agree. Read from
+      // the ref rather than from `sortedPositions`: the walk above landed its
+      // rows after this render, so the memo is one step behind.
+      const rows: PositionDto[] = [...positionsRef.current].sort(comparePositions(sortRef.current))
+
+      if (rows.length === 0) {
+        setStatusMessage('Nothing to export — no positions in this time range.')
+        return
+      }
+
+      downloadTextFile(
+        csvFileName(device.deviceId),
+        buildCsv(CSV_HEADERS, rows.map(positionToCsvRow), csvDelimiter),
+        // Named rather than left as text/plain: spreadsheets and "open with"
+        // rules key off the MIME type as much as off the extension.
+        'text/csv;charset=utf-8',
+      )
+
+      setStatusMessage(
+        cursorRef.current === null
+          ? `Exported ${rows.length.toLocaleString()} position${rows.length === 1 ? '' : 's'}.`
+          : `Exported the newest ${rows.length.toLocaleString()} positions — the range holds more than the ${MAX_TABLE_ROWS.toLocaleString()}-row limit.`,
+      )
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -421,19 +597,8 @@ export function PositionListTab() {
   // each chunk lands — so the ranking widens to the whole range as it arrives
   // rather than being wrong about it permanently.
   const sortedPositions = useMemo(() => {
-    return [...positions].sort((a, b) => {
-      const left  = sortValue(a, sort.key)
-      const right = sortValue(b, sort.key)
-
-      // Rows with no reading sink to the bottom in BOTH directions — an em dash
-      // has no rank, so it should never displace real readings at the top.
-      if (left === null || right === null) {
-        return left === right ? 0 : left === null ? 1 : -1
-      }
-
-      return sort.dir === 'asc' ? left - right : right - left
-    })
-  }, [positions, sort.key, sort.dir])
+    return [...positions].sort(comparePositions(sort))
+  }, [positions, sort])
 
   // The newest fix, wherever the current sort puts it. `positions` is the API's
   // newest-first order, so that is simply its first row.
@@ -482,6 +647,39 @@ export function PositionListTab() {
         isLoading={isLoading}
         idPrefix="pos"
         className="position-list-controls"
+        /* The separator sits beside the button rather than behind a menu: it is
+           one choice, made once, and a spreadsheet handed the wrong one gives no
+           warning at all — it just shows a single column of text. */
+        extra={
+          <>
+            <div className="form-field">
+              <label className="form-label" htmlFor="pos-csv-delimiter">Delimiter</label>
+              <select
+                id="pos-csv-delimiter"
+                className="form-input"
+                style={{ width: 'auto' }}
+                value={csvDelimiter}
+                onChange={(e) => handleDelimiterChange(e.target.value as CsvDelimiter)}
+              >
+                {CSV_DELIMITERS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ alignSelf: 'flex-end' }}
+              onClick={() => void handleExportCsv()}
+              /* Blocked while a chunk walk is already running: loadMoreChunks
+                 drops a second one, which would export a partial range. */
+              disabled={isExporting || isLoadingMore || positions.length === 0}
+            >
+              {isExporting ? 'Exporting…' : '⤓ Export CSV'}
+            </button>
+          </>
+        }
       />
 
       {/* Status line */}
