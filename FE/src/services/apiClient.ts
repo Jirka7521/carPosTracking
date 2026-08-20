@@ -21,13 +21,18 @@ import type {
   AccessDto,
   AccessCreateRequestDto,
   AccessUpdateRequestDto,
+  AckKeyImportedDto,
   AuthResponseDto,
   ChangePasswordRequestDto,
   DeviceAliasUpdateRequestDto,
+  DeviceConfigStateDto,
+  DeviceConfigUpdateRequestDto,
+  DeviceConfigVersionDto,
   DeviceCreateRequestDto,
   DeviceCreatedDto,
   DeviceDto,
   DeviceProvisioningDto,
+  ImportAckKeyRequestDto,
   PositionDto,
   UserProfileDto,
   UserUpdateRequestDto,
@@ -313,11 +318,30 @@ export async function deleteDevice(deviceId: string): Promise<void> {
   await request<null>('DELETE', `/devices/${segment(deviceId)}`)
 }
 
-// Re-reads the firmware configuration block for an already-registered device.
-// Requires CanModifySettings. Contains the public key only — the private half
-// never leaves the server.
+// Re-reads the firmware configuration for an already-registered device — a
+// complete Config.h with the secrets left blank. Requires CanModifySettings.
+// Contains the receiver public key only; its private half never leaves the
+// server, and the device's ack private key never reaches it in the first place.
 export async function fetchDeviceProvisioning(deviceId: string): Promise<DeviceProvisioningDto> {
   return request<DeviceProvisioningDto>('GET', `/devices/${segment(deviceId)}/provisioning`)
+}
+
+// Stores the PUBLIC half of an ack key pair generated in this browser, replacing
+// whatever the device had before. Requires CanModifySettings.
+//
+// Call this ONLY after the operator has saved the Config.h carrying the matching
+// private key: from the moment it lands the API seals every delivery ack to this
+// key, so a device still running the old one stops confirming deliveries until it
+// is re-flashed. The API cannot enforce that ordering — it has no way to know
+// whether the file was kept — so the panel does.
+export async function importDeviceAckKey(
+  deviceId: string,
+  ackPublicKeyPem: string,
+): Promise<AckKeyImportedDto> {
+  const payload: ImportAckKeyRequestDto = { ackPublicKeyPem }
+  return request<AckKeyImportedDto>('POST', `/devices/${segment(deviceId)}/ack-key`, {
+    body: payload,
+  })
 }
 
 // Set or clear the caller's personal display name for a device. Any user with
@@ -326,6 +350,51 @@ export async function fetchDeviceProvisioning(deviceId: string): Promise<DeviceP
 export async function updateDeviceAlias(deviceId: string, alias: string): Promise<void> {
   const payload: DeviceAliasUpdateRequestDto = { alias }
   await request<null>('PUT', `/me/devices/${segment(deviceId)}/alias`, { body: payload })
+}
+
+// ----- Device config -----
+//
+// The remote settings a device runs on. All four require CanModifySettings —
+// including the reads, because the panel exposes operational tuning a read-only
+// viewer has no use for (the same rule as the provisioning block above).
+//
+// The API is the source of truth: saving publishes the new revision to the
+// broker retained, and the device adopts it on its next connect. Nothing here
+// talks to a device directly.
+
+export async function fetchDeviceConfig(deviceId: string): Promise<DeviceConfigStateDto> {
+  return request<DeviceConfigStateDto>('GET', `/devices/${segment(deviceId)}/config`)
+}
+
+// Past revisions, newest first. The server clamps `limit` to its own ceiling, so
+// an over-large value is answered rather than rejected.
+export async function fetchDeviceConfigHistory(
+  deviceId: string,
+  limit?: number,
+): Promise<DeviceConfigVersionDto[]> {
+  return request<DeviceConfigVersionDto[]>('GET', `/devices/${segment(deviceId)}/config/history`, {
+    query: { limit: limit },
+  })
+}
+
+// A full replacement, not a patch — every field must be sent. Returns the new
+// state (including the bumped version), so the caller does not need to re-read.
+// Submitting the values already in force creates no revision and returns the
+// existing state unchanged.
+export async function updateDeviceConfig(
+  deviceId: string,
+  payload: DeviceConfigUpdateRequestDto,
+): Promise<DeviceConfigStateDto> {
+  return request<DeviceConfigStateDto>('PUT', `/devices/${segment(deviceId)}/config`, {
+    body: payload,
+  })
+}
+
+// Re-publish the current revision without creating a new one. Answers 503 when
+// the API cannot reach the broker, which surfaces as an ApiError like any other
+// failure — the stored settings are untouched either way.
+export async function republishDeviceConfig(deviceId: string): Promise<void> {
+  await request<null>('POST', `/devices/${segment(deviceId)}/config/republish`)
 }
 
 // ----- Positions -----

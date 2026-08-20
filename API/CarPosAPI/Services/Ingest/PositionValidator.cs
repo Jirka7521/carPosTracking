@@ -208,7 +208,12 @@ internal sealed class PositionValidator
             payload.AccelXG,
             payload.AccelYG,
             payload.AccelZG,
-            payload.TempC);
+            payload.TempC,
+            // Deliberately unvalidated beyond "is it a positive number". A revision the
+            // server has never issued is not a reason to throw away a good position:
+            // the worst case is that the dashboard shows the device as out of sync,
+            // which is exactly what it would be.
+            payload.SettingsVersion > 0 ? payload.SettingsVersion : null);
         reason = PositionRejectReason.None;
         return true;
     }

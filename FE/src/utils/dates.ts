@@ -1,6 +1,28 @@
 // Date helpers shared by multiple pages. Kept here so the formatting logic
 // for `<input type="datetime-local">` is in one obvious place.
 
+// The window every tab opens with. It reaches BACK a day for history and
+// FORWARD half a day so that fixes arriving while the page is open still fall
+// inside it — that is what lets a refresh re-run the very same query instead of
+// pushing "to" to now, which used to discard whatever end time the user picked.
+export const RANGE_PAST_HOURS: number   = 24
+export const RANGE_FUTURE_HOURS: number = 12
+
+// A from/to pair as the `<input type="datetime-local">` elements carry it.
+export type DateRange = {
+  from: string // datetime-local string (YYYY-MM-DDTHH:mm)
+  to:   string // datetime-local string
+}
+
+// The default range, computed once when a tab mounts and then left alone.
+export function getDefaultDateRange(): DateRange {
+  const now: number = Date.now()
+  return {
+    from: formatDateTimeLocal(new Date(now - RANGE_PAST_HOURS * 60 * 60 * 1000)),
+    to:   formatDateTimeLocal(new Date(now + RANGE_FUTURE_HOURS * 60 * 60 * 1000)),
+  }
+}
+
 export function formatDateTimeLocal(value: Date): string {
   const year: number = value.getFullYear()
   const month: string = String(value.getMonth() + 1).padStart(2, '0')

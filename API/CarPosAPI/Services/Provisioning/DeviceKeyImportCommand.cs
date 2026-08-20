@@ -159,36 +159,18 @@ internal static class DeviceKeyImportCommand
 
                 ackPublicKeyPem = await File.ReadAllTextAsync(ackPublicPemPath, cancellationToken);
 
-                using RSA ackPublicKey = RSA.Create();
-                try
+                // Shared with POST /api/devices/{id}/ack-key: a key this command accepts
+                // and that endpoint refuses (or the reverse) would be a rule that only
+                // holds depending on which door you came in by.
+                AckPublicKeyValidation validation = AckPublicKeyValidator.Validate(ackPublicKeyPem);
+
+                if (!validation.IsValid)
                 {
-                    ackPublicKey.ImportFromPem(ackPublicKeyPem);
-                }
-                catch (ArgumentException)
-                {
-                    await Console.Error.WriteLineAsync("The ack key file does not contain a valid PEM public key.");
+                    await Console.Error.WriteLineAsync(validation.Error);
                     return ExitFailure;
                 }
 
-                if (ackPublicKey.KeySize != ExpectedRsaKeySizeBits)
-                {
-                    await Console.Error.WriteLineAsync(
-                        $"Ack key size is {ackPublicKey.KeySize} bits; the firmware ecosystem uses RSA-{ExpectedRsaKeySizeBits}.");
-                    return ExitFailure;
-                }
-
-                // Guard against the operator handing over the wrong half. A private PEM
-                // would import fine and work, but storing it here would put a device
-                // secret in the database and in every provisioning response.
-                if (ackPublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
-                {
-                    await Console.Error.WriteLineAsync(
-                        "That file contains a PRIVATE key. Pass the ack PUBLIC key — the private half belongs only in the firmware's Config.h.");
-                    return ExitFailure;
-                }
-
-                ackFingerprint = Convert.ToHexString(
-                    SHA256.HashData(ackPublicKey.ExportSubjectPublicKeyInfo()));
+                ackFingerprint = validation.Fingerprint;
             }
 
             // Scope so scoped services (DbContext) resolve correctly outside a request.

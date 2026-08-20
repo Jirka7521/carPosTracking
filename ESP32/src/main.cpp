@@ -18,6 +18,7 @@
 #include "mqtt/TelemetrySample.h"
 #include "power/BatteryMonitor.h"
 #include "power/DeepSleepController.h"
+#include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
 #include "sdcard/FixForwarder.h"
 #include "sdcard/FixQueue.h"
@@ -26,6 +27,7 @@
 #include "serial/SerialPort.h"
 #include "settings/DeviceSettings.h"
 #include "settings/RemoteSettings.h"
+#include "settings/SettingsApplier.h"
 #include "settings/SettingsStore.h"
 #include "wifi/WifiManager.h"
 
@@ -123,6 +125,21 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "ADXL345 disabled in Config.h.");
   }
 
+  // Optional peak tracking: samples the accelerometer on its own small task and
+  // keeps the per-axis maximum, so each report carries the strongest reading of
+  // the interval rather than one arbitrary instant. Constructed unconditionally
+  // (it is four words and a mutex); only the task is gated.
+  static AccelPeakTracker accelPeak(accel, config::kAccelSampleIntervalMs);
+  if (config::kAccelPeakEnabled) {
+    if (!config::kAdxlEnabled) {
+      ESP_LOGW(TAG,
+               "kAccelPeakEnabled needs kAdxlEnabled - peak tracking not "
+               "started.");
+    } else if (!accelPeak.start()) {
+      ESP_LOGW(TAG, "accelerometer peak tracking failed to start.");
+    }
+  }
+
   static BatteryMonitor battery(modem, config::kBatteryChargeSensePin,
                                 config::kBatteryChargeAdcThreshold,
                                 config::kBatteryEmptyMv, config::kBatteryFullMv);
@@ -176,6 +193,12 @@ extern "C" void app_main(void) {
   static SettingsStore settingsStore(sdCard, config::kSdSettingsFilePath);
   DeviceSettings       settings = settingsStore.load(DeviceSettings());
 
+  // Pushes the storage-related settings into the two queues. Applied here for
+  // the cached document, and again every time a new one arrives, so the queues
+  // are never running limits the server has already superseded.
+  static SettingsApplier settingsApplier(fixQueue, retryQueue);
+  settingsApplier.apply(settings);
+
   // Bring up MQTT (if enabled). The client connects and reconnects in the
   // background, so we never block on it. Each fix is end-to-end encrypted by
   // PayloadCrypto before TelemetryPublisher hands it to the broker.
@@ -195,7 +218,8 @@ extern "C" void app_main(void) {
                                 config::kMqttPublishAckTimeoutMs,
                                 config::kAckEnabled ? config::kAckTimeoutMs : 0,
                                 config::kSdMaxBurstFixes,
-                                config::kBacklogFlushRetryMs);
+                                config::kBacklogFlushRetryMs,
+                                config::kBacklogFlushBudgetMs);
   static RemoteSettings remoteSettings(mqtt, settingsStore,
                                        config::kConfigTopic);
 
@@ -224,8 +248,14 @@ extern "C" void app_main(void) {
       // Give the broker a moment to connect and replay the retained config
       // before we commit to an interval for this cycle. A timeout here is
       // routine, not an error - we simply keep the cached settings.
-      remoteSettings.waitForUpdate(config::kConfigFetchTimeoutMs);
+      if (!remoteSettings.waitForUpdate(config::kConfigFetchTimeoutMs)) {
+        ESP_LOGI(TAG,
+                 "no config from the broker within %ums - continuing with the "
+                 "cached settings (is it published retained?)",
+                 (unsigned)config::kConfigFetchTimeoutMs);
+      }
       settings = remoteSettings.current();
+      settingsApplier.apply(settings);
     } else {
       ESP_LOGW(TAG, "MQTT failed to start; continuing without publishing.");
     }
@@ -241,9 +271,13 @@ extern "C" void app_main(void) {
                                      config::kWakeGpioPin,
                                      config::kWakeGpioLevel);
 
-  ESP_LOGI(TAG, "GNSS ready. Reporting every %us (sleep between: %s).",
+  ESP_LOGI(TAG,
+           "GNSS ready. Reporting every %us (sleep between: %s, settings v%u, "
+           "config re-check every %us).",
            (unsigned)settings.intervalSeconds(),
-           settings.sleepBetweenSends() ? "yes" : "no");
+           settings.sleepBetweenSends() ? "yes" : "no",
+           (unsigned)settings.version(),
+           (unsigned)settings.configCheckSeconds());
 
   // The fix currently being polled. Hoisted out of the loop so the per-poll hook
   // below can read the UTC time of the poll that has just happened, and so the
@@ -254,13 +288,18 @@ extern "C" void app_main(void) {
   GnssFix fix;
 
   // Hook run after every fix poll - fix or no fix, every kFixPollStepMs. It does
-  // two things:
+  // three things:
   //   1. Offers whatever is on the SD card to the broker. This is what frees the
   //      backlog from the position lock: a device that never gets one - parked
   //      in a garage, antenna unplugged - still empties its card within seconds
   //      of the link coming back, instead of sitting on it through a 3-minute
   //      acquire it will lose anyway. The call is a cheap no-op when there is
   //      nothing queued or the broker is unreachable.
+  //   1b. Adopts a config that has arrived. An acquire can last minutes, and the
+  //      CPU is fully awake here driving the modem, so polling costs nothing and
+  //      means a setting saved during the wait is in force by the time the
+  //      report is built rather than a whole cycle later. Runs on this same
+  //      task, so current() still needs no locking.
   //   2. In debug builds only, prints the battery and accelerometer status
   //      beneath each satellite table while we wait - not just once the wait
   //      ends. Compiled out entirely when kGnssDebug is false, so production
@@ -270,6 +309,7 @@ extern "C" void app_main(void) {
   std::function<void()> onEachPoll = [&fix]() {
     if (config::kMqttEnabled) {
       forwarder.flushBacklog(fix);
+      remoteSettings.poll();
     }
 
     if (config::kGnssDebug) {
@@ -298,8 +338,11 @@ extern "C" void app_main(void) {
       forwarder.flushBacklog(fix);
     }
 
+    // The acquire budget is a runtime setting: on a device that reports rarely
+    // it is worth chasing a lock for minutes, while one reporting every 30 s
+    // must give up quickly or it would never get to the wait at all.
     const bool haveFix =
-        gnss.waitForFix(fix, config::kFixAcquireTimeoutSeconds * 1000,
+        gnss.waitForFix(fix, settings.fixTimeoutSeconds() * 1000,
                         config::kFixPollStepMs, onEachPoll);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
@@ -315,10 +358,19 @@ extern "C" void app_main(void) {
     // above is a separate, debug-only read that runs during the wait.
     TelemetrySample sample;
     sample.gnss = fix;
+    // Stamped from the settings in force at capture time, not at publish time -
+    // see the note on TelemetrySample::settingsVersion.
+    sample.settingsVersion = settings.version();
 
     if (haveFix) {
       if (config::kAdxlEnabled) {
-        accel.read(sample.accel);
+        // With peak tracking on, report the strongest reading of the interval
+        // that has just ended and start a fresh window. takePeak() returns false
+        // on the very first cycle - nothing has been sampled yet - so fall
+        // through to a live reading rather than publish an empty accel field.
+        if (!config::kAccelPeakEnabled || !accelPeak.takePeak(sample.accel)) {
+          accel.read(sample.accel);
+        }
       }
       if (config::kBatteryEnabled) {
         battery.read(sample.battery);
@@ -338,38 +390,111 @@ extern "C" void app_main(void) {
       }
     }
 
-    // A config may have arrived while we were acquiring or publishing. Adopt it
-    // now, so the interval and sleep decision just below already honour it.
-    if (config::kMqttEnabled && remoteSettings.poll()) {
+    // A config may have arrived while we were publishing (the per-poll hook
+    // above covers the acquire). Adopt whatever is current either way - apply()
+    // is a no-op when nothing changed, so this is cheaper than tracking whether
+    // it was the hook or us that took the message.
+    if (config::kMqttEnabled) {
+      remoteSettings.poll();
       settings = remoteSettings.current();
+      settingsApplier.apply(settings);
     }
 
-    // Time left in this interval. With no fix there is nothing to measure from,
-    // so we start a fresh interval here instead - otherwise a device that has
-    // just burned kFixAcquireTimeoutSeconds finding no satellites would be
-    // already "late" and would retry (or reboot) in a tight, battery-eating loop.
-    const int64_t nowUs      = esp_timer_get_time();
-    const int64_t anchorUs   = haveFix ? fixCapturedUs : nowUs;
-    const int64_t intervalUs =
-        static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
-    int64_t remainingUs = intervalUs - (nowUs - anchorUs);
+    // Where this interval is measured from. With no fix there is nothing to
+    // measure from, so we start a fresh interval here instead - otherwise a
+    // device that has just burned its whole acquire budget finding no satellites
+    // would be already "late" and would retry (or reboot) in a tight,
+    // battery-eating loop.
+    const int64_t anchorUs = haveFix ? fixCapturedUs : esp_timer_get_time();
+
+    // Staying awake: wait out the rest of the interval, but *interruptibly*.
+    //
+    // The task is blocked the whole time, exactly as the plain delay this
+    // replaces was - same tickless idle, same current draw - but the MQTT event
+    // task can now wake it the instant a config lands. That is the difference
+    // between a setting taking effect within a second and taking effect up to a
+    // whole reporting interval later, and it costs nothing.
+    //
+    // The loop re-derives the remaining time from `anchorUs` on every pass, so a
+    // config that changes interval_s re-times the cadence immediately: shorten
+    // it past what has already elapsed and the next report goes out at once;
+    // lengthen it and the wait simply extends. No extra acquire, no extra
+    // airtime - the change is adopted, the rhythm is not disturbed.
+    while (config::kMqttEnabled) {
+      const int64_t intervalUs =
+          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
+      const int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
+
+      // Interval elapsed, or we have just been told to sleep - either way this
+      // wait is over and the deep-sleep decision below is the freshest one.
+      //
+      // The threshold is a millisecond rather than zero because the wait below is
+      // expressed in ticks: a sub-millisecond remainder rounds to "no wait at
+      // all", and looping on it would spin the CPU until the clock caught up.
+      if (remainingUs < 1000 || settings.sleepBetweenSends()) {
+        break;
+      }
+
+      // Never wait longer than the re-check period in one go, so that backstop
+      // still fires on a device whose reporting interval is hours long. Each
+      // chunk boundary is one wake-up and one SUBSCRIBE - the entire ongoing
+      // cost of the periodic check.
+      const int64_t checkUs =
+          static_cast<int64_t>(settings.configCheckSeconds()) * 1000000LL;
+      const int64_t chunkUs =
+          (checkUs > 0 && checkUs < remainingUs) ? checkUs : remainingUs;
+
+      if (remoteSettings.waitForUpdate(static_cast<uint32_t>(chunkUs / 1000))) {
+        settings = remoteSettings.current();
+        settingsApplier.apply(settings);
+        continue;  // re-time against the settings we have just adopted
+      }
+
+      // Nothing arrived within the chunk. Ask the broker to re-send the retained
+      // document if the re-check is due; it self-paces, so this is a no-op on a
+      // chunk that ended because the interval did.
+      remoteSettings.resyncIfDue(settings.configCheckSeconds());
+    }
+
+    // Deep sleep narrows what peak tracking can see: the chip is powered down
+    // between reports, so the sampling task only runs during the awake window
+    // (the acquire plus the publish), not across the whole interval. Worth
+    // saying once - it is a surprising result, not a fault - but not worth
+    // overriding the server's setting for.
+    if (config::kAccelPeakEnabled && settings.sleepBetweenSends()) {
+      static bool warnedSleepingPeak = false;
+      if (!warnedSleepingPeak) {
+        ESP_LOGW(TAG,
+                 "sleep_between is on: accel peaks only cover the awake part of "
+                 "each cycle, not the full interval.");
+        warnedSleepingPeak = true;
+      }
+    }
 
     if (settings.sleepBetweenSends()) {
       // Power everything down and deep-sleep the rest of the interval. This does
       // not return: the chip reboots on wake and app_main() runs again from the
       // top, which is why every cycle re-reads the settings and re-subscribes.
+      const int64_t intervalUs =
+          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
       const int64_t minSleepUs =
           static_cast<int64_t>(config::kMinDeepSleepMs) * 1000LL;
+      int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
       if (remainingUs < minSleepUs) {
         remainingUs = minSleepUs;
       }
       sleeper.sleepFor(static_cast<uint32_t>(remainingUs / 1000));
     }
 
-    // Staying awake: keep the modem and the link up and just wait out the rest
-    // of the interval.
-    if (remainingUs > 0) {
-      vTaskDelay(pdMS_TO_TICKS(static_cast<uint32_t>(remainingUs / 1000)));
+    // MQTT disabled at compile time: there is no config to wait for, so fall
+    // back to a plain delay for whatever is left of the interval.
+    if (!config::kMqttEnabled) {
+      const int64_t intervalUs =
+          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
+      const int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
+      if (remainingUs > 0) {
+        vTaskDelay(pdMS_TO_TICKS(static_cast<uint32_t>(remainingUs / 1000)));
+      }
     }
   }
 }

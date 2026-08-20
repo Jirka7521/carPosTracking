@@ -1,5 +1,7 @@
 #include "sdcard/SdCard.h"
 
+#include <sys/stat.h>
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -142,6 +144,27 @@ bool SdCard::writeFile(const char* path, const std::string& content) {
   return true;
 }
 
+bool SdCard::writeFileDirect(const char* path, const std::string& content) {
+  if (!mounted_) {
+    return false;
+  }
+  // "w" truncates and rewrites in place - see the header for why this one is
+  // deliberately not staged through a temp file.
+  std::FILE* f = std::fopen(path, "w");
+  if (f == nullptr) {
+    ESP_LOGE(TAG, "write: cannot open %s", path);
+    return false;
+  }
+  const bool ok =
+      std::fwrite(content.data(), 1, content.size(), f) == content.size() &&
+      std::fputc('\n', f) != EOF;
+  std::fclose(f);
+  if (!ok) {
+    ESP_LOGE(TAG, "write: writing %s failed", path);
+  }
+  return ok;
+}
+
 bool SdCard::readLine(std::FILE* f, std::string& out) {
   out.clear();
   int c;
@@ -203,6 +226,168 @@ std::size_t SdCard::countLines(const char* path) const {
   return count;
 }
 
+long SdCard::fileSize(const char* path) const {
+  if (!mounted_) {
+    return 0;
+  }
+  struct stat st;
+  if (::stat(path, &st) != 0) {
+    return 0;  // missing file == empty, not an error
+  }
+  return static_cast<long>(st.st_size);
+}
+
+bool SdCard::readLinesFrom(const char* path, long offset, std::size_t maxLines,
+                           std::vector<std::string>& linesOut) const {
+  linesOut.clear();
+  if (!mounted_) {
+    return false;
+  }
+  std::FILE* f = std::fopen(path, "r");
+  if (f == nullptr) {
+    return true;  // no file yet == empty queue, not an error
+  }
+  // Seeking past the end is not an error for fseek; the read below simply finds
+  // nothing, which is exactly the "fully drained" answer we want.
+  if (offset > 0 && std::fseek(f, offset, SEEK_SET) != 0) {
+    ESP_LOGE(TAG, "read: seek to %ld in %s failed", offset, path);
+    std::fclose(f);
+    return false;
+  }
+  std::string line;
+  while (readLine(f, line)) {
+    if (line.empty()) {
+      continue;  // skip blank lines defensively
+    }
+    linesOut.push_back(line);
+    if (maxLines != 0 && linesOut.size() >= maxLines) {
+      break;
+    }
+  }
+  std::fclose(f);
+  return true;
+}
+
+bool SdCard::measureLines(const char* path, long offset, std::size_t n,
+                          long& endOffsetOut, std::size_t& foundOut) const {
+  endOffsetOut = offset;
+  foundOut     = 0;
+  if (!mounted_) {
+    return false;
+  }
+  if (n == 0) {
+    return true;
+  }
+  std::FILE* f = std::fopen(path, "r");
+  if (f == nullptr) {
+    return true;  // no file == nothing to walk past
+  }
+  if (offset > 0 && std::fseek(f, offset, SEEK_SET) != 0) {
+    ESP_LOGE(TAG, "measure: seek to %ld in %s failed", offset, path);
+    std::fclose(f);
+    return false;
+  }
+
+  std::string line;
+  while (foundOut < n && readLine(f, line)) {
+    if (line.empty()) {
+      continue;  // consumed, but not an entry - see the header note
+    }
+    ++foundOut;
+    // Take the position *after* each counted entry, so the final value is the
+    // start of the first entry the caller keeps.
+    endOffsetOut = std::ftell(f);
+  }
+  std::fclose(f);
+  return true;
+}
+
+bool SdCard::compactFrom(const char* path, long offset) {
+  if (!mounted_) {
+    return false;
+  }
+  if (offset <= 0) {
+    return true;  // nothing dead to reclaim
+  }
+
+  std::FILE* in = std::fopen(path, "r");
+  if (in == nullptr) {
+    return true;  // no file == nothing to compact
+  }
+  if (std::fseek(in, offset, SEEK_SET) != 0) {
+    ESP_LOGE(TAG, "compact: seek to %ld in %s failed", offset, path);
+    std::fclose(in);
+    return false;
+  }
+
+  const std::string tmpPath = std::string(path) + ".tmp";
+  std::FILE*        out     = std::fopen(tmpPath.c_str(), "w");
+  if (out == nullptr) {
+    ESP_LOGE(TAG, "compact: cannot open temp %s", tmpPath.c_str());
+    std::fclose(in);
+    return false;
+  }
+
+  // Block copy: at this size the per-line fgetc/fwrite of the other helpers
+  // would dominate the runtime. The buffer is heap-allocated to keep it off the
+  // caller's task stack.
+  constexpr std::size_t kCopyBufferBytes = 4096;
+  std::vector<char>     buffer(kCopyBufferBytes);
+  bool                  ok    = true;
+  long                  moved = 0;
+  std::size_t           got   = 0;
+  while ((got = std::fread(buffer.data(), 1, buffer.size(), in)) > 0) {
+    if (std::fwrite(buffer.data(), 1, got, out) != got) {
+      ok = false;
+      break;
+    }
+    moved += static_cast<long>(got);
+  }
+  std::fclose(in);
+  std::fclose(out);
+
+  if (!ok) {
+    ESP_LOGE(TAG, "compact: rewrite of %s failed", path);
+    std::remove(tmpPath.c_str());
+    return false;
+  }
+
+  // Same swap as dropFirstLines(): FAT's rename() will not clobber, so the old
+  // file goes first.
+  std::remove(path);
+  if (moved == 0) {
+    std::remove(tmpPath.c_str());
+    return true;  // everything was dead - the file is simply gone
+  }
+  if (std::rename(tmpPath.c_str(), path) != 0) {
+    ESP_LOGE(TAG, "compact: rename %s -> %s failed", tmpPath.c_str(), path);
+    return false;
+  }
+  ESP_LOGI(TAG, "compacted %s: reclaimed %ld bytes, %ld remain", path, offset,
+           moved);
+  return true;
+}
+
+bool SdCard::forEachLine(
+    const char* path, const std::function<void(const std::string&)>& visit) const {
+  if (!mounted_) {
+    return false;
+  }
+  std::FILE* f = std::fopen(path, "r");
+  if (f == nullptr) {
+    return true;  // no file yet == nothing to walk, not an error
+  }
+  std::string line;
+  while (readLine(f, line)) {
+    if (line.empty()) {
+      continue;  // skip blank lines defensively, as readLines() does
+    }
+    visit(line);
+  }
+  std::fclose(f);
+  return true;
+}
+
 bool SdCard::dropFirstLines(const char* path, std::size_t n) {
   if (!mounted_) {
     return false;
@@ -262,6 +447,68 @@ bool SdCard::dropFirstLines(const char* path, std::size_t n) {
   }
   if (std::rename(tmpPath.c_str(), path) != 0) {
     ESP_LOGE(TAG, "drop: rename %s -> %s failed", tmpPath.c_str(), path);
+    return false;
+  }
+  return true;
+}
+
+bool SdCard::rewriteLines(const char* path,
+                          const std::function<bool(const std::string&)>& keep,
+                          std::size_t& survivorsOut) {
+  survivorsOut = 0;
+  if (!mounted_) {
+    return false;
+  }
+
+  std::FILE* in = std::fopen(path, "r");
+  if (in == nullptr) {
+    return true;  // no file == nothing to filter
+  }
+
+  // Same streaming shape as dropFirstLines(): survivors go to a sibling temp
+  // file as we walk, so only one line is ever held in memory.
+  const std::string tmpPath = std::string(path) + ".tmp";
+  std::FILE*        out     = std::fopen(tmpPath.c_str(), "w");
+  if (out == nullptr) {
+    ESP_LOGE(TAG, "filter: cannot open temp %s", tmpPath.c_str());
+    std::fclose(in);
+    return false;
+  }
+
+  bool        ok = true;
+  std::string line;
+  while (readLine(in, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    if (!keep(line)) {
+      continue;  // caller has taken this one, or is discarding it
+    }
+    if (std::fwrite(line.data(), 1, line.size(), out) != line.size() ||
+        std::fputc('\n', out) == EOF) {
+      ok = false;
+      break;
+    }
+    ++survivorsOut;
+  }
+  std::fclose(in);
+  std::fclose(out);
+
+  if (!ok) {
+    ESP_LOGE(TAG, "filter: rewrite of %s failed", path);
+    std::remove(tmpPath.c_str());
+    survivorsOut = 0;
+    return false;
+  }
+
+  // Replace the original with the filtered copy (or drop both if nothing left).
+  std::remove(path);
+  if (survivorsOut == 0) {
+    std::remove(tmpPath.c_str());
+    return true;
+  }
+  if (std::rename(tmpPath.c_str(), path) != 0) {
+    ESP_LOGE(TAG, "filter: rename %s -> %s failed", tmpPath.c_str(), path);
     return false;
   }
   return true;

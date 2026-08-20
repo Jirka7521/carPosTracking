@@ -179,52 +179,37 @@ bool RetryQueue::decodeEntry(const std::string& line, Entry& entryOut) {
   return ok;
 }
 
-bool RetryQueue::readAll(std::vector<Entry>& entriesOut,
-                         std::size_t& skipped) const {
-  entriesOut.clear();
-  skipped = 0;
-
-  std::vector<std::string> lines;
-  if (!card_.readLines(filePath_, /*maxLines=*/0, lines)) {
-    return false;
+RetryQueue::Disposition RetryQueue::classify(const std::string& line,
+                                             int64_t     nowEpoch,
+                                             std::size_t maxCount,
+                                             std::size_t& takenSoFar,
+                                             Entry&       entryOut) const {
+  Entry entry;
+  if (!decodeEntry(line, entry)) {
+    // Not necessarily corrupt - see the header. Left where it is.
+    return Disposition::Undecodable;
   }
 
-  entriesOut.reserve(lines.size());
-  for (const std::string& line : lines) {
-    Entry entry;
-    if (decodeEntry(line, entry)) {
-      entriesOut.push_back(entry);
-    } else {
-      // One corrupt line must not strand the rest of the backlog.
-      skipped++;
-    }
-  }
-  return true;
-}
-
-bool RetryQueue::writeAll(const std::vector<Entry>& entries) {
-  if (entries.empty()) {
-    count_ = 0;
-    return card_.removeFile(filePath_);
+  // Give up on anything that has been failing for longer than the cap. This is
+  // the only path that discards data, so the caller logs it at error level.
+  int64_t firstEpoch = 0;
+  if (maxAgeHours_ > 0 && parseIso(entry.firstUtc, firstEpoch) &&
+      nowEpoch - firstEpoch > static_cast<int64_t>(maxAgeHours_) * kSecondsPerHour) {
+    return Disposition::Abandon;
   }
 
-  std::string content;
-  for (std::size_t i = 0; i < entries.size(); ++i) {
-    const std::string line = encodeEntry(entries[i]);
-    if (line.empty()) {
-      continue;  // unencodable entry - dropping it beats corrupting the file
-    }
-    if (!content.empty()) {
-      content.push_back('\n');
-    }
-    content.append(line);
+  int64_t nextEpoch = 0;
+  const bool due = parseIso(entry.nextUtc, nextEpoch) && nowEpoch >= nextEpoch;
+  if (!due || takenSoFar >= maxCount) {
+    return Disposition::Keep;
   }
 
-  if (!card_.writeFile(filePath_, content)) {
-    return false;
-  }
-  count_ = entries.size();
-  return true;
+  // Handed to the caller, so it leaves the card. If it is rejected again the
+  // caller adds it back with a fresh schedule.
+  entry.attempts++;
+  entryOut = entry;
+  takenSoFar++;
+  return Disposition::Take;
 }
 
 bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
@@ -254,22 +239,16 @@ bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
     return false;
   }
 
-  // Trim the oldest when capped. Rewriting the whole file is acceptable here:
-  // rejections are rare compared with the live path, so this is not a hot loop.
+  // Trim the oldest when capped, then append - the same streaming shape as
+  // FixQueue::enqueue(). Reading the file in to rewrite it, as this used to do,
+  // meant the *fullest* the queue is ever allowed to get was also the moment it
+  // demanded the most heap: a guaranteed abort at the cap rather than a trim.
   if (maxEntries_ > 0 && count_ >= maxEntries_) {
-    std::vector<Entry> entries;
-    std::size_t        skipped = 0;
-    if (readAll(entries, skipped)) {
-      const std::size_t excess = entries.size() + 1 > maxEntries_
-                                     ? entries.size() + 1 - maxEntries_
-                                     : 0;
-      if (excess > 0 && excess <= entries.size()) {
-        ESP_LOGW(TAG, "retry file full - dropping %u oldest entr(ies)",
-                 (unsigned)excess);
-        entries.erase(entries.begin(), entries.begin() + excess);
-      }
-      entries.push_back(entry);
-      return writeAll(entries);
+    const std::size_t toDrop = count_ - maxEntries_ + 1;
+    if (card_.dropFirstLines(filePath_, toDrop)) {
+      count_ -= toDrop;
+      ESP_LOGW(TAG, "retry file full (%u) - dropped %u oldest entr(ies)",
+               (unsigned)maxEntries_, (unsigned)toDrop);
     }
   }
 
@@ -299,44 +278,41 @@ bool RetryQueue::takeDue(const std::string& nowUtc, std::size_t maxCount,
     return true;
   }
 
-  std::vector<Entry> entries;
-  std::size_t        skipped = 0;
-  if (!readAll(entries, skipped)) {
+  // -- Pass 1: decide, without touching the card. -----------------------------
+  // A read-only stream: one line resident at a time, and at most `maxCount`
+  // entries collected. Nothing here grows with the size of the file.
+  std::size_t taken       = 0;
+  std::size_t abandoned   = 0;
+  std::size_t undecodable = 0;
+  dueOut.reserve(maxCount);
+
+  const bool walked = card_.forEachLine(
+      filePath_, [&](const std::string& line) {
+        Entry entry;
+        switch (classify(line, nowEpoch, maxCount, taken, entry)) {
+          case Disposition::Take:
+            dueOut.push_back(entry);
+            break;
+          case Disposition::Abandon:
+            abandoned++;
+            break;
+          case Disposition::Undecodable:
+            undecodable++;
+            break;
+          case Disposition::Keep:
+            break;
+        }
+      });
+  if (!walked) {
+    dueOut.clear();
     return false;
   }
-  if (skipped > 0) {
-    ESP_LOGW(TAG, "skipped %u unreadable retry line(s)", (unsigned)skipped);
+
+  if (undecodable > 0) {
+    // Kept on the card deliberately - this is a warning, not a deletion.
+    ESP_LOGW(TAG, "%u unreadable retry line(s) left in place",
+             (unsigned)undecodable);
   }
-
-  const int64_t maxAgeSeconds =
-      static_cast<int64_t>(maxAgeHours_) * kSecondsPerHour;
-
-  std::vector<Entry> remaining;
-  remaining.reserve(entries.size());
-  std::size_t abandoned = 0;
-
-  for (Entry& entry : entries) {
-    // Give up on anything that has been failing for longer than the cap. This is
-    // the only path that discards data, so it is logged at error level.
-    int64_t firstEpoch = 0;
-    if (maxAgeHours_ > 0 && parseIso(entry.firstUtc, firstEpoch) &&
-        nowEpoch - firstEpoch > maxAgeSeconds) {
-      abandoned++;
-      continue;
-    }
-
-    int64_t nextEpoch = 0;
-    const bool due = parseIso(entry.nextUtc, nextEpoch) && nowEpoch >= nextEpoch;
-    if (due && dueOut.size() < maxCount) {
-      // Handed to the caller, so it leaves the card. If it is rejected again the
-      // caller adds it back with a fresh schedule.
-      entry.attempts++;
-      dueOut.push_back(entry);
-    } else {
-      remaining.push_back(entry);
-    }
-  }
-
   if (abandoned > 0) {
     ESP_LOGE(TAG,
              "giving up on %u fix(es) the API kept rejecting for over %uh.",
@@ -345,12 +321,36 @@ bool RetryQueue::takeDue(const std::string& nowUtc, std::size_t maxCount,
 
   // Only rewrite when something actually moved - the common cycle has nothing
   // due and should not touch the card at all.
-  if (dueOut.empty() && abandoned == 0 && skipped == 0) {
+  if (dueOut.empty() && abandoned == 0) {
     return true;
   }
-  if (!writeAll(remaining)) {
+
+  // -- Pass 2: rewrite, dropping exactly what pass 1 claimed. -----------------
+  // The same classifier over the same file with the same clock and a fresh
+  // counter reaches the same verdicts line for line, so nothing has to be
+  // remembered between the passes. Nothing else writes this file while we are in
+  // here - the whole flow is single-threaded through FixForwarder.
+  std::size_t retaken   = 0;
+  std::size_t survivors = 0;
+  const bool  rewritten = card_.rewriteLines(
+      filePath_,
+      [&](const std::string& line) {
+        Entry entry;
+        const Disposition verdict =
+            classify(line, nowEpoch, maxCount, retaken, entry);
+        // Undecodable lines survive; only what was claimed or aged out goes.
+        return verdict == Disposition::Keep ||
+               verdict == Disposition::Undecodable;
+      },
+      survivors);
+  if (!rewritten) {
+    // The entries are still on the card (rewriteLines leaves the original in
+    // place on failure), so we must not also hand them to the caller - that
+    // would publish them twice.
+    dueOut.clear();
     return false;
   }
+  count_ = survivors;
 
   if (!dueOut.empty()) {
     ESP_LOGI(TAG, "retrying %u previously rejected fix(es).",

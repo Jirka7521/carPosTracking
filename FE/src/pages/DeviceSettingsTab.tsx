@@ -7,18 +7,27 @@
 //      Device ID, registration date, status, last fix, the caller's own alias
 //      for the device, and their permission badges.
 //
-//   2. Firmware configuration (visible only if canModifySettings)
-//      Re-reads the provisioning block — topics, public key fingerprint and the
-//      Config.h snippet — so a tracker can be re-flashed without rotating its
-//      key pair. Loaded on demand rather than with the page: it is a rarely
-//      needed panel and there is no reason to fetch it for every visit.
+//   2. Reporting & Power  (visible only if canModifySettings)
+//      The remote settings the tracker actually runs on — reporting interval,
+//      deep sleep, GNSS lock timeout and what happens to undelivered fixes.
+//      Owned by DeviceConfigSection, which also shows whether the device has
+//      picked the latest change up yet. Unlike section 3 this loads with the
+//      page: it is the reason most people open this tab.
 //
-//   3. Access Management   (visible only if canShare OR canModifySettings)
+//   3. Firmware configuration (visible only if canModifySettings)
+//      Re-reads the provisioning payload — topics, key fingerprints and a
+//      complete, ready-to-flash Config.h — so a tracker can be re-flashed
+//      without rotating its receiver key pair, and a read-only table of every
+//      parameter the firmware is built with. Loaded on demand rather than with
+//      the page: it is a rarely needed panel and there is no reason to fetch it
+//      for every visit.
+//
+//   4. Access Management   (visible only if canShare OR canModifySettings)
 //      Shows who currently has access.  If the caller has canShare they can
 //      also invite new users and edit / revoke existing grants.
 //      If they only have canModifySettings they can view the list but not edit.
 //
-//   4. Danger Zone         (visible only if canDelete)
+//   5. Danger Zone         (visible only if canDelete)
 //      A confirmation-required button to soft-delete (deactivate) the device.
 //      After deletion the page shows a success banner and the device status
 //      is updated in the parent via reloadDevice().
@@ -33,6 +42,8 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
+import { DeviceConfigSection } from '../components/DeviceConfigSection'
+import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { SharedUserCard } from '../components/SharedUserCard'
@@ -488,7 +499,16 @@ export function DeviceSettingsTab() {
       </div>
 
       {/* ================================================================
-       * Section 2: Firmware configuration — visible if canModifySettings
+       * Section 2: Reporting & Power — visible if canModifySettings
+       *
+       * Self-contained: it loads its own state and owns its own form, so this
+       * page stays the composition it already was rather than growing a second
+       * set of loading/saving flags.
+       * ================================================================ */}
+      {perms.canModifySettings ? <DeviceConfigSection deviceId={device.deviceId} /> : null}
+
+      {/* ================================================================
+       * Section 3: Firmware configuration — visible if canModifySettings
        * ================================================================ */}
       {perms.canModifySettings ? (
         <div className="settings-section">
@@ -499,11 +519,11 @@ export function DeviceSettingsTab() {
 
           <div className="settings-section-body">
             <p>
-              The MQTT topics, broker URI and receiver public key this device was
-              provisioned with — everything needed to re-flash it. Re-reading
-              this is always safe: it re-renders the stored public key rather
-              than generating a new pair, so a device already in the field keeps
-              working.
+              A complete <code>Config.h</code> for this device — topics, broker
+              URI, receiver public key and its current settings — ready to save
+              and flash. Re-reading this is always safe: it re-renders the stored
+              public key rather than generating a new pair, so a device already in
+              the field keeps working.
             </p>
 
             {provisioningError ? (
@@ -520,14 +540,28 @@ export function DeviceSettingsTab() {
                 {isLoadingProvisioning ? 'Loading…' : 'Show firmware configuration'}
               </button>
             ) : (
-              <ProvisioningPanel provisioning={provisioning} />
+              <>
+                <ProvisioningPanel
+                  provisioning={provisioning}
+                  // Re-read after a key rotation so the fingerprint shown is the
+                  // one the server actually holds, not the one we just sent.
+                  onAckKeyActivated={() => void loadProvisioning()}
+                />
+
+                {/* Collapsed by default: it is a reference, not something you
+                    came here to do, and expanded it would dwarf the page. */}
+                <details className="firmware-parameters-details">
+                  <summary>All firmware parameters</summary>
+                  <FirmwareParameterTable provisioning={provisioning} />
+                </details>
+              </>
             )}
           </div>
         </div>
       ) : null}
 
       {/* ================================================================
-       * Section 3: Access Management — visible if canShare or canModifySettings
+       * Section 4: Access Management — visible if canShare or canModifySettings
        * ================================================================ */}
       {canViewAccess ? (
         <div className="settings-section">
@@ -627,7 +661,7 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 4: Danger Zone — visible only if canDelete
+       * Section 5: Danger Zone — visible only if canDelete
        * ================================================================ */}
       {perms.canDelete ? (
         <div className="settings-section settings-section--danger">

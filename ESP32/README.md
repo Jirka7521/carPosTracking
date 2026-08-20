@@ -19,8 +19,10 @@ reuse.
 
 - 📍 Read latitude, longitude, altitude, **speed** and **UTC time**.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
-- 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw instantaneous X/Y/Z
-  acceleration (in g) rides along with every position report.
+- 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw X/Y/Z acceleration
+  (in g) rides along with every position report — optionally as the **strongest
+  per-axis reading of the whole interval** rather than one instantaneous sample,
+  so braking and potholes between two reports are not missed.
 - 🔋 **Battery monitor**: pack state of charge from the modem's `AT+CBC`, mapped
   through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
   pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
@@ -40,9 +42,15 @@ reuse.
   and only ciphertext ever touches the card. The backlog goes out **as soon as
   the link is back, with or without a current position lock** — a car parked in
   a garage still empties its card.
-- ⚙️ **Remote settings over MQTT**: the reporting interval and a
-  power-down-between-reports flag are pushed from the broker on a config topic,
-  validated, and cached on the SD card so they survive a reboot with no network.
+- ⚙️ **Remote settings over MQTT**: the reporting interval, the
+  power-down-between-reports flag, the GNSS lock timeout, the undelivered-fix cap,
+  the retry policy and the settings re-check interval are all pushed from the
+  broker on a retained config topic, validated, clamped, and cached on the SD card
+  so they survive a reboot with no network. An **awake device applies a change
+  within a second** — it blocks on an event group that the arriving message itself
+  signals, so the responsiveness costs no extra power. Each document carries a
+  revision number the device echoes back in every report, so the dashboard can
+  tell a published change from an applied one.
 - 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
@@ -155,7 +163,7 @@ test:
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
 | `AckWatcher` | Collect the API's per-envelope verdicts; answer "was this fix actually stored?". |
-| `SdCard` | Mount/format the microSD (FAT) and read/append/trim/rewrite files. |
+| `SdCard` | Mount/format the microSD (FAT) and read/append/trim/filter files — every helper streams, one line at a time. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; flush the card as a burst whenever the link is up — no position lock needed. |
@@ -184,6 +192,22 @@ test:
 > [MQTT & end-to-end encryption](#mqtt--end-to-end-encryption) below). **Never
 > commit `Config.h`** — keep real secrets only in the untracked copy.
 
+> 💡 **Or let the dashboard write it for you.** A device's *Settings → Firmware
+> configuration* tab renders a **complete `Config.h`** for that tracker — its id,
+> topics, broker URI, receiver public key and current remote settings already
+> filled in — with fields for your WiFi/MQTT secrets and a button that mints the
+> delivery-ack key pair in your browser. Download it straight to
+> `src/config/Config.h` and run `pio run`; nothing needs merging by hand. The
+> secrets and the ack private key are spliced in locally and never reach the
+> server. The same tab also lists every constant below, read-only.
+>
+> **If you add, remove or rename a constant in `Config.example.h`, update the
+> API's copy of it** —
+> [`API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
+> — and the dashboard's reference table in `FE/src/utils/firmwareParameters.ts`.
+> The API cannot read this file (its Docker build context does not include
+> `ESP32/`), so a test there asserts the two agree and fails when they drift.
+
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 
 | Setting | Default | Meaning |
@@ -197,13 +221,15 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kEnableGps/Glonass/Beidou/Galileo` | all `true` | Constellations to use |
 | **`kGnssDebug`** | `true` | **Turn the serial debug report on/off** |
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
-| `kFixAcquireTimeoutSeconds` | `180` | Give up waiting for a fix after this long |
+| `kFixAcquireTimeoutSeconds` | `180` | **Default** for `fix_timeout_s` — give up waiting for a fix after this long |
 | `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
 | **`kAdxlEnabled`** | `true` | **Enable/disable the ADXL345 accelerometer** |
 | `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
+| **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
+| `kAccelSampleIntervalMs` | `1000` | How often the sensor is sampled while peak tracking is on |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
@@ -224,26 +250,32 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
+| `kDefaultConfigCheckSeconds` | `3600` | **Default** for `config_check_s` — awake-mode re-check interval |
+| `kMinConfigCheckSeconds` / `kMaxConfigCheckSeconds` | `60` / `86400` | Clamps on `config_check_s` |
 | `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
 | `kDeviceAckPrivateKeyPem` | — | **This device's RSA private key (secret)** — decrypts the acks |
 | `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
-| `kMinSendIntervalSeconds` | `5` | Lower clamp on a broker-supplied `interval_s` |
-| `kMaxSendIntervalSeconds` | `86400` | Upper clamp on a broker-supplied `interval_s` |
+| `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
+| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
+| `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` (~100 MB of envelopes at the ceiling) |
+| `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
+| `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |
 | **`kSdEnabled`** | `true` | **Enable/disable the microSD store-and-forward queue** |
 | `kSdSpiHost` | `SPI2_HOST` | SPI peripheral the card is wired to (HSPI) |
 | `kSdPinMiso/Mosi/Sclk/Cs` | `2/15/14/13` | T-SIM7000G microSD SPI pins |
 | `kSdMountPoint` | `/sdcard` | FAT mount point |
-| `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line) |
+| `kSdQueueFilePath` | `/sdcard/queue.jsonl` | Line-delimited queue file (one envelope per line); its head offset lives in the sibling `.idx` |
 | `kSdSettingsFilePath` | `/sdcard/settings.json` | Cached runtime settings (**plaintext**) |
-| `kSdMaxQueuedFixes` | `20000` | Cap on stored fixes; oldest are dropped past this |
-| `kSdMaxBurstFixes` | `40` | Max envelopes per burst message (RAM/MQTT safety bound) |
-| `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that didn't fully drain (an MQTT reconnect cancels it) |
+| `kSdMaxQueuedFixes` | `20000` | **Default** for `queue_max_fixes` — cap on stored fixes; oldest are dropped past this |
+| `kSdMaxBurstFixes` | `10` | Max envelopes per burst message (RAM/MQTT safety bound — see below) |
+| `kBacklogFlushRetryMs` | `600000` | Pause after a backlog flush that achieved **nothing** (an MQTT reconnect cancels it) |
+| `kBacklogFlushBudgetMs` | `30000` | How long one flush may keep draining before yielding to the poll loop; it resumes on the next poll |
 | `kSdRetryFilePath` | `/sdcard/retry.jsonl` | Fixes the API **rejected**, awaiting a scheduled retry |
-| `kRetryIntervalHours` | `24` | How long to wait between attempts on a rejected fix |
-| `kRetryMaxAgeHours` | `168` | Give up on a fix still refused after this long (`0` = never) |
+| `kRetryIntervalHours` | `24` | **Default** for `retry_interval_h` — wait between attempts on a rejected fix |
+| `kRetryMaxAgeHours` | `168` | **Default** for `retry_max_age_h` — give up on a fix still refused after this long (`0` = never) |
 | `kSdMaxRetryEntries` | `2000` | Cap on the retry file; oldest are dropped past this |
 | `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
 | `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
@@ -416,6 +448,33 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   would have been sent (`RSA-OAEP-SHA256 + AES-256-GCM`), one per line in
   `queue.jsonl`. A lost/stolen card therefore leaks nothing — the device holds
   only the public key and cannot even read back its own stored positions.
+- **Append-only, with a head offset.** `queue.jsonl` is never rewritten to remove
+  delivered entries. A sidecar, `queue.jsonl.idx`, records where the live region
+  starts:
+
+  ```
+  queue.jsonl      [xxxx delivered xxxx][ live entries ................. ]
+                                        ▲ head
+  queue.jsonl.idx  head=12800000 count=421337
+  ```
+
+  Popping a burst moves `head` forward and rewrites nothing, so a pop costs
+  *O(burst)* rather than *O(file)*. The dead prefix is reclaimed when the queue
+  drains completely (the file is simply deleted — the normal end of an outage) or,
+  failing that, by a compaction that only runs once the prefix is both over 32 MB
+  **and** more than half the file. That threshold is what keeps the total copying
+  across a whole drain linear overall instead of quadratic.
+
+  The previous design rewrote the entire file on every pop, so the cost of
+  draining a backlog grew with the square of its depth — which is what put a
+  practical ceiling on `queue_max_fixes`. See [`FixQueue`](src/sdcard/FixQueue.h)
+  and [`QueueIndex`](src/sdcard/QueueIndex.h).
+- **A missing or damaged index is safe.** The queue falls back to reading from
+  the top of the file and re-counting. That re-offers entries the API has already
+  stored, which costs airtime but never a duplicate row — the API dedupes on
+  `(device, fix time)`. The same property makes the crash window harmless: the
+  sidecar is written *after* the in-memory head moves, so a power cut re-delivers
+  rather than skips.
 - **Format only if needed.** The card is mounted with `format_if_mount_failed`,
   so a blank/corrupt card is formatted once, but an existing queue **survives
   reboots** (fixes saved before a power cut are recovered and sent on boot).
@@ -431,6 +490,38 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   `[env1,env2,…]`), so the subscriber always parses one shape. A long backlog is
   drained in several back-to-back bursts of up to `kSdMaxBurstFixes` so the
   array and MQTT buffer stay within this board's (PSRAM-less) RAM.
+- **The burst size is a memory budget, not a throughput knob.** One envelope is
+  ~1 KB — over half of it the base64 RSA-3072-wrapped AES key, which every
+  envelope carries separately — and a burst of *N* is held **three times over**
+  at the moment of publish: the batch read off the card (kept alive so rejected
+  fixes can be parked for retry), the joined JSON array (one *contiguous*
+  allocation), and esp-mqtt's outbox copy (also contiguous, because QoS 2 must be
+  re-sendable until PUBCOMP). Add the mbedTLS session buffers (~20 KB) and the
+  WebSocket buffer, all in the same internal DRAM. At `40` that reached ~117 KB
+  per burst and the outbox's ~39 KB contiguous request began failing outright
+  (`outbox_enqueue: Memory exhausted`) once the heap was fragmented; `10` keeps
+  the peak near 30 KB. Raising it costs no throughput worth measuring in return —
+  bursts already fire back-to-back within `kBacklogFlushBudgetMs`, and each one
+  is dominated by the broker and API ack waits, not by its size.
+- **A refused publish reports why.** `MqttClient` bounds esp-mqtt's outbox
+  (`outbox.limit`) so an oversized publish is refused cleanly instead of failing
+  a raw allocation deep inside the client, and logs the payload size, the free
+  heap **and the largest free block** — the pair that tells memory exhaustion
+  apart from fragmentation.
+- **A failed drain does not drag the retry queue down with it.** When a drain
+  stops on a transport or card error, the retry drain is skipped: it would fail
+  identically, and `takeDue()` lifts entries *off* the card before publishing and
+  rewrites every one of them back on failure — a full rewrite of the retry file
+  bought for nothing.
+- **No card file is ever held in RAM.** Every `SdCard` helper streams — including
+  `rewriteLines()`/`forEachLine()`, which `RetryQueue` walks its schedule with —
+  so memory scales with one **line** and one **burst**, never with the backlog.
+  This is load-bearing, not tidiness: the retry queue used to read and rebuild
+  its whole file as a single `std::string`, and since `CONFIG_COMPILER_CXX_EXCEPTIONS`
+  is off, the failed allocation aborted the device rather than throwing. It fired
+  right after a long backlog drain, which is precisely when the heap is most
+  fragmented *and* the retry file most likely to be busy. See
+  [`RetryQueue.h`](src/sdcard/RetryQueue.h).
 - **Sending does not need a position lock.** `FixForwarder::flushBacklog()` is
   called at the top of every cycle *and* after every GNSS poll (each
   `kFixPollStepMs`) while waiting for a fix, so a queued backlog leaves within
@@ -438,10 +529,26 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   (parked in a garage, antenna unplugged). Without this a fixless cycle could
   never touch the card, and a car left indoors would sit on its backlog
   indefinitely. The call costs two in-memory comparisons when there is nothing
-  queued or the broker is unreachable, so polling it is free on the healthy
-  path; after an attempt that leaves work behind it waits `kBacklogFlushRetryMs`
-  (an MQTT reconnect cancels that wait, since a reconnect is exactly the event
-  worth retrying on).
+  queued or the broker is unreachable, so polling it is free on the healthy path.
+- **A fixless flush drains the *whole* backlog, not one burst.** Flushes are
+  paced on what an attempt **achieved**, never on whether it finished. An attempt
+  that moved data off the card — or that simply spent its `kBacklogFlushBudgetMs`
+  budget mid-drain — is repeated on the very next poll, so however deep the queue
+  is it empties in back-to-back bursts a couple of seconds apart. Only an attempt
+  that achieved *nothing* waits out `kBacklogFlushRetryMs`: a dead link, an
+  unreadable card, or an API that has stopped answering (and that last one gets a
+  few prompt retries first, because a verdict which merely arrived late is
+  already held by the `AckWatcher` and clears the burst on the next try). An MQTT
+  reconnect cancels the wait either way, since a reconnect is exactly the event
+  worth retrying on. The reporting-cycle path (`process()`) is paced by the same
+  rule and the same budget — previously it drained unbounded and ignored the
+  pause entirely, which meant a link that could not take a burst was re-offered
+  the identical burst once per cycle regardless.
+- **The budget is why one flush cannot hog the loop.** A full 20 000-fix queue is
+  500 bursts, i.e. minutes of publishing and ack-waiting. `kBacklogFlushBudgetMs`
+  caps how long one call keeps going before it hands the CPU back to the GNSS
+  poll and the remote-settings poll; the next call resumes exactly where it
+  stopped, since everything confirmed has already left the card.
 - **The clock caveat.** The GNSS UTC time is the device's only wall clock, and
   the `RetryQueue` schedule is measured in it. The modem reports that time as
   soon as it decodes any satellite — well before it can compute a position — so
@@ -542,6 +649,15 @@ The schedule is measured in **GNSS UTC time** — the only trustworthy wall cloc
 here, since `esp_timer` restarts across the deep-sleep reboot and there is no RTC
 battery. A cycle with no valid GNSS time simply treats nothing as due.
 
+A line that cannot be parsed is **kept**, counted and logged — never discarded.
+cJSON returns the same `nullptr` for "malformed" as for "could not allocate", so
+a line that fails to parse while memory is tight is most likely a perfectly good
+fix; deleting it would be silent data loss, while keeping it costs a few hundred
+bytes on a card with gigabytes. The `kSdMaxRetryEntries` cap is what eventually
+clears them. Walking the file therefore takes two streaming passes — one to
+decide, one to rewrite — and the second is skipped entirely when nothing came
+due, which is the common cycle.
+
 Set `kAckEnabled = false` to restore the old behaviour exactly: the broker ack
 becomes the only confirmation, and nothing is written to `retry.jsonl`.
 
@@ -549,27 +665,65 @@ becomes the only confirmation, and nothing is written to `retry.jsonl`.
 
 ## Remote settings (broker → device)
 
-Two things about the device are tunable at runtime, from the broker, without a
-reflash: **how often it reports a position**, and **whether it powers itself down
-in between**. The device subscribes to `kConfigTopic`
-(`devices/GNSS01/config`) and expects a small **plaintext** JSON document:
+Seven things about the device are tunable at runtime, from the broker, without a
+reflash: **how often it reports**, **whether it sleeps in between**, **how long it
+chases a GNSS lock**, **how many undelivered fixes it keeps**, the two knobs of its
+**rejected-fix retry policy**, and **how often it re-checks for its own settings**.
+The device subscribes to `kConfigTopic` (`devices/GNSS01/config`) and expects a
+small **plaintext** JSON document:
 
 ```json
-{ "interval_s": 60, "sleep_between": true }
+{
+  "version": 7,
+  "interval_s": 60,
+  "sleep_between": true,
+  "fix_timeout_s": 180,
+  "queue_max_fixes": 20000,
+  "retry_interval_h": 24,
+  "retry_max_age_h": 168,
+  "config_check_s": 3600
+}
 ```
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `interval_s` | number | Seconds between position reports. Clamped to `[kMinSendIntervalSeconds, kMaxSendIntervalSeconds]`. |
-| `sleep_between` | boolean | Power the modem down and deep-sleep the ESP32 between reports. |
+| Field | Type | Meaning | Clamped to |
+|-------|------|---------|------------|
+| `version` | number | Server-assigned revision of this document. Not a setting — the device echoes it back in every report as `settings_version`, which is how the dashboard tells "published" from "actually running". | — |
+| `interval_s` | number | Seconds between position reports. | `[kMinSendIntervalSeconds, kMaxSendIntervalSeconds]` |
+| `sleep_between` | boolean | Power the modem down and deep-sleep the ESP32 between reports. | — |
+| `fix_timeout_s` | number | How long to keep asking for a position before giving up on the cycle. | `[kMinFixTimeoutSeconds, kMaxFixTimeoutSeconds]` |
+| `queue_max_fixes` | number | How many undelivered fixes the SD queue may hold before the oldest are dropped. | `[kMinQueueMaxFixes, kMaxQueueMaxFixes]` |
+| `retry_interval_h` | number | Hours between attempts on a fix the API rejected. | `[kMinRetryIntervalHours, kMaxRetryIntervalHours]` |
+| `retry_max_age_h` | number | Give up on a still-rejected fix after this long; `0` = never. | `[0, kMaxRetryMaxAgeHours]` |
+| `config_check_s` | number | How often an **awake** device asks the broker to re-send this document. A backstop only — see [Staying in step](#staying-in-step). Ignored while `sleep_between` is on. | `[kMinConfigCheckSeconds, kMaxConfigCheckSeconds]` |
 
-Either field may be omitted; what is absent is simply left as it was.
+Any field may be omitted; what is absent is simply left as it was. That merge
+behaviour is what keeps this firmware compatible with an older publisher that
+only knows `interval_s` and `sleep_between`.
+
+**Out-of-range values are clamped, never rejected** — a tracker in a field has
+nobody to ask, and must keep reporting whatever nonsense it is handed. The API
+enforces the same numbers by answering **400** instead, because a person at a
+dashboard *can* be told to fix their input. If you change a bound in `Config.h`,
+change it in the API's `DeviceConfigRules` too.
+
+`queue_max_fixes` is a **count rather than a duration** on purpose: a queued line
+is a bare encrypted envelope with no plaintext timestamp to age it by, and adding
+one would write fix times in the clear onto a card that today leaks nothing. One
+fix is queued per reporting cycle, so the dashboard converts the count into an
+approximate span ("≈ 13.9 days at a 60 s interval") for the reader.
+
+### Normally you do not publish this by hand
+
+The dashboard owns these settings: the API stores every revision, publishes the
+document retained, and shows whether the device has picked it up. See
+[`../API/CarPosAPI/README.md`](../API/CarPosAPI/README.md). The command below is
+for bench work and debugging.
 
 ### ⚠️ Publish it **retained**
 
 ```bash
 mosquitto_pub -h jimajer.cz -t 'devices/GNSS01/config' -r \
-              -m '{"interval_s":60,"sleep_between":true}'
+              -m '{"version":7,"interval_s":60,"sleep_between":true}'
 ```
 
 The `-r` (retain) flag is **not optional in practice**. With `sleep_between` on,
@@ -598,6 +752,61 @@ briefly for the broker. Anything that arrives is validated, clamped, adopted, an
 — only if it actually differs from what was already in force — written back to
 the card. That cache is what lets a device that boots in a tunnel still know it
 is meant to be sleeping.
+
+### Staying in step
+
+There is **one subscription** and **three ways** a document arrives through it.
+All three end in `RemoteSettings::poll()` on the application task, so there is
+exactly one parse → clamp → adopt → write-to-card path however the bytes got here.
+
+| Path | When it fires | Latency |
+|------|---------------|---------|
+| **Push** — the broker delivers a live publish on the open subscription | the device is awake and connected when someone saves | **under a second** |
+| **Retained replay on connect** — the broker re-sends the retained document on every SUBSCRIBE | cold boot, deep-sleep wake, reconnect after an outage | immediate on connect |
+| **Periodic re-check** (`config_check_s`) — the device re-subscribes on purpose | every `config_check_s` while awake | ≤ `config_check_s` |
+
+Push is the normal case and needs nothing from the device — it is already
+subscribed. The retained replay is what covers a device that was **offline when
+the change was saved**: nothing is lost, because the API publishes with the retain
+flag and the broker holds the document indefinitely. `MqttClient` re-issues every
+remembered subscription on each `MQTT_EVENT_CONNECTED`, which is required anyway
+because the session is clean and the broker forgets us on every disconnect.
+
+`RemoteSettings::resyncIfDue` is the third path, and it exists for one failure
+mode: a live publish only reaches us over a connection that is genuinely alive,
+and a half-open socket looks connected while delivering nothing. It is a **plain
+re-SUBSCRIBE**, not an unsubscribe/subscribe pair — MQTT 3.1.1 §3.8.4 requires a
+repeat SUBSCRIBE on an identical filter to re-send matching retained messages
+*without* interrupting the flow of publications (`[MQTT-3.8.4-3]`), so it costs one
+packet and has no window in which a live config could slip past.
+
+**How the wait is structured, and why it is free.** Between reports the
+application task blocks in `waitForUpdate`, which waits on a FreeRTOS event group
+that `onMessage` signals from the esp-mqtt event task. A blocked task is a blocked
+task — the same tickless idle and the same current draw as the plain delay it
+replaces — but this one is also woken the instant a config lands. The wait is cut
+into chunks of at most `config_check_s` purely so the re-check still happens on a
+device whose reporting interval is hours long; each chunk boundary is one wake-up
+and one SUBSCRIBE, and that is the whole ongoing cost.
+
+Adopting a config mid-wait **re-times the cadence without disturbing it**: the
+remaining time is recomputed from the fix that anchored the interval, so shortening
+`interval_s` past what has already elapsed sends the next report at once, and
+lengthening it simply extends the wait. No extra GNSS acquire, no extra airtime.
+Switching `sleep_between` on mid-wait ends the wait immediately, so the device
+sleeps promptly instead of staying awake for what could be another 24 hours.
+
+**With `sleep_between` on none of this runs** — the radio and the CPU are off, so
+there is nothing to push to and nothing to poll. Such a device gets its
+configuration through the retained replay on every wake, which is why
+`config_check_s` is documented as awake-mode-only.
+
+In the other direction, every position report carries `settings_version`. The API
+records it against the device row, so the dashboard can show whether a change it
+published has actually been adopted — and, because the API keeps every revision,
+*which* values the tracker is running while a newer one waits. The version is
+stamped when the fix is **captured**, not when it is published, so a backlog
+drained days later honestly reports the settings it was taken under.
 
 ---
 
@@ -780,6 +989,54 @@ so the log diagnoses itself rather than leaving you to interpret dB-Hz.
 
 ---
 
+## Peak accelerometer readings
+
+The normal report carries **one instantaneous** accelerometer triple per cycle —
+at the default 60 s interval, one sample a minute. That says almost nothing about
+what the car did: braking, cornering and potholes all happen *between* two
+reports and are simply never seen.
+
+Set **`kAccelPeakEnabled = true`** and
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) starts a small background
+task that samples the sensor every `kAccelSampleIntervalMs` (default 1000 ms) and
+keeps a running **per-axis maximum**. The ordinary report then carries that
+maximum instead of a live reading, and the window restarts:
+
+```
+      report                                                  report
+         │                                                       │
+         │ * * * * * * * * * * * * * * * * * * * * * * * * * * * │
+         │ each sample folded into the running max               │
+         └───────────────────────────────────────────────────────┘
+                       takePeak() → the report, window reset
+```
+
+**Nothing extra is published and nothing extra is queued** — it is the same one
+report per `interval_s` as always, and the payload format is unchanged. Memory is
+**O(1)**: one sample is kept, never a list, so the interval can be arbitrarily
+long. The very first report after boot falls back to a live reading, since no
+window has closed yet.
+
+### Three things to know before you trust the numbers
+
+| | |
+|---|---|
+| **The triple is a composite** | The three axes are tracked *independently*, so the reported X, Y and Z can come from three different moments — it is not a reading that ever occurred. The dashboard derives a magnitude as √(x²+y²+z²) from these, so **that line reads higher than any real sample**. Tracking the largest \|a\| and keeping that whole sample is the alternative; it was considered and not chosen |
+| **Peaks clip at ±2 g** | The driver runs the sensor in its ±2 g range. Braking (~0.8 g) and cornering (~0.5 g) are comfortably inside; a sharp pothole saturates |
+| **1000 ms under-samples badly** | The ADXL345 free-runs at 100 Hz, so a 1 s poll sees **one sample in a hundred** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else |
+
+`sleep_between` narrows what this can see: the chip is powered down between
+reports, so the sampling task only covers the awake part of each cycle. The
+firmware logs that once rather than overriding the server's setting.
+
+Sharing the sensor with the main loop's `kGnssDebug` console block means two
+tasks call `Adxl345::read()`, so that method takes a mutex (via
+[`ScopedLock`](src/util/ScopedLock.h)); the accumulator inside the tracker takes
+another. Nothing else in the firmware became concurrent — the delivery path is
+still driven entirely from the main task.
+
+---
+
 ## Build & flash
 
 ```bash
@@ -827,6 +1084,10 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) runs on its own task, but it
+only does one I2C read and three comparisons per tick — no crypto, no files — so
+2 KB is plenty there. That task only exists while `kAccelPeakEnabled` is on.
+
 ### Long filenames on the SD card
 
 ```
@@ -836,9 +1097,10 @@ CONFIG_FATFS_MAX_LFN=255
 
 FatFs ships with long-filename support **off**, which limits the card to classic
 **8.3** names. Every file this firmware uses breaks that rule —
-`queue.jsonl` (5-char extension), `settings.json` (4-char), and the sibling
-`.tmp` files [`SdCard`](src/sdcard/SdCard.h) stages writes through
-(`queue.jsonl.tmp` — two dots). With LFN off the card mounts perfectly and then
+`queue.jsonl` (5-char extension), `settings.json` (4-char), the queue's head-offset
+sidecar `queue.jsonl.idx` (two dots), and the sibling `.tmp` files
+[`SdCard`](src/sdcard/SdCard.h) stages writes through (`queue.jsonl.tmp` — two
+dots again). With LFN off the card mounts perfectly and then
 every `fopen()` fails with `ENOENT`, because FatFs rejects the *name*, not the
 card:
 

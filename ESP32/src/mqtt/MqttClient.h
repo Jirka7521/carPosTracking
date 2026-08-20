@@ -20,6 +20,7 @@
 //  so the broker itself never sees the position data.
 // =============================================================================
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -75,6 +76,11 @@ class MqttClient {
   // Subscriptions accumulate - the firmware needs two (the retained config and
   // the delivery acks). Subscribing to a topic already remembered updates its
   // QoS rather than adding a duplicate.
+  //
+  // Re-subscribing to a topic already subscribed is also how the firmware asks
+  // the broker to re-send a retained message: the spec requires a repeat
+  // SUBSCRIBE to replace the subscription and re-send matching retained
+  // messages, without interrupting delivery. See RemoteSettings::resyncIfDue.
   bool subscribe(const char* topic, int qos);
 
   // Publish `payload` to `topic` at QoS 2. Returns true if the message was
@@ -101,6 +107,12 @@ class MqttClient {
   // is delivered in several events, and only the first carries the topic - so we
   // stitch the pieces together and dispatch once the last one lands.
   void handleData(const esp_mqtt_event_t& event);
+
+  // Log a refused publish together with the heap figures that explain it. A
+  // rejected enqueue is nearly always a memory problem, and "free heap" on its
+  // own does not distinguish exhaustion from fragmentation - so the largest
+  // contiguous free block is reported alongside it.
+  static void logPublishFailure(const char* what, std::size_t payloadBytes);
 
   const char* uri_;
   const char* username_;

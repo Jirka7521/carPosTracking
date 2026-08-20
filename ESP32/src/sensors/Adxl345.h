@@ -19,12 +19,20 @@
 //  For now this class also owns the I2C *bus*, since the ADXL345 is the only
 //  device on it. If a second I2C peripheral is ever added, lift the bus creation
 //  out into a small shared I2cBus class and pass the handle in.
+//
+//  Thread safety: read() is safe to call from several tasks - the main loop
+//  samples it while AccelPeakTracker samples it on its own cadence, and two
+//  overlapping transactions on one I2C device handle would interleave.
+//  begin() is deliberately NOT locked: it runs once at start-up, before any
+//  other task exists.
 // =============================================================================
 
 #include <cstddef>
 #include <cstdint>
 
 #include "driver/i2c_master.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sensors/AccelData.h"
 
 class Adxl345 {
@@ -59,4 +67,9 @@ class Adxl345 {
   i2c_master_bus_handle_t bus_   = nullptr;
   i2c_master_dev_handle_t dev_   = nullptr;
   bool                    ready_ = false;
+
+  // Serialises read(); created by begin(). Null when the sensor never came up,
+  // which is harmless - ScopedLock ignores a null handle and read() bails on
+  // ready_ anyway.
+  SemaphoreHandle_t lock_ = nullptr;
 };

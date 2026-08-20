@@ -128,7 +128,8 @@ FE/
 │   │   ├── SessionLoading.tsx     Spinner shown while the session probe runs
 │   │   ├── DeviceMap.tsx          Google Maps component with position markers
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit in the selection
-│   │   ├── ProvisioningPanel.tsx  Firmware topics, key fingerprint, Config.h snippet
+│   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
+│   │   ├── FirmwareParameterTable.tsx  Read-only reference of every firmware parameter
 │   │   ├── PermissionBadges.tsx   Badge row showing canRead/canDelete/canShare/canModifySettings
 │   │   ├── BatteryBadge.tsx       Battery level pill (⚡ when charging; 0 = charging sentinel)
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
@@ -154,6 +155,10 @@ FE/
 │       ├── dates.ts               Date/time formatting helpers
 │       ├── devices.ts             Device label fallback (customName → displayName → deviceId)
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
+│       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
+│       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
+│       ├── firmwareParameters.ts  Static table of every Config.h constant, for the reference panel
+│       ├── downloadTextFile.ts    Blob download helper (used for Config.h)
 │       └── errors.ts              describeError() helper over ApiError
 ├── Dockerfile                     Multi-stage build → nginx
 ├── nginx.conf                     SPA serving + /api proxy + caching
@@ -186,9 +191,25 @@ FE/
 
 ## Registering a device
 
-`POST /api/devices` does more than create a row: the API generates the device's RSA-3072 key pair, stores the private half encrypted at rest, and returns the public half with a paste-ready `Config.h` block. The Home page shows that block in a `ProvisioningPanel` immediately after registration, and the device's Settings tab can re-read it later (`GET /api/devices/{deviceId}/provisioning`, requires `canModifySettings`).
+`POST /api/devices` does more than create a row: the API generates the device's RSA-3072 key pair, stores the private half encrypted at rest, and returns the public half inside a **complete `Config.h`** — the firmware's own template with this device's id, topics, broker URI, key and current settings already substituted in. The Home page shows it in a `ProvisioningPanel` immediately after registration, and the device's Settings tab can re-read it later (`GET /api/devices/{deviceId}/provisioning`, requires `canModifySettings`). Save it as `ESP32/src/config/Config.h` and build; there is nothing left to merge by hand.
 
-**The private key never leaves the server** — not in that response, not on any endpoint. That is what stops the broker, or anyone who steals the tracker, from reading positions.
+**The receiver private key never leaves the server** — not in that response, not on any endpoint. That is what stops the broker, or anyone who steals the tracker, from reading positions.
+
+### Secrets are filled in by the browser, not the server
+
+The API renders four constants empty on purpose, and `ProvisioningPanel` fills them in locally from its own form: `kWifiSsid`, `kWifiPassword`, `kMqttPassword` and `kDeviceAckPrivateKeyPem`. The substitution lives in [`utils/configSecrets.ts`](src/utils/configSecrets.ts) — pure functions over the file text, so **none of those values is ever sent anywhere**, stored, or kept across a reload. Typing an SSID also flips `kWifiEnabled` on, which the API leaves off precisely because a station with no credentials burns a full connect timeout on every boot.
+
+### Rotating the delivery-ack key
+
+Acks invert the key roles: the API encrypts and the *device* decrypts, so the device owns the private half and the server may hold only the public one. [`utils/ackKeyPair.ts`](src/utils/ackKeyPair.ts) generates the pair with WebCrypto (RSA-3072, PKCS#8 + SPKI — byte-compatible with `openssl genpkey` and with what the firmware's mbedTLS parses), which is what keeps that true from a dashboard at all.
+
+The order of the flow is a safety property, not a formality:
+
+1. **Generate** — the pair exists only in the page.
+2. **Download or copy** the `Config.h`, which now carries the private key.
+3. **Activate** — only then is the public half `POST`ed to `/api/devices/{deviceId}/ack-key`.
+
+The activate button stays disabled until step 2 has happened. If the key were stored first and the file were then lost, the device would be left with a server-side key whose private half exists nowhere, and every fix would sit waiting out the ack timeout with nothing to explain why. Abandoning the flow before step 3 costs one regeneration and changes nothing on the server.
 
 Device ids match `^[A-Za-z0-9_-]{1,64}$`. The frontend checks that as a hint; the server enforces it as a security control, because the id is interpolated into MQTT topics and must not be able to smuggle in a separator or a wildcard.
 

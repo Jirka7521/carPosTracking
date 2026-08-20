@@ -17,6 +17,14 @@ namespace CarPosAPI.Services.Ingest;
 /// <param name="AccelYG">Y-axis acceleration in g within [-16, 16], or null when absent.</param>
 /// <param name="AccelZG">Z-axis acceleration in g within [-16, 16], or null when absent.</param>
 /// <param name="TemperatureC">Modem die temperature in °C within [-40, 125], or null when absent.</param>
+/// <param name="SettingsVersion">
+/// Settings revision the device was running when it took this fix, or null when it
+/// sent none. Unlike every other member this is not a column of <c>positions</c>:
+/// <see cref="PositionWriter"/> uses it to advance the <em>device</em> row's applied
+/// version, and only from the newest fix in a batch. It is carried here rather than
+/// beside the batch because a backlog drain mixes fixes taken under different
+/// revisions, so the value only means anything attached to its own fix time.
+/// </param>
 internal sealed record ValidatedPosition(
     string DeviceId,
     DateTime FixTimeUtc,
@@ -28,4 +36,5 @@ internal sealed record ValidatedPosition(
     double? AccelXG,
     double? AccelYG,
     double? AccelZG,
-    double? TemperatureC);
+    double? TemperatureC,
+    int? SettingsVersion);

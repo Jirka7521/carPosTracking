@@ -1,6 +1,7 @@
 #include "sensors/Adxl345.h"
 
 #include "esp_log.h"
+#include "util/ScopedLock.h"
 
 static const char* TAG = "Adxl345";
 
@@ -75,6 +76,15 @@ bool Adxl345::begin() {
     return false;
   }
 
+  // 5. Arm the read lock. Created last, so it only exists on a sensor that is
+  //    actually usable. A failure here is not fatal: read() still works, just
+  //    without serialisation, which is no worse than before this class had a
+  //    second caller.
+  lock_ = xSemaphoreCreateMutex();
+  if (lock_ == nullptr) {
+    ESP_LOGW(TAG, "could not create the ADXL345 read lock - reads unserialised");
+  }
+
   ready_ = true;
   ESP_LOGI(TAG, "ADXL345 ready on SDA=%d SCL=%d addr=0x%02X", sdaPin_, sclPin_,
            address_);
@@ -86,6 +96,10 @@ bool Adxl345::read(AccelSample& out) {
   if (!ready_) {
     return false;
   }
+
+  // One transaction at a time: the main loop and the debug stream both sample
+  // this device, and the I2C driver makes no ordering promise across tasks.
+  ScopedLock guard(lock_);
 
   // Six consecutive registers hold X0,X1,Y0,Y1,Z0,Z1 (little-endian per axis).
   uint8_t raw[6] = {0};

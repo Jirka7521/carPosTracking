@@ -783,6 +783,147 @@
   margin-bottom: 18px;
 }
 
+/* ---- CSV export control ----
+ * A quiet text button in the range toolbar that opens a small menu asking which
+ * column separator to write. It is deliberately the lightest thing in that bar:
+ * the range pickers are used every visit, this is used occasionally.
+ */
+.export-menu {
+  position: relative;
+  align-self: flex-end;
+}
+
+.export-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: transparent;
+  /* Transparent rather than absent so the button does not shift by a pixel
+     when the border appears on hover. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Held open looks the same as hovered — the menu below is the state, and the
+   trigger should read as its handle for as long as it is showing. */
+.export-trigger:hover:not(:disabled),
+.export-trigger[aria-expanded='true'] {
+  background: var(--accent-bg);
+  border-color: var(--blue-200);
+  color: var(--accent);
+}
+
+.export-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.export-trigger:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.export-trigger-icon {
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+
+/* The popover. Right-aligned because the control sits at the end of the
+   toolbar, where a left-aligned panel would hang off the page. */
+.export-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 224px;
+  padding: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  animation: export-menu-in 0.12s ease-out;
+}
+
+@keyframes export-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.export-menu-heading {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Three columns: the tick, the name, and the character itself. The hint sits
+   under the name on a second row, in the same column. */
+.export-menu-item {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu-item:hover {
+  background: var(--accent-bg);
+}
+
+.export-menu-item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.export-menu-check {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  line-height: 1;
+}
+
+.export-menu-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+/* The separator character, shown as it will appear in the file */
+.export-menu-sample {
+  padding: 1px 7px;
+  background: var(--gray-100);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.export-menu-item:hover .export-menu-sample {
+  background: #fff;
+}
+
+.export-menu-hint {
+  grid-column: 2 / 4;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 /* Overflow wrapper so the table scrolls horizontally on small screens */
 .position-table-wrapper {
   overflow-x: auto;
@@ -812,6 +953,49 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   white-space: nowrap;
+}
+
+/* Sort control filling a header cell. A <button> inherits none of the header's
+   typography, so every bit of it has to be handed back explicitly — the goal is a
+   control that is invisible as one until it is hovered or focused. */
+.position-table th .th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* White-on-dark-blue, so an underline reads more clearly than a background tint */
+.position-table th .th-sort:hover {
+  text-decoration: underline;
+}
+
+.position-table th .th-sort:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Direction glyph. Fixed width so the header does not shift as ↕ / ▲ / ▼ swap. */
+.th-sort-icon {
+  display: inline-block;
+  width: 0.75em;
+  font-size: 0.7em;
+  opacity: 0.45;
+}
+
+.th-sort-icon--active {
+  opacity: 1;
 }
 
 .position-table td {
@@ -1636,6 +1820,153 @@
   color: var(--text);
 }
 
+/* The two blocks the operator fills in before saving the file: their own
+   secrets, and the ack key pair. Set apart from the rendered file because they
+   are the only interactive part of an otherwise read-only panel. */
+.config-secrets {
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.config-secrets h4 {
+  margin: 0 0 6px;
+  font-size: 0.9375rem;
+}
+
+.config-secrets .checkbox-field {
+  margin-top: 10px;
+}
+
+/* The warning banner's checklist of what is still outstanding after a key has
+   been generated. Numbered because the order is the whole safety property. */
+.config-secrets ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.config-secrets ol li {
+  margin-bottom: 4px;
+}
+
+/* ---------------------------------------------------------------
+ *  Firmware parameter reference — read-only, collapsed by default.
+ * --------------------------------------------------------------- */
+
+.firmware-parameters-details {
+  margin-top: 16px;
+}
+
+.firmware-parameters-details > summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.firmware-parameter-group {
+  margin-bottom: 20px;
+}
+
+.firmware-parameter-group h5 {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Scrolls itself rather than the page: some constant names and values are long,
+   and on a phone the table would otherwise push the layout sideways. */
+.firmware-table-scroll {
+  overflow-x: auto;
+}
+
+.firmware-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.firmware-table th,
+.firmware-table td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.firmware-table thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.firmware-table tbody th {
+  font-weight: 500;
+}
+
+.firmware-table code {
+  font-family: monospace;
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.param-value {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+
+/* Why a value is what it is, in one word. The colours only reinforce the label,
+   never replace it — the text alone has to carry the meaning. */
+.param-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.param-badge--device {
+  background: var(--primary-light, #e3f0ff);
+  color: var(--primary-dark, #10457f);
+}
+
+.param-badge--secret {
+  background: var(--warning-light, #fdf0d5);
+  color: var(--warning-dark, #7a5200);
+}
+
+.param-badge--remote {
+  background: var(--success-light, #e0f3e6);
+  color: var(--success-dark, #1c6b35);
+}
+
+.param-badge--fixed {
+  background: var(--surface-alt, #eef0f3);
+  color: var(--text-muted);
+}
+
+.firmware-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.firmware-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* One "share with…" row inside the add-device form */
 .share-draft-list {
   margin-top: 16px;
@@ -1681,4 +2012,288 @@
   color: var(--text-muted, #5A6A7A);
   margin-top: 6px;
   font-size: 12px;
+}
+
+
+/* ---------------------------------------------------------------
+ *  Remote device settings (DeviceConfigSection and friends)
+ *
+ *  Three visual states, deliberately distinct because they mean very
+ *  different things to the reader:
+ *    synced  (--success) the tracker confirmed these values
+ *    pending (--warning) published, waiting for the device to wake
+ *    unknown (--gray)    the device has never told us anything
+ *
+ *  Colour is never the only cue: every state also carries its own text,
+ *  and the pipeline diagram gives the pending node a hollow shape.
+ * --------------------------------------------------------------- */
+
+/* ---- The Dashboard -> Broker -> Device diagram ---- */
+
+.config-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--gray-50);
+}
+
+.config-pipeline--synced  { border-left-color: var(--success); background: var(--success-bg); }
+.config-pipeline--pending { border-left-color: var(--warning); background: var(--warning-bg); }
+
+.config-pipeline-diagram {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.config-pipeline-link {
+  stroke: var(--gray-400);
+  stroke-width: 2;
+}
+
+/* Dashed reads as "in transit" without needing a colour to say so. */
+.config-pipeline-link--waiting {
+  stroke-dasharray: 5 4;
+}
+
+.config-pipeline-node {
+  stroke-width: 2;
+}
+
+.config-pipeline-node--done {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.config-pipeline--synced .config-pipeline-node--done {
+  fill: var(--success);
+  stroke: var(--success);
+}
+
+/* Hollow: the second, non-colour cue for the hop that has not happened. */
+.config-pipeline-node--open {
+  fill: var(--bg);
+  stroke: var(--gray-400);
+}
+
+.config-pipeline--pending .config-pipeline-node--open {
+  stroke: var(--warning);
+}
+
+.config-pipeline-node--waiting {
+  animation: config-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes config-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.config-pipeline-label {
+  fill: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 11px;
+}
+
+.config-pipeline-status {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.config-pipeline-summary {
+  color: var(--text-h);
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+/* ---- State badge, reused by the history rows ---- */
+
+.config-sync-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-300);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.config-sync-badge--synced {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.config-sync-badge--pending {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* ---- "Running now" vs "will become" table ---- */
+
+.config-compare {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.config-compare-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.config-compare-title {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+/* Own scroll container: the three columns must never push the page sideways. */
+.config-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.config-compare-table th,
+.config-compare-table td {
+  padding: 5px 10px 5px 0;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.config-compare-table thead th {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.config-compare-table tbody th {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.config-compare-from {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.config-compare-to {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+/* ---- The form itself ---- */
+
+.config-fieldset {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0;
+  padding: 12px 0 4px;
+}
+
+.config-fieldset:disabled {
+  opacity: 0.6;
+}
+
+.config-group-title {
+  padding: 0 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 8px;
+}
+
+/* The per-field "device is still on the old value" note. Amber to match the
+   pending state above, and on its own line so it never crowds the input. */
+.config-field-state {
+  display: block;
+  margin-top: 2px;
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Version history ---- */
+
+.config-history {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.config-history-body {
+  margin-top: 8px;
+}
+
+.config-history-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.config-history-row:last-child {
+  border-bottom: none;
+}
+
+.config-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-history-version {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.config-history-summary {
+  margin: 4px 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* Respect the viewer's motion preference: the pulse is decoration, and the
+   hollow node plus the label already carry the meaning without it. */
+@media (prefers-reduced-motion: reduce) {
+  .config-pipeline-node--waiting {
+    animation: none;
+  }
 }

@@ -6,10 +6,12 @@ The web backend of **carPosTracking**. Two things live in one process:
    ESP32's end-to-end-encrypted GNSS fixes, validates them and stores them in
    PostgreSQL.
 2. **A REST API for the dashboard** — accounts and sessions, devices and their
-   provisioning, positions, and device sharing.
+   provisioning, positions, device sharing, and each device's **remote settings**.
 
-Device-config publishing (the `devices/<id>/config` retained topic) is still a
-later phase; see the roadmap below.
+Remote settings are the one place the API talks *to* a device rather than about
+it: every saved revision is published retained to `devices/<id>/config`, and the
+device reports back which revision it is running. See
+[Remote device settings](#remote-device-settings) below.
 
 ## How it works
 
@@ -52,8 +54,11 @@ Key properties:
 - **The ack key runs the other way, and never touches this server.** An ack is
   sealed *to* the device, so the device holds the private half and
   `devices.ack_public_key_pem` holds only the public one. That key pair is
-  generated off-server and imported with `--ack-public-pem`; no endpoint, DTO or
-  config snippet ever carries a device private key.
+  generated off-server — with `openssl` and `--ack-public-pem`, or in the
+  operator's browser from the dashboard, which posts back only the public half to
+  `POST /api/devices/{deviceId}/ack-key`. No endpoint, DTO or rendered `Config.h`
+  ever carries a device private key, and the import path rejects a PEM that
+  contains one.
 - **Fail-fast startup.** Missing connection string, MQTT password, or a
   missing/short master key aborts startup, as does a broker URI that is not
   `ws`/`wss`/`mqtt`/`mqtts` — so a typo like `http://` fails at boot rather than
@@ -230,7 +235,9 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   restricted), `fix_time` (GNSS time), `received_at`, `latitude`, `longitude`,
   `speed_kmph`, `altitude_m` (all CHECK-constrained), the optional sensor columns
   `battery_pct` (nullable, 0–100 with `0` = *charging*), `accel_x_g`/`accel_y_g`/
-  `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample) and `temperature_c`
+  `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample, or the strongest
+  per-axis reading of the reporting interval when the device runs with
+  `kAccelPeakEnabled`) and `temperature_c`
   (nullable, °C from the modem's `AT+CPMUTEMP`, [-40, 125] — the sensor that
   explains a hot-car cut-off; all sensor columns CHECK-constrained),
   **UNIQUE (device_id, fix_time)** (the dedupe key), and a database-generated
@@ -248,6 +255,19 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
 - **device_aliases** — a user's private nickname for a device, unique per
   (user, device). Separate from `devices.display_name` because it is per-user:
   a read-only viewer may set their own without touching what anyone else sees.
+- **device_config_versions** — one **immutable** row per revision of a device's
+  remote settings: `version` (unique per device, increasing from 1), the six
+  settings, `created_by_user_id` (null for the factory defaults), `created_at`.
+  Every numeric column carries a CHECK constraint mirroring
+  [`Dtos/DeviceConfigRules.cs`](Dtos/DeviceConfigRules.cs). Rows are **never
+  updated** — a change is an insert, which is what lets the dashboard resolve the
+  revision a device is *still running* back to real values while a newer one
+  waits. It doubles as the audit trail.
+
+  `devices` carries only pointers into it: `config_version` (what the device
+  should run), `config_applied_version` and `config_applied_at` (what it last
+  confirmed). Keeping the values in exactly one place is why the two can never
+  disagree.
 
 Apply migrations manually **as `admin`** (never auto-migrate):
 
@@ -271,7 +291,12 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
 | `POST /api/devices` | register a device + provision its key pair (201) |
 | `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
-| `GET /api/devices/{deviceId}/provisioning` | re-read the firmware config block |
+| `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
+| `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
+| `GET /api/devices/{deviceId}/config` | desired + running settings, both with values |
+| `GET /api/devices/{deviceId}/config/history?limit=` | past revisions, newest first (default 20, max 100) |
+| `PUT /api/devices/{deviceId}/config` | replace the settings — new revision, published retained |
+| `POST /api/devices/{deviceId}/config/republish` | re-send the current revision (204; 503 if the broker is down) |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /health` | liveness (unauthenticated; database + MQTT state) |
@@ -380,17 +405,41 @@ The `provisioning` half can be read again later with
 re-renders the **stored public key** rather than generating a new pair, so it is
 always safe to call — a device already in the field keeps working.
 
-`configSnippet` fills in every firmware constant the API can know:
+`configSnippet` is a **complete `Config.h`**, not a block to merge: save it as
+`ESP32/src/config/Config.h` and run `pio run`. It is the firmware's own
+`Config.example.h` with this device's values substituted in:
 
 | `Config.h` constant | Source |
 |---|---|
 | `kReceiverPublicKeyPem` | generated — public half of the new key pair |
-| `kDeviceId`, `kMqttClientId` | the requested `deviceId` |
+| `kDeviceId`, `kMqttClientId`, `kMqttUsername` | the requested `deviceId` |
 | `kTelemetryTopic` | `devices/<deviceId>` |
 | `kConfigTopic` | `devices/<deviceId>/config` |
+| `kAckTopic` | `devices/<deviceId>/ack` |
+| `kAckEnabled` | `true` only when an ack public key is on file, otherwise `false` |
 | `kMqttBrokerUri` | `Mqtt:BrokerUri` — **replace by hand** if that address is container-internal |
-| `kMqttUsername` | the requested `deviceId` |
-| `kMqttPassword` | **emitted empty — you fill this in** |
+| `kDefault*`, `kFixAcquireTimeoutSeconds`, `kSdMaxQueuedFixes`, `kRetry*Hours` | the device's **current** settings revision, so a freshly flashed tracker is already right before the broker replays its config |
+| `kMin*` / `kMax*` clamps | `DeviceConfigRules` — the same numbers this API validates against |
+| `kMqttPassword`, `kWifiSsid`, `kWifiPassword`, `kDeviceAckPrivateKeyPem` | **emitted empty — see below** |
+| everything else (pins, timings, feature flags) | copied verbatim from the template |
+
+> **The four blanks are deliberate and are filled in by the dashboard, in the
+> browser.** Three are simply not the server's to know (your WiFi credentials, and
+> a broker password the API never issued). The fourth is stronger than that:
+> `kDeviceAckPrivateKeyPem` is the *device's own* secret, and the ack direction
+> only works because this server never holds it — see
+> [`--ack-public-pem`](#--ack-public-pem--enable-delivery-acks-for-a-device) below.
+> The dashboard generates that pair with WebCrypto and posts back only the public
+> half, so none of the four ever travels through this API.
+
+**Where the template lives.** `Services/Provisioning/ConfigTemplate.h.txt`, an
+embedded resource. It is a *copy* of `ESP32/src/config/Config.example.h`, because
+the API image is built with `../../API` as its Docker context and the firmware
+tree does not exist where this code runs. **When the firmware gains or loses a
+constant, that template needs the same edit** —
+`ConfigSnippetBuilderTests.RendersACompleteCompilableFile` fails the build when it
+drifts, and the dashboard's `FE/src/utils/firmwareParameters.ts` lists the same
+constants for its reference table.
 
 > **The broker account is still a manual step.** The API does not manage MQTT
 > credentials or ACLs: create the account on the server (`mosquitto_passwd`) and
@@ -432,9 +481,19 @@ cache also refreshes itself every 60 minutes).
 ### `--ack-public-pem` — enable delivery acks for a device
 
 Acks are sealed **to** the device, so the key roles invert: the device holds the
-private half and this server needs only the public one. Generate the pair
-yourself — **the private key must never reach this server** — and import only the
-public half:
+private half and this server needs only the public one.
+
+> **From the dashboard instead:** the device's Settings tab can mint the pair with
+> WebCrypto in your browser, splice the private half into the `Config.h` it hands
+> you, and store only the public half through
+> `POST /api/devices/{deviceId}/ack-key`. Same rule, same validation
+> (`AckPublicKeyValidator`, shared by both paths) — it just saves a shell session.
+> It deliberately stores the key **only after** you confirm you have saved the
+> file: doing it the other way round would leave the device with a server-side key
+> whose private half was never written down anywhere.
+
+To do it by hand, generate the pair yourself — **the private key must never reach
+this server** — and import only the public half:
 
 ```powershell
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out GNSS01_ack_private.pem
@@ -459,9 +518,100 @@ silently drops every ack:
 user GNSS01
 topic read devices/GNSS01/ack
 
-user carpos-api
+user dashboard
 topic write devices/+/ack
 ```
+
+## Remote device settings
+
+Seven knobs on each tracker are server-owned and editable from the dashboard, with
+no reflash and without the device being online at the time:
+
+| Field | Meaning | Range | Default |
+|---|---|---|---|
+| `intervalSeconds` | seconds between position reports | 5 – 86400 | 60 |
+| `sleepBetween` | deep-sleep + modem power-down between reports | — | false |
+| `fixTimeoutSeconds` | how long to chase a GNSS lock before giving up on a cycle | 15 – 900 | 180 |
+| `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 100000 | 20000 |
+| `retryIntervalHours` | hours between attempts on a rejected fix | 1 – 720 | 24 |
+| `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never | 0 – 8760 | 168 |
+| `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 3600 |
+
+The bounds live in [`Dtos/DeviceConfigRules.cs`](Dtos/DeviceConfigRules.cs) and
+**mirror the firmware's clamps** in `ESP32/src/config/Config.h`. The two sides
+enforce them differently on purpose: this API answers **400**, because a person at
+a dashboard can be told to fix their input, while the device *clamps*, because a
+tracker in a field has nobody to ask. Change one side and you must change the other.
+
+> **These ranges are also database check constraints.** They are interpolated into
+> `ck_device_config_versions_*` by
+> [`DeviceConfigVersionConfiguration`](Data/Configurations/DeviceConfigVersionConfiguration.cs),
+> so changing a bound needs a migration as well as the constant.
+
+### The flow
+
+```
+PUT /api/devices/GNSS01/config
+      │
+      ├─ insert device_config_versions row (version = previous + 1)   ┐ one
+      └─ devices.config_version → that row                            ┘ transaction
+      │
+      ▼  (after commit)
+MqttConfigPublisher ──retained, QoS 1──► devices/GNSS01/config
+                                               │
+                                               ▼  broker replays on subscribe
+                                          ESP32 adopts + caches to SD
+                                               │
+                                               ▼  settings_version in every fix
+PositionWriter ──► devices.config_applied_version / config_applied_at
+```
+
+**Retain is the whole mechanism.** A device with `sleepBetween` on is awake for a
+few seconds per cycle and would essentially never catch a live publish; the broker
+holds the document and replays it the instant the device subscribes, which it does
+on every wake. `MqttIngestService` also calls `RepublishAllAsync` after each
+successful subscribe, so a broker restarted without persistence heals itself
+rather than leaving a fleet on stale settings.
+
+**An awake device applies a change in under a second.** It holds an open
+subscription, so the publish above reaches it unasked — no polling from either
+side. Its application task blocks on a FreeRTOS event group that the arriving
+message signals, which costs exactly what the plain delay it replaced did. Three
+paths deliver a document, all converging on the same handler: push (this one), the
+retained replay on every reconnect, and the device's own periodic re-check
+(`configCheckSeconds`), which exists only to recover from a connection that looks
+alive but delivers nothing. See *Staying in step* in
+[`../../ESP32/README.md`](../../ESP32/README.md).
+
+**Publishing happens after the commit**, deliberately: if the broker is down the
+save still stands and the reconnect sweep delivers it, whereas publishing first
+could hand a device a revision a failed commit then erased.
+
+**The applied version only ever moves forward.** A backlog drained from an SD card
+carries the revisions its fixes were *taken* under — possibly days and several
+revisions old — so `PositionWriter` takes the version from the newest fix in the
+batch and updates only when it is higher than what is stored.
+
+**Saving unchanged values is a no-op.** No revision is created, so a double-click
+or a form that re-submits cannot inflate the history.
+
+### Broker ACL
+
+The API publishes to `devices/+/config`, which needs a write grant for whichever
+account `Mqtt:Username` resolves to (`dashboard` in the deployed stack), and the
+device needs the matching read:
+
+```
+user dashboard
+topic write devices/+/config
+
+user GNSS01
+topic read devices/GNSS01/config
+```
+
+Without the write rule the publish is refused; without the read rule Mosquitto
+ACKs the subscription and silently drops the document. Both are in
+[`../../Container/MQTTBroker/mosquitto/acl`](../../Container/MQTTBroker/mosquitto/acl).
 
 ## Build, test, run
 
@@ -573,23 +723,26 @@ connection string).
    contains `PRIVATE KEY`, and in psql
    `SELECT device_id, public_key_pem IS NOT NULL, private_key_ciphertext IS NOT NULL
    FROM devices WHERE device_id = 'GNSS02';` is true for both.
-8. Paste the returned `configSnippet` into `Config.h`, add the broker password by
-   hand, and `pio run` compiles — the C string literal escaping is the part most
-   likely to be subtly wrong.
+8. Save the returned `configSnippet` **as** `ESP32/src/config/Config.h` (back the
+   existing one up first — it holds real secrets) and `pio run` compiles it
+   untouched. This is the check that matters: the C string literal escaping is the
+   part most likely to be subtly wrong, and a comment line ending in `\` silently
+   swallows the next one under `-Werror=comment`.
+9. Repeat with the dashboard's fields filled in and a generated ack key — that is
+   the file an operator actually flashes, and it exercises the browser-side
+   substitution as well as this renderer.
 
 ## Roadmap (later phases)
 
 Done: the ingest pipeline, API-driven provisioning, the REST endpoints per the
-contract in [`CLAUDE.md`](CLAUDE.md), cookie sessions, device sharing, and the
-container deployment in [`../../Container/App/`](../../Container/App/).
+contract in [`CLAUDE.md`](CLAUDE.md), cookie sessions, device sharing, versioned
+remote device settings, and the container deployment in
+[`../../Container/App/`](../../Container/App/).
 
 Still to do:
 
-1. **Device-config publishing** — adds `config_interval_s`/
-   `config_sleep_between` to `devices`; publishes retained JSON to
-   `devices/<id>/config`.
-2. **Position retention/pruning job** — `positions` grows without bound; every
+1. **Position retention/pruning job** — `positions` grows without bound; every
    read is capped today, but nothing deletes old rows yet.
-3. **Session revocation** — tokens carry a `jti` but there is no deny-list, so
+2. **Session revocation** — tokens carry a `jti` but there is no deny-list, so
    signing out on one device does not invalidate a session already issued to
    another. Changing `Jwt:SigningKey` is the only blunt instrument today.

@@ -39,6 +39,7 @@ internal sealed class MqttIngestService : BackgroundService
     private readonly IngestOptions _ingestOptions;
     private readonly IIngestPipeline _pipeline;
     private readonly IAckPublisher _ackPublisher;
+    private readonly IConfigPublisher _configPublisher;
     private readonly MqttConnectionState _state;
     private readonly ILogger<MqttIngestService> _logger;
 
@@ -56,6 +57,7 @@ internal sealed class MqttIngestService : BackgroundService
     /// <param name="ingestOptions">Retry/pause tuning.</param>
     /// <param name="pipeline">The message processing pipeline.</param>
     /// <param name="ackPublisher">Given the live client so the pipeline can reply to devices.</param>
+    /// <param name="configPublisher">Given the live client so settings can be published retained.</param>
     /// <param name="state">Shared connection state for health reporting.</param>
     /// <param name="logger">Structured logger.</param>
     public MqttIngestService(
@@ -63,6 +65,7 @@ internal sealed class MqttIngestService : BackgroundService
         IOptions<IngestOptions> ingestOptions,
         IIngestPipeline pipeline,
         IAckPublisher ackPublisher,
+        IConfigPublisher configPublisher,
         MqttConnectionState state,
         ILogger<MqttIngestService> logger)
     {
@@ -70,6 +73,7 @@ internal sealed class MqttIngestService : BackgroundService
         _ingestOptions = ingestOptions.Value;
         _pipeline = pipeline;
         _ackPublisher = ackPublisher;
+        _configPublisher = configPublisher;
         _state = state;
         _logger = logger;
         _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
@@ -95,6 +99,7 @@ internal sealed class MqttIngestService : BackgroundService
         // instance is reused across them, and the publisher checks IsConnected
         // itself, so there is no window where it holds a client that no longer exists.
         _ackPublisher.AttachClient(client);
+        _configPublisher.AttachClient(client);
 
         try
         {
@@ -160,9 +165,10 @@ internal sealed class MqttIngestService : BackgroundService
             await DisconnectQuietlyAsync(client);
             _state.SetConnected(false);
 
-            // Release the client before the `using` disposes it, so a late ack
-            // attempt cannot touch a disposed instance.
+            // Release the client before the `using` disposes it, so a late ack or
+            // config publish cannot touch a disposed instance.
             _ackPublisher.AttachClient(null);
+            _configPublisher.AttachClient(null);
         }
     }
 
@@ -230,6 +236,14 @@ internal sealed class MqttIngestService : BackgroundService
         _state.SetConnected(true);
         _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
         _logger.LogInformation("Subscribed to {TopicFilter} at QoS 2", _mqttOptions.TopicFilter);
+
+        // Refresh every device's retained settings document. Retained messages normally
+        // outlive us on the broker, but one restarted without persistence forgets them
+        // silently — and a deep-sleeping device, online for seconds at a time, would
+        // then never learn its configuration again. Doing it here makes that
+        // self-healing. Failures are logged inside the publisher and must not abort the
+        // connect: ingest matters more than settings.
+        await _configPublisher.RepublishAllAsync(cancellationToken);
     }
 
     /// <summary>

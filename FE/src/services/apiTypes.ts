@@ -142,9 +142,29 @@ export type DeviceProvisioningDto = {
   // Note the key roles invert for acks: the device holds that private key, so it
   // is generated off-server and never travels in this payload.
   ackPublicKeyFingerprint: string | null
-  // The above pre-formatted as C++ constexpr lines, ready to paste into
-  // ESP32/src/config/Config.h.
+  // A COMPLETE Config.h for this device — the firmware's own template with this
+  // device's id, topics, broker URI, receiver public key and current setting
+  // defaults filled in. Save it as ESP32/src/config/Config.h and build.
+  //
+  // Four constants arrive deliberately empty (kWifiSsid, kWifiPassword,
+  // kMqttPassword, kDeviceAckPrivateKeyPem): they are secrets the server does
+  // not have and, in the ack key's case, must never have. The dashboard fills
+  // them in locally — see utils/configSecrets.ts.
   configSnippet: string
+}
+
+// POST /api/devices/{deviceId}/ack-key — stores the PUBLIC half of an ack key
+// pair the browser has just generated. The private half is never in this
+// payload: for acks the API encrypts and the device decrypts, so the device
+// owns that half and the server may only ever hold the public one.
+export type ImportAckKeyRequestDto = {
+  ackPublicKeyPem: string
+}
+
+export type AckKeyImportedDto = {
+  // SHA-256 of the SPKI bytes, uppercase hex — compare it against the key that
+  // went into the device's Config.h to confirm the two are a pair.
+  ackPublicKeyFingerprint: string
 }
 
 // 201 response of POST /api/devices — the new device row plus its provisioning
@@ -153,6 +173,78 @@ export type DeviceCreatedDto = {
   device: DeviceDto
   provisioning: DeviceProvisioningDto
 }
+
+// ---------------------------------------------------------------------------
+// Remote device settings.
+//
+// These six values are the document the API publishes — retained — to
+// devices/<id>/config, and the firmware caches on its SD card. Every save
+// creates a new immutable *revision*; nothing is ever edited in place. The
+// device echoes the revision number back in each position report, which is how
+// the dashboard can tell "published" from "actually running".
+//
+// The min/max noted on each field mirror the firmware's clamps in
+// ESP32/src/config/Config.h and the API's [Range] attributes. The API rejects
+// out-of-range values with a 400; the device, having nobody to ask, clamps.
+// ---------------------------------------------------------------------------
+
+export type DeviceConfigValuesDto = {
+  // Seconds between position reports. 5 … 86400.
+  intervalSeconds: number
+  // Power the modem down and deep-sleep between reports. Large battery saving
+  // above a few minutes, at the cost of a cold GNSS fix every cycle.
+  sleepBetween: boolean
+  // How long to chase a GNSS lock before giving up on a cycle. 15 … 900.
+  fixTimeoutSeconds: number
+  // How many undelivered fixes the SD queue may hold before the oldest are
+  // dropped. 100 … 100000. A count, not a duration: a queued line is bare
+  // ciphertext with no timestamp to age it by. One fix is queued per reporting
+  // cycle, so the UI turns it into an approximate duration for the reader.
+  queueMaxFixes: number
+  // Hours between attempts on a fix the API rejected. 1 … 720.
+  retryIntervalHours: number
+  // Hours after which a still-rejected fix is abandoned. 0 … 8760, where 0
+  // means "never give up".
+  retryMaxAgeHours: number
+  // How often an *awake* device asks the broker to re-send its configuration.
+  // 60 … 86400. Only a backstop: a saved change normally reaches the device by
+  // push within a second, because it holds an open subscription. It has no
+  // effect at all while sleepBetween is on — a sleeping device re-reads its
+  // configuration on every wake anyway.
+  configCheckSeconds: number
+}
+
+// One revision, as returned by the state and history endpoints.
+export type DeviceConfigVersionDto = {
+  // Unique and increasing per device, starting at 1.
+  version: number
+  values: DeviceConfigValuesDto
+  createdAt: string
+  // Display name of whoever saved it, or null for a revision with no human
+  // author — the one created with the device, and the one seeded for devices
+  // that predate remote settings.
+  createdBy: string | null
+}
+
+// GET /api/devices/{deviceId}/config — what the device should be running and
+// what it last confirmed it is running, both with full values. Having both is
+// what lets the UI show "reporting every 60 s, will become every 300 s" while a
+// change is pending, instead of two bare version numbers.
+export type DeviceConfigStateDto = {
+  desired: DeviceConfigVersionDto
+  // Null when the device has never reported a revision — a device that has not
+  // checked in yet, or firmware older than the settings-version protocol.
+  applied: DeviceConfigVersionDto | null
+  appliedAt: string | null
+  // True when the device has confirmed the desired revision. False is normal,
+  // not an error: the change is published and waiting to be picked up.
+  isInSync: boolean
+  lastSeenAt: string | null
+}
+
+// PUT /api/devices/{deviceId}/config — a full replacement, not a patch. Sending
+// the values already in force is a no-op that adds no revision.
+export type DeviceConfigUpdateRequestDto = DeviceConfigValuesDto
 
 // POST /api/access — share a device with a user. CanRead is implicit on the
 // server side; CanShare coerces CanModifySettings on.

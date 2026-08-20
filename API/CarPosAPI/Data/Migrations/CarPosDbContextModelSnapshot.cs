@@ -104,6 +104,20 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ack_public_key_pem");
 
+                    b.Property<DateTime?>("ConfigAppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("config_applied_at");
+
+                    b.Property<int?>("ConfigAppliedVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("config_applied_version");
+
+                    b.Property<int>("ConfigVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("config_version");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -190,6 +204,88 @@ namespace CarPosAPI.Data.Migrations
                         .HasDatabaseName("ux_device_aliases_user_id_device_id");
 
                     b.ToTable("device_aliases", (string)null);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("ConfigCheckSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(3600)
+                        .HasColumnName("config_check_s");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<int>("FixTimeoutSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("fix_timeout_s");
+
+                    b.Property<int>("IntervalSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("interval_s");
+
+                    b.Property<int>("QueueMaxFixes")
+                        .HasColumnType("integer")
+                        .HasColumnName("queue_max_fixes");
+
+                    b.Property<int>("RetryIntervalHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_interval_h");
+
+                    b.Property<int>("RetryMaxAgeHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_max_age_h");
+
+                    b.Property<bool>("SleepBetween")
+                        .HasColumnType("boolean")
+                        .HasColumnName("sleep_between");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DeviceId", "Version")
+                        .IsUnique()
+                        .HasDatabaseName("ux_device_config_versions_device_id_version");
+
+                    b.ToTable("device_config_versions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_config_versions_config_check_s", "config_check_s BETWEEN 60 AND 86400");
+
+                            t.HasCheckConstraint("ck_device_config_versions_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 900");
+
+                            t.HasCheckConstraint("ck_device_config_versions_interval_s", "interval_s BETWEEN 5 AND 86400");
+
+                            t.HasCheckConstraint("ck_device_config_versions_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
+
+                            t.HasCheckConstraint("ck_device_config_versions_retry_interval_h", "retry_interval_h BETWEEN 1 AND 720");
+
+                            t.HasCheckConstraint("ck_device_config_versions_retry_max_age_h", "retry_max_age_h BETWEEN 0 AND 8760");
+
+                            t.HasCheckConstraint("ck_device_config_versions_version", "version >= 1");
+                        });
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>
@@ -363,6 +459,20 @@ namespace CarPosAPI.Data.Migrations
                     b.Navigation("Device");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigVersion", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>

@@ -108,13 +108,46 @@ internal sealed class PositionWriter : IPositionWriter
              """,
             cancellationToken);
 
+        // The settings revision reported by the NEWEST fix in this batch, if any said
+        // anything. Newest, because a backlog drained from the SD card carries the
+        // revisions its fixes were taken under — days ago, quite possibly several
+        // revisions back — and the device's applied version must never walk backwards
+        // just because it finally got its queue out.
+        int? reportedVersion = null;
+        DateTime newestFixTime = DateTime.MinValue;
+        foreach (ValidatedPosition position in unique.Values)
+        {
+            if (position.SettingsVersion is not null && position.FixTimeUtc > newestFixTime)
+            {
+                newestFixTime = position.FixTimeUtc;
+                reportedVersion = position.SettingsVersion;
+            }
+        }
+
         // The device is demonstrably alive even when every fix was a duplicate, so
         // last_seen_at always advances. Server-side UtcNow avoids clock skew.
+        DateTime seenAt = DateTime.UtcNow;
         await context.Devices
             .Where(device => device.Id == deviceId)
             .ExecuteUpdateAsync(
-                setters => setters.SetProperty(device => device.LastSeenAt, _ => DateTime.UtcNow),
+                setters => setters.SetProperty(device => device.LastSeenAt, _ => seenAt),
                 cancellationToken);
+
+        // A second statement, and only when the device actually reported a revision.
+        // It cannot be folded into the update above: the applied version must only ever
+        // move forward, and that condition would then also gate last_seen_at — a device
+        // whose backlog reports an old revision would stop looking alive.
+        if (reportedVersion is not null)
+        {
+            await context.Devices
+                .Where(device => device.Id == deviceId
+                    && (device.ConfigAppliedVersion == null || device.ConfigAppliedVersion < reportedVersion))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(device => device.ConfigAppliedVersion, _ => reportedVersion)
+                        .SetProperty(device => device.ConfigAppliedAt, _ => seenAt),
+                    cancellationToken);
+        }
 
         int duplicates = positions.Count - inserted;
         return new PositionWriteResult(inserted, duplicates);

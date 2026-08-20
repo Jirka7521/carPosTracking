@@ -59,6 +59,27 @@ public sealed class Device
     /// </summary>
     public DateTime? LastSeenAt { get; set; }
 
+    /// <summary>
+    /// The revision of <see cref="DeviceConfigVersion"/> this device is <em>meant</em>
+    /// to be running — the one published retained to <c>devices/&lt;id&gt;/config</c>.
+    /// Only a pointer: the values themselves live in the version row, so there is
+    /// exactly one copy of them and no way for the two to disagree.
+    /// </summary>
+    public int ConfigVersion { get; set; } = Dtos.DeviceConfigRules.InitialVersion;
+
+    /// <summary>
+    /// The revision the device last told us it is <em>actually</em> running, echoed
+    /// back in its position reports. Null when it has never reported one — a brand-new
+    /// device, or firmware older than the settings-version protocol.
+    ///
+    /// Equal to <see cref="ConfigVersion"/> means in sync; lower means a change is
+    /// published and waiting to be picked up on the device's next report.
+    /// </summary>
+    public int? ConfigAppliedVersion { get; set; }
+
+    /// <summary>When <see cref="ConfigAppliedVersion"/> was last confirmed (UTC).</summary>
+    public DateTime? ConfigAppliedAt { get; set; }
+
     /// <summary>Soft-delete flag — rows are deactivated, never physically removed.</summary>
     public bool IsActive { get; set; } = true;
 

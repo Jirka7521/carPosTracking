@@ -24,6 +24,13 @@ namespace CarPosAPI.Dtos;
 /// <param name="AccelYG">Instantaneous Y-axis acceleration in g (optional).</param>
 /// <param name="AccelZG">Instantaneous Z-axis acceleration in g (optional).</param>
 /// <param name="TempC">Modem die temperature in °C from AT+CPMUTEMP (optional).</param>
+/// <param name="SettingsVersion">
+/// Revision of the settings document the device was running when it took this fix
+/// (optional — absent on firmware that predates remote settings, and on a device that
+/// has never received a config). It is not stored with the position; it advances the
+/// device row's <c>config_applied_version</c>, which is how the dashboard knows a
+/// published change has actually been picked up.
+/// </param>
 public sealed record PositionPayloadDto(
     [property: JsonPropertyName("device")] string? Device,
     [property: JsonPropertyName("latitude_deg")] double? LatitudeDeg,
@@ -35,4 +42,5 @@ public sealed record PositionPayloadDto(
     [property: JsonPropertyName("accel_x_g")] double? AccelXG = null,
     [property: JsonPropertyName("accel_y_g")] double? AccelYG = null,
     [property: JsonPropertyName("accel_z_g")] double? AccelZG = null,
-    [property: JsonPropertyName("temp_c")] double? TempC = null);
+    [property: JsonPropertyName("temp_c")] double? TempC = null,
+    [property: JsonPropertyName("settings_version")] int? SettingsVersion = null);

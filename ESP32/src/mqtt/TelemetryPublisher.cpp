@@ -50,6 +50,14 @@ std::string TelemetryPublisher::buildPayloadJson(
     cJSON_AddNumberToObject(root, "temp_c", sample.modem.temperatureC);
   }
 
+  // Which settings document this sample was taken under. Omitted when we have
+  // never received one, so the server can tell "running an unknown config" apart
+  // from "running revision 0", which does not exist.
+  if (sample.settingsVersion != 0) {
+    cJSON_AddNumberToObject(root, "settings_version",
+                            static_cast<double>(sample.settingsVersion));
+  }
+
   std::string json;
   char* printed = cJSON_PrintUnformatted(root);
   if (printed != nullptr) {
