@@ -14,7 +14,10 @@
 //   • All other positions get red circular markers
 //   • A blue polyline connects the positions in chronological order
 //   • Clicking a marker opens an info window with coordinates + timestamp
-//   • The map auto-fits its bounds to show all positions
+//   • The map frames all positions on the FIRST load that has data and never
+//     moves itself again — reloads reconcile the overlays in place, so the
+//     user's pan, zoom and open info window survive. `fitToken` is the caller's
+//     way to ask for a re-frame ("Fit to positions").
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -24,14 +27,25 @@ import { parseApiTimestamp } from '../utils/dates'
 type DeviceMapProps = {
   positions: PositionDto[]
   apiKey: string
+  // Bumped by the parent to re-frame the map on all positions. Starts at 0,
+  // meaning "never asked" — the initial framing is handled internally.
+  fitToken: number
 }
 
 // Live Google Maps objects for the current map instance.
 type MapState = {
-  map:        any | null
-  markers:    any[]
-  polyline:   any | null
-  infoWindow: any | null
+  map:          any | null
+  // Markers keyed by fix, so a reload can reuse the ones that are still there
+  markersByKey: Map<string, any>
+  polyline:     any | null
+  infoWindow:   any | null
+  // Which marker's info window is open, so it can be closed if that fix falls
+  // out of the range on a later load
+  selectedKey:  string | null
+  // The newest fix currently drawn — the one wearing the blue pin
+  latestKey:    string | null
+  // Whether the viewport has already been framed to the data
+  didFit:       boolean
 }
 
 // ---- Helpers ----
@@ -173,6 +187,12 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
 const PIN_PATH =
   'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z'
 
+// The newest fix is blue and slightly larger; everything older is red. Named
+// here because a marker's pin is now re-assigned when the newest fix changes,
+// not just chosen once when the marker is built.
+const LATEST_PIN  = { color: '#0065BD', scale: 1.2 }
+const HISTORY_PIN = { color: '#E31E24', scale: 1 }
+
 function createPinSymbol(g: any, color: string, scale: number) {
   return {
     path:         PIN_PATH,
@@ -187,84 +207,181 @@ function createPinSymbol(g: any, color: string, scale: number) {
 
 // ---- Overlay updater ----
 
+// Identifies one fix. The timestamp plus the coordinates is enough to tell two
+// fixes apart and is stable across reloads — which is the whole point: a marker
+// whose key is still present in the new data is REUSED rather than destroyed and
+// rebuilt, so an open info window survives a refresh.
+function positionKey(position: PositionDto): string {
+  return `${position.timestamp}|${position.latitude}|${position.longitude}`
+}
+
+// Frames every marker currently on the map. Called once on the first load that
+// has data, and again whenever the user presses "Fit to positions" — nothing
+// else moves the map. Reading the markers rather than a positions array keeps
+// this callable from anywhere without threading the data through.
+function fitToDrawnPositions(state: MapState): void {
+  const g = (window as { google?: any }).google
+  if (!g?.maps || !state.map || state.markersByKey.size === 0) {
+    return
+  }
+
+  const bounds = new g.maps.LatLngBounds()
+  state.markersByKey.forEach((marker) => {
+    bounds.extend(marker.getPosition())
+  })
+
+  state.map.fitBounds(bounds)
+  state.didFit = true
+}
+
+// Reconciles the markers and the track line against a freshly loaded set of
+// positions, WITHOUT touching the viewport.
+//
+// This used to clear every overlay and call fitBounds on each load, which threw
+// away the user's pan and zoom (and closed whatever info window they had open)
+// every time the auto-refresh ticked. Now only what actually changed is touched.
 function updateMapOverlays(state: MapState, positions: PositionDto[]): void {
   const g = (window as { google?: any }).google
   if (!g?.maps || !state.map) {
     return
   }
 
-  state.markers.forEach((m) => m.setMap(null))
-  state.markers = []
+  // Which fix is the newest? That one gets the blue pin.
+  const latestKey: string | null =
+    positions.length === 0
+      ? null
+      : positionKey(
+          positions.reduce((latest, position) =>
+            new Date(position.timestamp) >= new Date(latest.timestamp) ? position : latest,
+          ),
+        )
 
-  if (state.polyline) {
-    state.polyline.setMap(null)
-    state.polyline = null
-  }
+  const seen = new Set<string>()
 
-  if (state.infoWindow) {
-    state.infoWindow.close()
-  }
+  positions.forEach((position, index) => {
+    const key: string = positionKey(position)
 
-  if (positions.length === 0) {
-    return
-  }
+    // Two fixes at the same instant and the same spot share one marker
+    if (seen.has(key)) {
+      return
+    }
+    seen.add(key)
 
-  if (!state.infoWindow) {
-    state.infoWindow = new g.maps.InfoWindow()
-  }
+    const existing = state.markersByKey.get(key)
+    if (existing) {
+      // Already on the map: refresh the record behind it and leave it alone
+      existing.set('carposPosition', position)
+      return
+    }
 
-  const bounds = new g.maps.LatLngBounds()
-
-  // Find the index of the position with the latest timestamp
-  const latestIndex = positions.reduce(
-    (maxIdx, p, i) =>
-      new Date(p.timestamp) >= new Date(positions[maxIdx].timestamp) ? i : maxIdx,
-    0,
-  )
-
-  state.markers = positions.map((position, index) => {
-    const point    = { lat: position.latitude, lng: position.longitude }
-    const isLatest = index === latestIndex
-    bounds.extend(point)
-
+    const pin = key === latestKey ? LATEST_PIN : HISTORY_PIN
     const marker = new g.maps.Marker({
-      position: point,
+      position: { lat: position.latitude, lng: position.longitude },
       map:      state.map,
       title:    `Position ${index + 1}`,
-      zIndex:   isLatest ? 10 : 1,
-      icon: createPinSymbol(g, isLatest ? '#0065BD' : '#E31E24', isLatest ? 1.2 : 1),
+      zIndex:   key === latestKey ? 10 : 1,
+      icon:     createPinSymbol(g, pin.color, pin.scale),
     })
 
+    // The listener is attached once, at creation, and reads the position back
+    // off the marker — so a marker that outlives several reloads still shows the
+    // current record rather than the one it was created with.
+    marker.set('carposPosition', position)
     marker.addListener('click', () => {
       if (!state.infoWindow) {
-        return
+        state.infoWindow = new g.maps.InfoWindow()
       }
-      state.infoWindow.setContent(buildInfoContent(position))
+      state.selectedKey = key
+      state.infoWindow.setContent(buildInfoContent(marker.get('carposPosition')))
       state.infoWindow.open({ map: state.map, anchor: marker })
     })
 
-    return marker
+    state.markersByKey.set(key, marker)
   })
 
-  state.polyline = new g.maps.Polyline({
-    map:           state.map,
-    path:          positions.map((p) => ({ lat: p.latitude, lng: p.longitude })),
-    strokeColor:   '#0065BD',
-    strokeOpacity: 0.85,
-    strokeWeight:  4,
+  // Remove markers for fixes that are no longer in the loaded range. Deleting
+  // from a Map while iterating it is well defined — an entry removed before it
+  // is visited is simply skipped.
+  state.markersByKey.forEach((marker, key) => {
+    if (seen.has(key)) {
+      return
+    }
+
+    marker.setMap(null)
+    state.markersByKey.delete(key)
+
+    // The open info window was anchored to a marker that is going away
+    if (state.selectedKey === key) {
+      if (state.infoWindow) {
+        state.infoWindow.close()
+      }
+      state.selectedKey = null
+    }
   })
 
-  state.map.fitBounds(bounds)
+  // Re-paint only the two markers whose highlight actually changed
+  if (state.latestKey !== latestKey) {
+    const previous = state.latestKey === null ? undefined : state.markersByKey.get(state.latestKey)
+    if (previous) {
+      previous.setIcon(createPinSymbol(g, HISTORY_PIN.color, HISTORY_PIN.scale))
+      previous.setZIndex(1)
+    }
+
+    const current = latestKey === null ? undefined : state.markersByKey.get(latestKey)
+    if (current) {
+      current.setIcon(createPinSymbol(g, LATEST_PIN.color, LATEST_PIN.scale))
+      current.setZIndex(10)
+    }
+
+    state.latestKey = latestKey
+  }
+
+  if (positions.length === 0) {
+    if (state.polyline) {
+      state.polyline.setMap(null)
+      state.polyline = null
+    }
+    return
+  }
+
+  // The track: move the existing line rather than replacing the object, so
+  // there is nothing for the map to re-render from scratch.
+  const path = positions.map((position) => ({ lat: position.latitude, lng: position.longitude }))
+  if (state.polyline) {
+    state.polyline.setPath(path)
+  } else {
+    state.polyline = new g.maps.Polyline({
+      map:           state.map,
+      path,
+      strokeColor:   '#0065BD',
+      strokeOpacity: 0.85,
+      strokeWeight:  4,
+    })
+  }
+
+  // First load with data: frame the track once. From then on the viewport
+  // belongs to the user.
+  if (!state.didFit) {
+    fitToDrawnPositions(state)
+  }
 }
 
 // ---- React component ----
 
-function DeviceMap({ positions, apiKey }: DeviceMapProps) {
+function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
   const mapContainerRef           = useRef<HTMLDivElement | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const mapState = useMemo<MapState>(
-    () => ({ map: null, markers: [], polyline: null, infoWindow: null }),
+    () => ({
+      map:          null,
+      markersByKey: new Map<string, any>(),
+      polyline:     null,
+      infoWindow:   null,
+      selectedKey:  null,
+      latestKey:    null,
+      didFit:       false,
+    }),
     [],
   )
 
@@ -308,6 +425,15 @@ function DeviceMap({ positions, apiKey }: DeviceMapProps) {
       canceled = true
     }
   }, [apiKey, mapState, positions])
+
+  // "Fit to positions" — the only thing that moves the viewport after the first
+  // load. fitToken starts at 0, meaning the user has not asked yet. Positions
+  // are deliberately not a dependency: a reload must never re-frame the map.
+  useEffect(() => {
+    if (fitToken > 0) {
+      fitToDrawnPositions(mapState)
+    }
+  }, [fitToken, mapState])
 
   if (!apiKey) {
     return (

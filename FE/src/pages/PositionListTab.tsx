@@ -5,8 +5,10 @@
 // so the most recent fix is always at the top.
 //
 // Features:
-//   • Date range pickers matching those on the Map tab
-//   • "Refresh" button
+//   • Date range pickers matching those on the Map tab — chosen once on mount
+//     and changed only by the user; a refresh re-runs the same query
+//   • "Refresh" button and an auto-refresh toggle, neither of which resets the
+//     page the user is on
 //   • Zebra-striped table with blue header row
 //   • The newest row is highlighted with a light-blue tint and a
 //     "Latest" badge in the timestamp column
@@ -16,28 +18,20 @@
 
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { fetchPositions } from '../services/apiClient'
 import type { PositionDto } from '../services/apiTypes'
-import { datetimeLocalToIso, formatDateTimeLocal, parseApiTimestamp } from '../utils/dates'
+import type { DateRange } from '../utils/dates'
+import { datetimeLocalToIso, getDefaultDateRange, parseApiTimestamp } from '../utils/dates'
 import { describeError } from '../utils/errors'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
 
-type DateRange = {
-  from: string
-  to:   string
-}
-
-function getDefaultDateRange(): DateRange {
-  const now       = new Date()
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-  return {
-    from: formatDateTimeLocal(yesterday),
-    to:   formatDateTimeLocal(now),
-  }
-}
+// How many seconds between automatic refreshes when the toggle is on
+const AUTO_REFRESH_SEC = 30
 
 // Format one accelerometer axis (in g) for the table, or an em dash when the
 // device sent no reading (accelerometer disabled or firmware predating it).
@@ -76,22 +70,43 @@ export function PositionListTab() {
   const [isLoading, setIsLoading]         = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<string>('')
 
-  // Date range controls
+  // Date range controls. Computed once, on mount — from here on only the two
+  // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
+
+  // Auto-refresh: bumps a token to re-run the query, never the date range
+  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
 
   // Current page index (0-based)
   const [page, setPage]         = useState<number>(0)
   const [pageSize, setPageSize] = useState<PageSize>(25)
 
-  // Load positions whenever the device or date range changes
+  // Back to the first page when the data SOURCE changes — a different device or
+  // a different window. Deliberately NOT on every load: a refresh has to leave
+  // the reader where they were.
+  //
+  // The device arrives as a prop and this component stays mounted when the route
+  // switches to another device, so that case is adjusted during render — React's
+  // documented alternative to a reset-in-an-effect, which would render the wrong
+  // page once before correcting itself.
+  const [lastDeviceId, setLastDeviceId] = useState<string>(device.deviceId)
+  if (lastDeviceId !== device.deviceId) {
+    setLastDeviceId(device.deviceId)
+    setPage(0)
+  }
+
+  // A range change comes from the toolbar, so it can be handled directly
+  function handleRangeChange(next: DateRange): void {
+    setDateRange(next)
+    setPage(0)
+  }
+
+  // Load positions on mount, on a range change, and on every refresh tick
   useEffect(() => {
     let canceled = false
 
     const load = async (): Promise<void> => {
       setIsLoading(true)
-      setStatusMessage('')
-      // Reset to first page whenever the data source changes
-      setPage(0)
 
       const fromIso = datetimeLocalToIso(dateRange.from)
       const toIso   = datetimeLocalToIso(dateRange.to)
@@ -114,7 +129,8 @@ export function PositionListTab() {
         if (canceled) {
           return
         }
-        setPositions([])
+        // Keep the rows already on screen — a momentary network blip should
+        // report itself in the status line, not empty the table.
         setStatusMessage(describeError(error, 'Failed to load positions.'))
       } finally {
         if (!canceled) {
@@ -127,7 +143,7 @@ export function PositionListTab() {
     return () => {
       canceled = true
     }
-  }, [device.deviceId, dateRange.from, dateRange.to])
+  }, [device.deviceId, dateRange.from, dateRange.to, refresh.token])
 
   // ---- Pagination calculations ----
   const totalPages    = Math.max(1, Math.ceil(positions.length / pageSize))
@@ -136,71 +152,27 @@ export function PositionListTab() {
   const pageEnd       = Math.min(pageStart + pageSize, positions.length)
   const pageRows      = positions.slice(pageStart, pageEnd)
 
-  // Manual refresh: push "to" to now
-  function handleRefresh(): void {
-    setDateRange((cur) => ({
-      ...cur,
-      to: formatDateTimeLocal(new Date()),
-    }))
-  }
-
   return (
     <div>
-      {/* ---- Controls: date pickers + refresh button ---- */}
-      <div className="position-list-controls">
-        <div className="form-field">
-          <label className="form-label" htmlFor="pos-from">From</label>
-          <input
-            id="pos-from"
-            className="form-input"
-            type="datetime-local"
-            value={dateRange.from}
-            onChange={(e) =>
-              setDateRange((cur) => ({ ...cur, from: e.target.value }))
-            }
-            style={{ width: 'auto' }}
-          />
-        </div>
-
-        <div className="form-field">
-          <label className="form-label" htmlFor="pos-to">To</label>
-          <input
-            id="pos-to"
-            className="form-input"
-            type="datetime-local"
-            value={dateRange.to}
-            onChange={(e) =>
-              setDateRange((cur) => ({ ...cur, to: e.target.value }))
-            }
-            style={{ width: 'auto' }}
-          />
-        </div>
-
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={handleRefresh}
-          disabled={isLoading}
-          style={{ alignSelf: 'flex-end' }}
-        >
-          {isLoading ? (
-            <>
-              <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              Loading…
-            </>
-          ) : (
-            '↻ Refresh'
-          )}
-        </button>
-      </div>
+      {/* ---- Controls: date pickers + refresh options ---- */}
+      <RangeToolbar
+        range={dateRange}
+        onRangeChange={handleRangeChange}
+        autoRefresh={refresh}
+        isLoading={isLoading}
+        idPrefix="pos"
+        className="position-list-controls"
+      />
 
       {/* Status line */}
       <p className="hint" role="status" style={{ marginBottom: 12 }}>
         {statusMessage}
       </p>
 
-      {/* ---- Loading state ---- */}
-      {isLoading ? (
+      {/* ---- Loading state ----
+           Only while there is nothing to show yet. A refresh must not replace
+           the table the user is reading with a spinner. */}
+      {isLoading && positions.length === 0 ? (
         <div className="loading-state">
           <div className="spinner" />
           <span>Loading positions…</span>
