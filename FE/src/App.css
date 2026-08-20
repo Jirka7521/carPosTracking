@@ -783,6 +783,147 @@
   margin-bottom: 18px;
 }
 
+/* ---- CSV export control ----
+ * A quiet text button in the range toolbar that opens a small menu asking which
+ * column separator to write. It is deliberately the lightest thing in that bar:
+ * the range pickers are used every visit, this is used occasionally.
+ */
+.export-menu {
+  position: relative;
+  align-self: flex-end;
+}
+
+.export-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: transparent;
+  /* Transparent rather than absent so the button does not shift by a pixel
+     when the border appears on hover. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Held open looks the same as hovered — the menu below is the state, and the
+   trigger should read as its handle for as long as it is showing. */
+.export-trigger:hover:not(:disabled),
+.export-trigger[aria-expanded='true'] {
+  background: var(--accent-bg);
+  border-color: var(--blue-200);
+  color: var(--accent);
+}
+
+.export-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.export-trigger:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.export-trigger-icon {
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+
+/* The popover. Right-aligned because the control sits at the end of the
+   toolbar, where a left-aligned panel would hang off the page. */
+.export-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 224px;
+  padding: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  animation: export-menu-in 0.12s ease-out;
+}
+
+@keyframes export-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.export-menu-heading {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Three columns: the tick, the name, and the character itself. The hint sits
+   under the name on a second row, in the same column. */
+.export-menu-item {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu-item:hover {
+  background: var(--accent-bg);
+}
+
+.export-menu-item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.export-menu-check {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  line-height: 1;
+}
+
+.export-menu-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+/* The separator character, shown as it will appear in the file */
+.export-menu-sample {
+  padding: 1px 7px;
+  background: var(--gray-100);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.export-menu-item:hover .export-menu-sample {
+  background: #fff;
+}
+
+.export-menu-hint {
+  grid-column: 2 / 4;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 /* Overflow wrapper so the table scrolls horizontally on small screens */
 .position-table-wrapper {
   overflow-x: auto;

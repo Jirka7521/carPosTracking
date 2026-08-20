@@ -13,10 +13,15 @@
 // ---------------------------------------------------------------------------
 
 // The separators offered in the UI, in the order they are listed.
+//
+// `sample` is the character itself, shown beside the name because "semicolon"
+// is a word and ";" is what actually ends up between the columns. `hint` names
+// the case each one exists for — nobody picking a separator knows off-hand which
+// one their spreadsheet wants, but everybody knows which spreadsheet they have.
 export const CSV_DELIMITERS = [
-  { value: ',',  label: 'Comma ( , )' },
-  { value: ';',  label: 'Semicolon ( ; )' },
-  { value: '\t', label: 'Tab' },
+  { value: ',',  label: 'Comma',     sample: ',', hint: 'Standard CSV' },
+  { value: ';',  label: 'Semicolon', sample: ';', hint: 'Excel in CZ / DE' },
+  { value: '\t', label: 'Tab',       sample: '⇥', hint: 'TSV' },
 ] as const
 
 export type CsvDelimiter = (typeof CSV_DELIMITERS)[number]['value']

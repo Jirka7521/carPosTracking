@@ -15,8 +15,8 @@
 //     "Latest" badge in the timestamp column, whichever way the table is sorted
 //   • Coordinates displayed in monospace for alignment
 //   • Pagination: N rows per page with Prev / Next controls
-//   • "Export CSV" writes the WHOLE selected range to a file, with the column
-//     separator the reader's spreadsheet expects
+//   • "Export CSV" writes the WHOLE selected range to a file; the click opens a
+//     small menu that asks which column separator the reader's spreadsheet wants
 //
 // The API hands out at most 1000 fixes per request, so a wide range holds more
 // than one answer's worth. Rather than fetching all of them up front, the table
@@ -269,6 +269,13 @@ export function PositionListTab() {
   })
   const [isExporting, setIsExporting] = useState<boolean>(false)
 
+  // The separator menu. It is asked for on the way OUT rather than sitting in
+  // the toolbar: it is a question with an answer most of the time, and a control
+  // that is only relevant for two seconds should not occupy the bar all day.
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false)
+  const exportMenuRef = useRef<HTMLDivElement | null>(null)
+  const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
+
   // Current page index (0-based)
   const [page, setPage]         = useState<number>(0)
   const [pageSize, setPageSize] = useState<PageSize>(25)
@@ -310,6 +317,39 @@ export function PositionListTab() {
   useEffect(() => {
     sortRef.current = sort
   }, [sort])
+
+  // A popover closes on the two things every popover closes on: a click
+  // somewhere else, and Escape. Neither is a React event — the click that
+  // dismisses it lands on whatever else the reader aimed at — so both are
+  // listened for on the document, and only while the menu is actually open.
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return
+    }
+
+    function handlePointerDown(event: MouseEvent): void {
+      const menu: HTMLDivElement | null = exportMenuRef.current
+      if (menu !== null && !menu.contains(event.target as Node)) {
+        setIsMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false)
+        // Escape threw focus away with the panel that had it; put it back on the
+        // control the reader opened, not at the top of the document.
+        exportTriggerRef.current?.focus()
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isMenuOpen])
 
   function applyPositions(next: PositionDto[]): void {
     positionsRef.current = next
@@ -399,13 +439,22 @@ export function PositionListTab() {
     }
   }
 
-  function handleDelimiterChange(next: CsvDelimiter): void {
+  // Picking a separator IS the confirmation: the export starts on the click that
+  // chooses it, rather than asking for a second one that could only ever mean
+  // "yes, the one I just picked".
+  function handleDelimiterPick(next: CsvDelimiter): void {
+    setIsMenuOpen(false)
     setCsvDelimiter(next)
+
     try {
       window.localStorage.setItem(CSV_DELIMITER_KEY, next)
     } catch {
       // Failing to REMEMBER the choice must not stop the reader making it.
     }
+
+    // Passed along rather than read back from state: setCsvDelimiter above has
+    // not landed yet, and the export needs the separator that was just clicked.
+    void handleExportCsv(next)
   }
 
   // Writes every fix in the selected range to a .csv file.
@@ -416,7 +465,7 @@ export function PositionListTab() {
   // exporting the newest thousand rows and calling it the range. The rest of the
   // window is pulled in first — the same walk a non-default sort triggers, for
   // the same reason — and those rows stay in the table afterwards.
-  async function handleExportCsv(): Promise<void> {
+  async function handleExportCsv(delimiter: CsvDelimiter): Promise<void> {
     if (isExporting) {
       return
     }
@@ -452,7 +501,7 @@ export function PositionListTab() {
 
       downloadTextFile(
         csvFileName(device.deviceId),
-        buildCsv(CSV_HEADERS, rows.map(positionToCsvRow), csvDelimiter),
+        buildCsv(CSV_HEADERS, rows.map(positionToCsvRow), delimiter),
         // Named rather than left as text/plain: spreadsheets and "open with"
         // rules key off the MIME type as much as off the extension.
         'text/csv;charset=utf-8',
@@ -647,38 +696,55 @@ export function PositionListTab() {
         isLoading={isLoading}
         idPrefix="pos"
         className="position-list-controls"
-        /* The separator sits beside the button rather than behind a menu: it is
-           one choice, made once, and a spreadsheet handed the wrong one gives no
-           warning at all — it just shows a single column of text. */
+        /* A quiet text button, not a third solid one: exporting is something the
+           reader does occasionally, and the toolbar's weight should go to the
+           range pickers they use every visit. The separator question waits until
+           the button is actually pressed. */
         extra={
-          <>
-            <div className="form-field">
-              <label className="form-label" htmlFor="pos-csv-delimiter">Delimiter</label>
-              <select
-                id="pos-csv-delimiter"
-                className="form-input"
-                style={{ width: 'auto' }}
-                value={csvDelimiter}
-                onChange={(e) => handleDelimiterChange(e.target.value as CsvDelimiter)}
-              >
-                {CSV_DELIMITERS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-
+          <div className="export-menu" ref={exportMenuRef}>
             <button
+              ref={exportTriggerRef}
               type="button"
-              className="btn btn-secondary"
-              style={{ alignSelf: 'flex-end' }}
-              onClick={() => void handleExportCsv()}
+              className="export-trigger"
+              onClick={() => setIsMenuOpen((open) => !open)}
               /* Blocked while a chunk walk is already running: loadMoreChunks
                  drops a second one, which would export a partial range. */
               disabled={isExporting || isLoadingMore || positions.length === 0}
+              aria-haspopup="true"
+              aria-expanded={isMenuOpen}
             >
-              {isExporting ? 'Exporting…' : '⤓ Export CSV'}
+              <span className="export-trigger-icon" aria-hidden="true">⤓</span>
+              {isExporting ? 'Exporting…' : 'Export CSV'}
             </button>
-          </>
+
+            {isMenuOpen ? (
+              <div className="export-menu-panel" aria-labelledby="pos-export-heading">
+                <p className="export-menu-heading" id="pos-export-heading">
+                  Column separator
+                </p>
+
+                {CSV_DELIMITERS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className="export-menu-item"
+                    onClick={() => handleDelimiterPick(option.value)}
+                  >
+                    {/* The tick marks the one used last time, which is the only
+                        sense in which there is a "current" separator here. */}
+                    <span className="export-menu-check" aria-hidden="true">
+                      {option.value === csvDelimiter ? '✓' : ''}
+                    </span>
+                    <span className="export-menu-label">{option.label}</span>
+                    <span className="export-menu-sample" aria-hidden="true">
+                      {option.sample}
+                    </span>
+                    <span className="export-menu-hint">{option.hint}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         }
       />
 
