@@ -19,18 +19,19 @@
 // reading does not move under you. Switch it off to freeze the data entirely.
 // ============================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import RangeToolbar from '../components/RangeToolbar'
 import TelemetryChart from '../components/TelemetryChart'
 import type { DevicePageContext } from './DevicePage'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
-import { fetchPositions } from '../services/apiClient'
 import type { PositionDto } from '../services/apiTypes'
+import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { SeriesKey } from '../utils/telemetry'
 import {
   SERIES,
   availableSeriesKeys,
+  decimateChartRows,
   formatTooltipTime,
   toChartRows,
 } from '../utils/telemetry'
@@ -38,9 +39,17 @@ import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, getDefaultDateRange } from '../utils/dates'
 import { describeError } from '../utils/errors'
 
-// The API caps every /positions query at this many rows and returns no
-// truncation flag, so hitting the cap exactly is the only signal available.
-const SERVER_ROW_CAP = 1000
+// Ceiling on one full load. The API hands out 1000 rows at a time, so this is
+// fifty sequential requests in the worst case — enough for weeks of history at
+// a normal reporting interval, and a stopping point for a range that would
+// otherwise walk back through a year.
+const MAX_CHART_ROWS = 50_000
+
+// How many points actually reach Recharts. Every point costs a path segment and
+// a hit-test on every mouse move, and the chart is about a thousand pixels wide;
+// past this the extra rows buy nothing but lag. decimateChartRows() keeps the
+// peaks, so the shape survives the thinning.
+const MAX_PLOT_POINTS = 6000
 
 // How many seconds between automatic refreshes when the toggle is on
 const AUTO_REFRESH_SEC = 30
@@ -57,6 +66,25 @@ export function DeviceChartsTab() {
   const [isLoading, setIsLoading]         = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<string>('')
 
+  // True when MAX_CHART_ROWS stopped the walk before the window ran out, so the
+  // oldest part of the chosen range is genuinely missing. Reported by the loader
+  // rather than guessed at from the row count.
+  const [reachedCap, setReachedCap] = useState<boolean>(false)
+
+  // Which query the rows on screen belong to. A refresh tick re-runs the effect
+  // with this unchanged, which is how a top-up is told apart from a fresh load.
+  const loadedQueryKey = useRef<string>('')
+
+  // A mirror of `positions` the effect can read without listing it as a
+  // dependency — a merge needs the current rows, and depending on them would
+  // make the effect re-run on its own result.
+  const positionsRef = useRef<PositionDto[]>([])
+
+  function applyPositions(next: PositionDto[]): void {
+    positionsRef.current = next
+    setPositions(next)
+  }
+
   // Date range controls. Computed once, on mount — from here on only the two
   // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
@@ -70,27 +98,74 @@ export function DeviceChartsTab() {
 
   // Load positions whenever the device or date range changes. Same shape as the
   // Map and Positions tabs — the `canceled` flag stops a slow response from
-  // overwriting a newer one (and covers StrictMode's double invocation).
+  // overwriting a newer one (and covers StrictMode's double invocation), and it
+  // is what stops a long walk mid-way when the range moves under it.
+  //
+  // Two different loads share this effect:
+  //
+  //   • a new device or range walks the WHOLE window, however many requests
+  //     that takes, because a chart missing its oldest half says nothing about
+  //     it being missing;
+  //   • a refresh tick fetches only the newest chunk and merges it, because
+  //     fixes are append-only and re-walking forty chunks every thirty seconds
+  //     would be absurd.
   useEffect(() => {
     let canceled = false
+    const isCanceled = (): boolean => canceled
+
+    const fromIso = datetimeLocalToIso(dateRange.from)
+    const toIso   = datetimeLocalToIso(dateRange.to)
+
+    const queryKey = `${device.deviceId}|${fromIso ?? ''}|${toIso ?? ''}`
+    const isTopUp  = loadedQueryKey.current === queryKey
 
     const load = async (): Promise<void> => {
       setIsLoading(true)
 
-      const fromIso = datetimeLocalToIso(dateRange.from)
-      const toIso   = datetimeLocalToIso(dateRange.to)
+      // A different device or window: the chart on screen is now answering the
+      // wrong question, so it goes rather than lingering through the walk.
+      if (!isTopUp) {
+        applyPositions([])
+        setReachedCap(false)
+        setStatusMessage('Loading positions…')
+      }
 
       try {
-        const data = await fetchPositions(device.deviceId, fromIso, toIso)
-        if (canceled) {
-          return
+        if (isTopUp) {
+          // One request. `seenIds` starts empty because everything in the batch
+          // is either new or already held, and mergeNewest settles that by id.
+          const chunk = await fetchPositionChunk(
+            device.deviceId, fromIso, toIso, new Set<number>(),
+          )
+          if (canceled) {
+            return
+          }
+          applyPositions(mergeNewest(positionsRef.current, chunk.rows))
+        } else {
+          const result = await fetchAllPositions(device.deviceId, fromIso, toIso, {
+            maxRows: MAX_CHART_ROWS,
+            isCanceled,
+            // The walk is sequential by necessity, so a wide range can take a
+            // while. Counting up beats a spinner that says nothing.
+            onProgress: (loaded) => {
+              if (!canceled) {
+                setStatusMessage(`Loading… ${loaded.toLocaleString()} positions so far.`)
+              }
+            },
+          })
+          if (canceled) {
+            return
+          }
+          applyPositions(result.positions)
+          setReachedCap(result.reachedCap)
+          loadedQueryKey.current = queryKey
         }
 
-        setPositions(data)
+        const total = positionsRef.current.length
         setStatusMessage(
-          data.length === 0
+          total === 0
             ? 'No positions found for this time range.'
-            : `${data.length} position${data.length === 1 ? '' : 's'} found.`,
+            : `${total.toLocaleString()} position${total === 1 ? '' : 's'} found.`,
         )
       } catch (error) {
         if (canceled) {
@@ -113,7 +188,8 @@ export function DeviceChartsTab() {
   }, [device.deviceId, dateRange.from, dateRange.to, refresh.token])
 
   // `positions` only gets a new identity on a fetch, so the reshaping — which
-  // touches up to 1000 rows — runs once per load rather than once per render.
+  // now touches tens of thousands of rows — runs once per load rather than once
+  // per render.
   const rows = useMemo(() => toChartRows(positions), [positions])
 
   // Derived, not stored: a series the user ticked reappears on its own once the
@@ -127,10 +203,18 @@ export function DeviceChartsTab() {
     [selectedKeys, available],
   )
 
-  // The server returns the NEWEST rows, so a range that hit the cap starts
-  // later than the "From" that was asked for — invisible on a chart in a way it
-  // is not on a table.
-  const isTruncated = positions.length >= SERVER_ROW_CAP && rows.length > 0
+  // What Recharts is actually handed. Depends on the SELECTION as well as the
+  // rows, because which peaks have to survive the thinning is exactly the
+  // question of which series are drawn.
+  const plotRows = useMemo(
+    () => decimateChartRows(rows, selectedKeys, MAX_PLOT_POINTS),
+    [rows, selectedKeys],
+  )
+
+  // The loader walks backwards from the newest fix, so a range that hit the row
+  // ceiling starts later than the "From" that was asked for — invisible on a
+  // chart in a way it is not on a table.
+  const isTruncated = reachedCap && rows.length > 0
 
   function toggleSeries(key: SeriesKey, checked: boolean): void {
     setSelectedKeys((current) =>
@@ -195,8 +279,8 @@ export function DeviceChartsTab() {
         <div className="banner banner--warning" role="status" style={{ marginBottom: 12 }}>
           <span aria-hidden="true">⚠️</span>
           <span>
-            The server returns at most {SERVER_ROW_CAP} fixes per query and this
-            range reached that limit, so the chart starts at{' '}
+            This range holds more than {MAX_CHART_ROWS.toLocaleString()} fixes,
+            which is as far back as one load goes, so the chart starts at{' '}
             {formatTooltipTime(rows[0].t)} rather than at the “From” you chose.
             Narrow the range to see earlier data.
           </span>
@@ -227,12 +311,19 @@ export function DeviceChartsTab() {
         </div>
       ) : (
         <>
-          <TelemetryChart rows={rows} series={series} />
+          <TelemetryChart rows={plotRows} series={series} />
 
           <p className="hint" style={{ marginTop: 10 }}>
             Each unit gets its own vertical axis. A break in a line means the
             device reported no value for those fixes — for Battery, that also
             happens while it is charging.
+            {plotRows.length < rows.length ? (
+              <>
+                {' '}Drawing {plotRows.length.toLocaleString()} of{' '}
+                {rows.length.toLocaleString()} points — the highest and lowest
+                reading of every ticked series is kept, so no peak is hidden.
+              </>
+            ) : null}
           </p>
         </>
       )}

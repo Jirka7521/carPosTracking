@@ -19,14 +19,14 @@
 // no extra API call for the device itself is needed here.
 // ============================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import DeviceMap from '../components/DeviceMap'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
-import { fetchPositions } from '../services/apiClient'
 import type { PositionDto } from '../services/apiTypes'
+import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, getDefaultDateRange } from '../utils/dates'
 import { describeError } from '../utils/errors'
@@ -34,6 +34,11 @@ import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
 
 // How many seconds between automatic refreshes when the toggle is on
 const AUTO_REFRESH_SEC = 30
+
+// Ceiling on one full load — fifty sequential requests at the API's 1000 rows
+// per answer. The track is drawn whole rather than thinned: a decimated
+// polyline is a route the vehicle did not take.
+const MAX_MAP_ROWS = 50_000
 
 export function DeviceMapTab() {
   // Device object passed down from DevicePage
@@ -48,6 +53,18 @@ export function DeviceMapTab() {
   const [isLoading, setIsLoading]       = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<string>('')
 
+  // Which query the track on screen belongs to. A refresh tick re-runs the
+  // effect with this unchanged, which is how a top-up is told apart from a
+  // fresh load. The mirrored rows let the merge read the current track without
+  // the effect depending on its own result.
+  const loadedQueryKey = useRef<string>('')
+  const positionsRef   = useRef<PositionDto[]>([])
+
+  function applyPositions(next: PositionDto[]): void {
+    positionsRef.current = next
+    setPositions(next)
+  }
+
   // Date range controls. Computed once, on mount — from here on only the two
   // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
@@ -61,26 +78,80 @@ export function DeviceMapTab() {
   // ---- Position loader ----
   // Called on mount, when dateRange changes, and when a refresh is triggered.
   // The `canceled` flag prevents stale fetches from updating state if the
-  // effect re-runs (e.g. dateRange change, StrictMode double-invocation).
+  // effect re-runs (e.g. dateRange change, StrictMode double-invocation), and
+  // stops a long walk mid-way when the range moves under it.
+  //
+  // The API answers with at most 1000 fixes at a time, so a new device or range
+  // walks the window backwards in as many requests as it takes — a track cut
+  // off at its oldest end just looks like a shorter journey. A refresh tick
+  // fetches only the newest chunk and merges it, since fixes are append-only.
   useEffect(() => {
     let canceled = false
+    const isCanceled = (): boolean => canceled
+
+    const fromIso = datetimeLocalToIso(dateRange.from)
+    const toIso   = datetimeLocalToIso(dateRange.to)
+
+    const queryKey = `${device.deviceId}|${fromIso ?? ''}|${toIso ?? ''}`
+    const isTopUp  = loadedQueryKey.current === queryKey
 
     const load = async (): Promise<void> => {
-      const fromIso = datetimeLocalToIso(dateRange.from)
-      const toIso   = datetimeLocalToIso(dateRange.to)
-
       setIsLoading(true)
 
+      // A different device or window: the track on screen is now the wrong one,
+      // so it goes rather than lingering through the walk.
+      if (!isTopUp) {
+        applyPositions([])
+        setStatusMessage('Loading positions…')
+      }
+
       try {
-        const data = await fetchPositions(device.deviceId, fromIso, toIso)
-        if (canceled) {
-          return
+        if (isTopUp) {
+          // One request. `seenIds` starts empty because everything in the batch
+          // is either new or already held, and mergeNewest settles that by id.
+          const chunk = await fetchPositionChunk(
+            device.deviceId, fromIso, toIso, new Set<number>(),
+          )
+          if (canceled) {
+            return
+          }
+          applyPositions(mergeNewest(positionsRef.current, chunk.rows))
+        } else {
+          const result = await fetchAllPositions(device.deviceId, fromIso, toIso, {
+            maxRows: MAX_MAP_ROWS,
+            isCanceled,
+            // The walk is sequential by necessity, so a wide range can take a
+            // while. Counting up beats an overlay that says nothing.
+            onProgress: (loaded) => {
+              if (!canceled) {
+                setStatusMessage(`Loading… ${loaded.toLocaleString()} positions so far.`)
+              }
+            },
+          })
+          if (canceled) {
+            return
+          }
+          applyPositions(result.positions)
+          loadedQueryKey.current = queryKey
+
+          if (result.reachedCap) {
+            // The walk runs newest-first, so what is missing is the START of
+            // the journey — worth saying, because the drawn track looks
+            // complete either way.
+            setStatusMessage(
+              `Loaded the newest ${result.positions.length.toLocaleString()} positions ` +
+              `— this range holds more than one load can fetch, so the track ` +
+              `starts later than the “From” you chose.`,
+            )
+            return
+          }
         }
-        setPositions(data)
+
+        const total = positionsRef.current.length
         setStatusMessage(
-          data.length === 0
+          total === 0
             ? 'No positions found for this time range.'
-            : `Loaded ${data.length} position${data.length === 1 ? '' : 's'}.`,
+            : `Loaded ${total.toLocaleString()} position${total === 1 ? '' : 's'}.`,
         )
       } catch (error) {
         if (canceled) {
