@@ -162,19 +162,39 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
     script.dataset.googleMapsLoader = 'true'
     script.async = true
     script.defer = true
-    // `libraries=marker` ensures the marker classes ship in the main bundle.
-    // No `loading=async` — that flag turns classes into lazy imports, which
-    // breaks direct google.maps.X usage.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker`
+
+    // `loading=async` is what Google asks for, and without it the console warns
+    // about suboptimal performance on every load. It does change the contract:
+    // the script's own `load` event now fires BEFORE the API has bootstrapped,
+    // so google.maps.X is not populated yet at that point. The `callback`
+    // parameter is the supported answer — it runs once the API *and* every
+    // library named in `libraries=` are ready, so direct `new google.maps.Map()`
+    // usage below still works. (What genuinely does not survive is the inline
+    // bootstrap-loader form, where only importLibrary() is guaranteed.)
+    //
+    // `libraries=marker` ensures the marker classes ship with that bootstrap.
+    const callbackName = '__carposGoogleMapsReady'
+    const globalScope = window as unknown as Record<string, unknown>
+    globalScope[callbackName] = (): void => {
+      delete globalScope[callbackName]
+      resolve()
+    }
+
+    script.src =
+      `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}` +
+      `&v=weekly&libraries=marker&loading=async&callback=${callbackName}`
+
     script.addEventListener('error', () => {
+      delete globalScope[callbackName]
       reject(new Error('Failed to load Google Maps script.'))
     })
+    // Belt and braces: if the API somehow finished before the callback was
+    // wired up, resolving twice is a no-op. Note there is deliberately no
+    // "loaded but google.maps.Map is missing" rejection here any more — under
+    // loading=async that is the normal state at `load` time, not a failure.
     script.addEventListener('load', () => {
-      const ok = !!(window as unknown as { google?: typeof google }).google?.maps?.Map
-      if (ok) {
+      if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
         resolve()
-      } else {
-        reject(new Error('Google Maps script loaded but google.maps.Map is missing.'))
       }
     })
     document.head.appendChild(script)
