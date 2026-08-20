@@ -10,7 +10,7 @@
 // ============================================================
 
 import { CapabilityCheckboxes } from './CapabilityCheckboxes'
-import type { CapabilityFlags } from './CapabilityCheckboxes'
+import type { CapabilityFlags } from './capabilityFlags'
 
 // Data for one user's access grant as displayed in the access list.
 export type SharedUserData = {

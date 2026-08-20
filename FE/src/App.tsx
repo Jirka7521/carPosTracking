@@ -18,7 +18,8 @@
 
 import { Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
-import { AuthProvider, useAuth } from './auth/AuthContext'
+import { AuthProvider } from './auth/AuthContext'
+import { useAuth } from './auth/useAuth'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppLayout } from './components/AppLayout'
 import { SessionLoading } from './components/SessionLoading'

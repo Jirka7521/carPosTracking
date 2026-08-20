@@ -46,10 +46,9 @@ internal sealed class PositionWriter : IPositionWriter
         Dictionary<DateTime, ValidatedPosition> unique = new Dictionary<DateTime, ValidatedPosition>(positions.Count);
         foreach (ValidatedPosition position in positions)
         {
-            if (!unique.ContainsKey(position.FixTimeUtc))
-            {
-                unique.Add(position.FixTimeUtc, position);
-            }
+            // TryAdd keeps the first occurrence, same as the ContainsKey guard it
+            // replaces, but hashes the key once instead of twice.
+            unique.TryAdd(position.FixTimeUtc, position);
         }
 
         DateTime[] fixTimes = new DateTime[unique.Count];

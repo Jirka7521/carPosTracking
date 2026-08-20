@@ -8,7 +8,7 @@
 
 import { Navigate, useLocation } from 'react-router-dom'
 import type { ReactElement } from 'react'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 import { SessionLoading } from '../components/SessionLoading'
 
 export function RequireAuth({ children }: { children: ReactElement }): ReactElement {

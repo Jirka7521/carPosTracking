@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // AuthContext — a single React context that holds the currently signed-in
 // user and exposes login / register / logout helpers. Every page that needs
-// to know "who is the user?" reads it via the `useAuth()` hook below.
+// to know "who is the user?" reads it via the `useAuth()` hook in useAuth.ts.
 //
 // Session model: the JWT lives in an HttpOnly cookie the browser attaches
 // automatically. That is much safer than localStorage — no script can read it,
@@ -14,7 +14,7 @@
 // login page on every reload and throw away the user's deep link.
 // ---------------------------------------------------------------------------
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   fetchMyProfile,
@@ -24,40 +24,8 @@ import {
   SESSION_EXPIRED_EVENT,
 } from '../services/apiClient'
 import type { UserProfileDto } from '../services/apiTypes'
-
-// 'loading'       — the session probe is still in flight; render nothing decisive yet.
-// 'authenticated' — `currentUser` is populated.
-// 'anonymous'     — no valid session; guarded routes redirect to /login.
-export type AuthStatus = 'loading' | 'authenticated' | 'anonymous'
-
-type AuthContextValue = {
-  // Null unless status is 'authenticated'.
-  currentUser: UserProfileDto | null
-
-  status: AuthStatus
-
-  // True only once the probe has finished and found a session. Route guards
-  // must check `status` too — `!isAuthenticated` is not the same as "signed out"
-  // while the probe is still running.
-  isAuthenticated: boolean
-
-  // Sign in with email + password. Throws ApiError on failure; the caller
-  // should catch it and render the message.
-  login: (email: string, password: string) => Promise<void>
-
-  // Create a new account and immediately sign in.
-  register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>
-
-  // Ends the session server-side (the API expires the cookies) and clears local
-  // state, which redirects to /login on the next render.
-  logout: () => Promise<void>
-
-  // Persist an updated user profile (e.g. after a name change) so the header
-  // reflects the new name without requiring a full page reload.
-  updateCurrentUser: (user: UserProfileDto) => void
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
+import { AuthContext } from './context'
+import type { AuthContextValue, AuthStatus } from './context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<UserProfileDto | null>(null)
@@ -158,12 +126,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// Hook for consuming the auth context. Throws if used outside an
-// AuthProvider — that is always a programmer error.
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext)
-  if (context === null) {
-    throw new Error('useAuth must be used inside an <AuthProvider>.')
-  }
-  return context
-}

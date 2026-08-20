@@ -34,11 +34,11 @@ type DeviceMapProps = {
 
 // Live Google Maps objects for the current map instance.
 type MapState = {
-  map:          any | null
+  map:          google.maps.Map | null
   // Markers keyed by fix, so a reload can reuse the ones that are still there
-  markersByKey: Map<string, any>
-  polyline:     any | null
-  infoWindow:   any | null
+  markersByKey: Map<string, google.maps.Marker>
+  polyline:     google.maps.Polyline | null
+  infoWindow:   google.maps.InfoWindow | null
   // Which marker's info window is open, so it can be closed if that fix falls
   // out of the range on a later load
   selectedKey:  string | null
@@ -120,7 +120,7 @@ let googleMapsLoader: Promise<void> | null = null
 
 function loadGoogleMaps(apiKey: string): Promise<void> {
   // Already loaded? Resolve immediately.
-  const w = window as { google?: any }
+  const w = window as unknown as { google?: typeof google }
   if (w.google?.maps?.Map) {
     return Promise.resolve()
   }
@@ -140,13 +140,13 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
       // After the script load event fires we still need to verify the API
       // actually populated `google.maps.Map`. If not, we treat it as a failure.
       const check = (): void => {
-        if ((window as { google?: any }).google?.maps?.Map) {
+        if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
           resolve()
         } else {
           reject(new Error('Google Maps script loaded but google.maps.Map is missing.'))
         }
       }
-      if ((window as { google?: any }).google?.maps?.Map) {
+      if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
         check()
       } else {
         script.addEventListener('load', check, { once: true })
@@ -170,7 +170,7 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
       reject(new Error('Failed to load Google Maps script.'))
     })
     script.addEventListener('load', () => {
-      const ok = !!(window as { google?: any }).google?.maps?.Map
+      const ok = !!(window as unknown as { google?: typeof google }).google?.maps?.Map
       if (ok) {
         resolve()
       } else {
@@ -193,7 +193,7 @@ const PIN_PATH =
 const LATEST_PIN  = { color: '#0065BD', scale: 1.2 }
 const HISTORY_PIN = { color: '#E31E24', scale: 1 }
 
-function createPinSymbol(g: any, color: string, scale: number) {
+function createPinSymbol(g: typeof google, color: string, scale: number): google.maps.Symbol {
   return {
     path:         PIN_PATH,
     fillColor:    color,
@@ -220,14 +220,19 @@ function positionKey(position: PositionDto): string {
 // else moves the map. Reading the markers rather than a positions array keeps
 // this callable from anywhere without threading the data through.
 function fitToDrawnPositions(state: MapState): void {
-  const g = (window as { google?: any }).google
+  const g = (window as unknown as { google?: typeof google }).google
   if (!g?.maps || !state.map || state.markersByKey.size === 0) {
     return
   }
 
   const bounds = new g.maps.LatLngBounds()
   state.markersByKey.forEach((marker) => {
-    bounds.extend(marker.getPosition())
+    // getPosition() is null for a marker that has been detached from the map;
+    // one can be in the Map for the tick between setMap(null) and delete().
+    const markerPosition = marker.getPosition()
+    if (markerPosition) {
+      bounds.extend(markerPosition)
+    }
   })
 
   state.map.fitBounds(bounds)
@@ -241,7 +246,7 @@ function fitToDrawnPositions(state: MapState): void {
 // away the user's pan and zoom (and closed whatever info window they had open)
 // every time the auto-refresh ticked. Now only what actually changed is touched.
 function updateMapOverlays(state: MapState, positions: PositionDto[]): void {
-  const g = (window as { google?: any }).google
+  const g = (window as unknown as { google?: typeof google }).google
   if (!g?.maps || !state.map) {
     return
   }
@@ -375,7 +380,7 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
   const mapState = useMemo<MapState>(
     () => ({
       map:          null,
-      markersByKey: new Map<string, any>(),
+      markersByKey: new Map<string, google.maps.Marker>(),
       polyline:     null,
       infoWindow:   null,
       selectedKey:  null,
@@ -398,7 +403,7 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
           return
         }
 
-        const g = (window as { google?: any }).google
+        const g = (window as unknown as { google?: typeof google }).google
         if (!g?.maps?.Map) {
           return
         }

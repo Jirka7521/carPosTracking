@@ -334,7 +334,7 @@ internal sealed partial class IngestPipeline : IIngestPipeline
 
         // Exactly one segment (devices/+ can't match deeper topics, but the guard
         // must not rely on broker behaviour) of safe characters.
-        if (remainder.Length == 0 || remainder.Contains('/') || !DeviceIdRegex().IsMatch(remainder))
+        if (remainder.Length == 0 || remainder.Contains('/', StringComparison.Ordinal) || !DeviceIdRegex().IsMatch(remainder))
         {
             return null;
         }

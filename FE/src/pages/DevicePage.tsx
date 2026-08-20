@@ -54,9 +54,10 @@ export function DevicePage() {
   // Fetches the full device list and picks out the one matching the URL id.
   // The API already filters to devices the caller has access to, so a
   // missing device means either it was deleted or access was revoked.
+  // Nothing is set before the first await: a setState reached synchronously
+  // from the effect below would render twice before paint. The "still loading"
+  // signal for a *changed* :deviceId is derived instead — see isBusy.
   async function loadDevice(): Promise<void> {
-    setIsLoading(true)
-    setErrorMessage('')
     try {
       const devices = await fetchMyDevices()
       const found = devices.find((d) => d.deviceId === deviceId)
@@ -64,6 +65,7 @@ export function DevicePage() {
         setErrorMessage('Device not found, or you do not have access to it.')
       } else {
         setDevice(found)
+        setErrorMessage('')
       }
     } catch (error) {
       setErrorMessage(describeError(error, 'Failed to load device.'))
@@ -72,14 +74,30 @@ export function DevicePage() {
     }
   }
 
-  // Load once on mount (and whenever the URL :deviceId changes)
+  // Load once on mount (and whenever the URL :deviceId changes).
+  //
+  // react-hooks/set-state-in-effect is suppressed rather than satisfied: the
+  // rule flags any effect that calls a function setting state ANYWHERE in its
+  // body — it does not model await boundaries. Every setState in loadDevice()
+  // runs after `await fetchMyDevices()`, so there is no synchronous cascading
+  // render, which is the thing the rule exists to prevent. Nor can the shape be
+  // changed to please it: loadDevice is also handed to the child tabs as
+  // reloadDevice, so it cannot move inside this effect (and the rule flags that
+  // shape too).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDevice()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId])
 
+  // A loaded device whose id no longer matches the URL means :deviceId changed
+  // and the fetch for the new one is still in flight. Deriving that beats
+  // setting isLoading back to true from the effect, and it renders the spinner
+  // rather than one frame of the previously-viewed device.
+  const isBusy = isLoading || (device !== null && device.deviceId !== deviceId)
+
   // ---- Loading state ----
-  if (isLoading) {
+  if (isBusy) {
     return (
       <div className="loading-state" style={{ flex: 1 }}>
         <div className="spinner" aria-hidden="true" />
