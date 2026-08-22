@@ -525,6 +525,33 @@ constexpr uint32_t kRetryMaxAgeHours = 168;  // 7 days
 constexpr uint32_t kSdMaxRetryEntries = 2000;
 
 // -----------------------------------------------------------------------------
+//  Boot log.
+//
+//  One plaintext line per boot on the card, plus the recent history printed to
+//  the serial console at start-up. It records what nothing else does: the
+//  esp_reset_reason() (POWERON / BROWNOUT / PANIC / TASK_WDT / DEEPSLEEP), a
+//  boot counter, and whether the RTC domain kept its contents - which is what
+//  separates "it crashed and rebooted" from "it lost power", because RTC memory
+//  survives a reset but not a dropped rail.
+//
+//  Written in the CLEAR like the settings cache: it holds no position data, only
+//  restart forensics. Set kBootLogEnabled to `false` and the whole thing is
+//  compiled out.
+// -----------------------------------------------------------------------------
+constexpr bool kBootLogEnabled = true;
+
+constexpr char kSdBootLogPath[] = "/sdcard/boot.log";
+
+// Safety cap on the log. At ~70 bytes a line the default is about 14 KB, and
+// 200 boots is far more history than any diagnosis needs - a device that reboots
+// enough to wrap this has already told you what you needed to know.
+constexpr uint32_t kSdMaxBootLogLines = 200;
+
+// How many PREVIOUS boots to print at start-up, above the current one. Ten fits
+// a terminal window and is enough to see a reboot loop for what it is.
+constexpr uint32_t kBootLogPrintLines = 10;
+
+// -----------------------------------------------------------------------------
 //  Deep sleep (only used when the "sleep_between" setting is on).
 //
 //  Between reports the modem is powered right down - which also cuts the GNSS
