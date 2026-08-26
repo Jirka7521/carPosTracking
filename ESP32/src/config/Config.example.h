@@ -174,10 +174,10 @@ constexpr uint32_t kBatteryEmptyMv = 3300;  // ~0 %
 constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
 
 // -----------------------------------------------------------------------------
-//  Battery method log (diagnostic CSV on the microSD card).
+//  Battery method log (CSV on the microSD card; one column is published).
 //
-//  BatteryMonitor above produces the ONE percent that gets published. This block
-//  configures the parallel diagnostic path: BatteryMethods measures the pack
+//  BatteryMonitor above owns the charge DETECTION and the AT+CBC fallback. This
+//  block configures the measuring path: BatteryMethods measures the pack
 //  every way this board allows - five voltage sources, three state-of-charge
 //  models each, the modem's own percentage and the charge-input pin - and
 //  BatteryCsvLogger writes one row per reporting cycle to a plaintext CSV. Every
@@ -233,6 +233,48 @@ constexpr uint32_t kSolarInputThresholdMv = 1000;
 // the four ADC sources are logged as absent rather than as a flat pack. This is
 // the USB case above: the pin reads ~0, not a low cell.
 constexpr uint32_t kBatteryNoReadingMv = 2000;
+
+// -----------------------------------------------------------------------------
+//  Which measurement becomes the PUBLISHED battery percent.
+//
+//  The block above measures the pack five ways and scores each three ways, which
+//  is how the best method was found; this is where that answer is put to work.
+//  The default publishes the capture's "p4_curve" column - the calibrated MEDIAN
+//  of the ADC burst, scored with the piecewise Li-ion curve - because that is the
+//  method that tracked the real pack best across the captures on the card.
+//
+//  The two indices are the BatterySource / BatteryModel enums in
+//  power/BatteryMethodsData.h. They are plain ints here so this file keeps
+//  depending on nothing from src/power/; main.cpp casts them where it builds the
+//  BatteryReporter. The comments name the matching battery.csv column, so a
+//  capture and a payload can be read side by side.
+//
+//  Set kBatteryReportFromMethods to `false` to go back to publishing
+//  BatteryMonitor's own AT+CBC figure - a one-line rollback if a capture ever
+//  says the ADC path has drifted.
+// -----------------------------------------------------------------------------
+constexpr bool kBatteryReportFromMethods = true;
+
+constexpr int kBatteryReportSourceIndex = 3;  // kSourceCalMedian -> "p4_*"
+constexpr int kBatteryReportModelIndex  = 1;  // kModelCurve      -> "*_curve"
+
+// -----------------------------------------------------------------------------
+//  Charger-disconnect report.
+//
+//  While the charger is connected the pack is INVISIBLE - on the T-SIM7000G the
+//  sense pin is cut off from the cell whenever USB power is present (LilyGO
+//  issue #128) - so the first true battery reading of a trip only exists once the
+//  charger comes off. A cycle that got a position publishes that reading by
+//  itself; a cycle that did NOT publishes nothing at all, and on a car parked
+//  indoors the next lock may never come.
+//
+//  So on the disconnect edge, and only when this cycle found no position, the
+//  firmware spends one more acquire chasing one. If that also comes back empty
+//  nothing is published and the next cycle carries on as usual.
+//
+//  0 disables the extra attempt entirely.
+// -----------------------------------------------------------------------------
+constexpr uint32_t kUnplugFixTimeoutSeconds = 60;
 
 // -----------------------------------------------------------------------------
 //  WiFi (station mode).

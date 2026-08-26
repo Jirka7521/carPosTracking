@@ -23,17 +23,23 @@ reuse.
   (in g) rides along with every position report — optionally as the **strongest
   per-axis reading of the whole interval** rather than one instantaneous sample,
   so braking and potholes between two reports are not missed.
-- 🔋 **Battery monitor**: pack state of charge from the modem's `AT+CBC`, mapped
-  through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
-  pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
-  the **modem die temperature** (`AT+CPMUTEMP`, published as `temp_c`).
-- 📊 **Battery method log** *(diagnostic, SD card)*: one CSV row per report
-  comparing **every** way this board can measure the pack — 5 voltage sources ×
-  3 state-of-charge models, the modem's own percentage, the charge-input pin and
+- 🔋 **Battery monitor**: pack state of charge measured on the sense pin
+  (GPIO35) and mapped through a **Li-ion discharge curve** (not a straight line),
+  plus charge detection on that same pin — a value of `0` is the agreed
+  "charging" sentinel. Also reports the **modem die temperature**
+  (`AT+CPMUTEMP`, published as `temp_c`).
+- 📊 **Battery method log** *(SD card)*: one CSV row per report comparing
+  **every** way this board can measure the pack — 5 voltage sources × 3
+  state-of-charge models, the modem's own percentage, the charge-input pin and
   three charging detectors — each row stamped with the **uptime in milliseconds**
-  and the **current GNSS UTC**. Nothing of it is published; it exists so the
-  curve above can be calibrated against real captures. See
-  [Battery method log](#battery-method-log).
+  and the **current GNSS UTC**. **One** of those columns is the number that gets
+  published (`p4_curve` by default); the rest exist so that choice can be checked
+  against real captures. See [Battery method log](#battery-method-log).
+- 🔌 **Charger-disconnect report**: while the charger is connected the pack is
+  invisible to the ADC, so the first true reading of a trip only exists once it
+  comes off. On that edge — and only when the cycle found no position — the
+  firmware spends one more acquire chasing one, so the news does not wait for the
+  next lock. See [Charger-disconnect report](#charger-disconnect-report).
 - 🔋 **Power the whole modem off** between reads to minimise battery drain
   (plus a lighter "GNSS engine only" off switch).
 - 📶 **Optional WiFi** (station mode): connect to a network with one flag, or
@@ -126,10 +132,12 @@ src/
 └── power/
     ├── AdcSampler.h/.cpp          ← The one owner of ADC1: raw counts + calibrated mV
     ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
-    ├── BatteryMonitor.h/.cpp      ← Pack % via AT+CBC + charge-sense on GPIO35
+    ├── BatteryMonitor.h/.cpp      ← Charge-sense on GPIO35 + the AT+CBC fallback %
     ├── BatteryMethodsData.h       ← Plain struct: one multi-method measurement
     ├── BatteryMethods.h/.cpp      ← Measure the pack every way at once (diagnostic)
     ├── BatteryCsvLogger.h/.cpp    ← One CSV row per report, on the card
+    ├── BatteryReporter.h/.cpp     ← Picks the ONE percent that goes on the wire
+    ├── ChargerWatcher.h/.cpp      ← Spots the charger-off edge (RTC-backed)
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
@@ -175,9 +183,11 @@ test:
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
-| `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35, via `AdcSampler`). |
-| `BatteryMethods` | *Diagnostic:* measure the pack five ways, score each with three models, and report the spread. |
+| `BatteryMonitor` | Charging detection (GPIO35, via `AdcSampler`) — the single source of that verdict — plus the fallback pack % (Li-ion curve over the modem's `AT+CBC`). |
+| `BatteryMethods` | Measure the pack five ways, score each with three models, and report the spread. |
 | `BatteryCsvLogger` | *Diagnostic:* write one of those measurements per report as a CSV row on the card. |
+| `BatteryReporter` | Turn one of those measurements into the single `battery_pct` the payload carries — sentinel, floor, or absent. |
+| `ChargerWatcher` | Remember the charger across cycles (and deep sleeps) and report the moment it comes off. |
 | `BootJournal` | Record *why* the device restarted — reset reason, boot counter, whether RTC memory survived. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope (and stamp its `id`). |
 | `AckCrypto` | The inverse: open an ack sealed to this device's own private key. |
@@ -264,6 +274,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kBatteryAdcSamples` | `16` | ADC conversions per measurement (averaged **and** medianed) |
 | `kSolarInputThresholdMv` | `1000` | Above this on GPIO36, a charge source is present |
 | `kBatteryNoReadingMv` | `2000` | Below this the ADC path is logged as absent, not as a flat pack |
+| **`kBatteryReportFromMethods`** | `true` | **Publish one of the method-log columns as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
+| `kBatteryReportSourceIndex` | `3` | Which voltage source to publish — a `BatterySource` index; `3` = `kSourceCalMedian`, the CSV's `p4_*` |
+| `kBatteryReportModelIndex` | `1` | Which model to score it with — a `BatteryModel` index; `1` = `kModelCurve`, the CSV's `*_curve` |
+| `kUnplugFixTimeoutSeconds` | `60` | Extra acquire budget when the charger comes off and the cycle found no position. `0` disables it |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
@@ -389,6 +403,18 @@ temperature in °C) are **omitted** when their sensor is disabled or a read
 failed, so an older decoder still parses the six location fields it knows. The
 raw pack millivolts are **not** on the wire — they stay on the serial console as
 a curve-calibration aid only.
+
+`battery_pct` is produced by [`BatteryReporter`](src/power/BatteryReporter.h)
+from one column of the method log — `p4_curve` by default, i.e. the calibrated
+**median** of the ADC burst scored with the piecewise Li-ion curve
+(`kBatteryReportSourceIndex` / `kBatteryReportModelIndex`). Three rules, and each
+protects something downstream:
+
+| Situation | On the wire | Why |
+|-----------|-------------|-----|
+| Charger connected | `0` | The agreed sentinel; the API accepts it and the front end renders "charging". It is also the only honest answer — the sense pin is cut off from the cell on USB power, so the ADC has nothing to say. |
+| A reading | that percent, floored at **1** | So a genuinely empty pack can never be read as the charging sentinel. |
+| Neither | the field is **absent** | Never `-1`: the API validates `battery_pct` to `0–100` and rejects the **whole fix** — position included — on anything outside it. |
 
 ### Transport — `MqttClient`
 
@@ -1083,16 +1109,27 @@ did it lose power?", which the reset reason alone cannot.
 
 ## Battery method log
 
-The published `battery_pct` is one number produced by one method: the modem's
-`AT+CBC` put through the Li-ion curve in `BatteryMonitor`. That number is only as
-good as the curve behind it — and the curve cannot be improved without knowing
+The published `battery_pct` is one number produced by one method, and that number
+is only as good as the method behind it — which cannot be judged without knowing
 how the alternatives behave on the same pack, at the same instant.
 
-So, with `kBatteryLogEnabled`, the firmware **also** measures the pack every way
-this board allows and appends one row per reporting cycle to a plaintext CSV on
-the card (`kSdBatteryLogPath`, default `/sdcard/battery.csv`). Nothing here is
-published, encrypted or queued — it is a diagnostic capture, and it changes
-neither the payload nor the envelope.
+So the firmware measures the pack **every** way this board allows, once per
+reporting cycle, and appends the lot to a plaintext CSV on the card
+(`kSdBatteryLogPath`, default `/sdcard/battery.csv`, written when
+`kBatteryLogEnabled`). Nothing on the card is encrypted or queued — it changes
+neither the envelope nor the shape of the payload.
+
+**Exactly one of these columns leaves the device.** `kBatteryReportFromMethods`
+selects it — `p4_curve` by default, the calibrated **median** of the ADC burst
+scored with the piecewise Li-ion curve — and
+[`BatteryReporter`](src/power/BatteryReporter.h) turns it into the payload's
+`battery_pct`. Every other column is there to keep that choice honest: change
+`kBatteryReportSourceIndex` / `kBatteryReportModelIndex` and a different column
+is published, with no other code touched.
+
+> The sweep is taken **before** the publish and exactly **once** per cycle. Once,
+> because the trend detector's window is five *calls* — a second sweep would
+> quietly halve the span `trend_charging` covers.
 
 ```
 uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
@@ -1152,6 +1189,44 @@ uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
   a live table over serial. Two deliberate differences here: one burst of samples
   feeds sources 1–4 (so `v2`/`v3` differ by *maths*, not by *samples*), and the
   trend window counts cycles rather than seconds.
+
+---
+
+## Charger-disconnect report
+
+On the T-SIM7000G the pack sense pin is **cut off from the cell whenever USB
+power is connected** ([LilyGO issue #128][lilygo128]). That is why `v1`–`v4` read
+~0 on charge, and it has a consequence beyond the capture: while the charger is
+in, the device genuinely cannot know the battery level. It reports the `0`
+sentinel, the front end says "charging", and the first true reading of a trip
+only comes into existence the moment the charger comes off.
+
+A cycle that gets a position publishes that reading by itself. A cycle that gets
+**no** position publishes nothing at all — and a car parked in a garage may never
+get one. So the firmware watches for the edge:
+
+- [`ChargerWatcher`](src/power/ChargerWatcher.h) remembers the charge-sense
+  verdict from one cycle to the next and reports the **present → absent**
+  transition. Only the edge counts; a device that is simply running on battery
+  fires nothing.
+- The state lives in **RTC memory**, the same trick `BootJournal` uses, because
+  with `sleep_between` on the chip reboots between reports and an ordinary static
+  would be wiped every cycle — the edge could then never be seen at all.
+- A state that did *not* survive — a real power cut, or a device's first ever
+  boot — is treated as **unknown** and fires nothing. A tracker switched on
+  already unplugged has not just been unplugged.
+- On the edge, **and only when this cycle found no position**, one more acquire
+  is spent chasing one (`kUnplugFixTimeoutSeconds`, default 60 s; `0` disables
+  it). A fix means a normal report goes out carrying the fresh level.
+
+If that acquire also comes back empty, **nothing is published**. Re-sending the
+last known position instead would be pointless: the API dedupes on
+`(device, fix_time)` and keeps the row it already has, so the new battery value
+would be silently discarded — and the device would still be told the fix was
+stored.
+
+Detection is once per reporting cycle, so an unplug is noticed up to one interval
+(60 s by default) after it happens.
 
 ---
 

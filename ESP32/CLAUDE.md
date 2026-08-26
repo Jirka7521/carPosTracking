@@ -59,8 +59,16 @@ src/
 ├── modem/      Sim7000Modem            ← modem power (PWRKEY) + AT transport
 ├── wifi/       WifiManager             ← optional WiFi station
 ├── gnss/       GnssData / CgnsinfParser / NmeaParser / GnssModule
-├── crypto/     PayloadCrypto           ← RSA-OAEP + AES-256-GCM envelope
-└── mqtt/       MqttClient / TelemetryPublisher
+├── crypto/     PayloadCrypto / AckCrypto  ← RSA-OAEP + AES-256-GCM envelope
+├── mqtt/       MqttClient / TelemetryPublisher / TelemetrySample / AckWatcher
+├── power/      AdcSampler / BatteryMonitor / BatteryMethods / BatteryReporter
+│               BatteryCsvLogger / ChargerWatcher / BootJournal
+│               DeepSleepController
+├── sensors/    Adxl345 / AccelPeakTracker  ← ADXL345 accelerometer
+├── sdcard/     SdCard / FixQueue / RetryQueue / QueueIndex / FixForwarder
+├── settings/   DeviceSettings / SettingsStore / SettingsCodec / SettingsApplier
+│               RemoteSettings          ← the broker-supplied runtime config
+└── util/       ScopedLock              ← small shared helpers
 ```
 
 Each folder is one feature; each class is `Name.h` + `Name.cpp`. Add a new

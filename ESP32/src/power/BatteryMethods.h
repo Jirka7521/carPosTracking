@@ -8,10 +8,17 @@
 //  charge-input sense and the charging detectors - and say how far apart they
 //  landed. It stores nothing and prints nothing; BatteryCsvLogger does that.
 //
-//  This is a DIAGNOSTIC path, not the shipped one. BatteryMonitor remains the
-//  single source of the percent that gets published; this class exists so that
-//  monitor's Li-ion curve can be calibrated against real captures, and so the
-//  disagreement between methods is visible instead of assumed away.
+//  It measures; it does not choose. ONE cell of the grid it produces becomes the
+//  published battery_pct - BatteryReporter picks which (kBatteryReportSourceIndex
+//  / kBatteryReportModelIndex in Config.h, "p4_curve" by default) - and the rest
+//  go to BatteryCsvLogger, where they keep that choice honest by making the
+//  disagreement between methods visible instead of assumed away. Deciding what
+//  to publish is deliberately NOT this class's job: it has to stay the neutral
+//  measurer that the chosen method is judged against.
+//
+//  Charge DETECTION stays with BatteryMonitor. The detectors here (the modem's
+//  <bcs>, the charge-input pin, the voltage trend) are corroborating columns for
+//  a capture, not the verdict the firmware acts on.
 //
 //  It borrows AdcSampler and Sim7000Modem (owning neither), like every other
 //  user of those two.
