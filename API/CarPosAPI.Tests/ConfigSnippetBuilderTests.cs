@@ -69,6 +69,14 @@ public sealed class ConfigSnippetBuilderTests
         // Battery
         "kBatteryEnabled", "kBatteryChargeSensePin", "kBatteryChargeAdcThreshold",
         "kBatteryEmptyMv", "kBatteryFullMv",
+        "kBatteryReportFromMethods", "kBatteryReportSourceIndex",
+        "kBatteryReportModelIndex", "kUnplugFixTimeoutSeconds",
+
+        // Battery method log
+        "kBatteryLogEnabled", "kSdBatteryLogPath", "kSdMaxBatteryLogRows",
+        "kBatteryVbatSensePin", "kBatterySolarSensePin", "kBatteryDividerRatio",
+        "kSolarDividerRatio", "kBatteryAdcSamples", "kSolarInputThresholdMv",
+        "kBatteryNoReadingMv",
 
         // WiFi
         "kWifiEnabled", "kWifiSsid", "kWifiPassword", "kWifiConnectTimeoutMs",
@@ -94,8 +102,13 @@ public sealed class ConfigSnippetBuilderTests
         // microSD
         "kSdEnabled", "kSdSpiHost", "kSdPinMiso", "kSdPinMosi", "kSdPinSclk", "kSdPinCs",
         "kSdMountPoint", "kSdQueueFilePath", "kSdSettingsFilePath", "kSdMaxQueuedFixes",
-        "kSdMaxBurstFixes", "kBacklogFlushRetryMs", "kSdRetryFilePath",
+        "kSdMaxBurstFixes", "kBacklogFlushRetryMs", "kBacklogFlushBudgetMs",
+        "kSdRetryFilePath",
         "kRetryIntervalHours", "kRetryMaxAgeHours", "kSdMaxRetryEntries",
+
+        // Boot log
+        "kBootLogEnabled", "kSdBootLogPath", "kSdMaxBootLogLines",
+        "kBootLogPrintLines",
 
         // Deep sleep
         "kWakeGpioPin", "kWakeGpioLevel", "kMinDeepSleepMs",

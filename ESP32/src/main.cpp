@@ -16,8 +16,13 @@
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
+#include "power/AdcSampler.h"
+#include "power/BatteryCsvLogger.h"
+#include "power/BatteryMethods.h"
 #include "power/BatteryMonitor.h"
+#include "power/BatteryReporter.h"
 #include "power/BootJournal.h"
+#include "power/ChargerWatcher.h"
 #include "power/DeepSleepController.h"
 #include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
@@ -199,7 +204,20 @@ extern "C" void app_main(void) {
     }
   }
 
-  static BatteryMonitor battery(modem, config::kBatteryChargeSensePin,
+  // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
+  // on a unit that is already claimed, and two subsystems below need pins on it
+  // (the monitor's charge sense, the method log's pack + charge-input sense).
+  // See AdcSampler.h.
+  static AdcSampler adcSampler;
+  if (config::kBatteryEnabled || config::kBatteryLogEnabled ||
+      config::kBatteryReportFromMethods) {
+    if (!adcSampler.begin()) {
+      ESP_LOGW(TAG, "ADC unavailable - battery readings will be omitted.");
+    }
+  }
+
+  static BatteryMonitor battery(adcSampler, modem,
+                                config::kBatteryChargeSensePin,
                                 config::kBatteryChargeAdcThreshold,
                                 config::kBatteryEmptyMv, config::kBatteryFullMv);
   if (config::kBatteryEnabled) {
@@ -212,6 +230,60 @@ extern "C" void app_main(void) {
   } else {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
+
+  // Every way this board can measure the pack, in one sweep. It has TWO
+  // consumers now, which is why its bring-up is no longer tied to the CSV alone:
+  // the diagnostic log below writes all of it to the card, and BatteryReporter
+  // picks one of its columns to publish. It still measures only - it decides
+  // nothing and stores nothing itself.
+  static BatteryMethods batteryMethods(
+      adcSampler, modem, config::kBatteryVbatSensePin,
+      config::kBatterySolarSensePin, config::kBatteryDividerRatio,
+      config::kSolarDividerRatio, config::kBatteryAdcSamples,
+      config::kBatteryEmptyMv, config::kBatteryFullMv,
+      config::kSolarInputThresholdMv, config::kBatteryNoReadingMv);
+  static BatteryCsvLogger batteryCsv(sdCard, config::kSdBatteryLogPath,
+                                     config::kSdMaxBatteryLogRows);
+
+  // Two flags, because the two consumers can fail independently: a device with
+  // no SD card still publishes a percent, and a device that publishes the older
+  // AT+CBC figure still writes a full capture. The loop tests these rather than
+  // re-deriving them every cycle.
+  bool methodsReady = false;
+  bool csvReady     = false;
+  if (config::kBatteryLogEnabled || config::kBatteryReportFromMethods) {
+    methodsReady = batteryMethods.begin();
+    if (!methodsReady) {
+      ESP_LOGW(TAG,
+               "Battery methods unavailable - no CSV rows, and battery_pct "
+               "will be omitted.");
+    }
+  }
+  if (config::kBatteryLogEnabled) {
+    csvReady = methodsReady && batteryCsv.begin();
+    if (!csvReady) {
+      ESP_LOGW(TAG,
+               "Battery method log unavailable - no CSV rows will be written.");
+    }
+  } else {
+    ESP_LOGI(TAG, "Battery method log disabled in Config.h.");
+  }
+
+  // Turns that sweep into the ONE percent the payload carries. Constructed
+  // unconditionally - it is two enums and a name - so the loop can call it
+  // without re-testing the flag around every use.
+  static BatteryReporter reporter(
+      static_cast<BatterySource>(config::kBatteryReportSourceIndex),
+      static_cast<BatteryModel>(config::kBatteryReportModelIndex));
+  if (config::kBatteryReportFromMethods) {
+    ESP_LOGI(TAG, "Publishing battery_pct from %s.", reporter.methodName());
+  } else {
+    ESP_LOGI(TAG, "Publishing battery_pct from the modem's AT+CBC curve.");
+  }
+
+  // Remembers the charger across cycles (and across deep-sleep reboots) so the
+  // moment it comes off can be told from every cycle where it is simply absent.
+  static ChargerWatcher chargerWatcher;
 
   // Bring up MQTT (if enabled). The client connects and reconnects in the
   // background, so we never block on it. Each fix is end-to-end encrypted by
@@ -355,26 +427,111 @@ extern "C" void app_main(void) {
     // The acquire budget is a runtime setting: on a device that reports rarely
     // it is worth chasing a lock for minutes, while one reporting every 30 s
     // must give up quickly or it would never get to the wait at all.
-    const bool haveFix =
-        gnss.waitForFix(fix, settings.fixTimeoutSeconds() * 1000,
-                        config::kFixPollStepMs, onEachPoll);
+    bool haveFix = gnss.waitForFix(fix, settings.fixTimeoutSeconds() * 1000,
+                                   config::kFixPollStepMs, onEachPoll);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
     // what keeps the cadence steady: however long sealing, connecting and
     // waiting for the QoS-2 ack take, the next report still lands one interval
-    // after this position was taken rather than drifting later every cycle.
-    const int64_t fixCapturedUs = esp_timer_get_time();
+    // after this position was taken rather than drifting later every cycle. Not
+    // const: an unplug retry below can supersede this capture, and the interval
+    // has to be measured from whichever one we actually publish.
+    int64_t fixCapturedUs = esp_timer_get_time();
+
+    // ---- Sensors: once per cycle now, fix or no fix -------------------------
+    // These used to run only for a fix we were about to publish. Two things need
+    // them unconditionally now: the CSV wants a row whether or not there was a
+    // lock, and the charger edge below can only be spotted by a detector that
+    // actually ran on every cycle. The debug callback above is a separate,
+    // debug-only read that runs during the wait.
+    //
+    // fwBattery is BatteryMonitor's own verdict, and it is kept deliberately
+    // SEPARATE from sample.battery further down, which is the published figure.
+    // The CSV's fw_* columns exist precisely to be compared against the other
+    // methods, so feeding them anything but the monitor's own answer would empty
+    // them of meaning.
+    BatteryStatus fwBattery;
+    if (config::kBatteryEnabled) {
+      battery.read(fwBattery);
+    }
+
+    // Every way this board can measure the pack. Taken BEFORE the publish
+    // because one of its columns is now what gets published, and called exactly
+    // ONCE per cycle, because its trend detector's window is five *calls* - a
+    // second call would quietly halve the span those columns cover.
+    BatteryMethodsSample methods;
+    if (methodsReady) {
+      batteryMethods.sample(methods);
+    }
+
+    // Has the charger just come off? Only the edge counts - see ChargerWatcher.
+    const bool justUnplugged = chargerWatcher.update(fwBattery.charging);
+
+    // Diagnostic capture: one CSV row per cycle, fix or no fix, so a device
+    // parked without a lock still leaves a discharge curve behind. Written right
+    // next to the sweep it records, so a row's voltages and its fix come from
+    // the same instant. Costs one line on the card and touches nothing that gets
+    // published - see BatteryCsvLogger.
+    if (csvReady) {
+      batteryCsv.append(static_cast<uint32_t>(esp_timer_get_time() / 1000), fix,
+                        methods, fwBattery);
+    }
+
+    // The charger has just come off and this cycle has no position to attach the
+    // news to. That first post-unplug reading is worth chasing: while the
+    // charger was connected the pack was invisible to the ADC (the sense pin is
+    // cut off from the cell on USB power), so this is the first moment the real
+    // level exists at all - and a cycle without a fix publishes nothing, which
+    // on a car parked indoors could mean never. So spend one more acquire on it.
+    // If that also comes back empty, nothing is published: the alternative -
+    // re-sending the last known position - would be dropped anyway, because the
+    // API dedupes on (device, fix time) and keeps the row it already has.
+    if (!haveFix && justUnplugged && config::kUnplugFixTimeoutSeconds > 0) {
+      ESP_LOGI(TAG, "Charger off with no fix - one more acquire (%us).",
+               (unsigned)config::kUnplugFixTimeoutSeconds);
+      haveFix = gnss.waitForFix(fix, config::kUnplugFixTimeoutSeconds * 1000,
+                                config::kFixPollStepMs, onEachPoll);
+      if (haveFix) {
+        // Re-anchor: the interval is measured from the capture, and the capture
+        // is now this one rather than the empty acquire that preceded it.
+        fixCapturedUs = esp_timer_get_time();
+      } else {
+        ESP_LOGI(TAG, "Still no fix - nothing published for the unplug.");
+      }
+    }
 
     // Assemble the report to forward: the position plus the optional onboard
     // sensors. Each read fills in its own `valid` flag; a disabled or failed
-    // sensor simply leaves its slice absent from the published JSON. We read the
-    // sensors here only for a fix we will actually publish - the debug callback
-    // above is a separate, debug-only read that runs during the wait.
+    // sensor simply leaves its slice absent from the published JSON.
     TelemetrySample sample;
     sample.gnss = fix;
     // Stamped from the settings in force at capture time, not at publish time -
     // see the note on TelemetrySample::settingsVersion.
     sample.settingsVersion = settings.version();
+
+    // The one battery figure that goes on the wire. BatteryReporter turns the
+    // sweep above into it - or reports nothing at all rather than guessing; see
+    // its banner for the three rules, and for why none of them may emit -1.
+    if (config::kBatteryReportFromMethods) {
+      reporter.toStatus(methods, fwBattery.charging, sample.battery);
+    } else {
+      sample.battery = fwBattery;  // the pre-P4 behaviour, one flag away
+    }
+
+    // Say where this cycle's percent came from. Worth a line of its own: the
+    // number now has two possible sources and a third state (absent), and the
+    // capture on the card is the only place to check it against.
+    if (!sample.battery.valid) {
+      ESP_LOGI(TAG, "Battery: n/a (no reading this cycle).");
+    } else if (sample.battery.charging) {
+      ESP_LOGI(TAG, "Battery: charging (sentinel 0).");
+    } else {
+      ESP_LOGI(TAG, "Battery: %u %% (%s, %u mV).",
+               (unsigned)sample.battery.percent,
+               config::kBatteryReportFromMethods ? reporter.methodName()
+                                                 : "AT+CBC",
+               (unsigned)sample.battery.millivolts);
+    }
 
     if (haveFix) {
       if (config::kAdxlEnabled) {
@@ -387,9 +544,10 @@ extern "C" void app_main(void) {
         }
       }
       if (config::kBatteryEnabled) {
-        battery.read(sample.battery);
-        // The modem die temperature rides along with the battery read (see the
-        // debug lambda above). Published as temp_c when the read succeeds.
+        // The modem die temperature used to ride along with the battery read
+        // (see the debug lambda above); that read has moved above this block, so
+        // only the temperature is left here. Published as temp_c when it
+        // succeeds, and only ever for a fix we are about to send.
         sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
       }
 
@@ -398,9 +556,13 @@ extern "C" void app_main(void) {
       // charging path deliberately leaves millivolts unset (percent 0 is the
       // charging sentinel), so stamping the uptime alone is the honest answer
       // there rather than recording a confident 0 mV.
+      //
+      // Reads fwBattery, not sample.battery: the journal records the AT+CBC pack
+      // VOLTAGE, which only the monitor produces, and which the published figure
+      // no longer necessarily derives from.
       if (config::kBootLogEnabled) {
-        if (sample.battery.valid && !sample.battery.charging) {
-          bootJournal.noteBattery(sample.battery.millivolts);
+        if (fwBattery.valid && !fwBattery.charging) {
+          bootJournal.noteBattery(fwBattery.millivolts);
         } else {
           bootJournal.noteUptime();
         }
