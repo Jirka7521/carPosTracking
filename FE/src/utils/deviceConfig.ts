@@ -31,7 +31,7 @@ export function resolveSyncState(state: DeviceConfigStateDto): ConfigSyncState {
 // gives a better message than a round trip. The server is still the authority.
 export const CONFIG_LIMITS = {
   intervalSeconds: { min: 5, max: 86400 },
-  fixTimeoutSeconds: { min: 15, max: 900 },
+  fixTimeoutSeconds: { min: 15, max: 3600 },
   queueMaxFixes: { min: 100, max: 100000 },
   retryIntervalHours: { min: 1, max: 720 },
   retryMaxAgeHours: { min: 0, max: 8760 },

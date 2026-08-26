@@ -144,7 +144,7 @@ export const FIRMWARE_PARAMETER_GROUPS: readonly FirmwareParameterGroup[] = [
       { name: 'kDefaultSleepBetweenSends', value: 'false', origin: 'remote', meaning: 'Default deep-sleep flag' },
       { name: 'kDefaultConfigCheckSeconds', value: '3600', origin: 'remote', meaning: 'Default backstop interval for re-asking the broker for the settings' },
       { name: 'kMinSendIntervalSeconds / kMax…', value: '5 / 86400', origin: 'fixed', meaning: 'Clamps on a broker-supplied interval — the same bounds this API rejects outside of' },
-      { name: 'kMinFixTimeoutSeconds / kMax…', value: '15 / 900', origin: 'fixed', meaning: 'Clamps on the GNSS lock timeout' },
+      { name: 'kMinFixTimeoutSeconds / kMax…', value: '15 / 3600', origin: 'fixed', meaning: 'Clamps on the GNSS lock timeout' },
       { name: 'kMinQueueMaxFixes / kMax…', value: '100 / 100000', origin: 'fixed', meaning: 'Clamps on the undelivered-fix queue cap' },
       { name: 'kMinRetryIntervalHours / kMax…', value: '1 / 720', origin: 'fixed', meaning: 'Clamps on the rejected-fix retry interval' },
       { name: 'kMaxRetryMaxAgeHours', value: '8760', origin: 'fixed', meaning: 'Upper clamp on the give-up age (no floor — 0 means "never")' },

@@ -39,8 +39,8 @@ public static class DeviceConfigRules
     /// <summary>Minimum GNSS acquire budget — below the modem's poll step it could never succeed.</summary>
     public const int MinFixTimeoutSeconds = 15;
 
-    /// <summary>Maximum GNSS acquire budget (15 min), so a bad config cannot hold a sleeping device awake.</summary>
-    public const int MaxFixTimeoutSeconds = 900;
+    /// <summary>Maximum GNSS acquire budget (1 h), so a bad config cannot hold a sleeping device awake.</summary>
+    public const int MaxFixTimeoutSeconds = 3600;
 
     /// <summary>Factory default GNSS acquire budget, in seconds.</summary>
     public const int DefaultFixTimeoutSeconds = 180;

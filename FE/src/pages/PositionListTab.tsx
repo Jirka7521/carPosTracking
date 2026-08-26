@@ -30,7 +30,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
-import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { CsvDelimiter } from '../utils/csv'
@@ -42,9 +41,6 @@ import { describeError } from '../utils/errors'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
-
-// How many seconds between automatic refreshes when the toggle is on
-const AUTO_REFRESH_SEC = 30
 
 // Ceiling on how far a "load the rest so I can sort it" walk will go, matching
 // the Charts and Map tabs. Fifty sequential requests is already a long wait; a
@@ -229,7 +225,11 @@ function csvFileName(deviceId: string): string {
 }
 
 export function PositionListTab() {
-  const { device } = useOutletContext<DevicePageContext>()
+  // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
+  // bumps a token to re-run the query below and never touches the date range —
+  // and because the header's battery and last-fix hang off the same token,
+  // pressing Refresh here can never leave the two disagreeing.
+  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
 
   // Every position fetched SO FAR, newest-first — not necessarily the whole
   // range. More chunks are appended to the old end as the reader needs them.
@@ -248,9 +248,6 @@ export function PositionListTab() {
   // Date range controls. Computed once, on mount — from here on only the two
   // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
-
-  // Auto-refresh: bumps a token to re-run the query, never the date range
-  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
 
   // Which separator the exported CSV uses, and whether an export is running.
   // The choice is read back from storage on mount: a reader whose spreadsheet

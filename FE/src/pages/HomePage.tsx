@@ -14,19 +14,27 @@
 //   • "Show inactive devices" checkbox filters the grid
 //   • Permission-aware: all permissions are shown as badges on cards
 //   • Soft-delete (deactivation) is handled in the device settings tab
+//   • Auto-refresh: the cards carry a battery level and a last-fix time, which
+//     went stale the moment the page loaded. The same 30 s timer the device
+//     tabs use keeps them honest.
 // ============================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { DeviceCard } from '../components/DeviceCard'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
+import { RefreshToolbar } from '../components/RefreshToolbar'
 import { EMPTY_FLAGS } from '../components/capabilityFlags'
 import type { CapabilityFlags } from '../components/capabilityFlags'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { createDevice, fetchMyDevices } from '../services/apiClient'
 import type { DeviceAccessGrantInput, DeviceDto, DeviceProvisioningDto } from '../services/apiTypes'
 import { deviceLabel } from '../utils/devices'
 import { describeError } from '../utils/errors'
+
+// The same cadence the device page and its tabs refresh at.
+const AUTO_REFRESH_SEC = 30
 
 // Mirrors the server's own rule (CreateDeviceRequestDto). It is a security
 // control there, not cosmetics: the id is interpolated into MQTT topics, so the
@@ -47,7 +55,16 @@ export function HomePage() {
   // All devices returned by the API (includes inactive if user has access to them)
   const [devices, setDevices] = useState<DeviceDto[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
   const [loadError, setLoadError] = useState<string>('')
+
+  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // False until the grid has rendered once. After that a reload is a refresh:
+  // it must not swap the grid for a spinner, and it must not swap it for an
+  // error page either — a flaky poll is not a reason to throw away a list the
+  // reader is looking at.
+  const hasLoadedRef = useRef<boolean>(false)
 
   // Controls for the "Add device" panel
   const [showAddForm, setShowAddForm] = useState<boolean>(false)
@@ -78,25 +95,34 @@ export function HomePage() {
     [devices, showInactive],
   )
 
-  // Load the device list on mount
+  // Load the device list on mount, and again on every refresh tick.
   useEffect(() => {
     let canceled = false
+    const isInitial: boolean = !hasLoadedRef.current
 
     const load = async (): Promise<void> => {
-      setIsLoading(true)
-      setLoadError('')
+      if (isInitial) {
+        setIsLoading(true)
+        setLoadError('')
+      } else {
+        setIsRefreshing(true)
+      }
+
       try {
         const data = await fetchMyDevices()
         if (!canceled) {
+          hasLoadedRef.current = true
           setDevices(data)
+          setLoadError('')
         }
       } catch (error) {
-        if (!canceled) {
+        if (!canceled && isInitial) {
           setLoadError(describeError(error, 'Failed to load devices.'))
         }
       } finally {
         if (!canceled) {
           setIsLoading(false)
+          setIsRefreshing(false)
         }
       }
     }
@@ -105,7 +131,7 @@ export function HomePage() {
     return () => {
       canceled = true
     }
-  }, [])
+  }, [refresh.token])
 
   function resetAddForm(): void {
     setNewDeviceId('')
@@ -357,7 +383,8 @@ export function HomePage() {
         </div>
       ) : null}
 
-      {/* Filter row: show/hide inactive devices + inactive count hint */}
+      {/* Filter row: show/hide inactive devices + inactive count hint, and the
+          refresh control that keeps each card's battery and last-fix current */}
       <div className="filter-row">
         <label className="checkbox-field">
           <input
@@ -373,6 +400,10 @@ export function HomePage() {
             {hiddenCount} inactive device{hiddenCount === 1 ? '' : 's'} hidden
           </span>
         ) : null}
+
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <RefreshToolbar autoRefresh={refresh} isLoading={isRefreshing} />
+        </span>
       </div>
 
       {/* Loading state */}

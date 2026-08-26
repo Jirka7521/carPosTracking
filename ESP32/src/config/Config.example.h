@@ -444,7 +444,7 @@ constexpr uint32_t kMaxSendIntervalSeconds = 86400;  // 24 h
 // A fix timeout below the poll step could never see a single reply; the upper
 // bound stops a bad config parking a sleeping device awake for hours.
 constexpr uint32_t kMinFixTimeoutSeconds = 15;
-constexpr uint32_t kMaxFixTimeoutSeconds = 900;  // 15 min
+constexpr uint32_t kMaxFixTimeoutSeconds = 3600;  // 1 h
 
 // The floor keeps a short outage survivable; the ceiling bounds how much of the
 // card a runaway backlog may claim - at ~1 KB per sealed envelope this is about

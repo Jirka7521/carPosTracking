@@ -24,7 +24,6 @@ import { useOutletContext } from 'react-router-dom'
 import RangeToolbar from '../components/RangeToolbar'
 import TelemetryChart from '../components/TelemetryChart'
 import type { DevicePageContext } from './DevicePage'
-import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { SeriesKey } from '../utils/telemetry'
@@ -51,16 +50,17 @@ const MAX_CHART_ROWS = 50_000
 // peaks, so the shape survives the thinning.
 const MAX_PLOT_POINTS = 6000
 
-// How many seconds between automatic refreshes when the toggle is on
-const AUTO_REFRESH_SEC = 30
-
 // Speed and battery on first paint: "is it moving" and "is the tracker alive"
 // are the two questions worth answering without being asked, and the pair
 // demonstrates the two-axis behaviour without a wall of lines.
 const DEFAULT_SERIES: readonly SeriesKey[] = ['speedKmph', 'batteryPct']
 
 export function DeviceChartsTab() {
-  const { device } = useOutletContext<DevicePageContext>()
+  // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
+  // bumps a token to re-run the query below and never touches the date range —
+  // and because the header's battery and last-fix hang off the same token,
+  // pressing Refresh here can never leave the two disagreeing.
+  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
 
   const [positions, setPositions]         = useState<PositionDto[]>([])
   const [isLoading, setIsLoading]         = useState<boolean>(false)
@@ -88,9 +88,6 @@ export function DeviceChartsTab() {
   // Date range controls. Computed once, on mount — from here on only the two
   // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
-
-  // Auto-refresh: bumps a token to re-run the query, never the date range
-  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
 
   // Which series the user has ticked. Kept as keys rather than as full
   // definitions so the SERIES table stays the single source of truth.

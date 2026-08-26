@@ -303,7 +303,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
-| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
+| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `3600` | Clamps on `fix_timeout_s` |
 | `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` (~100 MB of envelopes at the ceiling) |
 | `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
 | `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |

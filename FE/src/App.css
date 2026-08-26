@@ -572,6 +572,7 @@
   word-break: break-all;
 }
 
+
 /*
  * Horizontal tab bar — sits below the header and above tab content.
  * Tabs use a bottom-border indicator (common pattern, easy to scan).
@@ -2229,6 +2230,29 @@
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px 20px;
   margin-bottom: 8px;
+}
+
+/* A number and the unit it is entered in, on one row (DurationField). The
+   combobox sits at the END of the line so the eye reads "5 minutes" left to
+   right, and the number takes the slack because it is the half being edited. */
+.duration-field {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.duration-field-value {
+  flex: 1 1 90px;
+  min-width: 0;
+}
+
+/* Sized to its content rather than stretched: a dropdown as wide as the input
+   beside it reads as the more important of the two, and it is not. */
+.duration-field-unit {
+  flex: 0 0 auto;
+  width: auto;
+  padding-right: 8px;
+  cursor: pointer;
 }
 
 /* The per-field "device is still on the old value" note. Amber to match the

@@ -37,15 +37,29 @@
 //   canDelete          — may deactivate the device
 //   canShare           — may view AND edit the access roster; also implies canModifySettings
 //   canModifySettings  — may view the access roster but cannot modify it
+//
+// REFRESHING. Sections 1 and 2 are live: they run off DevicePage's shared timer
+// (30 s, with a "Refresh" button), so the device's battery, its last fix and —
+// the one that actually mattered — whether the tracker has PICKED UP the last
+// settings change all update in place. Before this the sync badge could read
+// "Pending" for hours after the device had applied the change, and the only way
+// to find out was to reload the page.
+//
+// Sections 3 and 4 are deliberately NOT on the timer. The firmware
+// configuration is an on-demand panel holding a key block nobody wants
+// re-rendered under them, and the access roster changes when a person changes
+// it, not on its own.
 // ============================================================
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
+import { BatteryBadge } from '../components/BatteryBadge'
 import { DeviceConfigSection } from '../components/DeviceConfigSection'
 import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
+import { RefreshToolbar } from '../components/RefreshToolbar'
 import { SharedUserCard } from '../components/SharedUserCard'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
 import { EMPTY_FLAGS } from '../components/capabilityFlags'
@@ -73,7 +87,13 @@ import { useAuth } from '../auth/useAuth'
 // ============================================================
 
 export function DeviceSettingsTab() {
-  const { device, reloadDevice, updateDevice } = useOutletContext<DevicePageContext>()
+  const {
+    device,
+    reloadDevice,
+    updateDevice,
+    autoRefresh,
+    isRefreshingDevice,
+  } = useOutletContext<DevicePageContext>()
   const { currentUser } = useAuth()
   const navigate        = useNavigate()
   const perms           = device.permissions
@@ -384,6 +404,13 @@ export function DeviceSettingsTab() {
   return (
     <div>
 
+      {/* The tab's refresh control. One toggle and one countdown for the whole
+          tab, driving DevicePage's timer — which is already reloading the
+          device — plus the config state below. */}
+      <div className="filter-row" style={{ justifyContent: 'flex-end' }}>
+        <RefreshToolbar autoRefresh={autoRefresh} isLoading={isRefreshingDevice} />
+      </div>
+
       {/* ================================================================
        * Section 1: Device Information — always visible
        * ================================================================ */}
@@ -433,6 +460,18 @@ export function DeviceSettingsTab() {
               <span className="info-label">Last fix received</span>
               <span className="info-value">{formatRelativeTime(device.lastSeenAt)}</span>
             </div>
+
+            {/* Battery as of that same fix. BatteryBadge renders nothing when
+                the device has reported none, so the row would be an empty
+                label — hence the guard rather than an "unknown" placeholder. */}
+            {device.lastBatteryPct !== null && device.lastBatteryPct !== undefined ? (
+              <div className="info-item">
+                <span className="info-label">Battery</span>
+                <span className="info-value">
+                  <BatteryBadge value={device.lastBatteryPct} />
+                </span>
+              </div>
+            ) : null}
 
             {deactivatedDate ? (
               <div className="info-item">
@@ -508,9 +547,15 @@ export function DeviceSettingsTab() {
        *
        * Self-contained: it loads its own state and owns its own form, so this
        * page stays the composition it already was rather than growing a second
-       * set of loading/saving flags.
+       * set of loading/saving flags. It only borrows the tab's refresh token,
+       * and decides for itself what a tick may safely touch.
        * ================================================================ */}
-      {perms.canModifySettings ? <DeviceConfigSection deviceId={device.deviceId} /> : null}
+      {perms.canModifySettings ? (
+        <DeviceConfigSection
+          deviceId={device.deviceId}
+          refreshToken={autoRefresh.token}
+        />
+      ) : null}
 
       {/* ================================================================
        * Section 3: Firmware configuration — visible if canModifySettings

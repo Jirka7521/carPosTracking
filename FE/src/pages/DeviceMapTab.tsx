@@ -5,8 +5,10 @@
 //   • Date range pickers (from / to) to filter which positions to load. The
 //     range is computed once when the tab mounts (see getDefaultDateRange) and
 //     is only ever changed by the user — refreshing re-runs the SAME query.
-//   • "Auto-refresh" toggle: when on, reloads every AUTO_REFRESH_SEC seconds
-//     with a live countdown, leaving the range and the map view untouched.
+//   • "Auto-refresh" toggle: when on, reloads on the device page's shared
+//     timer with a live countdown, leaving the range and the map view
+//     untouched. The same tick re-reads the device, so the battery in the
+//     header above stays honest too.
 //   • "Refresh now" button for an instant manual reload
 //   • "Fit to positions" button — the only control that moves the map after
 //     the first load
@@ -24,16 +26,12 @@ import { useOutletContext } from 'react-router-dom'
 import DeviceMap from '../components/DeviceMap'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
-import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, getDefaultDateRange } from '../utils/dates'
 import { describeError } from '../utils/errors'
 import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
-
-// How many seconds between automatic refreshes when the toggle is on
-const AUTO_REFRESH_SEC = 30
 
 // Ceiling on one full load — fifty sequential requests at the API's 1000 rows
 // per answer. The track is drawn whole rather than thinned: a decimated
@@ -42,7 +40,11 @@ const MAX_MAP_ROWS = 50_000
 
 export function DeviceMapTab() {
   // Device object passed down from DevicePage
-  const { device } = useOutletContext<DevicePageContext>()
+  // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
+  // bumps a token to re-run the query below and never touches the date range —
+  // and because the header's battery and last-fix hang off the same token,
+  // pressing Refresh here can never leave the two disagreeing.
+  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
 
   // Google Maps API key from the container's runtime config (see
   // services/runtimeConfig.ts). Empty string = the map cannot be rendered.
@@ -68,9 +70,6 @@ export function DeviceMapTab() {
   // Date range controls. Computed once, on mount — from here on only the two
   // inputs change it, so a reload can never move the window under the user.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
-
-  // Auto-refresh: bumps a token to re-run the query, never the date range
-  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
 
   // Bumped by the "Fit to positions" button; DeviceMap re-frames on a change
   const [fitToken, setFitToken] = useState<number>(0)

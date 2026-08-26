@@ -14,17 +14,35 @@
 // If the device cannot be found (deleted, access revoked, wrong ID)
 // an error state is shown with a "Back to devices" link.
 //
+// It also owns the device page's ONE auto-refresh timer, and reloads the device
+// on every tick. The header shows a battery level and a status badge, both of
+// which used to freeze at whatever they were when the page opened; now they
+// follow the tracker.
+//
+// The timer is handed to the child tabs through the context, and every tab uses
+// it rather than starting one of its own. That is deliberate: each tab already
+// renders a refresh control, so a private timer per tab would put two pills on
+// screen ticking out of step, and pressing one tab's Refresh would leave the
+// header beside it stale. There is exactly one countdown per device page, and
+// whichever control you press advances all of it.
+//
 // Child tabs access the shared context using:
 //   const { device, reloadDevice } = useOutletContext<DevicePageContext>()
 // ============================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { fetchMyDevices } from '../services/apiClient'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { BatteryBadge } from '../components/BatteryBadge'
+import { useAutoRefresh } from '../hooks/useAutoRefresh'
+import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import { describeError } from '../utils/errors'
+
+// The cadence every load on this page runs at — the device here, and the
+// positions each tab fetches off the same token.
+const AUTO_REFRESH_SEC = 30
 
 // ---- Shared context type ----
 // Exported so child tab components can import the type and call
@@ -41,6 +59,15 @@ export type DevicePageContext = {
   // breadcrumb, heading, and all tabs reflect the change immediately
   // without a round-trip to the server.
   updateDevice: (patch: Partial<DeviceDto>) => void
+
+  // This page's shared refresh timer. A tab that wants to reload something of
+  // its own puts `autoRefresh.token` in its load effect's deps and renders a
+  // RefreshToolbar bound to it; there is one countdown, wherever it is shown.
+  autoRefresh: AutoRefresh
+
+  // True while a background reload of the device is in flight — for a tab that
+  // renders its own refresh button and wants the spinner to agree.
+  isRefreshingDevice: boolean
 }
 
 export function DevicePage() {
@@ -49,7 +76,15 @@ export function DevicePage() {
 
   const [device, setDevice] = useState<DeviceDto | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
   const [errorMessage, setErrorMessage] = useState<string>('')
+
+  const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // Which device is actually on screen. It is what separates a first load —
+  // which may show the spinner and may blank the page with an error — from a
+  // refresh tick, which must do neither.
+  const loadedDeviceIdRef = useRef<string | null>(null)
 
   // Fetches the full device list and picks out the one matching the URL id.
   // The API already filters to devices the caller has access to, so a
@@ -58,19 +93,32 @@ export function DevicePage() {
   // from the effect below would render twice before paint. The "still loading"
   // signal for a *changed* :deviceId is derived instead — see isBusy.
   async function loadDevice(): Promise<void> {
+    const isInitial: boolean = loadedDeviceIdRef.current !== deviceId
+    if (!isInitial) {
+      setIsRefreshing(true)
+    }
+
     try {
       const devices = await fetchMyDevices()
       const found = devices.find((d) => d.deviceId === deviceId)
       if (!found) {
         setErrorMessage('Device not found, or you do not have access to it.')
       } else {
+        loadedDeviceIdRef.current = deviceId ?? null
         setDevice(found)
         setErrorMessage('')
       }
     } catch (error) {
-      setErrorMessage(describeError(error, 'Failed to load device.'))
+      // A failed refresh tick keeps the page it already has. Replacing a
+      // working device view with "Failed to load device." because one poll hit
+      // a flaky connection would be worse than the stale battery reading it is
+      // trying to correct.
+      if (isInitial) {
+        setErrorMessage(describeError(error, 'Failed to load device.'))
+      }
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }
 
@@ -84,11 +132,15 @@ export function DevicePage() {
   // changed to please it: loadDevice is also handed to the child tabs as
   // reloadDevice, so it cannot move inside this effect (and the rule flags that
   // shape too).
+  //
+  // refresh.token is in the deps as well, which is what makes the header's
+  // battery and last-fix follow the tracker: every tick and every press of
+  // "Refresh" bumps it, and loadDevice knows to reload quietly.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDevice()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId])
+  }, [deviceId, refresh.token])
 
   // A loaded device whose id no longer matches the URL means :deviceId changed
   // and the fetch for the new one is still in flight. Deriving that beats
@@ -152,7 +204,8 @@ export function DevicePage() {
           </div>
           <div className="device-card-badges">
             {/* Battery from the device's most recent fix (⚡ while charging).
-                Renders nothing when the device has reported none. */}
+                Renders nothing when the device has reported none. Kept current
+                by the refresh control beside it. */}
             <BatteryBadge value={device.lastBatteryPct} large />
 
             <span
@@ -209,6 +262,8 @@ export function DevicePage() {
           device,
           reloadDevice: loadDevice,
           updateDevice: (patch) => setDevice((d) => d ? { ...d, ...patch } : d),
+          autoRefresh: refresh,
+          isRefreshingDevice: isRefreshing,
         } satisfies DevicePageContext} />
       </div>
     </div>

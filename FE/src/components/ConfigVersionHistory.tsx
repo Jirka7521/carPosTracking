@@ -11,10 +11,12 @@
 // never touched, which is what keeps the applied-version lookup honest.
 //
 // Loaded lazily on first expand: a device retuned for years has a long history,
-// and most visits to the settings tab never open it.
+// and most visits to the settings tab never open it. The settings tab's refresh
+// timer only reaches it once it IS open — a list nobody is looking at is not
+// worth a request every thirty seconds.
 // ---------------------------------------------------------------------------
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { fetchDeviceConfigHistory } from '../services/apiClient'
 import type { DeviceConfigValuesDto, DeviceConfigVersionDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
@@ -29,6 +31,9 @@ export type ConfigVersionHistoryProps = {
   // differ exactly while a change is pending, and seeing both in the history is
   // what makes "it is still on the old one" concrete.
   appliedVersion: number | null
+  // The settings tab's shared refresh counter. Acted on only while the list is
+  // expanded — see the effect below.
+  refreshToken: number
   // Hands a revision's values back to the form. The parent decides what that
   // means; this component never saves anything itself.
   onRestore: (values: DeviceConfigValuesDto) => void
@@ -38,6 +43,7 @@ export function ConfigVersionHistory({
   deviceId,
   currentVersion,
   appliedVersion,
+  refreshToken,
   onRestore,
 }: ConfigVersionHistoryProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false)
@@ -45,17 +51,10 @@ export function ConfigVersionHistory({
   const [versions, setVersions] = useState<DeviceConfigVersionDto[]>([])
   const [error, setError] = useState<string>('')
 
-  async function handleToggle(): Promise<void> {
-    if (isOpen) {
-      setIsOpen(false)
-      return
-    }
-
-    setIsOpen(true)
-
-    // Re-fetch on every open rather than caching: saving a change while the list
-    // is collapsed would otherwise leave it showing a history missing its newest
-    // entry, which is exactly the row the reader came to check.
+  // Re-fetch on every open rather than caching: saving a change while the list
+  // is collapsed would otherwise leave it showing a history missing its newest
+  // entry, which is exactly the row the reader came to check.
+  async function loadHistory(): Promise<void> {
     setIsLoading(true)
     setError('')
     try {
@@ -65,6 +64,49 @@ export function ConfigVersionHistory({
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // A refresh tick reaches the list only while it is open — a history nobody is
+  // looking at is not worth a request every thirty seconds. Guarding on isOpen
+  // also means expanding it does not fire two requests: handleToggle does that
+  // load, and this effect only runs again when the token moves.
+  //
+  // Deliberately quieter than handleToggle: no spinner and no error banner. The
+  // rows are already on screen, and blinking them — or replacing them with a
+  // failure because one poll was unlucky — is worse than showing history that
+  // is half a minute old.
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    let canceled = false
+
+    void (async () => {
+      try {
+        const rows: DeviceConfigVersionDto[] = await fetchDeviceConfigHistory(deviceId)
+        if (!canceled) {
+          setVersions(rows)
+        }
+      } catch {
+        // Keep the rows we have; the next tick tries again.
+      }
+    })()
+
+    return () => {
+      canceled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken])
+
+  async function handleToggle(): Promise<void> {
+    if (isOpen) {
+      setIsOpen(false)
+      return
+    }
+
+    setIsOpen(true)
+    await loadHistory()
   }
 
   return (
