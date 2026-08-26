@@ -54,6 +54,11 @@ reuse.
 - 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
+- 🧾 **Boot log**: one line per boot on the SD card — reset reason, boot counter,
+  free heap — and the recent history printed to serial at start-up, so an
+  unexplained restart can be diagnosed after the fact. Because RTC memory
+  survives a reset but not a lost rail, it separates **"it crashed"** from
+  **"it lost power"**, which the serial console alone never could.
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -114,6 +119,7 @@ src/
 └── power/
     ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
     ├── BatteryMonitor.h/.cpp      ← Pack % via AT+CBC + charge-sense on GPIO35
+    ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
 
@@ -158,6 +164,7 @@ test:
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35). |
+| `BootJournal` | Record *why* the device restarted — reset reason, boot counter, whether RTC memory survived. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope (and stamp its `id`). |
 | `AckCrypto` | The inverse: open an ack sealed to this device's own private key. |
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
@@ -277,6 +284,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kRetryIntervalHours` | `24` | **Default** for `retry_interval_h` — wait between attempts on a rejected fix |
 | `kRetryMaxAgeHours` | `168` | **Default** for `retry_max_age_h` — give up on a fix still refused after this long (`0` = never) |
 | `kSdMaxRetryEntries` | `2000` | Cap on the retry file; oldest are dropped past this |
+| **`kBootLogEnabled`** | `true` | **Enable/disable the boot log** (see [Boot log](#boot-log)) |
+| `kSdBootLogPath` | `/sdcard/boot.log` | One line per boot (**plaintext**) |
+| `kSdMaxBootLogLines` | `200` | Cap on the boot log; oldest lines are dropped past this |
+| `kBootLogPrintLines` | `10` | How many previous boots are printed to serial at start-up |
 | `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
 | `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
 | `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
@@ -989,6 +1000,64 @@ so the log diagnoses itself rather than leaving you to interpret dB-Hz.
 
 ---
 
+## Boot log
+
+Every boot appends one plaintext line to `kSdBootLogPath` (`/sdcard/boot.log`)
+and prints the recent history to the serial console, so plugging in USB after an
+unexplained restart shows immediately what has been happening:
+
+```
+---------------- BOOT LOG ----------------
+  #0039 reset=POWERON   wake=power-on / reset prev_up=?        heap=151204 bat=?
+  #0040 reset=DEEPSLEEP wake=timer            prev_up=47s      heap=148012 bat=4130mV
+  #0041 reset=BROWNOUT  wake=power-on / reset prev_up=52s      heap=147880 bat=4128mV
+> #0042 reset=BROWNOUT  wake=power-on / reset prev_up=51s      heap=147904 bat=4119mV
+------------------------------------------
+```
+
+`>` marks the boot now starting; the lines above it are read back off the card.
+
+| Field | Meaning |
+|-------|---------|
+| `#NNNN` | Boot counter. Restarts at `#0001` whenever RTC memory is cleared. |
+| `reset=` | `esp_reset_reason()` — `POWERON`, `BROWNOUT`, `PANIC`, `INT_WDT`, `TASK_WDT`, `DEEPSLEEP`, `SW`, `EXT`. |
+| `wake=` | The deep-sleep wake cause, as before (`timer`, `ext0 GPIO`, `power-on / reset`). |
+| `prev_up=` | How far the **previous** run got, in seconds. `?` when RTC memory did not survive it. |
+| `heap=` | Free heap at boot. A number that falls across boots is a leak. |
+| `bat=` | Pack millivolts at the previous run's last report. `?` when unknown. |
+
+### Reading it
+
+The `reset=` column is the one that matters, and `(RTC CLEARED)` is the tell:
+
+| Line looks like | What happened |
+|---|---|
+| `reset=DEEPSLEEP wake=timer` | Normal `sleep_between` cycling. Nothing to see. |
+| `reset=PANIC` / `TASK_WDT` repeating | A firmware crash loop. The panic backtrace precedes it on the console. |
+| `reset=BROWNOUT` | The supply sagged past the detector. On battery this is the cell failing to deliver a current peak — see the pack note under [Troubleshooting](#troubleshooting-modem-did-not-respond-after-power-on). |
+| `reset=POWERON` **+ `(RTC CLEARED)`** | The rail actually went away: a flat pack, a tripped protection FET, a pulled connector. **Not a crash.** |
+
+That last distinction is the reason this exists. `RTC_DATA_ATTR` memory survives
+deep sleep *and* CPU resets (panic, watchdog, software reset) but **not** a loss
+of the rail — so whether the magic word is still there answers "did it reboot, or
+did it lose power?", which the reset reason alone cannot.
+
+### Cost and caveats
+
+- **No flash wear and no extra power in the loop.** The running device only
+  updates two words in RTC memory per report; the card is touched once per boot.
+- The log is capped at `kSdMaxBootLogLines` (200 ≈ 14 KB) and the oldest lines
+  are dropped past that, exactly like the fix queue.
+- **`bat=` reads `?` for the run that lost power** — RTC memory went with it.
+  That is not a gap in practice: the battery at the moment of death arrives
+  through the encrypted position backlog on the card, which survives a flat pack.
+  The boot log's unique contribution is the reset reason.
+- With no card the block still prints this boot's line; only the history and the
+  persistence are lost. The device carries on regardless, like every other
+  SD-backed subsystem.
+
+---
+
 ## Peak accelerometer readings
 
 The normal report carries **one instantaneous** accelerometer triple per cycle —
@@ -1227,6 +1296,12 @@ this checklist:
 
 A *garbled* log (stray bytes rather than silence) points at the baud rate; total
 silence points at power or PWRKEY.
+
+> **If the device restarted rather than never started**, read
+> [`boot.log`](#boot-log) off the card first — a run of `reset=BROWNOUT` lines
+> says the supply is sagging (the same ~2 A peaks as above), while
+> `reset=POWERON` with `(RTC CLEARED)` says the rail went away entirely, which is
+> a pack or a connector, not the modem.
 
 ---
 

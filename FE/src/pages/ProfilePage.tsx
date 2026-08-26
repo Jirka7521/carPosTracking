@@ -17,7 +17,7 @@
 // it would require a verification round-trip that is out of scope here.
 // ============================================================
 
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '../auth/useAuth'
 import { PersonalInfoSection } from '../components/PersonalInfoSection'
 import { ChangePasswordSection } from '../components/ChangePasswordSection'
 

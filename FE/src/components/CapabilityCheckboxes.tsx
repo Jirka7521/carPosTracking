@@ -15,19 +15,7 @@
 //     not canShare).
 // ============================================================
 
-// The three capability flags that can be toggled.
-// Read is always on and is therefore not included here.
-export type CapabilityFlags = {
-  canDelete:         boolean
-  canShare:          boolean
-  canModifySettings: boolean
-}
-
-export const EMPTY_FLAGS: CapabilityFlags = {
-  canDelete:         false,
-  canShare:          false,
-  canModifySettings: false,
-}
+import type { CapabilityFlags } from './capabilityFlags'
 
 type CapabilityCheckboxesProps = {
   // Current state of the three flags.

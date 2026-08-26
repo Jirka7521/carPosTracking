@@ -47,9 +47,10 @@ import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { SharedUserCard } from '../components/SharedUserCard'
-import { CapabilityCheckboxes, EMPTY_FLAGS } from '../components/CapabilityCheckboxes'
+import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
+import { EMPTY_FLAGS } from '../components/capabilityFlags'
 import type { SharedUserData } from '../components/SharedUserCard'
-import type { CapabilityFlags } from '../components/CapabilityCheckboxes'
+import type { CapabilityFlags } from '../components/capabilityFlags'
 import type { DevicePageContext } from './DevicePage'
 import {
   createAccessGrant,
@@ -65,7 +66,7 @@ import {
 import type { AccessDto, DeviceProvisioningDto, UserProfileDto } from '../services/apiTypes'
 import { formatRelativeTime } from '../utils/dates'
 import { describeError } from '../utils/errors'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '../auth/useAuth'
 
 // ============================================================
 // Main component
@@ -147,13 +148,17 @@ export function DeviceSettingsTab() {
   // ---- Load the access roster whenever the section is visible ----
   useEffect(() => {
     if (!canViewAccess) {
-      setSharedUsers([])
       return
     }
 
     void loadSharedUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, canViewAccess])
+
+  // An empty roster when access cannot be viewed is a consequence of
+  // canViewAccess, not state of its own — deriving it keeps the last-loaded
+  // roster from showing for one render after the permission is revoked.
+  const visibleSharedUsers = canViewAccess ? sharedUsers : []
 
   // Fetches the current access grants and resolves user profile for each
   async function loadSharedUsers(): Promise<void> {
@@ -596,11 +601,11 @@ export function DeviceSettingsTab() {
                   <div className="spinner" />
                   <span>Loading…</span>
                 </div>
-              ) : sharedUsers.length === 0 ? (
+              ) : visibleSharedUsers.length === 0 ? (
                 <p className="hint">No other users have access to this device.</p>
               ) : (
                 <div className="access-list">
-                  {sharedUsers.map((row) => (
+                  {visibleSharedUsers.map((row) => (
                     <SharedUserCard
                       key={row.userId}
                       row={row}

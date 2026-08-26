@@ -17,6 +17,7 @@
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
 #include "power/BatteryMonitor.h"
+#include "power/BootJournal.h"
 #include "power/DeepSleepController.h"
 #include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
@@ -98,6 +99,64 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "WiFi disabled in Config.h.");
   }
 
+  // microSD store-and-forward. When the broker cannot be reached, each fix is
+  // sealed (same encrypted envelope as transmit) and appended to a queue file
+  // on the card; once the link is back the backlog is drained in encrypted
+  // bursts. The FixForwarder owns this decide-publish-or-store logic so the
+  // loop below stays trivial. All optional (kSdEnabled): if the card is absent
+  // the forwarder still publishes live fixes, it just cannot store missed ones.
+  //
+  // The card comes up before MQTT because it holds the cached runtime settings,
+  // and those decide how the rest of this function behaves. It comes up before
+  // the MODEM for a second reason: gnss.begin() below can fail and end the run
+  // outright, and a boot that dies there is exactly the one worth recording - so
+  // the journal has to be writable before we try.
+  static SdCard sdCard(config::kSdSpiHost, config::kSdPinMiso,
+                       config::kSdPinMosi, config::kSdPinSclk, config::kSdPinCs,
+                       config::kSdMountPoint);
+  static FixQueue fixQueue(sdCard, config::kSdQueueFilePath,
+                           config::kSdMaxQueuedFixes);
+  // Fixes the API rejected outright live in their own file, on a slow retry
+  // schedule, so one permanently unacceptable fix cannot block the live queue.
+  static RetryQueue retryQueue(sdCard, config::kSdRetryFilePath,
+                               config::kSdMaxRetryEntries,
+                               config::kRetryIntervalHours,
+                               config::kRetryMaxAgeHours);
+  if (config::kSdEnabled) {
+    if (sdCard.begin() && fixQueue.begin()) {
+      retryQueue.begin();
+      ESP_LOGI(TAG, "SD store-and-forward ready (%u fix(es) recovered).",
+               (unsigned)fixQueue.size());
+    } else {
+      ESP_LOGW(TAG,
+               "SD card unavailable - undeliverable fixes will be dropped.");
+    }
+  } else {
+    ESP_LOGI(TAG, "SD store-and-forward disabled in Config.h.");
+  }
+
+  // Why this device restarted, on the console and on the card. Placed as early
+  // as the card allows: everything below can fail, and the failures that end the
+  // run in seconds are the ones a boot log exists to catch.
+  static BootJournal bootJournal(sdCard, config::kSdBootLogPath,
+                                 config::kSdMaxBootLogLines,
+                                 config::kBootLogPrintLines);
+  if (config::kBootLogEnabled) {
+    bootJournal.begin();  // prints the recent history, then persists this boot
+  }
+
+  // Runtime settings: the last configuration the broker gave us, cached in the
+  // clear on the card. Falls back to the Config.h defaults on a fresh device or
+  // an unreadable card, so `settings` is always usable from here on.
+  static SettingsStore settingsStore(sdCard, config::kSdSettingsFilePath);
+  DeviceSettings       settings = settingsStore.load(DeviceSettings());
+
+  // Pushes the storage-related settings into the two queues. Applied here for
+  // the cached document, and again every time a new one arrives, so the queues
+  // are never running limits the server has already superseded.
+  static SettingsApplier settingsApplier(fixQueue, retryQueue);
+  settingsApplier.apply(settings);
+
   static SerialPort serial(config::kModemUartPort, config::kModemTxPin,
                            config::kModemRxPin, config::kModemBaudRate);
   static Sim7000Modem modem(serial, config::kModemPwrKeyPin);
@@ -153,51 +212,6 @@ extern "C" void app_main(void) {
   } else {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
-
-  // microSD store-and-forward. When the broker cannot be reached, each fix is
-  // sealed (same encrypted envelope as transmit) and appended to a queue file
-  // on the card; once the link is back the backlog is drained in encrypted
-  // bursts. The FixForwarder owns this decide-publish-or-store logic so the
-  // loop below stays trivial. All optional (kSdEnabled): if the card is absent
-  // the forwarder still publishes live fixes, it just cannot store missed ones.
-  //
-  // The card is brought up before MQTT because it also holds the cached runtime
-  // settings, and those decide how the rest of this function behaves.
-  static SdCard sdCard(config::kSdSpiHost, config::kSdPinMiso,
-                       config::kSdPinMosi, config::kSdPinSclk, config::kSdPinCs,
-                       config::kSdMountPoint);
-  static FixQueue fixQueue(sdCard, config::kSdQueueFilePath,
-                           config::kSdMaxQueuedFixes);
-  // Fixes the API rejected outright live in their own file, on a slow retry
-  // schedule, so one permanently unacceptable fix cannot block the live queue.
-  static RetryQueue retryQueue(sdCard, config::kSdRetryFilePath,
-                               config::kSdMaxRetryEntries,
-                               config::kRetryIntervalHours,
-                               config::kRetryMaxAgeHours);
-  if (config::kSdEnabled) {
-    if (sdCard.begin() && fixQueue.begin()) {
-      retryQueue.begin();
-      ESP_LOGI(TAG, "SD store-and-forward ready (%u fix(es) recovered).",
-               (unsigned)fixQueue.size());
-    } else {
-      ESP_LOGW(TAG,
-               "SD card unavailable - undeliverable fixes will be dropped.");
-    }
-  } else {
-    ESP_LOGI(TAG, "SD store-and-forward disabled in Config.h.");
-  }
-
-  // Runtime settings: the last configuration the broker gave us, cached in the
-  // clear on the card. Falls back to the Config.h defaults on a fresh device or
-  // an unreadable card, so `settings` is always usable from here on.
-  static SettingsStore settingsStore(sdCard, config::kSdSettingsFilePath);
-  DeviceSettings       settings = settingsStore.load(DeviceSettings());
-
-  // Pushes the storage-related settings into the two queues. Applied here for
-  // the cached document, and again every time a new one arrives, so the queues
-  // are never running limits the server has already superseded.
-  static SettingsApplier settingsApplier(fixQueue, retryQueue);
-  settingsApplier.apply(settings);
 
   // Bring up MQTT (if enabled). The client connects and reconnects in the
   // background, so we never block on it. Each fix is end-to-end encrypted by
@@ -377,6 +391,19 @@ extern "C" void app_main(void) {
         // The modem die temperature rides along with the battery read (see the
         // debug lambda above). Published as temp_c when the read succeeds.
         sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
+      }
+
+      // Checkpoint this run in RTC memory so the NEXT boot's journal line can
+      // say where it got to. Costs a couple of stores - no card write. The
+      // charging path deliberately leaves millivolts unset (percent 0 is the
+      // charging sentinel), so stamping the uptime alone is the honest answer
+      // there rather than recording a confident 0 mV.
+      if (config::kBootLogEnabled) {
+        if (sample.battery.valid && !sample.battery.charging) {
+          bootJournal.noteBattery(sample.battery.millivolts);
+        } else {
+          bootJournal.noteUptime();
+        }
       }
 
       ESP_LOGI(TAG, "Fix: %.6f, %.6f  %.1f km/h", fix.position.latitudeDeg,
