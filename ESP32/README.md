@@ -27,6 +27,13 @@ reuse.
   through a **Li-ion discharge curve** (not a straight line), plus a charge-sense
   pin (GPIO35) — a value of `0` is the agreed "charging" sentinel. Also reports
   the **modem die temperature** (`AT+CPMUTEMP`, published as `temp_c`).
+- 📊 **Battery method log** *(diagnostic, SD card)*: one CSV row per report
+  comparing **every** way this board can measure the pack — 5 voltage sources ×
+  3 state-of-charge models, the modem's own percentage, the charge-input pin and
+  three charging detectors — each row stamped with the **uptime in milliseconds**
+  and the **current GNSS UTC**. Nothing of it is published; it exists so the
+  curve above can be calibrated against real captures. See
+  [Battery method log](#battery-method-log).
 - 🔋 **Power the whole modem off** between reads to minimise battery drain
   (plus a lighter "GNSS engine only" off switch).
 - 📶 **Optional WiFi** (station mode): connect to a network with one flag, or
@@ -117,8 +124,12 @@ src/
 │   └── RemoteSettings.h/.cpp ← Subscribe to the config topic; apply & persist
 │
 └── power/
+    ├── AdcSampler.h/.cpp          ← The one owner of ADC1: raw counts + calibrated mV
     ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
     ├── BatteryMonitor.h/.cpp      ← Pack % via AT+CBC + charge-sense on GPIO35
+    ├── BatteryMethodsData.h       ← Plain struct: one multi-method measurement
+    ├── BatteryMethods.h/.cpp      ← Measure the pack every way at once (diagnostic)
+    ├── BatteryCsvLogger.h/.cpp    ← One CSV row per report, on the card
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
@@ -163,7 +174,10 @@ test:
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
-| `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35). |
+| `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
+| `BatteryMonitor` | Pack % (Li-ion curve over the modem's `AT+CBC`) + charging detection (GPIO35, via `AdcSampler`). |
+| `BatteryMethods` | *Diagnostic:* measure the pack five ways, score each with three models, and report the spread. |
+| `BatteryCsvLogger` | *Diagnostic:* write one of those measurements per report as a CSV row on the card. |
 | `BootJournal` | Record *why* the device restarted — reset reason, boot counter, whether RTC memory survived. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope (and stamp its `id`). |
 | `AckCrypto` | The inverse: open an ack sealed to this device's own private key. |
@@ -241,6 +255,15 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
 | `kBatteryEmptyMv` / `kBatteryFullMv` | `3300` / `4200` | Clamp ends of the Li-ion SoC curve (≤empty→1 %, ≥full→100 %) |
+| **`kBatteryLogEnabled`** | `true` | **Enable/disable the battery method log** (see [Battery method log](#battery-method-log)) |
+| `kSdBatteryLogPath` | `/sdcard/battery.csv` | The CSV (**plaintext**); a header mismatch rotates to `battery2.csv` … `battery9.csv` |
+| `kSdMaxBatteryLogRows` | `20000` | Cap on data rows (header excluded); oldest are dropped past this. `0` = no cap |
+| `kBatteryVbatSensePin` | `35` | Pack voltage sense — the **same pin** as `kBatteryChargeSensePin`, read as a voltage here |
+| `kBatterySolarSensePin` | `36` | Charge-input (solar/VIN) sense |
+| `kBatteryDividerRatio` / `kSolarDividerRatio` | `2.0f` / `2.0f` | On-board divider ratios; the solar one is an assumption that varies by board revision |
+| `kBatteryAdcSamples` | `16` | ADC conversions per measurement (averaged **and** medianed) |
+| `kSolarInputThresholdMv` | `1000` | Above this on GPIO36, a charge source is present |
+| `kBatteryNoReadingMv` | `2000` | Below this the ADC path is logged as absent, not as a flat pack |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
@@ -1058,6 +1081,80 @@ did it lose power?", which the reset reason alone cannot.
 
 ---
 
+## Battery method log
+
+The published `battery_pct` is one number produced by one method: the modem's
+`AT+CBC` put through the Li-ion curve in `BatteryMonitor`. That number is only as
+good as the curve behind it — and the curve cannot be improved without knowing
+how the alternatives behave on the same pack, at the same instant.
+
+So, with `kBatteryLogEnabled`, the firmware **also** measures the pack every way
+this board allows and appends one row per reporting cycle to a plaintext CSV on
+the card (`kSdBatteryLogPath`, default `/sdcard/battery.csv`). Nothing here is
+published, encrypted or queued — it is a diagnostic capture, and it changes
+neither the payload nor the envelope.
+
+```
+uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
+41230,2026-08-24T09:14:07Z,1,1,9,2043,2044,3291,3288,3288,3290,3872,1,1,...
+```
+
+### What one row contains
+
+| Column(s) | Meaning |
+|-----------|---------|
+| `uptime_ms` | Milliseconds since boot (`esp_timer`). Always present, always monotonic — and the only usable x-axis before the receiver has a fix. |
+| `gps_utc`, `gps_time_valid` | The current GNSS UTC as `YYYY-MM-DDThh:mm:ssZ`, **empty** until the receiver decodes one. The flag keeps "unknown" from being read as 1970. |
+| `has_fix`, `sats_used` | Whether this cycle got a lock, and how many satellites went into it. |
+| `raw_mean`, `raw_median` | The ADC burst behind the first four sources. A count near 0 is the fingerprint of the USB cut-off below. |
+| `v1_naive_mv` | Raw counts × nominal full scale — no calibration at all. |
+| `v2_calper_mv` | Each sample calibrated, then averaged. |
+| `v3_calmean_mv` | Calibration applied to the mean count. |
+| `v4_calmed_mv` | Calibration applied to the median count. |
+| `v5_modem_mv` | The modem's own VBAT measurement (`AT+CBC`). |
+| `adc_valid`, `v5_valid` | Whether the ADC path and the modem actually produced a reading. Sources 1–4 live or die together. |
+| `p1_*` … `p5_*` | Each source scored by three models: `lin` (straight line), `curve` (piecewise Li-ion), `sig` (LiPo sigmoid). `-1` = that source had no reading. |
+| `modem_pct`, `modem_bcs` | The modem's own percentage and charge status (`0` not charging, `1` charging, `2` complete), `-1` when unavailable. |
+| `solar_raw`, `solar_mv`, `input_present` | The charge-input pin (GPIO36) and whether it says a source is connected. |
+| `trend_charging`, `trend_usable` | Charging inferred from a rising pack voltage. **The window is five *cycles*, not five seconds** — it reacts in minutes and is a corroborating signal, not the primary one. |
+| `fw_pct`, `fw_charging`, `fw_valid` | What the shipped `BatteryMonitor` concluded for the same moment — the thing every other column exists to be compared against. `fw_pct` is `-1` when that read failed, so it is never confused with the monitor's `0 = charging` sentinel. |
+| `v_spread_mv`, `p_spread` | How far apart the methods landed. This is the deliverable. |
+
+### Three caveats before you trust a capture
+
+- **On USB power, `v1`–`v4` read ~0.** On the T-SIM7000G the sense pin is cut off
+  from the cell whenever USB is connected ([LilyGO issue #128][lilygo128]) — a
+  hardware fact, not a bug here. `adc_valid` goes to `0` and only `v5` keeps
+  answering, and then it reports the **charger rail**, not the cell.
+- **The modem's TX bursts sag VBAT.** A row captured during a publish reads low
+  across every source at once. That is why `uptime_ms` and `gps_utc` are on the
+  row: they let a sagging sample be lined up with what the device was doing.
+- **`solar_mv` assumes a 2:1 divider**, which varies across board revisions —
+  check it against `solar_raw` before trusting the millivolts.
+
+[lilygo128]: https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/issues/128
+
+### Cost and caveats
+
+- One ADC burst plus **one** extra `AT+CBC` per reporting cycle, and one appended
+  line — negligible next to an acquire, and nothing at all in deep sleep.
+- The file is capped at `kSdMaxBatteryLogRows` (20 000 ≈ 2.4 MB). The cap is
+  checked once every 256 rows, not every row: enforcing it rewrites the file to
+  keep the header, so it has to stay rare. The file can therefore overshoot the
+  cap by up to 256 rows.
+- A file whose first line is not the current header is **left alone** and the
+  logger steps to `battery2.csv` … `battery9.csv`, so changing the columns never
+  corrupts an older capture.
+- With no card there are no rows and a warning; tracking carries on, like every
+  other SD-backed subsystem.
+- The origin of all this is the Arduino comparison rig in `../../BatteryTest/`
+  (a standalone sketch outside this repo), which prints the same measurements as
+  a live table over serial. Two deliberate differences here: one burst of samples
+  feeds sources 1–4 (so `v2`/`v3` differ by *maths*, not by *samples*), and the
+  trend window counts cycles rather than seconds.
+
+---
+
 ## Peak accelerometer readings
 
 The normal report carries **one instantaneous** accelerometer triple per cycle —
@@ -1200,10 +1297,10 @@ change the temp-file naming to replace the extension instead of appending
 > The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
 > they survive a `menuconfig` run or a framework upgrade.
 
-Together these take the build from **~99% of 1 MB** down to **~67% of 1.5 MB**
-(≈1,003 KB firmware, including the FAT/SD store-and-forward stack and the
-remote-settings/deep-sleep paths). After pulling these changes do a clean rebuild
-so the new flash size and partition layout take effect:
+Together these take the build from **~99% of 1 MB** down to **~69% of 1.5 MB**
+(≈1,027 KB firmware, including the FAT/SD store-and-forward stack, the battery
+method log and the remote-settings/deep-sleep paths). After pulling these changes
+do a clean rebuild so the new flash size and partition layout take effect:
 
 ```bash
 pio run -t fullclean

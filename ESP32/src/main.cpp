@@ -16,6 +16,9 @@
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
+#include "power/AdcSampler.h"
+#include "power/BatteryCsvLogger.h"
+#include "power/BatteryMethods.h"
 #include "power/BatteryMonitor.h"
 #include "power/BootJournal.h"
 #include "power/DeepSleepController.h"
@@ -199,7 +202,19 @@ extern "C" void app_main(void) {
     }
   }
 
-  static BatteryMonitor battery(modem, config::kBatteryChargeSensePin,
+  // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
+  // on a unit that is already claimed, and two subsystems below need pins on it
+  // (the monitor's charge sense, the method log's pack + charge-input sense).
+  // See AdcSampler.h.
+  static AdcSampler adcSampler;
+  if (config::kBatteryEnabled || config::kBatteryLogEnabled) {
+    if (!adcSampler.begin()) {
+      ESP_LOGW(TAG, "ADC unavailable - battery readings will be omitted.");
+    }
+  }
+
+  static BatteryMonitor battery(adcSampler, modem,
+                                config::kBatteryChargeSensePin,
                                 config::kBatteryChargeAdcThreshold,
                                 config::kBatteryEmptyMv, config::kBatteryFullMv);
   if (config::kBatteryEnabled) {
@@ -211,6 +226,31 @@ extern "C" void app_main(void) {
     }
   } else {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
+  }
+
+  // Diagnostic battery capture: every way this board can measure the pack, one
+  // CSV row per reporting cycle on the SD card. Deliberately separate from the
+  // monitor above - it publishes nothing and the monitor reads nothing from it;
+  // it exists so the monitor's Li-ion curve can be calibrated against reality.
+  static BatteryMethods batteryMethods(
+      adcSampler, modem, config::kBatteryVbatSensePin,
+      config::kBatterySolarSensePin, config::kBatteryDividerRatio,
+      config::kSolarDividerRatio, config::kBatteryAdcSamples,
+      config::kBatteryEmptyMv, config::kBatteryFullMv,
+      config::kSolarInputThresholdMv, config::kBatteryNoReadingMv);
+  static BatteryCsvLogger batteryCsv(sdCard, config::kSdBatteryLogPath,
+                                     config::kSdMaxBatteryLogRows);
+  // Both halves have to come up for a row to be writable, so the loop below
+  // tests one flag rather than re-deriving it every cycle.
+  bool batteryLogReady = false;
+  if (config::kBatteryLogEnabled) {
+    batteryLogReady = batteryMethods.begin() && batteryCsv.begin();
+    if (!batteryLogReady) {
+      ESP_LOGW(TAG,
+               "Battery method log unavailable - no CSV rows will be written.");
+    }
+  } else {
+    ESP_LOGI(TAG, "Battery method log disabled in Config.h.");
   }
 
   // Bring up MQTT (if enabled). The client connects and reconnects in the
@@ -415,6 +455,24 @@ extern "C" void app_main(void) {
       if (config::kMqttEnabled) {
         forwarder.process(sample);
       }
+    }
+
+    // Diagnostic capture: one CSV row per cycle, fix or no fix, so a device
+    // parked without a lock still leaves a discharge curve behind. Costs one ADC
+    // burst plus a single AT+CBC, writes one line to the card, and touches
+    // nothing that gets published - see BatteryCsvLogger.
+    if (config::kBatteryLogEnabled && batteryLogReady) {
+      // A no-fix cycle skipped the sensor block above, so read the shipped
+      // monitor here: the fw_* columns are only worth having when every row has
+      // them to compare the other methods against.
+      if (!haveFix && config::kBatteryEnabled) {
+        battery.read(sample.battery);
+      }
+
+      BatteryMethodsSample methods;
+      batteryMethods.sample(methods);
+      batteryCsv.append(static_cast<uint32_t>(esp_timer_get_time() / 1000), fix,
+                        methods, sample.battery);
     }
 
     // A config may have arrived while we were publishing (the per-poll hook

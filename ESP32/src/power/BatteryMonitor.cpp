@@ -31,49 +31,26 @@ static constexpr OcvPoint kOcvCurve[] = {
 static constexpr std::size_t kOcvCurveCount =
     sizeof(kOcvCurve) / sizeof(kOcvCurve[0]);
 
-BatteryMonitor::BatteryMonitor(Sim7000Modem& modem, int chargeSensePin,
-                               int chargeAdcThreshold, uint32_t emptyMv,
-                               uint32_t fullMv)
-    : modem_(modem),
+BatteryMonitor::BatteryMonitor(AdcSampler& adc, Sim7000Modem& modem,
+                               int chargeSensePin, int chargeAdcThreshold,
+                               uint32_t emptyMv, uint32_t fullMv)
+    : adc_(adc),
+      modem_(modem),
       chargeSensePin_(chargeSensePin),
       chargeAdcThreshold_(chargeAdcThreshold),
       emptyMv_(emptyMv),
       fullMv_(fullMv) {}
 
 bool BatteryMonitor::begin() {
-  // Map the charge-sense GPIO to its ADC unit/channel (GPIO35 -> ADC1_CH7 on the
-  // ESP32-WROVER). Doing it via the helper keeps the pin the single source of
-  // truth, matching the rest of the config.
-  adc_unit_t    unit    = ADC_UNIT_1;
-  adc_channel_t channel = ADC_CHANNEL_0;
-  esp_err_t     err = adc_oneshot_io_to_channel(chargeSensePin_, &unit, &channel);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "GPIO%d is not an ADC pin: %s", chargeSensePin_,
-             esp_err_to_name(err));
+  // The ADC unit itself belongs to AdcSampler (only one owner is allowed - see
+  // its header); all this monitor has to do is claim the charge-sense pin on it.
+  if (!adc_.addPin(chargeSensePin_)) {
+    ESP_LOGW(TAG, "charge-sense GPIO%d unavailable on the ADC",
+             chargeSensePin_);
     return false;
   }
 
-  adc_oneshot_unit_init_cfg_t initCfg = {};
-  initCfg.unit_id                     = unit;
-  err = adc_oneshot_new_unit(&initCfg, &adcHandle_);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "ADC unit init failed: %s", esp_err_to_name(err));
-    return false;
-  }
-
-  // Full-scale attenuation: we only need a coarse "is it near 0?" decision, and
-  // when discharging the sense pin can swing across the full range.
-  adc_oneshot_chan_cfg_t chanCfg = {};
-  chanCfg.atten                  = ADC_ATTEN_DB_12;
-  chanCfg.bitwidth               = ADC_BITWIDTH_DEFAULT;
-  err = adc_oneshot_config_channel(adcHandle_, channel, &chanCfg);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "ADC channel config failed: %s", esp_err_to_name(err));
-    return false;
-  }
-
-  adcChannel_ = channel;
-  ready_      = true;
+  ready_ = true;
   ESP_LOGI(TAG, "BatteryMonitor ready (charge-sense GPIO%d)", chargeSensePin_);
   return true;
 }
@@ -87,7 +64,7 @@ bool BatteryMonitor::read(BatteryStatus& out) {
   // 1. Charging? The charger pulls the sense pin to ~0, so a low ADC reading
   //    means "on charge" and we report the sentinel percent = 0.
   int rawAdc = 0;
-  if (adc_oneshot_read(adcHandle_, adcChannel_, &rawAdc) != ESP_OK) {
+  if (!adc_.readRaw(chargeSensePin_, rawAdc)) {
     ESP_LOGW(TAG, "charge-sense ADC read failed");
     return false;
   }

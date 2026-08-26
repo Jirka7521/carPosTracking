@@ -15,28 +15,31 @@
 //                   than a second ADC divider so no extra analog wiring is
 //                   needed; the modem is already powered when we read.)
 //
-//  It borrows the Sim7000Modem (does not own it) exactly like the other modem
-//  users, and owns only its own ADC oneshot handle.
+//  It borrows the AdcSampler and the Sim7000Modem (owning neither) exactly like
+//  the other modem users. The ADC unit deliberately lives in AdcSampler rather
+//  than here: the IDF allows only one owner per unit, and BatteryMethods needs
+//  the same unit for its own pins - see AdcSampler.h.
 // =============================================================================
 
 #include <cstdint>
 
-#include "esp_adc/adc_oneshot.h"
 #include "modem/Sim7000Modem.h"
+#include "power/AdcSampler.h"
 #include "power/BatteryData.h"
 
 class BatteryMonitor {
  public:
-  // Borrows `modem` (must outlive this object); stores the tuning knobs.
+  // Borrows `adc` and `modem` (both must outlive this object); stores the tuning
+  // knobs.
   //   chargeSensePin   : GPIO wired to the charger's sense line (GPIO35)
   //   chargeAdcThreshold : raw ADC counts below which we treat as "charging"
   //   emptyMv / fullMv : voltage window mapped onto 1-100 % (single Li-ion cell)
-  BatteryMonitor(Sim7000Modem& modem, int chargeSensePin, int chargeAdcThreshold,
-                 uint32_t emptyMv, uint32_t fullMv);
+  BatteryMonitor(AdcSampler& adc, Sim7000Modem& modem, int chargeSensePin,
+                 int chargeAdcThreshold, uint32_t emptyMv, uint32_t fullMv);
 
-  // Set up the ADC oneshot unit/channel for the charge-sense pin. Returns true
-  // when ready. Optional subsystem: on failure it logs and returns false, and
-  // read() then reports an invalid status.
+  // Claim the charge-sense pin on the shared ADC. Returns true when ready.
+  // Optional subsystem: on failure it logs and returns false, and read() then
+  // reports an invalid status.
   bool begin();
 
   // Take one reading (see the class banner for the two-source logic). On success
@@ -53,13 +56,12 @@ class BatteryMonitor {
   // charging sentinel and must stay unambiguous).
   uint8_t voltageToPercent(uint32_t mv) const;
 
+  AdcSampler&   adc_;
   Sim7000Modem& modem_;
   int           chargeSensePin_;
   int           chargeAdcThreshold_;
   uint32_t      emptyMv_;
   uint32_t      fullMv_;
 
-  adc_oneshot_unit_handle_t adcHandle_ = nullptr;
-  adc_channel_t             adcChannel_ = ADC_CHANNEL_0;
-  bool                      ready_      = false;
+  bool ready_ = false;
 };
