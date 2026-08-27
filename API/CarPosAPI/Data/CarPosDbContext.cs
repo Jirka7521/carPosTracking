@@ -38,6 +38,12 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Immutable history of every device's remote settings, one row per revision.</summary>
     public DbSet<DeviceConfigVersion> DeviceConfigVersions => Set<DeviceConfigVersion>();
 
+    /// <summary>Named, editable setting presets a schedule's rules select between.</summary>
+    public DbSet<DeviceConfigProfile> DeviceConfigProfiles => Set<DeviceConfigProfile>();
+
+    /// <summary>Weekly UTC time windows binding a profile to a stretch of the week.</summary>
+    public DbSet<DeviceConfigScheduleRule> DeviceConfigScheduleRules => Set<DeviceConfigScheduleRule>();
+
     /// <summary>Applies every IEntityTypeConfiguration in this assembly.</summary>
     /// <param name="modelBuilder">Model builder supplied by EF Core.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)

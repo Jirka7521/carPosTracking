@@ -2321,3 +2321,348 @@
     animation: none;
   }
 }
+
+/* ===========================================================================
+   Settings schedule
+   ===========================================================================
+   Reuses the existing panel chrome (.settings-section, .config-*, .banner) so
+   the schedule reads as another part of the settings tab rather than as a
+   feature bolted on. Only the pieces with no existing equivalent are new: the
+   status banner, the week strip, the day toggles and the modal.
+   =========================================================================== */
+
+.schedule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+  margin: 14px 0;
+}
+
+.schedule-block {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Status banner ---- */
+
+.schedule-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.schedule-status--active {
+  border-left-color: var(--success);
+  background: var(--success-bg);
+}
+
+/* Amber, and the only amber thing on the panel: a device ignoring its own
+   schedule for the next few hours must not look like one obeying it. */
+.schedule-status--override {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+}
+
+.schedule-status-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.schedule-status-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.schedule-status-profile {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.schedule-status-next {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.schedule-status-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---- Week timeline ---- */
+
+.schedule-timeline {
+  margin: 16px 0;
+  /* Never squeezes below the point where an hour is a sliver; on a narrow
+     screen it scrolls inside itself rather than making the page scroll. */
+  overflow-x: auto;
+}
+
+.schedule-timeline-scale {
+  position: relative;
+  height: 16px;
+  /* Aligned with the tracks below, which sit after the fixed-width day label. */
+  margin-left: 44px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.schedule-timeline-scale span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.schedule-timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.schedule-timeline-day {
+  width: 36px;
+  flex: 0 0 36px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.schedule-timeline-row.is-today .schedule-timeline-day {
+  color: var(--text-h);
+  font-weight: 700;
+}
+
+.schedule-timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 26px;
+  min-width: 320px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--gray-100);
+  overflow: hidden;
+}
+
+.schedule-timeline-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  /* A hairline so two adjacent profiles read as two blocks even where their
+     colours are close. */
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+}
+
+/* An hour no rule and no fallback covers. Hatched rather than merely pale, so
+   a gap in a schedule is unmistakably a gap. */
+.schedule-timeline-block--empty {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(0, 0, 0, 0.06) 4px,
+    rgba(0, 0, 0, 0.06) 8px
+  );
+}
+
+.schedule-timeline-block-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFFFFF;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-timeline-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--red-600);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.schedule-timeline-note {
+  margin-top: 8px;
+}
+
+/* ---- Profile and rule cards ---- */
+
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.schedule-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.schedule-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-card-name {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.schedule-card-summary {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.schedule-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.schedule-utc-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  background: var(--gray-100);
+}
+
+/* ---- Day toggles ---- */
+
+.schedule-day-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.schedule-day-toggle {
+  min-width: 44px;
+  padding: 5px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.schedule-day-toggle:hover {
+  border-color: var(--blue-200);
+}
+
+.schedule-day-toggle.is-on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.schedule-day-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.schedule-day-presets {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.schedule-rule-editor,
+.schedule-profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- Modal (the temporary-change warning) ---- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(26, 43, 66, 0.45);
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  background: var(--panel-bg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.modal-title {
+  margin: 0 0 10px;
+  color: var(--text-h);
+  font-size: 18px;
+}
+
+.modal-body p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.modal-highlight {
+  padding: 8px 12px;
+  border-left: 3px solid var(--warning);
+  border-radius: 4px;
+  background: var(--warning-bg);
+}
+
+.modal-list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.modal-list li {
+  margin-bottom: 6px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

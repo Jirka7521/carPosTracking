@@ -144,9 +144,23 @@ export function ConfigVersionHistory({
                 {version.version === appliedVersion && version.version !== currentVersion ? (
                   <span className="config-sync-badge config-sync-badge--pending">on device</span>
                 ) : null}
+                {/* A scheduled revision has no author, and without this tag it
+                    would render identically to the two genuinely authorless rows
+                    — the one created with the device and the one the migration
+                    seeded. "Why did this tracker change at 22:00?" is exactly
+                    what somebody opens this list to answer. */}
+                {version.source === 'schedule' ? (
+                  <span className="schedule-status-tag">
+                    🗓 {version.sourceProfileName ?? 'schedule'}
+                  </span>
+                ) : null}
                 <span className="hint">
                   {formatTimestamp(version.createdAt)}
-                  {version.createdBy ? ` · ${version.createdBy}` : ' · defaults'}
+                  {version.createdBy
+                    ? ` · ${version.createdBy}`
+                    : version.source === 'schedule'
+                      ? ' · automatic'
+                      : ' · defaults'}
                 </span>
               </div>
 

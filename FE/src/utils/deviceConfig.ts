@@ -149,3 +149,29 @@ function describeRounded(value: number, unit: string): string {
   const text: string = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
   return `${text} ${unit}${rounded === 1 ? '' : 's'}`
 }
+
+// Mirrors the API's [Range] attributes and the firmware's clamps. Returns the
+// first problem found, phrased for a person, or null when everything is in range.
+//
+// Shared by the settings form and the schedule's profile editor: a profile is
+// not a lesser kind of configuration, and a value the API would reject on one
+// must not become reachable through the other.
+export function validateConfigRanges(values: DeviceConfigValuesDto): string | null {
+  const checks: { key: keyof typeof CONFIG_LIMITS; value: number }[] = [
+    { key: 'intervalSeconds', value: values.intervalSeconds },
+    { key: 'fixTimeoutSeconds', value: values.fixTimeoutSeconds },
+    { key: 'queueMaxFixes', value: values.queueMaxFixes },
+    { key: 'retryIntervalHours', value: values.retryIntervalHours },
+    { key: 'retryMaxAgeHours', value: values.retryMaxAgeHours },
+    { key: 'configCheckSeconds', value: values.configCheckSeconds },
+  ]
+
+  for (const check of checks) {
+    const limit = CONFIG_LIMITS[check.key]
+    if (!Number.isInteger(check.value) || check.value < limit.min || check.value > limit.max) {
+      return `"${CONFIG_FIELD_LABELS[check.key]}" must be a whole number between ${limit.min} and ${limit.max}.`
+    }
+  }
+
+  return null
+}

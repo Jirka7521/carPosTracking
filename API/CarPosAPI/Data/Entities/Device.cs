@@ -80,6 +80,42 @@ public sealed class Device
     /// <summary>When <see cref="ConfigAppliedVersion"/> was last confirmed (UTC).</summary>
     public DateTime? ConfigAppliedAt { get; set; }
 
+    /// <summary>
+    /// Whether <see cref="DeviceConfigScheduleRule"/>s decide this device's settings.
+    /// While false the schedule tables may hold anything at all and nothing acts on
+    /// them — turning it off is how a schedule is parked without being dismantled.
+    /// </summary>
+    public bool ConfigScheduleEnabled { get; set; }
+
+    /// <summary>
+    /// The profile applied whenever no rule's window contains the current instant
+    /// (FK to <c>device_config_profiles.id</c>). Required in practice for an enabled
+    /// schedule: without it an uncovered hour would have no defined answer, and the
+    /// device would simply keep whatever it last happened to be given.
+    /// </summary>
+    public Guid? ConfigScheduleFallbackProfileId { get; set; }
+
+    /// <summary>
+    /// While this instant is in the future, the scheduler leaves this device alone —
+    /// somebody changed its settings by hand and was told the schedule resumes here.
+    ///
+    /// <para>
+    /// A timestamp rather than a flag, and deliberately so: an override expires on
+    /// its own. A crash, a restart, or a scheduler that was down over the boundary
+    /// cannot leave a tracker stranded off its schedule for ever, which a boolean
+    /// somebody forgot to clear certainly could.
+    /// </para>
+    /// </summary>
+    public DateTime? ConfigOverrideUntil { get; set; }
+
+    /// <summary>
+    /// When the scheduler last completed a pass over this device (UTC). Null until
+    /// the first one. Purely diagnostic — it is what lets the dashboard say "the
+    /// schedule is enabled but nothing has evaluated it" rather than showing a
+    /// confident answer nobody has computed.
+    /// </summary>
+    public DateTime? ConfigScheduleEvaluatedAt { get; set; }
+
     /// <summary>Soft-delete flag — rows are deactivated, never physically removed.</summary>
     public bool IsActive { get; set; } = true;
 

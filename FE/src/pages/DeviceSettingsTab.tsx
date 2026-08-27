@@ -14,6 +14,15 @@
 //      picked the latest change up yet. Unlike section 3 this loads with the
 //      page: it is the reason most people open this tab.
 //
+//   2b. Settings Schedule  (visible only if canModifySettings)
+//      Named profiles and the weekly windows that select them, plus a week-long
+//      timeline of what is in force when. Owned by ScheduleSection.
+//
+//      The schedule STATE is fetched here rather than inside that component,
+//      because section 2 needs it too: a manual save on a scheduled device is
+//      temporary, so the settings panel has to know whether to warn, and has to
+//      show the override banner afterwards. One fetch, two consumers, one timer.
+//
 //   3. Firmware configuration (visible only if canModifySettings)
 //      Re-reads the provisioning payload — topics, key fingerprints and a
 //      complete, ready-to-flash Config.h — so a tracker can be re-flashed
@@ -60,6 +69,7 @@ import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { RefreshToolbar } from '../components/RefreshToolbar'
+import { ScheduleSection } from '../components/ScheduleSection'
 import { SharedUserCard } from '../components/SharedUserCard'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
 import { EMPTY_FLAGS } from '../components/capabilityFlags'
@@ -71,13 +81,19 @@ import {
   deleteDevice,
   fetchAccessGrantsForDevice,
   fetchDeviceProvisioning,
+  fetchDeviceSchedule,
   fetchUserById,
   fetchUsers,
   revokeAccessGrant,
   updateAccessGrant,
   updateDeviceAlias,
 } from '../services/apiClient'
-import type { AccessDto, DeviceProvisioningDto, UserProfileDto } from '../services/apiTypes'
+import type {
+  AccessDto,
+  DeviceProvisioningDto,
+  DeviceScheduleStateDto,
+  UserProfileDto,
+} from '../services/apiTypes'
 import { formatRelativeTime } from '../utils/dates'
 import { describeError } from '../utils/errors'
 import { useAuth } from '../auth/useAuth'
@@ -129,6 +145,14 @@ export function DeviceSettingsTab() {
   const [isLoadingProvisioning, setIsLoadingProvisioning] = useState<boolean>(false)
   const [provisioningError, setProvisioningError] = useState<string>('')
 
+  // ---- Settings schedule state ----
+  // Held here rather than in ScheduleSection because DeviceConfigSection needs
+  // it too — see the header note. Null covers both "still loading" and "could
+  // not be read", and both make the settings panel behave exactly as it did
+  // before schedules existed, which is the right failure mode: a schedule that
+  // will not load must not block somebody from changing a tracker's settings.
+  const [schedule, setSchedule] = useState<DeviceScheduleStateDto | null>(null)
+
   // ---- Delete state ----
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState<boolean>(false)
   const [isDeleting, setIsDeleting]                     = useState<boolean>(false)
@@ -174,6 +198,49 @@ export function DeviceSettingsTab() {
     void loadSharedUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, canViewAccess])
+
+  // ---- Load the schedule, and keep it on the tab's timer ----
+  //
+  // On the timer because the answer moves on its own: the active profile changes
+  // when a window opens, the countdown to the next switch runs down, and an
+  // override expires. A schedule that only refreshed on a page reload would show
+  // "switches in 2 min" indefinitely.
+  //
+  // A failed poll is swallowed rather than surfaced. The panel keeps the last
+  // good state, and the next tick tries again — the same rule the settings panel
+  // and the version history already follow.
+  useEffect(() => {
+    if (!perms.canModifySettings) {
+      return
+    }
+
+    let canceled = false
+
+    void (async () => {
+      try {
+        const loaded: DeviceScheduleStateDto = await fetchDeviceSchedule(device.deviceId)
+        if (!canceled) {
+          setSchedule(loaded)
+        }
+      } catch {
+        // Keep whatever is on screen; the next tick tries again.
+      }
+    })()
+
+    return () => {
+      canceled = true
+    }
+  }, [device.deviceId, perms.canModifySettings, autoRefresh.token])
+
+  // Re-reads the schedule on demand — used after a manual save creates an
+  // override, whose response carries the settings but not the new override.
+  async function reloadSchedule(): Promise<void> {
+    try {
+      setSchedule(await fetchDeviceSchedule(device.deviceId))
+    } catch {
+      // Same rule as the tick above: never replace a working panel with an error.
+    }
+  }
 
   // An empty roster when access cannot be viewed is a consequence of
   // canViewAccess, not state of its own — deriving it keeps the last-loaded
@@ -553,6 +620,24 @@ export function DeviceSettingsTab() {
       {perms.canModifySettings ? (
         <DeviceConfigSection
           deviceId={device.deviceId}
+          refreshToken={autoRefresh.token}
+          schedule={schedule}
+          onScheduleChanged={setSchedule}
+          onScheduleReloadNeeded={() => void reloadSchedule()}
+        />
+      ) : null}
+
+      {/* ================================================================
+       * Section 2b: Settings Schedule — visible if canModifySettings
+       *
+       * Rendered only once the schedule has loaded: an empty panel that then
+       * fills in would flash "no profiles yet" at somebody who has several.
+       * ================================================================ */}
+      {perms.canModifySettings && schedule !== null ? (
+        <ScheduleSection
+          deviceId={device.deviceId}
+          schedule={schedule}
+          onScheduleChanged={setSchedule}
           refreshToken={autoRefresh.token}
         />
       ) : null}

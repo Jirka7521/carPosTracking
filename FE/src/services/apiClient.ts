@@ -32,8 +32,12 @@ import type {
   DeviceCreatedDto,
   DeviceDto,
   DeviceProvisioningDto,
+  DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
   PositionDto,
+  SaveConfigProfileRequestDto,
+  SaveScheduleRuleRequestDto,
+  UpdateDeviceScheduleRequestDto,
   UserProfileDto,
   UserUpdateRequestDto,
 } from './apiTypes'
@@ -395,6 +399,106 @@ export async function updateDeviceConfig(
 // failure — the stored settings are untouched either way.
 export async function republishDeviceConfig(deviceId: string): Promise<void> {
   await request<null>('POST', `/devices/${segment(deviceId)}/config/republish`)
+}
+
+// ----- Device settings schedule -----
+//
+// Profiles and the weekly windows that select them. Gated on CanModifySettings
+// like the settings above, reads included.
+//
+// EVERY mutation answers with the whole recomputed state, so nothing here needs
+// a follow-up read: adding a rule moves the next switch, retuning a profile can
+// change what is in force this second, and a client that re-fetched would always
+// render a stale answer in between.
+//
+// All times on this contract are UTC minutes — see utils/schedule.ts, which owns
+// the conversion to and from the reader's clock.
+
+export async function fetchDeviceSchedule(deviceId: string): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>('GET', `/devices/${segment(deviceId)}/schedule`)
+}
+
+// Turns the schedule on or off and names the fallback profile. Enabling without
+// a fallback is refused (400): every hour no rule covers would be undefined.
+export async function updateDeviceSchedule(
+  deviceId: string,
+  payload: UpdateDeviceScheduleRequestDto,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>('PUT', `/devices/${segment(deviceId)}/schedule`, {
+    body: payload,
+  })
+}
+
+export async function createConfigProfile(
+  deviceId: string,
+  payload: SaveConfigProfileRequestDto,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>('POST', `/devices/${segment(deviceId)}/schedule/profiles`, {
+    body: payload,
+  })
+}
+
+// A full replacement. If this profile is the one currently in force the device
+// is retuned immediately rather than at the next boundary.
+export async function updateConfigProfile(
+  deviceId: string,
+  profileId: string,
+  payload: SaveConfigProfileRequestDto,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>(
+    'PUT',
+    `/devices/${segment(deviceId)}/schedule/profiles/${segment(profileId)}`,
+    { body: payload },
+  )
+}
+
+// Answers 409 while a rule or the fallback still points at it, with a message
+// naming how many — surfaced as an ApiError like any other failure.
+export async function deleteConfigProfile(
+  deviceId: string,
+  profileId: string,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>(
+    'DELETE',
+    `/devices/${segment(deviceId)}/schedule/profiles/${segment(profileId)}`,
+  )
+}
+
+export async function createScheduleRule(
+  deviceId: string,
+  payload: SaveScheduleRuleRequestDto,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>('POST', `/devices/${segment(deviceId)}/schedule/rules`, {
+    body: payload,
+  })
+}
+
+export async function updateScheduleRule(
+  deviceId: string,
+  ruleId: string,
+  payload: SaveScheduleRuleRequestDto,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>(
+    'PUT',
+    `/devices/${segment(deviceId)}/schedule/rules/${segment(ruleId)}`,
+    { body: payload },
+  )
+}
+
+export async function deleteScheduleRule(
+  deviceId: string,
+  ruleId: string,
+): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>(
+    'DELETE',
+    `/devices/${segment(deviceId)}/schedule/rules/${segment(ruleId)}`,
+  )
+}
+
+// Ends a manual override early and reapplies what the schedule says — the
+// "Resume schedule now" button. Harmless when there is no override.
+export async function resumeDeviceSchedule(deviceId: string): Promise<DeviceScheduleStateDto> {
+  return request<DeviceScheduleStateDto>('POST', `/devices/${segment(deviceId)}/schedule/resume`)
 }
 
 // ----- Positions -----

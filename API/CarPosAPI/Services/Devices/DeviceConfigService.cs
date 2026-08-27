@@ -5,8 +5,8 @@ using CarPosAPI.Dtos;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Ingest;
+using CarPosAPI.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CarPosAPI.Services.Devices;
 
@@ -24,8 +24,9 @@ namespace CarPosAPI.Services.Devices;
 /// <para>
 /// <b>The write is insert-only.</b> Nothing here ever updates a
 /// <see cref="DeviceConfigVersion"/> row; a change appends the next revision and moves
-/// the device's pointer. That is what preserves the values a device may still be
-/// running while a newer revision waits to be picked up.
+/// the device's pointer. That work moved to <see cref="IDeviceConfigRevisionWriter"/>
+/// when schedules gave it a second, user-less caller — this service is now the
+/// permission check, the override rule, and the read model around it.
 /// </para>
 ///
 /// Scoped — it owns a scoped <see cref="CarPosDbContext"/>.
@@ -35,22 +36,30 @@ internal sealed class DeviceConfigService : IDeviceConfigService
     private readonly CarPosDbContext _context;
     private readonly IDeviceAccessAuthorizer _authorizer;
     private readonly IConfigPublisher _publisher;
+    private readonly IDeviceConfigRevisionWriter _revisionWriter;
+    private readonly IDeviceScheduleResolver _scheduleResolver;
     private readonly ILogger<DeviceConfigService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="authorizer">Resolves the caller's grant on a device.</param>
     /// <param name="publisher">Pushes a saved revision to the broker, retained.</param>
+    /// <param name="revisionWriter">Appends revisions and publishes them; shares this context.</param>
+    /// <param name="scheduleResolver">Works out when a schedule next switches, for overrides.</param>
     /// <param name="logger">Structured logger.</param>
     public DeviceConfigService(
         CarPosDbContext context,
         IDeviceAccessAuthorizer authorizer,
         IConfigPublisher publisher,
+        IDeviceConfigRevisionWriter revisionWriter,
+        IDeviceScheduleResolver scheduleResolver,
         ILogger<DeviceConfigService> logger)
     {
         _context = context;
         _authorizer = authorizer;
         _publisher = publisher;
+        _revisionWriter = revisionWriter;
+        _scheduleResolver = scheduleResolver;
         _logger = logger;
     }
 
@@ -137,6 +146,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                 "This device has been deleted, so its settings can no longer be changed.");
         }
 
+        // Tracked, because the override stamped below rides to the database inside the
+        // revision writer's transaction — the two must land together or not at all.
         Device? device = await _context.Devices
             .SingleOrDefaultAsync(candidate => candidate.Id == access.DeviceRowId, cancellationToken);
         if (device is null)
@@ -144,70 +155,87 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
         }
 
-        DeviceConfigVersion? current = await _context.DeviceConfigVersions
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                candidate => candidate.DeviceId == device.Id && candidate.Version == device.ConfigVersion,
-                cancellationToken);
-
-        // Saving what is already in force must not append a revision — otherwise an
-        // impatient double-click, or a UI that re-submits unchanged values, would fill
-        // the history with rows that say nothing.
-        if (current is not null && Matches(current, request))
+        if (device.ConfigScheduleEnabled)
         {
-            _logger.LogDebug(
-                "Device {DeviceId}: settings unchanged, keeping revision {Version}",
-                deviceId,
-                current.Version);
-            return await BuildStateAsync(device.Id, cancellationToken);
+            OperationResult<DeviceConfigStateDto>? refusal =
+                await StampOverrideAsync(device, request, cancellationToken);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
         }
 
-        // The new row and the pointer that makes it live are one unit of work: a
-        // committed revision nobody points at is invisible, and a pointer to a row that
-        // was rolled back would break every read.
-        await using IDbContextTransaction transaction =
-            await _context.Database.BeginTransactionAsync(cancellationToken);
-
-        // Derived from the pointer rather than MAX(version) so the numbering can never
-        // step on a row that already exists — the unique index would refuse it anyway,
-        // but this way the intent is explicit.
-        int nextVersion = device.ConfigVersion + 1;
-
-        _context.DeviceConfigVersions.Add(new DeviceConfigVersion
-        {
-            DeviceId = device.Id,
-            Version = nextVersion,
-            IntervalSeconds = request.IntervalSeconds,
-            SleepBetween = request.SleepBetween,
-            FixTimeoutSeconds = request.FixTimeoutSeconds,
-            QueueMaxFixes = request.QueueMaxFixes,
-            RetryIntervalHours = request.RetryIntervalHours,
-            RetryMaxAgeHours = request.RetryMaxAgeHours,
-            ConfigCheckSeconds = request.ConfigCheckSeconds,
-            CreatedByUserId = userId,
-            CreatedAt = DateTime.UtcNow,
-        });
-
-        device.ConfigVersion = nextVersion;
-
-        await _context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "User {UserId} saved settings revision {Version} for device {DeviceId}",
+        ConfigRevisionOutcome? outcome = await _revisionWriter.ApplyAsync(
+            device.Id,
+            ToValues(request),
             userId,
-            nextVersion,
-            deviceId);
-
-        // Published after the commit, deliberately. If the broker is unreachable the
-        // save still stands and the reconnect sweep delivers it; publishing first could
-        // hand a device a revision that a failed commit then erased.
-        await _publisher.PublishAsync(
-            device.DeviceId,
-            ToDocument(nextVersion, request),
+            ConfigRevisionSource.Manual,
+            sourceProfileId: null,
             cancellationToken);
 
+        if (outcome is null)
+        {
+            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+        }
+
+        if (outcome.Changed)
+        {
+            _logger.LogInformation(
+                "User {UserId} saved settings revision {Version} for device {DeviceId}",
+                userId,
+                outcome.Version,
+                deviceId);
+        }
+
         return await BuildStateAsync(device.Id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies the override rule to a manual save on a device whose schedule is on:
+    /// checks the caller knew the save is temporary, and stamps the instant it lapses.
+    ///
+    /// <para>
+    /// The device is only mutated in memory. Nothing is committed here — the writer's
+    /// transaction picks the change up from the shared change tracker, so a device can
+    /// never end up with the new revision but no override, or the reverse.
+    /// </para>
+    /// </summary>
+    /// <param name="device">The tracked device row.</param>
+    /// <param name="request">The submitted settings, carrying the acknowledgement.</param>
+    /// <param name="cancellationToken">Cancels the rule lookup.</param>
+    /// <returns>A failure to return to the caller, or null to carry on with the save.</returns>
+    private async Task<OperationResult<DeviceConfigStateDto>?> StampOverrideAsync(
+        Device device,
+        UpdateDeviceConfigRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.AcknowledgeOverride)
+        {
+            return OperationResult<DeviceConfigStateDto>.Invalid(
+                "This device is on a schedule, so saving settings by hand only holds until "
+                + "the next scheduled switch. Confirm that you understand this, edit the "
+                + "profile the schedule uses, or turn the schedule off.");
+        }
+
+        ScheduleEvaluation evaluation = await _scheduleResolver.ResolveAsync(
+            device.Id,
+            device.ConfigScheduleFallbackProfileId,
+            DateTime.UtcNow,
+            cancellationToken);
+
+        if (evaluation.NextChangeAt is null)
+        {
+            // A schedule whose rules resolve the same way all week never switches, so
+            // "temporary until the next switch" has nothing to expire at. Rather than
+            // invent a horizon — a day? a week? — say so: the only honest way to change
+            // such a device's settings is to change what the schedule itself says.
+            return OperationResult<DeviceConfigStateDto>.Invalid(
+                "This device's schedule never switches profiles, so a temporary change has "
+                + "nothing to expire at. Edit the profile it uses, or turn the schedule off.");
+        }
+
+        device.ConfigOverrideUntil = evaluation.NextChangeAt;
+        return null;
     }
 
     /// <inheritdoc />
@@ -357,17 +385,27 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             _context.Users
                 .Where(user => user.Id == configVersion.CreatedByUserId)
                 .Select(user => user.FirstName + " " + user.LastName)
+                .FirstOrDefault(),
+            // A ternary over literals rather than a call to a mapping method: only a
+            // constant survives translation into SQL, which is why the wire spellings
+            // are consts in the first place — see ConfigRevisionSourceNames.
+            configVersion.Source == ConfigRevisionSource.Schedule
+                ? ConfigRevisionSourceNames.Schedule
+                : ConfigRevisionSourceNames.Manual,
+            // Another correlated subquery, and null-tolerant by construction: a profile
+            // deleted since keeps the revision intact and simply loses its label.
+            _context.DeviceConfigProfiles
+                .Where(profile => profile.Id == configVersion.SourceProfileId)
+                .Select(profile => profile.Name)
                 .FirstOrDefault());
     }
 
-    /// <summary>Builds the firmware-facing document for a revision.</summary>
-    /// <param name="version">The revision number.</param>
-    /// <param name="request">The settings it carries.</param>
-    /// <returns>The document to publish retained.</returns>
-    private static DeviceConfigDocumentDto ToDocument(int version, UpdateDeviceConfigRequestDto request)
+    /// <summary>Strips the request down to the values the revision writer takes.</summary>
+    /// <param name="request">The submitted settings.</param>
+    /// <returns>The same seven values, without the acknowledgement flag.</returns>
+    private static DeviceConfigValuesDto ToValues(UpdateDeviceConfigRequestDto request)
     {
-        return new DeviceConfigDocumentDto(
-            version,
+        return new DeviceConfigValuesDto(
             request.IntervalSeconds,
             request.SleepBetween,
             request.FixTimeoutSeconds,
@@ -375,20 +413,5 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             request.RetryIntervalHours,
             request.RetryMaxAgeHours,
             request.ConfigCheckSeconds);
-    }
-
-    /// <summary>Whether a stored revision already carries exactly these values.</summary>
-    /// <param name="stored">The revision currently in force.</param>
-    /// <param name="request">The submitted settings.</param>
-    /// <returns>True when saving would change nothing.</returns>
-    private static bool Matches(DeviceConfigVersion stored, UpdateDeviceConfigRequestDto request)
-    {
-        return stored.IntervalSeconds == request.IntervalSeconds
-            && stored.SleepBetween == request.SleepBetween
-            && stored.FixTimeoutSeconds == request.FixTimeoutSeconds
-            && stored.QueueMaxFixes == request.QueueMaxFixes
-            && stored.RetryIntervalHours == request.RetryIntervalHours
-            && stored.RetryMaxAgeHours == request.RetryMaxAgeHours
-            && stored.ConfigCheckSeconds == request.ConfigCheckSeconds;
     }
 }

@@ -61,6 +61,30 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.ConfigAppliedAt)
             .HasColumnName("config_applied_at");
 
+        builder.Property(device => device.ConfigScheduleEnabled)
+            .HasColumnName("config_schedule_enabled")
+            .HasDefaultValue(false);
+
+        builder.Property(device => device.ConfigScheduleFallbackProfileId)
+            .HasColumnName("config_schedule_fallback_profile_id");
+
+        builder.Property(device => device.ConfigOverrideUntil)
+            .HasColumnName("config_override_until");
+
+        builder.Property(device => device.ConfigScheduleEvaluatedAt)
+            .HasColumnName("config_schedule_evaluated_at");
+
+        // SetNull, not Restrict as on the rules table. The asymmetry is deliberate: a
+        // rule without its profile is broken and must be prevented, whereas a schedule
+        // without a fallback is merely incomplete — the service refuses to *enable* one
+        // in that state, and until then there is nothing to protect. Restricting here
+        // would mean a profile could not be deleted while some disabled schedule from
+        // months ago still named it.
+        builder.HasOne<DeviceConfigProfile>()
+            .WithMany()
+            .HasForeignKey(device => device.ConfigScheduleFallbackProfileId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.Property(device => device.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true);
