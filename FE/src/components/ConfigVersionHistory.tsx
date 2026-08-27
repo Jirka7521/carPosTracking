@@ -113,7 +113,7 @@ export function ConfigVersionHistory({
     <div className="config-history">
       <button
         type="button"
-        className="btn btn-ghost btn-sm"
+        className="btn btn-quiet btn-sm"
         onClick={handleToggle}
         aria-expanded={isOpen}
       >
@@ -171,7 +171,7 @@ export function ConfigVersionHistory({
               {version.version === currentVersion ? null : (
                 <button
                   type="button"
-                  className="btn btn-ghost btn-sm"
+                  className="btn btn-quiet btn-sm"
                   onClick={() => onRestore(version.values)}
                   // Deliberately does not save. It fills the form so the values
                   // can be reviewed (and adjusted) before a new revision is made.

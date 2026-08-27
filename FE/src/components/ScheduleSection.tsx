@@ -411,50 +411,54 @@ function ScheduleContent({
                       onCancel={() => setEditingProfileId(null)}
                     />
                   ) : (
-                    <>
-                      <div className="schedule-card-head">
-                        <span className="schedule-card-name">{profile.name}</span>
-                        {profile.id === activeProfileId ? (
-                          <span className="config-sync-badge config-sync-badge--synced">in force</span>
-                        ) : null}
-                        {profile.id === schedule.fallbackProfileId ? (
-                          <span className="schedule-status-tag">fallback</span>
-                        ) : null}
+                    <div className="schedule-card-row">
+                      <div className="schedule-card-main">
+                        <div className="schedule-card-head">
+                          <span className="schedule-card-name">{profile.name}</span>
+                          {profile.id === activeProfileId ? (
+                            <span className="config-sync-badge config-sync-badge--synced">in force</span>
+                          ) : null}
+                          {profile.id === schedule.fallbackProfileId ? (
+                            <span className="schedule-status-tag">fallback</span>
+                          ) : null}
+                        </div>
+
+                        <p className="schedule-card-summary">
+                          {SUMMARY_KEYS
+                            .map((key) => `${CONFIG_FIELD_LABELS[key]}: ${formatConfigValue(key, profile.values)}`)
+                            .join(' · ')}
+                        </p>
                       </div>
 
-                      <p className="schedule-card-summary">
-                        {SUMMARY_KEYS
-                          .map((key) => `${CONFIG_FIELD_LABELS[key]}: ${formatConfigValue(key, profile.values)}`)
-                          .join(' · ')}
-                      </p>
-
                       <div className="schedule-card-actions">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => { setEditingProfileId(profile.id); setMessage('') }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => handleProfileDelete(profile)}
-                          disabled={
-                            busy === `profile-${profile.id}`
-                            || describeDeleteBlock(profile.id) !== null
-                          }
-                        >
-                          Delete
-                        </button>
-                        {/* Beside the button, not in a tooltip: the way out —
+                        <div className="schedule-card-buttons">
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => { setEditingProfileId(profile.id); setMessage('') }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleProfileDelete(profile)}
+                            disabled={
+                              busy === `profile-${profile.id}`
+                              || describeDeleteBlock(profile.id) !== null
+                            }
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        {/* Under the button, not in a tooltip: the way out —
                             repoint those rules, or choose another fallback — has
                             to be readable without hovering or clicking. */}
                         {describeDeleteBlock(profile.id) !== null ? (
                           <span className="hint">{describeDeleteBlock(profile.id)}</span>
                         ) : null}
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               ))}
@@ -508,40 +512,47 @@ function ScheduleContent({
                       onCancel={() => setEditingRuleId(null)}
                     />
                   ) : (
-                    <>
-                      <div className="schedule-card-head">
-                        <span className="schedule-card-name">{describeRule(rule)}</span>
-                        <span className="schedule-status-tag">→ {rule.profileName}</span>
-                        {rule.id === schedule.status?.activeRuleId ? (
-                          <span className="config-sync-badge config-sync-badge--synced">matching now</span>
-                        ) : null}
-                        {!rule.isEnabled ? (
-                          <span className="config-sync-badge config-sync-badge--unknown">off</span>
-                        ) : null}
-                      </div>
+                    <div className="schedule-card-row">
+                      <div className="schedule-card-main">
+                        <div className="schedule-card-head">
+                          <span className="schedule-card-name">{describeRule(rule)}</span>
+                          <span className="schedule-status-tag">→ {rule.profileName}</span>
+                          {rule.id === schedule.status?.activeRuleId ? (
+                            <span className="config-sync-badge config-sync-badge--synced">matching now</span>
+                          ) : null}
+                          {!rule.isEnabled ? (
+                            <span className="config-sync-badge config-sync-badge--unknown">off</span>
+                          ) : null}
+                        </div>
 
-                      <p className="schedule-card-summary">
-                        priority {rule.priority} · {describeDuration(rule.durationMinutes)}
-                      </p>
+                        <p className="schedule-card-summary">
+                          priority {rule.priority} · {describeDuration(rule.durationMinutes)}
+                        </p>
+                      </div>
 
                       <div className="schedule-card-actions">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => { setEditingRuleId(rule.id); setMessage('') }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => handleRuleDelete(rule)}
-                          disabled={busy === `rule-${rule.id}`}
-                        >
-                          Delete
-                        </button>
+                        <div className="schedule-card-buttons">
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => { setEditingRuleId(rule.id); setMessage('') }}
+                          >
+                            Edit
+                          </button>
+                          {/* Unconditional, unlike a profile's: nothing
+                              references a rule, so there is never a reason to
+                              refuse. */}
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleRuleDelete(rule)}
+                            disabled={busy === `rule-${rule.id}`}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               ))}

@@ -106,8 +106,8 @@ export function ConfigOverrideDialog({
           <p>To change this device&rsquo;s settings <strong>permanently</strong>:</p>
           <ul className="modal-list">
             <li>
-              Edit the profile the schedule uses — in <em>Settings schedule</em>{' '}
-              below — so every future switch carries the new values; or
+              Edit the profile the schedule uses — in <em>Settings Schedule</em>{' '}
+              above — so every future switch carries the new values; or
             </li>
             <li>
               Turn the schedule off, which leaves whatever you save here in force

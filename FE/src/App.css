@@ -1489,7 +1489,8 @@
   color: #fff;
 }
 
-/* Ghost — no background, just text (logout, secondary actions) */
+/* Ghost — no background, just text. ON THE DARK HEADER ONLY: the colours below
+   are white, so this is invisible on a white card. Use .btn-quiet there. */
 .btn-ghost {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.25);
@@ -1502,6 +1503,27 @@
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.4);
   color: #fff;
+  text-decoration: none;
+}
+
+/* Quiet — the same idea as .btn-ghost above, for actions ON A LIGHT SURFACE:
+   borderless until hovered, so a list of cards is not a wall of outlines.
+   It exists because .btn-ghost's white text renders invisible on a card, which
+   is exactly how the schedule panel's Edit/Delete buttons — and the settings
+   Version history toggle, for far longer — came to be missing from the page
+   while their markup was present all along. */
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.btn-quiet:hover:not(:disabled) {
+  background: var(--accent-bg);
+  border-color: var(--blue-200);
+  color: var(--accent-dark);
   text-decoration: none;
 }
 
@@ -2546,9 +2568,37 @@
   color: var(--text-muted);
 }
 
-.schedule-card-actions {
+/* The collapsed card: description on the left, actions on the right.
+   Applied to a row inside the card rather than to the card itself, so the
+   inline editors — which replace this row entirely — keep the full width. */
+.schedule-card-row {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  /* With the basis below, this is what makes a narrow screen usable: the
+     buttons drop under the summary instead of crushing the profile name. */
+  flex-wrap: wrap;
+}
+
+.schedule-card-main {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.schedule-card-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* Right-aligned so the "used by 1 rule" note sits under the Delete button it
+     explains, rather than drifting to the other end of the card. */
+  align-items: flex-end;
   gap: 4px;
+}
+
+.schedule-card-buttons {
+  display: flex;
+  gap: 6px;
 }
 
 .schedule-utc-note {

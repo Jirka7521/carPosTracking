@@ -402,7 +402,7 @@ export function DeviceConfigSection({
               ? <> and is currently running the <strong>{schedule.status.activeProfileName}</strong> profile</>
               : null}
             . Saving here holds only until the next switch — to change it for good,
-            edit that profile in <em>Settings Schedule</em> below.
+            edit that profile in <em>Settings Schedule</em> above.
           </div>
         ) : null}
 

@@ -1,29 +1,33 @@
 // ============================================================
 // DeviceSettingsTab — the "Settings" tab inside DevicePage.
 //
-// Four permission-gated sections are shown conditionally:
+// Six permission-gated sections are shown conditionally:
 //
 //   1. Device Information  (always visible — every user with canRead sees this)
 //      Device ID, registration date, status, last fix, the caller's own alias
 //      for the device, and their permission badges.
 //
-//   2. Reporting & Power  (visible only if canModifySettings)
-//      The remote settings the tracker actually runs on — reporting interval,
-//      deep sleep, GNSS lock timeout and what happens to undelivered fixes.
-//      Owned by DeviceConfigSection, which also shows whether the device has
-//      picked the latest change up yet. Unlike section 3 this loads with the
-//      page: it is the reason most people open this tab.
-//
-//   2b. Settings Schedule  (visible only if canModifySettings)
+//   2. Settings Schedule  (visible only if canModifySettings)
 //      Named profiles and the weekly windows that select them, plus a week-long
 //      timeline of what is in force when. Owned by ScheduleSection.
 //
+//      It sits ABOVE Reporting & Power on purpose: on a scheduled device the
+//      schedule is what decides the settings, and the panel below it edits them
+//      by hand only until the next switch. The authority reads first.
+//
 //      The schedule STATE is fetched here rather than inside that component,
-//      because section 2 needs it too: a manual save on a scheduled device is
+//      because section 3 needs it too: a manual save on a scheduled device is
 //      temporary, so the settings panel has to know whether to warn, and has to
 //      show the override banner afterwards. One fetch, two consumers, one timer.
 //
-//   3. Firmware configuration (visible only if canModifySettings)
+//   3. Reporting & Power  (visible only if canModifySettings)
+//      The remote settings the tracker actually runs on — reporting interval,
+//      deep sleep, GNSS lock timeout and what happens to undelivered fixes.
+//      Owned by DeviceConfigSection, which also shows whether the device has
+//      picked the latest change up yet. Unlike section 4 this loads with the
+//      page: it is the reason most people open this tab.
+//
+//   4. Firmware configuration (visible only if canModifySettings)
 //      Re-reads the provisioning payload — topics, key fingerprints and a
 //      complete, ready-to-flash Config.h — so a tracker can be re-flashed
 //      without rotating its receiver key pair, and a read-only table of every
@@ -31,12 +35,12 @@
 //      the page: it is a rarely needed panel and there is no reason to fetch it
 //      for every visit.
 //
-//   4. Access Management   (visible only if canShare OR canModifySettings)
+//   5. Access Management   (visible only if canShare OR canModifySettings)
 //      Shows who currently has access.  If the caller has canShare they can
 //      also invite new users and edit / revoke existing grants.
 //      If they only have canModifySettings they can view the list but not edit.
 //
-//   5. Danger Zone         (visible only if canDelete)
+//   6. Danger Zone         (visible only if canDelete)
 //      A confirmation-required button to soft-delete (deactivate) the device.
 //      After deletion the page shows a success banner and the device status
 //      is updated in the parent via reloadDevice().
@@ -47,14 +51,15 @@
 //   canShare           — may view AND edit the access roster; also implies canModifySettings
 //   canModifySettings  — may view the access roster but cannot modify it
 //
-// REFRESHING. Sections 1 and 2 are live: they run off DevicePage's shared timer
-// (30 s, with a "Refresh" button), so the device's battery, its last fix and —
-// the one that actually mattered — whether the tracker has PICKED UP the last
-// settings change all update in place. Before this the sync badge could read
-// "Pending" for hours after the device had applied the change, and the only way
-// to find out was to reload the page.
+// REFRESHING. Sections 1–3 are live: they run off DevicePage's shared timer
+// (30 s, with a "Refresh" button), so the device's battery, its last fix, which
+// profile the schedule currently has in force and — the one that actually
+// mattered — whether the tracker has PICKED UP the last settings change all
+// update in place. Before this the sync badge could read "Pending" for hours
+// after the device had applied the change, and the only way to find out was to
+// reload the page.
 //
-// Sections 3 and 4 are deliberately NOT on the timer. The firmware
+// Sections 4 and 5 are deliberately NOT on the timer. The firmware
 // configuration is an on-demand panel holding a key block nobody wants
 // re-rendered under them, and the access roster changes when a person changes
 // it, not on its own.
@@ -277,7 +282,11 @@ export function DeviceSettingsTab() {
   // after a manual save creates an override, whose response carries the settings
   // but not the new override.
   async function reloadSchedule(): Promise<void> {
-    setScheduleStatus(schedule === null ? 'loading' : scheduleStatus)
+    // Only shows the spinner when there is nothing on screen to keep. A retry
+    // behind a working panel stays invisible until it either succeeds or fails.
+    if (schedule === null) {
+      setScheduleStatus('loading')
+    }
     try {
       setSchedule(await fetchDeviceSchedule(device.deviceId))
       loadedScheduleDeviceIdRef.current = device.deviceId
@@ -662,25 +671,13 @@ export function DeviceSettingsTab() {
       </div>
 
       {/* ================================================================
-       * Section 2: Reporting & Power — visible if canModifySettings
+       * Section 2: Settings Schedule — visible if canModifySettings
        *
-       * Self-contained: it loads its own state and owns its own form, so this
-       * page stays the composition it already was rather than growing a second
-       * set of loading/saving flags. It only borrows the tab's refresh token,
-       * and decides for itself what a tick may safely touch.
-       * ================================================================ */}
-      {perms.canModifySettings ? (
-        <DeviceConfigSection
-          deviceId={device.deviceId}
-          refreshToken={autoRefresh.token}
-          schedule={schedule}
-          onScheduleChanged={handleScheduleChanged}
-          onScheduleReloadNeeded={() => void reloadSchedule()}
-        />
-      ) : null}
-
-      {/* ================================================================
-       * Section 2b: Settings Schedule — visible if canModifySettings
+       * Above Reporting & Power deliberately. On a scheduled device the
+       * schedule is what decides the settings; the panel below it edits them by
+       * hand, and only until the next switch. Putting the authority first means
+       * somebody reads why the values are what they are before reading the form
+       * that can temporarily override them.
        *
        * Rendered on permission alone, NOT on the data having arrived. Gating it
        * on `schedule !== null` is what made the whole feature — profiles, rules,
@@ -701,7 +698,25 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 3: Firmware configuration — visible if canModifySettings
+       * Section 3: Reporting & Power — visible if canModifySettings
+       *
+       * Self-contained: it loads its own state and owns its own form, so this
+       * page stays the composition it already was rather than growing a second
+       * set of loading/saving flags. It only borrows the tab's refresh token,
+       * and decides for itself what a tick may safely touch.
+       * ================================================================ */}
+      {perms.canModifySettings ? (
+        <DeviceConfigSection
+          deviceId={device.deviceId}
+          refreshToken={autoRefresh.token}
+          schedule={schedule}
+          onScheduleChanged={handleScheduleChanged}
+          onScheduleReloadNeeded={() => void reloadSchedule()}
+        />
+      ) : null}
+
+      {/* ================================================================
+       * Section 4: Firmware configuration — visible if canModifySettings
        * ================================================================ */}
       {perms.canModifySettings ? (
         <div className="settings-section">
@@ -754,7 +769,7 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 4: Access Management — visible if canShare or canModifySettings
+       * Section 5: Access Management — visible if canShare or canModifySettings
        * ================================================================ */}
       {canViewAccess ? (
         <div className="settings-section">
@@ -854,7 +869,7 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 5: Danger Zone — visible only if canDelete
+       * Section 6: Danger Zone — visible only if canDelete
        * ================================================================ */}
       {perms.canDelete ? (
         <div className="settings-section settings-section--danger">

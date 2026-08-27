@@ -2,22 +2,20 @@
 // ScheduleRuleEditor — one weekly window, entered the way a person says it.
 //
 //   [Sun][Mon][Tue][Wed][Thu][Fri][Sat]   Mon–Fri  Weekends  Every day
-//   from [22:00] to [06:00]  (+1 day, 8 h)
+//   from [22:00] to [06:00]  (8 h · ends the next day)
 //   profile [ Night ▾ ]   priority [ 100 ]   [x] enabled
-//   Stored as 21:00 UTC on Mon–Fri
-//
-// TWO THINGS ARE DELIBERATE HERE.
+//   Mon–Fri, 22:00–06:00 the next day · 8 h
 //
 // The reader enters an END time, not a duration, because that is how people
-// describe a window — "ten at night until six" — while the API stores a start
+// describe a window — "ten at night until six" — while the API takes a start
 // plus a length, which needs no midnight-wrap convention. The conversion is one
-// modulo, and midnight is handled by the "+1 day" note rather than by asking the
-// reader to think about it.
+// modulo, and midnight is handled by the "ends the next day" note rather than by
+// asking the reader to think about it.
 //
-// The stored UTC line under the form is not debug output. Times are kept in UTC
-// and converted by the browser, so a window entered as 22:00 in winter renders
-// as 23:00 after the spring clock change — showing both is what makes that
-// visible rather than mysterious, and re-entering the time is the fix.
+// The summary line at the foot restates the whole window in one sentence. It
+// earns its place on the days rather than the times: people tick day boxes,
+// then change the hours, and lose track of which combination they have actually
+// described.
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react'
@@ -152,13 +150,13 @@ export function ScheduleRuleEditor({
         <div className="schedule-day-presets">
           {/* The three sets people actually mean, so the common case is one
               click rather than five. */}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDaysMask(MASK_WEEKDAYS)}>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_WEEKDAYS)}>
             Mon–Fri
           </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDaysMask(MASK_WEEKEND)}>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_WEEKEND)}>
             Weekends
           </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDaysMask(MASK_EVERY_DAY)}>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_EVERY_DAY)}>
             Every day
           </button>
         </div>
