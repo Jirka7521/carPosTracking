@@ -60,9 +60,21 @@ import { ScheduleTimeline } from './ScheduleTimeline'
 // actually distinguish profiles by.
 const SUMMARY_KEYS = ['intervalSeconds', 'sleepBetween', 'fixTimeoutSeconds'] as const
 
+// Where the tab's first read of the schedule got to. Tracked separately from the
+// data because "no schedule yet" and "could not read the schedule" are different
+// things to show a person, and conflating them into a null is what made this
+// entire panel — profiles, rules, their Edit and Delete buttons — disappear
+// without a word whenever the request failed.
+export type ScheduleLoadStatus = 'loading' | 'ready' | 'error'
+
 export type ScheduleSectionProps = {
   deviceId: string
-  schedule: DeviceScheduleStateDto
+  // Null until the first successful read. Kept across a failed refresh, which is
+  // why it is independent of `status`.
+  schedule: DeviceScheduleStateDto | null
+  status: ScheduleLoadStatus
+  error: string
+  onRetry: () => void
   // Hands the parent the state an endpoint just returned, so the settings panel
   // beside this one updates in the same render.
   onScheduleChanged: (state: DeviceScheduleStateDto) => void
@@ -71,12 +83,89 @@ export type ScheduleSectionProps = {
   refreshToken: number
 }
 
+/**
+ * The section's chrome and its load states. The panel is always on screen —
+ * that is the point — and it says which of the three states it is in rather
+ * than rendering nothing and leaving the reader to conclude the feature was
+ * never built.
+ */
 export function ScheduleSection({
+  deviceId,
+  schedule,
+  status,
+  error,
+  onRetry,
+  onScheduleChanged,
+  refreshToken,
+}: ScheduleSectionProps) {
+  return (
+    <div className="settings-section">
+      <div className="settings-section-header">
+        <span className="settings-section-icon" aria-hidden="true">🗓</span>
+        <h3>Settings Schedule</h3>
+      </div>
+
+      <div className="settings-section-body">
+        <p>
+          Switch this tracker between named profiles on a weekly timetable — reporting
+          less often at night, say, or sleeping through the weekend. The server
+          evaluates the schedule and pushes each change the same way saving settings
+          by hand does, so nothing has to be reflashed and the tracker does not need
+          to be online at the moment a window opens.
+        </p>
+
+        {status === 'loading' && schedule === null ? (
+          <div className="loading-state" style={{ minHeight: 80 }}>
+            <div className="spinner" />
+            <span>Loading the schedule…</span>
+          </div>
+        ) : null}
+
+        {status === 'error' && schedule === null ? (
+          <div className="banner banner--error" role="alert">
+            <p style={{ margin: '0 0 8px' }}>{error}</p>
+            <p className="hint" style={{ margin: '0 0 10px' }}>
+              If this keeps saying the schedule was not found, the server this
+              dashboard is talking to is older than the dashboard itself and does
+              not have schedules yet — it needs updating.
+            </p>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry}>
+              Try again
+            </button>
+          </div>
+        ) : null}
+
+        {schedule !== null ? (
+          <ScheduleContent
+            deviceId={deviceId}
+            schedule={schedule}
+            onScheduleChanged={onScheduleChanged}
+            refreshToken={refreshToken}
+          />
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+type ScheduleContentProps = {
+  deviceId: string
+  schedule: DeviceScheduleStateDto
+  onScheduleChanged: (state: DeviceScheduleStateDto) => void
+  refreshToken: number
+}
+
+/**
+ * Everything below the intro paragraph, with the schedule known to be loaded.
+ * Split out so the four parts below never have to reason about a null schedule
+ * — the wrapper above has already settled that question.
+ */
+function ScheduleContent({
   deviceId,
   schedule,
   onScheduleChanged,
   refreshToken,
-}: ScheduleSectionProps) {
+}: ScheduleContentProps) {
   const [busy, setBusy] = useState<string>('')
   const [message, setMessage] = useState<string>('')
   const [isError, setIsError] = useState<boolean>(false)
@@ -185,23 +274,24 @@ export function ScheduleSection({
 
   const canEnable: boolean = schedule.profiles.length > 0 && schedule.fallbackProfileId !== null
 
+  // Why a profile cannot be deleted, or null when it can be.
+  //
+  // The API refuses with a 409 in exactly these two cases, and rightly so —
+  // cascading would leave an hour of the week uncovered, with the tracker
+  // quietly changing behaviour as the only evidence. But learning that only
+  // AFTER pressing Delete, from a banner at the top of the panel, is a poor way
+  // to be told. The answer is already in hand, so it is shown on the card.
+  function describeDeleteBlock(profileId: string): string | null {
+    if (schedule.fallbackProfileId === profileId) {
+      return 'fallback profile'
+    }
+    const count: number = schedule.rules.filter((rule) => rule.profileId === profileId).length
+    return count === 0 ? null : `used by ${count} rule${count === 1 ? '' : 's'}`
+  }
+
   return (
-    <div className="settings-section">
-      <div className="settings-section-header">
-        <span className="settings-section-icon" aria-hidden="true">🗓</span>
-        <h3>Settings Schedule</h3>
-      </div>
-
-      <div className="settings-section-body">
-        <p>
-          Switch this tracker between named profiles on a weekly timetable — reporting
-          less often at night, say, or sleeping through the weekend. The server
-          evaluates the schedule and pushes each change the same way saving settings
-          by hand does, so nothing has to be reflashed and the tracker does not need
-          to be online at the moment a window opens.
-        </p>
-
-        {/* -------- Enable + fallback -------- */}
+    <>
+      {/* -------- Enable + fallback -------- */}
         <div className="schedule-controls">
           <label className="checkbox-field">
             <input
@@ -350,10 +440,19 @@ export function ScheduleSection({
                           type="button"
                           className="btn btn-ghost btn-sm"
                           onClick={() => handleProfileDelete(profile)}
-                          disabled={busy === `profile-${profile.id}`}
+                          disabled={
+                            busy === `profile-${profile.id}`
+                            || describeDeleteBlock(profile.id) !== null
+                          }
                         >
                           Delete
                         </button>
+                        {/* Beside the button, not in a tooltip: the way out —
+                            repoint those rules, or choose another fallback — has
+                            to be readable without hovering or clicking. */}
+                        {describeDeleteBlock(profile.id) !== null ? (
+                          <span className="hint">{describeDeleteBlock(profile.id)}</span>
+                        ) : null}
                       </div>
                     </>
                   )}
@@ -422,9 +521,7 @@ export function ScheduleSection({
                       </div>
 
                       <p className="schedule-card-summary">
-                        priority {rule.priority} ·{' '}
-                        {formatMinuteOfDay(rule.startMinuteUtc)} UTC for{' '}
-                        {describeDuration(rule.durationMinutes)}
+                        priority {rule.priority} · {describeDuration(rule.durationMinutes)}
                       </p>
 
                       <div className="schedule-card-actions">
@@ -474,14 +571,12 @@ export function ScheduleSection({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </>
   )
 }
 
-// A rule as its local weekdays and clock times — the form it was entered in,
-// rebuilt for the collapsed row so a reader never has to convert UTC in their
-// head to recognise the rule they wrote.
+// A rule as its local weekdays and clock times — the form it was entered in, so
+// a reader recognises the rule they wrote without converting anything.
 function describeRule(rule: DeviceScheduleRuleDto): string {
   const local = utcWindowToLocal({
     daysMaskUtc: rule.daysMaskUtc,

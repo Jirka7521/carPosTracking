@@ -206,9 +206,7 @@ function TimelineBody({
       })}
 
       <p className="hint schedule-timeline-note">
-        Shown in your local time ({Intl.DateTimeFormat().resolvedOptions().timeZone}). The
-        API stores these windows in UTC, so a switch time moves by an hour across a
-        daylight-saving change — each rule below shows both.
+        Shown in your local time ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
       </p>
     </div>
   )

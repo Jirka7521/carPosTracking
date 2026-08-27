@@ -238,12 +238,14 @@ export function ScheduleRuleEditor({
         <span>Enabled</span>
       </label>
 
-      {/* See the header note: this line is why a DST shift is noticeable rather
-          than a mystery six months later. */}
+      {/* A plain restatement of the window in the reader's own terms. The
+          duration hint beside "To" already covers the length; this is the line
+          that confirms which days it will actually open on, which is the part
+          people get wrong when they tick boxes and then change the time. */}
       {stored !== null && durationMinutes !== null ? (
         <p className="hint schedule-utc-note">
-          Stored as <strong>{formatMinuteOfDay(stored.startMinuteUtc)} UTC</strong> on{' '}
-          {describeDaysMask(stored.daysMaskUtc)}, for {describeDuration(durationMinutes)}.
+          {describeDaysMask(daysMask)}, {startTime}–{endTime}
+          {wrapsMidnight ? ' the next day' : ''} · {describeDuration(durationMinutes)}
         </p>
       ) : null}
 

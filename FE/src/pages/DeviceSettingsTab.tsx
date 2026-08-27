@@ -60,7 +60,7 @@
 // it, not on its own.
 // ============================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { BatteryBadge } from '../components/BatteryBadge'
@@ -70,6 +70,7 @@ import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { RefreshToolbar } from '../components/RefreshToolbar'
 import { ScheduleSection } from '../components/ScheduleSection'
+import type { ScheduleLoadStatus } from '../components/ScheduleSection'
 import { SharedUserCard } from '../components/SharedUserCard'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
 import { EMPTY_FLAGS } from '../components/capabilityFlags'
@@ -147,11 +148,22 @@ export function DeviceSettingsTab() {
 
   // ---- Settings schedule state ----
   // Held here rather than in ScheduleSection because DeviceConfigSection needs
-  // it too — see the header note. Null covers both "still loading" and "could
-  // not be read", and both make the settings panel behave exactly as it did
-  // before schedules existed, which is the right failure mode: a schedule that
-  // will not load must not block somebody from changing a tracker's settings.
+  // it too — see the header note.
+  //
+  // The status is tracked separately from the data, and that separation is the
+  // whole point: `schedule === null` used to mean both "still loading" and
+  // "could not be read", and because the panel was only rendered once it went
+  // non-null, ANY failure removed the entire section silently — no spinner, no
+  // error, no trace. That is indistinguishable from the feature not existing,
+  // and it is exactly how it looked to the first person who went looking for it.
   const [schedule, setSchedule] = useState<DeviceScheduleStateDto | null>(null)
+  const [scheduleStatus, setScheduleStatus] = useState<ScheduleLoadStatus>('loading')
+  const [scheduleError, setScheduleError] = useState<string>('')
+
+  // The device the schedule has actually loaded for. It is what separates a
+  // first load — which may show a spinner and must report a failure — from a
+  // refresh tick, which may do neither.
+  const loadedScheduleDeviceIdRef = useRef<string | null>(null)
 
   // ---- Delete state ----
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState<boolean>(false)
@@ -206,24 +218,42 @@ export function DeviceSettingsTab() {
   // override expires. A schedule that only refreshed on a page reload would show
   // "switches in 2 min" indefinitely.
   //
-  // A failed poll is swallowed rather than surfaced. The panel keeps the last
-  // good state, and the next tick tries again — the same rule the settings panel
-  // and the version history already follow.
+  // FAILURES ARE SPLIT, the way DeviceConfigSection and ConfigVersionHistory
+  // already split them:
+  //
+  //   first load  — say so. There is nothing on screen yet, so a silent failure
+  //                 leaves a person staring at a panel that never arrives.
+  //   refresh tick — stay quiet and keep the last good state. Replacing a working
+  //                 panel with an error because one poll was unlucky is worse
+  //                 than showing a schedule half a minute out of date.
+  //
+  // The tab having only half of that rule is what made this feature invisible.
   useEffect(() => {
     if (!perms.canModifySettings) {
       return
     }
 
     let canceled = false
+    // A first load for this device, as opposed to a tick for one already shown.
+    const isInitial: boolean = loadedScheduleDeviceIdRef.current !== device.deviceId
 
     void (async () => {
       try {
         const loaded: DeviceScheduleStateDto = await fetchDeviceSchedule(device.deviceId)
-        if (!canceled) {
-          setSchedule(loaded)
+        if (canceled) {
+          return
         }
-      } catch {
-        // Keep whatever is on screen; the next tick tries again.
+        loadedScheduleDeviceIdRef.current = device.deviceId
+        setSchedule(loaded)
+        setScheduleStatus('ready')
+        setScheduleError('')
+      } catch (error) {
+        if (canceled || !isInitial) {
+          // Keep whatever is on screen; the next tick tries again.
+          return
+        }
+        setScheduleStatus('error')
+        setScheduleError(describeError(error, 'Failed to load the schedule.'))
       }
     })()
 
@@ -232,13 +262,35 @@ export function DeviceSettingsTab() {
     }
   }, [device.deviceId, perms.canModifySettings, autoRefresh.token])
 
-  // Re-reads the schedule on demand — used after a manual save creates an
-  // override, whose response carries the settings but not the new override.
+  // Accepts a schedule state that an endpoint just returned. Every schedule
+  // mutation answers with the whole recomputed state, so this is also the point
+  // at which a panel that failed its first load recovers: a successful save
+  // proves the endpoint works, and leaving the error banner up would be absurd.
+  function handleScheduleChanged(next: DeviceScheduleStateDto): void {
+    loadedScheduleDeviceIdRef.current = device.deviceId
+    setSchedule(next)
+    setScheduleStatus('ready')
+    setScheduleError('')
+  }
+
+  // Re-reads the schedule on demand — the "Try again" button, and the follow-up
+  // after a manual save creates an override, whose response carries the settings
+  // but not the new override.
   async function reloadSchedule(): Promise<void> {
+    setScheduleStatus(schedule === null ? 'loading' : scheduleStatus)
     try {
       setSchedule(await fetchDeviceSchedule(device.deviceId))
-    } catch {
-      // Same rule as the tick above: never replace a working panel with an error.
+      loadedScheduleDeviceIdRef.current = device.deviceId
+      setScheduleStatus('ready')
+      setScheduleError('')
+    } catch (error) {
+      // Only escalates to the error state when there is nothing to fall back on.
+      // A retry that fails while a good schedule is still on screen leaves it
+      // there — same reasoning as the tick above.
+      if (schedule === null) {
+        setScheduleStatus('error')
+        setScheduleError(describeError(error, 'Failed to load the schedule.'))
+      }
     }
   }
 
@@ -622,7 +674,7 @@ export function DeviceSettingsTab() {
           deviceId={device.deviceId}
           refreshToken={autoRefresh.token}
           schedule={schedule}
-          onScheduleChanged={setSchedule}
+          onScheduleChanged={handleScheduleChanged}
           onScheduleReloadNeeded={() => void reloadSchedule()}
         />
       ) : null}
@@ -630,14 +682,20 @@ export function DeviceSettingsTab() {
       {/* ================================================================
        * Section 2b: Settings Schedule — visible if canModifySettings
        *
-       * Rendered only once the schedule has loaded: an empty panel that then
-       * fills in would flash "no profiles yet" at somebody who has several.
+       * Rendered on permission alone, NOT on the data having arrived. Gating it
+       * on `schedule !== null` is what made the whole feature — profiles, rules,
+       * their Edit and Delete buttons — silently absent whenever the first fetch
+       * failed. The section now always occupies its place and reports its own
+       * state; see the load effect above.
        * ================================================================ */}
-      {perms.canModifySettings && schedule !== null ? (
+      {perms.canModifySettings ? (
         <ScheduleSection
           deviceId={device.deviceId}
           schedule={schedule}
-          onScheduleChanged={setSchedule}
+          status={scheduleStatus}
+          error={scheduleError}
+          onRetry={() => void reloadSchedule()}
+          onScheduleChanged={handleScheduleChanged}
           refreshToken={autoRefresh.token}
         />
       ) : null}
