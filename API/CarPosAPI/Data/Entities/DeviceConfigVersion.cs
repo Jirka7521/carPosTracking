@@ -75,4 +75,25 @@ public sealed class DeviceConfigVersion
 
     /// <summary>When this revision was saved (UTC). DB-generated default.</summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// What produced this revision — a person, or the scheduler. See
+    /// <see cref="ConfigRevisionSource"/> for why an authorless row is not enough to
+    /// tell those apart.
+    /// </summary>
+    public ConfigRevisionSource Source { get; set; } = ConfigRevisionSource.Manual;
+
+    /// <summary>
+    /// The profile whose values this revision carries, when
+    /// <see cref="Source"/> is <see cref="ConfigRevisionSource.Schedule"/>; null
+    /// otherwise.
+    ///
+    /// <para>
+    /// Nulled rather than cascaded when the profile is deleted, and the history keeps
+    /// the values regardless: this names <em>where the numbers came from</em>, not
+    /// where to look them up. The row is still a complete, self-contained record of
+    /// what the device was told even after the profile behind it is gone.
+    /// </para>
+    /// </summary>
+    public Guid? SourceProfileId { get; set; }
 }

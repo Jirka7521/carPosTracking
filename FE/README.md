@@ -132,6 +132,8 @@ FE/
 │   │   ├── FirmwareParameterTable.tsx  Read-only reference of every firmware parameter
 │   │   ├── PermissionBadges.tsx   Badge row showing canRead/canDelete/canShare/canModifySettings
 │   │   ├── BatteryBadge.tsx       Battery level pill (⚡ when charging; 0 = charging sentinel)
+│   │   ├── DurationField.tsx      Number input plus a seconds/minutes/hours combobox — stores canonical units
+│   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
 │   │   ├── CapabilityCheckboxes.tsx  Permission flag checkboxes (Delete / Share / Settings)
@@ -142,7 +144,7 @@ FE/
 │   │   ├── RegisterPage.tsx       Account creation form
 │   │   ├── HomePage.tsx           Device list + register-device panel
 │   │   ├── ProfilePage.tsx        Edit name and change password
-│   │   ├── DevicePage.tsx         Device shell — loads device data and renders the tab bar
+│   │   ├── DevicePage.tsx         Device shell — loads device data, owns the page's refresh timer, renders the tab bar
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
@@ -158,6 +160,7 @@ FE/
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
 │       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
 │       ├── firmwareParameters.ts  Static table of every Config.h constant, for the reference panel
+│       ├── timeUnits.ts           Seconds ⇄ minutes/hours/days for DurationField; picks the best unit for a value
 │       ├── downloadTextFile.ts    Blob download helper (used for Config.h)
 │       └── errors.ts              describeError() helper over ApiError
 ├── Dockerfile                     Multi-stage build → nginx
@@ -186,6 +189,65 @@ FE/
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
+
+---
+
+## Staying up to date
+
+Nothing here polls the device — the tracker publishes when it publishes. What
+the dashboard can do is stop showing an answer it read minutes ago, and that is
+what [`useAutoRefresh`](src/hooks/useAutoRefresh.ts) is for: a 30 s countdown
+plus a manual **Refresh**, exposed by
+[`RefreshToolbar`](src/components/RefreshToolbar.tsx) and rendered inside
+[`RangeToolbar`](src/components/RangeToolbar.tsx) on the tabs that also pick a
+date range.
+
+The hook never moves the goalposts. It bumps a **token**, which each load effect
+carries in its dependency array, so a refresh re-runs the *same* query rather
+than rewriting the date range to "now".
+
+**One timer per page.** [`DevicePage`](src/pages/DevicePage.tsx) owns the device
+page's, reloads the device on every tick — which is what keeps the header's
+battery pill and status badge honest — and hands it to every tab through the
+outlet context (`autoRefresh`). The tabs use it instead of starting their own,
+so there is one countdown however many controls are on screen, and pressing
+Refresh anywhere advances all of it. The Home page runs its own, for the battery
+and last-fix on the device cards.
+
+Deliberately **not** refreshed: the firmware-configuration panel (an on-demand
+block holding a key, and re-rendering it under the reader would be hostile) and
+the access roster (it changes when a person changes it).
+
+### The settings form under a refresh
+
+[`DeviceConfigSection`](src/components/DeviceConfigSection.tsx) is the one place
+where a background reload could destroy work, so it is explicit about what a
+tick may touch:
+
+- The **state around the form** — the sync badge, the pending-change table, the
+  per-field "device still on 60 s" notes, the version history if it is expanded
+  — is always replaced. That is the point: "Pending" becomes "In sync" only when
+  the *device* reports the new revision back, and there was previously no way to
+  learn that short of reloading the page.
+- The **form inputs** are re-seeded only when there is nothing unsaved in them.
+  With edits in progress they are left exactly as typed and the form says so.
+- A tick landing **mid-save** is skipped, and a tick that **fails** leaves the
+  panel it has rather than replacing it with an error.
+
+### Durations are typed in the unit you choose
+
+Every duration is stored in one canonical unit — whole seconds for the reporting
+interval, the GNSS lock timeout and the settings re-check; whole hours for the
+two retry knobs — and that is what goes on the wire, unchanged.
+[`DurationField`](src/components/DurationField.tsx) puts a unit combobox at the
+end of the input row so six hours can be entered as `6 hours` rather than
+`21600`, and opens on whichever unit the current value reads most naturally in
+(see [`utils/timeUnits.ts`](src/utils/timeUnits.ts)).
+
+Changing the unit changes nothing but the display — 180 seconds simply re-reads
+as 3 minutes. Where the chosen unit is finer than storage (minutes on an
+hours-based field) the input's `step` keeps the value landing on something
+storable.
 
 ---
 

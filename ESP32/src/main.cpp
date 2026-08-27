@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "gnss/FixAverager.h"
 #include "gnss/GnssModule.h"
 #include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
@@ -166,6 +167,12 @@ extern "C" void app_main(void) {
                            config::kModemRxPin, config::kModemBaudRate);
   static Sim7000Modem modem(serial, config::kModemPwrKeyPin);
   static GnssModule   gnss(modem);
+
+  // Every acquire below goes through this rather than calling gnss.waitForFix()
+  // directly: it acquires exactly as before, then throws that first (least
+  // settled) fix away and hands back the average of the next few readings. See
+  // FixAverager - with kFixAverageEnabled off it is literally waitForFix().
+  static FixAverager averager(gnss);
 
   // Power up the modem, enable the GNSS engine and select the constellations.
   if (!gnss.begin()) {
@@ -427,8 +434,13 @@ extern "C" void app_main(void) {
     // The acquire budget is a runtime setting: on a device that reports rarely
     // it is worth chasing a lock for minutes, while one reporting every 30 s
     // must give up quickly or it would never get to the wait at all.
-    bool haveFix = gnss.waitForFix(fix, settings.fixTimeoutSeconds() * 1000,
-                                   config::kFixPollStepMs, onEachPoll);
+    //
+    // `fix` comes back AVERAGED: the averager discards the fix the acquisition
+    // produced and returns the mean of the readings that follow it. Everything
+    // downstream - the CSV row, the payload, the copy stored on the card - is
+    // therefore working from the same averaged position.
+    bool haveFix = averager.acquire(fix, settings.fixTimeoutSeconds() * 1000,
+                                    config::kFixPollStepMs, onEachPoll);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
     // what keeps the cadence steady: however long sealing, connecting and
@@ -489,8 +501,8 @@ extern "C" void app_main(void) {
     if (!haveFix && justUnplugged && config::kUnplugFixTimeoutSeconds > 0) {
       ESP_LOGI(TAG, "Charger off with no fix - one more acquire (%us).",
                (unsigned)config::kUnplugFixTimeoutSeconds);
-      haveFix = gnss.waitForFix(fix, config::kUnplugFixTimeoutSeconds * 1000,
-                                config::kFixPollStepMs, onEachPoll);
+      haveFix = averager.acquire(fix, config::kUnplugFixTimeoutSeconds * 1000,
+                                 config::kFixPollStepMs, onEachPoll);
       if (haveFix) {
         // Re-anchor: the interval is measured from the capture, and the capture
         // is now this one rather than the empty acquire that preceded it.

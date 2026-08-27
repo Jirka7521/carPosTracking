@@ -10,11 +10,17 @@
 // The wrapper class stays with the caller: each tab has its own bar style
 // (.map-controls-bar, .position-list-controls, .charts-controls-bar), and the
 // `extra` slot lets a tab add its own control (the map's "Fit to positions").
+//
+// The refresh half now lives in RefreshToolbar, because the device header, the
+// Home page and the Settings tab want exactly that control with no date range
+// attached to it. What is left here is the range: the two pickers, and the rule
+// that only they ever move the window.
 // ============================================================
 
 import type { ReactNode } from 'react'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import type { DateRange } from '../utils/dates'
+import { RefreshToolbar } from './RefreshToolbar'
 
 type RangeToolbarProps = {
   range:         DateRange
@@ -73,40 +79,14 @@ function RangeToolbar({
         />
       </div>
 
-      {/* Auto-refresh toggle: re-runs the same query, it does not move the range */}
-      <label className="checkbox-field" style={{ alignSelf: 'center' }}>
-        <input
-          type="checkbox"
-          checked={autoRefresh.enabled}
-          onChange={(e) => autoRefresh.setEnabled(e.target.checked)}
-        />
-        <span>
-          Auto-refresh
-          {autoRefresh.enabled ? (
-            <span className="refresh-pill" style={{ marginLeft: 8 }}>
-              ↻ {autoRefresh.countdown}s
-            </span>
-          ) : null}
-        </span>
-      </label>
-
-      {/* Manual refresh */}
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={autoRefresh.refreshNow}
-        disabled={isLoading}
-        style={{ alignSelf: 'flex-end' }}
-      >
-        {isLoading ? (
-          <>
-            <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-            {loadingLabel}
-          </>
-        ) : (
-          refreshLabel
-        )}
-      </button>
+      {/* Auto-refresh toggle + manual refresh: they re-run the same query, they
+          do not move the range */}
+      <RefreshToolbar
+        autoRefresh={autoRefresh}
+        isLoading={isLoading}
+        refreshLabel={refreshLabel}
+        loadingLabel={loadingLabel}
+      />
 
       {extra}
     </div>

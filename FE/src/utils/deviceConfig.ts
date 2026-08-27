@@ -31,7 +31,7 @@ export function resolveSyncState(state: DeviceConfigStateDto): ConfigSyncState {
 // gives a better message than a round trip. The server is still the authority.
 export const CONFIG_LIMITS = {
   intervalSeconds: { min: 5, max: 86400 },
-  fixTimeoutSeconds: { min: 15, max: 900 },
+  fixTimeoutSeconds: { min: 15, max: 3600 },
   queueMaxFixes: { min: 100, max: 100000 },
   retryIntervalHours: { min: 1, max: 720 },
   retryMaxAgeHours: { min: 0, max: 8760 },
@@ -148,4 +148,30 @@ function describeRounded(value: number, unit: string): string {
   const rounded: number = Math.round(value * 10) / 10
   const text: string = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
   return `${text} ${unit}${rounded === 1 ? '' : 's'}`
+}
+
+// Mirrors the API's [Range] attributes and the firmware's clamps. Returns the
+// first problem found, phrased for a person, or null when everything is in range.
+//
+// Shared by the settings form and the schedule's profile editor: a profile is
+// not a lesser kind of configuration, and a value the API would reject on one
+// must not become reachable through the other.
+export function validateConfigRanges(values: DeviceConfigValuesDto): string | null {
+  const checks: { key: keyof typeof CONFIG_LIMITS; value: number }[] = [
+    { key: 'intervalSeconds', value: values.intervalSeconds },
+    { key: 'fixTimeoutSeconds', value: values.fixTimeoutSeconds },
+    { key: 'queueMaxFixes', value: values.queueMaxFixes },
+    { key: 'retryIntervalHours', value: values.retryIntervalHours },
+    { key: 'retryMaxAgeHours', value: values.retryMaxAgeHours },
+    { key: 'configCheckSeconds', value: values.configCheckSeconds },
+  ]
+
+  for (const check of checks) {
+    const limit = CONFIG_LIMITS[check.key]
+    if (!Number.isInteger(check.value) || check.value < limit.min || check.value > limit.max) {
+      return `"${CONFIG_FIELD_LABELS[check.key]}" must be a whole number between ${limit.min} and ${limit.max}.`
+    }
+  }
+
+  return null
 }

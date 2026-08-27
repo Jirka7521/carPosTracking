@@ -297,6 +297,11 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/devices/{deviceId}/config/history?limit=` | past revisions, newest first (default 20, max 100) |
 | `PUT /api/devices/{deviceId}/config` | replace the settings — new revision, published retained |
 | `POST /api/devices/{deviceId}/config/republish` | re-send the current revision (204; 503 if the broker is down) |
+| `GET /api/devices/{deviceId}/schedule` | profiles, rules, what is in force now, next switch, any override |
+| `PUT /api/devices/{deviceId}/schedule` | enable/disable and set the fallback profile |
+| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/profiles[/{profileId}]` | profile CRUD (409 while a rule or the fallback references it) |
+| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
+| `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /health` | liveness (unauthenticated; database + MQTT state) |
@@ -612,6 +617,79 @@ topic read devices/GNSS01/config
 Without the write rule the publish is refused; without the read rule Mosquitto
 ACKs the subscription and silently drops the document. Both are in
 [`../../Container/MQTTBroker/mosquitto/acl`](../../Container/MQTTBroker/mosquitto/acl).
+
+## Settings schedules
+
+A device can switch between named **profiles** on a weekly timetable — reporting
+every minute on weekday mornings, sleeping through the night, something else at
+weekends. **The firmware knows nothing about this.** The scheduler produces
+exactly the same revisions and the same retained document a manual save does, so
+`ESP32/` needed no change and a tracker cannot tell the two apart.
+
+Three tables and four columns:
+
+| Table / column | Holds |
+|---|---|
+| `device_config_profiles` | a name plus the same seven values, under the same CHECK constraints |
+| `device_config_schedule_rules` | one weekly window: `days_mask_utc`, `start_minute_utc`, `duration_minutes`, `priority`, `is_enabled` |
+| `devices.config_schedule_enabled` / `..._fallback_profile_id` | whether rules drive this device, and what applies where none matches |
+| `devices.config_override_until` | while in the future, the scheduler leaves this device alone |
+| `devices.config_schedule_evaluated_at` | when the worker last completed a pass (diagnostic) |
+| `device_config_versions.source` / `source_profile_id` | `Manual` or `Schedule`, and which profile — so the history can say *why* |
+
+**Everything is UTC, and the API never converts a local time.** A rule is a start
+minute plus a length, not a start and an end: a duration needs no midnight-wrap
+convention and survives timezone conversion untouched. The dashboard
+(`FE/src/utils/schedule.ts`) is the only party that converts, because it is the
+only one that knows the reader's offset. The accepted consequence is that a window
+entered as 22:00 in winter is stored as `21:00Z` and renders as 23:00 local after
+the spring change — the stored instant did not move, the local clock did. Every
+rule is shown with **both** times so this is visible; re-entering the time fixes it.
+Storing an IANA zone name per schedule is the only way to remove the drift, and
+would be a one-column change.
+
+### Evaluation
+
+[`ScheduleEvaluator`](Services/Scheduling/ScheduleEvaluator.cs) is pure — no
+database, no clock of its own, the instant is a parameter — which is why the
+awkward cases (a window past midnight, one across the Sunday seam, overlapping
+priorities) are covered by plain unit tests in `CarPosAPI.Tests`. Windows are
+half-open `[start, start + duration)` in minute-of-week space, so two rules meeting
+at 06:00 have neither a gap nor an overlap. The highest-priority enabled rule whose
+window contains the instant wins; ties break on age, then id. If none matches, the
+fallback applies.
+
+### The worker
+
+[`DeviceConfigScheduleWorker`](Services/Scheduling/DeviceConfigScheduleWorker.cs)
+runs a pass at startup and then every **30 s**. It **reconciles rather than fires**:
+it asks "is this device running the right values?", not "did a boundary just pass?".
+A pass that ran late, a process restarted over a boundary, two passes in the same
+second and a broker that was down all converge without special handling. Both the
+manual save and the scheduler go through
+[`DeviceConfigRevisionWriter`](Services/Devices/DeviceConfigRevisionWriter.cs), so
+there is one code path that appends a revision and publishes it — and its
+"unchanged values append nothing" rule is what makes a quiet pass cost two reads
+and no writes.
+
+### Manual overrides
+
+Saving settings by hand on a device whose schedule is **enabled** is temporary: it
+holds until the next scheduled switch, which then reasserts its profile.
+
+- The API **refuses the save** unless `acknowledgeOverride` is true, so a client
+  that has not been updated gets an error rather than the surprise. The dashboard
+  collects it with a dialog naming the returning profile and the exact time.
+- On success, `devices.config_override_until` is stamped with the next boundary —
+  a timestamp, not a flag, so an override **expires on its own**. A crash or a
+  restart cannot strand a tracker off its schedule.
+- `POST .../schedule/resume` ends it early.
+- A schedule that never switches (one rule covering the whole week, or only a
+  fallback) has nothing for an override to expire at, so such a save is refused
+  with a message pointing at the profile.
+
+No new broker ACL is needed: scheduled changes go out on the same
+`devices/+/config` topic as manual ones.
 
 ## Build, test, run
 

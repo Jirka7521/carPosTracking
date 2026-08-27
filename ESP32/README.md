@@ -19,6 +19,10 @@ reuse.
 
 - 📍 Read latitude, longitude, altitude, **speed** and **UTC time**.
 - 🛰️ Uses GPS + GLONASS + BeiDou + Galileo together for a faster, better fix.
+- 🎯 **Averaged positions**: every report is built from **four** readings — the
+  noisy first fix after a lock is discarded and the next three are averaged — so
+  a parked car stops wandering. See
+  [Averaged position reports](#averaged-position-reports).
 - 🧭 **ADXL345 accelerometer** (GY-291) over I2C: the raw X/Y/Z acceleration
   (in g) rides along with every position report — optionally as the **strongest
   per-axis reading of the whole interval** rather than one instantaneous sample,
@@ -101,7 +105,8 @@ src/
 │   ├── GnssData.h           ← Plain data structs (GnssFix, GnssSatelliteCounts…)
 │   ├── CgnsinfParser.h/.cpp ← Decodes the AT+CGNSINF position reply
 │   ├── NmeaParser.h/.cpp    ← Counts satellites per constellation (NMEA GSV)
-│   └── GnssModule.h/.cpp    ← ★ The high-level API you call from your code
+│   ├── GnssModule.h/.cpp    ← ★ The high-level API you call from your code
+│   └── FixAverager.h/.cpp   ← Drop the first fix, publish the mean of the next 3
 │
 ├── crypto/
 │   ├── PayloadCrypto.h/.cpp ← Hybrid RSA-OAEP + AES-256-GCM payload encryption
@@ -149,6 +154,11 @@ src/
         │          main.cpp           │   your application
         └───────┬─────────────────┬───┘
           uses  │                 │ uses
+   ┌────────────▼────────┐        │
+   │     FixAverager     │        │  average away the noisy
+   │ acquire → mean of 3 │        │  first fix after a lock
+   └────────────┬────────┘        │
+          uses  │                 │
    ┌────────────▼────────┐  ┌─────▼──────────────┐
    │      GnssModule     │  │    FixForwarder    │  publish now, or store
    │ begin/readFix/power…│  │ process / flush    │  & flush without a lock
@@ -181,6 +191,7 @@ test:
 | `CgnsinfParser` | Turn one `+CGNSINF:` line into a `GnssFix`. |
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
+| `FixAverager` | Discard the first fix after a lock; publish the mean of the next three readings. |
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
 | `BatteryMonitor` | Charging detection (GPIO35, via `AdcSampler`) — the single source of that verdict — plus the fallback pack % (Li-ion curve over the modem's `AT+CBC`). |
@@ -254,6 +265,9 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
 | `kFixAcquireTimeoutSeconds` | `180` | **Default** for `fix_timeout_s` — give up waiting for a fix after this long |
 | `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
+| **`kFixAverageEnabled`** | `true` | **Publish the average of several readings instead of one raw fix** (see below) |
+| `kFixAverageSampleCount` | `3` | Readings averaged after the discarded first one — also the exact number of reads attempted |
+| `kFixAverageStepMs` | `1000` | Gap between those readings; do not go below the receiver’s 1 Hz solve rate |
 | **`kAdxlEnabled`** | `true` | **Enable/disable the ADXL345 accelerometer** |
 | `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
@@ -303,7 +317,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
-| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `900` | Clamps on `fix_timeout_s` |
+| `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `3600` | Clamps on `fix_timeout_s` |
 | `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` (~100 MB of envelopes at the ceiling) |
 | `kMinRetryIntervalHours` / `kMaxRetryIntervalHours` | `1` / `720` | Clamps on `retry_interval_h` |
 | `kMaxRetryMaxAgeHours` | `8760` | Upper clamp on `retry_max_age_h` (no floor — `0` means "never") |
@@ -911,6 +925,12 @@ if (gnss.readFix(fix) && fix.hasFix()) {
 gnss.powerOffModule();        // lowest power until the next powerOnModule()
 ```
 
+> `readFix()` gives you the raw reading, exactly as above. The firmware's own
+> loop instead goes through
+> [`FixAverager::acquire()`](src/gnss/FixAverager.h), which acquires a lock,
+> discards that first fix and returns the mean of the next three — see
+> [Averaged position reports](#averaged-position-reports).
+
 ### Power saving
 
 The manual switches, if you are driving `GnssModule` yourself:
@@ -1027,6 +1047,20 @@ deliberately **not** published — or `charging (sentinel 0)` while the charger 
 connected, or `n/a` when the monitor is disabled or a read failed; `Accel X/Y/Z`
 shows the raw ADXL345 sample in g, or `n/a`; `Temperature` is the modem die
 temperature (published as `temp_c`), or `n/a` when unavailable.
+
+Once a lock arrives, three more **GNSS FIX** blocks follow about a second apart
+with **no satellite table between them** — that is the averaging burst, which
+suppresses the 3 s NMEA scan so its samples stay 1 s apart — and then one summary
+line:
+
+```
+I (128412) FixAverager: Averaged 3 readings: 48.123457, 17.123454
+I (128414) main: Fix: 48.123457, 17.123454  0.4 km/h
+```
+
+A partial burst says so instead (`Averaged 2 of 3 readings`), and each skipped
+reading logs its own reason. See
+[Averaged position reports](#averaged-position-reports).
 
 **Read the two satellite columns carefully — they mean different things:**
 
@@ -1230,6 +1264,73 @@ Detection is once per reporting cycle, so an unplug is noticed up to one interva
 
 ---
 
+## Averaged position reports
+
+A single GNSS solution carries several metres of noise, and the **first**
+solution after a lock is the least settled of all — the receiver is still
+converging when it first declares a fix. Publishing that one reading is what
+makes a parked car's track wander.
+
+So every report is built from **four positions instead of one**.
+[`FixAverager`](src/gnss/FixAverager.h) acquires exactly as before, throws that
+first fix away, and averages the next `kFixAverageSampleCount` readings:
+
+```
+   acquire ──▶ fix #1        DISCARDED  (first solution after the lock)
+      1 s  ──▶ fix #2   ┐
+      1 s  ──▶ fix #3   ├─▶  mean  ──▶  published, and stored on the card
+      1 s  ──▶ fix #4   ┘
+```
+
+The discarded reading costs nothing extra: it is the fix the acquisition
+produced anyway. **What it costs is ~3 s of awake time per cycle**
+(`kFixAverageSampleCount × kFixAverageStepMs`), and never more — see the
+partial-burst rule below.
+
+**What is averaged, and what is not.** Latitude, longitude, altitude and speed
+are meaned. Everything else — the **UTC timestamp**, course, the DOP figures,
+satellite counts — is taken whole from the **last** accepted reading, so the
+fields that are not averaged all come from one consistent solution rather than
+being stitched together. The timestamp choice is load-bearing: the API dedupes
+on `(device, fix time)` at second precision, so a report has to carry a real,
+advancing UTC, and the freshest sample's can never collide with the previous
+cycle's. Course is deliberately *not* averaged — it is a circular quantity, and
+the naive mean of 359° and 1° is 180°, the exact opposite of the truth.
+
+Longitudes are averaged as **differences from the first sample**, not as
+absolutes, which is what keeps the result correct on the ±180° meridian (a plain
+mean of −179.9 and +179.9 lands in the Gulf of Guinea).
+
+**A short burst is normal, not an error.** A reading that comes back without a
+fix is *skipped, never retried* — retrying would let a bad sky stretch the cycle
+indefinitely — and so is one whose UTC repeats the previous sample, because the
+modem solves at 1 Hz and re-reading inside the same second returns the identical
+solution, which would silently weight it twice.
+
+| Readings accepted | What gets published |
+|---|---|
+| 3 | the mean of the three |
+| 2 | the mean of the two |
+| 1 | that one reading |
+| 0 | the acquisition fix, unaveraged — **a cycle never goes silent because the burst was unlucky** |
+
+**The card holds the average too.** Averaging happens in place before anything
+downstream sees the fix, so the SD queue, the retry queue and the diagnostic
+battery CSV all carry the same averaged position — no raw sample is stored
+anywhere, and an offline cycle stores exactly the bytes an online one would have
+sent.
+
+In a `kGnssDebug` build the burst reads with the NMEA satellite scan suppressed
+(`readFix(fix, /*scanSatellites=*/false)`). That scan listens for
+`kSatelliteScanMs` — 3 s — on every read, which would space the samples 4 s apart
+and stretch the burst to a dozen seconds. The per-fix dump still prints, so the
+log shows each sample followed by one `FixAverager` summary line.
+
+Set **`kFixAverageEnabled = false`** to go back to publishing the raw
+acquisition fix; the burst is then compiled out entirely.
+
+---
+
 ## Peak accelerometer readings
 
 The normal report carries **one instantaneous** accelerometer triple per cycle —
@@ -1414,7 +1515,7 @@ The SIM7000G exposes its GNSS engine over the same UART used for AT commands:
 | `AT+CPOWD=1` | `Sim7000Modem::powerOff` | Graceful full power-down |
 | `AT+CGNSPWR=1/0` | `enableGnss` / `disableGnss` | GNSS engine power |
 | `AT+CGNSMOD=1,g,b,a` | `setConstellations` | Enable GLONASS/BeiDou/Galileo |
-| `AT+CGNSINF` | `readFix` | One-shot position/speed/time line |
+| `AT+CGNSINF` | `readFix` | One-shot position/speed/time line — called once per acquisition poll, then once per averaging sample |
 | `AT+CGNSTST=1/0` | `readSatelliteCounts` | Stream NMEA (for per-system counts) |
 
 First fix outdoors from cold can take **30 s – several minutes**; until then

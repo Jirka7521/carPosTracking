@@ -30,6 +30,24 @@ namespace CarPosAPI.Dtos;
 /// no effect at all while <paramref name="SleepBetween"/> is on, because a sleeping
 /// device re-reads its configuration on every wake.
 /// </param>
+/// <param name="AcknowledgeOverride">
+/// The caller understands that on a device with an <em>enabled schedule</em> this save
+/// is temporary: it holds only until the next scheduled switch, which then reasserts
+/// its profile. Without it such a save is refused (400).
+///
+/// <para>
+/// A server-side gate rather than a dashboard-only confirmation, because the surprise
+/// it prevents is severe and silent — settings reverting hours later, with nothing on
+/// screen to explain why — and because the dashboard is not the only thing that can
+/// reach this endpoint. A client that has not been updated gets an error telling it
+/// what it did not know, which is strictly better than getting the surprise.
+/// </para>
+///
+/// <para>
+/// Defaulted, and so optional on the wire: a device with no schedule ignores it
+/// entirely, and that is every device until somebody sets one up.
+/// </para>
+/// </param>
 public sealed record UpdateDeviceConfigRequestDto(
     [Required]
     [Range(DeviceConfigRules.MinIntervalSeconds, DeviceConfigRules.MaxIntervalSeconds)]
@@ -56,4 +74,6 @@ public sealed record UpdateDeviceConfigRequestDto(
 
     [Required]
     [Range(DeviceConfigRules.MinConfigCheckSeconds, DeviceConfigRules.MaxConfigCheckSeconds)]
-    int ConfigCheckSeconds);
+    int ConfigCheckSeconds,
+
+    bool AcknowledgeOverride = false);

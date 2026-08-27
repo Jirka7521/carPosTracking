@@ -112,6 +112,24 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("config_applied_version");
 
+                    b.Property<DateTime?>("ConfigOverrideUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("config_override_until");
+
+                    b.Property<bool>("ConfigScheduleEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("config_schedule_enabled");
+
+                    b.Property<DateTime?>("ConfigScheduleEvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("config_schedule_evaluated_at");
+
+                    b.Property<Guid?>("ConfigScheduleFallbackProfileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("config_schedule_fallback_profile_id");
+
                     b.Property<int>("ConfigVersion")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -159,6 +177,8 @@ namespace CarPosAPI.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ConfigScheduleFallbackProfileId");
+
                     b.HasIndex("DeviceId")
                         .IsUnique()
                         .HasDatabaseName("ux_devices_device_id");
@@ -204,6 +224,158 @@ namespace CarPosAPI.Data.Migrations
                         .HasDatabaseName("ux_device_aliases_user_id_device_id");
 
                     b.ToTable("device_aliases", (string)null);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("ConfigCheckSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("config_check_s");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<int>("FixTimeoutSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("fix_timeout_s");
+
+                    b.Property<int>("IntervalSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("interval_s");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("QueueMaxFixes")
+                        .HasColumnType("integer")
+                        .HasColumnName("queue_max_fixes");
+
+                    b.Property<int>("RetryIntervalHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_interval_h");
+
+                    b.Property<int>("RetryMaxAgeHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_max_age_h");
+
+                    b.Property<bool>("SleepBetween")
+                        .HasColumnType("boolean")
+                        .HasColumnName("sleep_between");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DeviceId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ux_device_config_profiles_device_id_name");
+
+                    b.ToTable("device_config_profiles", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_config_profiles_config_check_s", "config_check_s BETWEEN 60 AND 86400");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 3600");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_interval_s", "interval_s BETWEEN 5 AND 86400");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_retry_interval_h", "retry_interval_h BETWEEN 1 AND 720");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_retry_max_age_h", "retry_max_age_h BETWEEN 0 AND 8760");
+                        });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigScheduleRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("DaysMaskUtc")
+                        .HasColumnType("integer")
+                        .HasColumnName("days_mask_utc");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<int>("DurationMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_minutes");
+
+                    b.Property<bool>("IsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_enabled");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(100)
+                        .HasColumnName("priority");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("profile_id");
+
+                    b.Property<int>("StartMinuteUtc")
+                        .HasColumnType("integer")
+                        .HasColumnName("start_minute_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId")
+                        .HasDatabaseName("ix_device_config_schedule_rules_device_id");
+
+                    b.HasIndex("ProfileId")
+                        .HasDatabaseName("ix_device_config_schedule_rules_profile_id");
+
+                    b.ToTable("device_config_schedule_rules", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_config_schedule_rules_days_mask", "days_mask_utc BETWEEN 1 AND 127");
+
+                            t.HasCheckConstraint("ck_device_config_schedule_rules_duration", "duration_minutes BETWEEN 1 AND 1440");
+
+                            t.HasCheckConstraint("ck_device_config_schedule_rules_priority", "priority BETWEEN 0 AND 1000");
+
+                            t.HasCheckConstraint("ck_device_config_schedule_rules_start_minute", "start_minute_utc BETWEEN 0 AND 1439");
+                        });
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigVersion", b =>
@@ -258,6 +430,16 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("sleep_between");
 
+                    b.Property<int>("Source")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("source");
+
+                    b.Property<Guid?>("SourceProfileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_profile_id");
+
                     b.Property<int>("Version")
                         .HasColumnType("integer")
                         .HasColumnName("version");
@@ -265,6 +447,8 @@ namespace CarPosAPI.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("SourceProfileId");
 
                     b.HasIndex("DeviceId", "Version")
                         .IsUnique()
@@ -274,7 +458,7 @@ namespace CarPosAPI.Data.Migrations
                         {
                             t.HasCheckConstraint("ck_device_config_versions_config_check_s", "config_check_s BETWEEN 60 AND 86400");
 
-                            t.HasCheckConstraint("ck_device_config_versions_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 900");
+                            t.HasCheckConstraint("ck_device_config_versions_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 3600");
 
                             t.HasCheckConstraint("ck_device_config_versions_interval_s", "interval_s BETWEEN 5 AND 86400");
 
@@ -442,6 +626,14 @@ namespace CarPosAPI.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.Device", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.DeviceConfigProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ConfigScheduleFallbackProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceAlias", b =>
                 {
                     b.HasOne("CarPosAPI.Data.Entities.Device", "Device")
@@ -461,6 +653,35 @@ namespace CarPosAPI.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigProfile", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigScheduleRule", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CarPosAPI.Data.Entities.DeviceConfigProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceConfigVersion", b =>
                 {
                     b.HasOne("CarPosAPI.Data.Entities.User", null)
@@ -473,6 +694,11 @@ namespace CarPosAPI.Data.Migrations
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("CarPosAPI.Data.Entities.DeviceConfigProfile", null)
+                        .WithMany()
+                        .HasForeignKey("SourceProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>

@@ -108,6 +108,18 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
             .HasColumnName("created_at")
             .HasDefaultValueSql("now()");
 
+        // Stored as the enum's int value. Manual is 0, which is what every row that
+        // predates schedules already means — so the migration needs no backfill and no
+        // guess about rows it cannot know the provenance of.
+        builder.Property(configVersion => configVersion.Source)
+            .HasColumnName("source")
+            .HasConversion<int>()
+            .HasDefaultValue(ConfigRevisionSource.Manual)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.SourceProfileId)
+            .HasColumnName("source_profile_id");
+
         // Cascade: the history of a device that is genuinely gone from the table has
         // nothing left to describe. Note this is not the normal retirement path —
         // deleting a device is a soft delete, which leaves these rows untouched.
@@ -123,5 +135,14 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
             .WithMany()
             .HasForeignKey(configVersion => configVersion.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // SetNull for the originating profile, for the same reason one step further on:
+        // the row already holds the values in full, so losing the profile costs the
+        // history a label, not a fact. Restricting instead would mean a profile could
+        // never be deleted once the scheduler had used it even once.
+        builder.HasOne<DeviceConfigProfile>()
+            .WithMany()
+            .HasForeignKey(configVersion => configVersion.SourceProfileId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

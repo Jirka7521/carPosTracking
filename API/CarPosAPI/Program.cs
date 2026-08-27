@@ -13,6 +13,7 @@ using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Ingest;
 using CarPosAPI.Services.Positions;
 using CarPosAPI.Services.Provisioning;
+using CarPosAPI.Services.Scheduling;
 using CarPosAPI.Services.Security;
 using CarPosAPI.Services.Sharing;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -148,6 +149,24 @@ builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+
+// ---------------------------------------------------------------------------
+// Settings schedules. The evaluator is pure arithmetic over a set of rules — no
+// database, no clock of its own — so it is shared. Everything around it is scoped
+// because it writes through the request's DbContext, including the revision
+// writer, which both the manual settings save and the scheduler go through so
+// there is exactly one code path that appends a revision and publishes it.
+//
+// The worker is the only piece that has no request to belong to: it opens a scope
+// per pass rather than capturing one, which is what keeps a scoped DbContext from
+// living for the lifetime of the process.
+// ---------------------------------------------------------------------------
+builder.Services.AddSingleton<ScheduleEvaluator>();
+builder.Services.AddScoped<IDeviceConfigRevisionWriter, DeviceConfigRevisionWriter>();
+builder.Services.AddScoped<IDeviceScheduleResolver, DeviceScheduleResolver>();
+builder.Services.AddScoped<IDeviceConfigScheduleService, DeviceConfigScheduleService>();
+builder.Services.AddScoped<IScheduleReconciler, ScheduleReconciler>();
+builder.Services.AddHostedService<DeviceConfigScheduleWorker>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
