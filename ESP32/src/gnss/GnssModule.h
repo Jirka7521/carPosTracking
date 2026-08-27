@@ -51,7 +51,13 @@ class GnssModule {
   // Read the current position/speed/time via AT+CGNSINF. Returns true if a
   // reply was decoded (check fix.hasFix() to know if it is a real position).
   // When debugging is enabled in Config.h this also prints a full report.
-  bool readFix(GnssFix& fix);
+  //
+  // `scanSatellites` only has any effect in a debug build, where each read is
+  // normally followed by a kSatelliteScanMs NMEA listen to count satellites per
+  // constellation. Pass false to skip just that scan - the decoded-fix dump
+  // still prints - when reads must follow each other quickly: a 3 s scan
+  // between them turns a 1 Hz sampling burst into a 4 s one (see FixAverager).
+  bool readFix(GnssFix& fix, bool scanSatellites = true);
 
   // Poll readFix() every `pollStepMs` until a *real* position is available, or
   // `timeoutMs` elapses. Returns true only when `fix` holds an actual fix.

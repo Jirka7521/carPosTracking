@@ -91,7 +91,7 @@ bool GnssModule::setConstellations(bool gps, bool glonass, bool beidou,
 // -----------------------------------------------------------------------------
 //  Reading the position
 // -----------------------------------------------------------------------------
-bool GnssModule::readFix(GnssFix& fix) {
+bool GnssModule::readFix(GnssFix& fix, bool scanSatellites) {
   char response[256];
   if (!modem_.sendCommand("AT+CGNSINF", response, sizeof(response), 2000)) {
     ESP_LOGW(TAG, "No reply to AT+CGNSINF.");
@@ -118,9 +118,14 @@ bool GnssModule::readFix(GnssFix& fix) {
   if (config::kGnssDebug) {
     debugPrintFix(fix);
 
-    GnssSatelliteCounts counts;
-    if (readSatelliteCounts(counts, config::kSatelliteScanMs)) {
-      debugPrintSatellites(counts);
+    // The satellite table costs kSatelliteScanMs of NMEA listening, which is
+    // far more than the read itself. Callers that need reads back to back can
+    // opt out of it while keeping the fix dump above.
+    if (scanSatellites) {
+      GnssSatelliteCounts counts;
+      if (readSatelliteCounts(counts, config::kSatelliteScanMs)) {
+        debugPrintSatellites(counts);
+      }
     }
   }
 

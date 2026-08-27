@@ -86,6 +86,33 @@ constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
 constexpr uint32_t kFixPollStepMs            = 2000;
 
 // -----------------------------------------------------------------------------
+//  Averaged position reports.
+//
+//  A single GNSS solution carries several metres of noise, and the FIRST
+//  solution after a lock is the least settled of all - the receiver is still
+//  converging when it first declares a fix. Publishing that one reading is what
+//  makes a parked car's track wander.
+//
+//  With averaging on, every report is built from four positions instead of one:
+//  the fix the acquisition returned is discarded, and the next
+//  kFixAverageSampleCount readings are averaged into the position that gets
+//  published (and stored on the card). See FixAverager.
+//
+//  kFixAverageStepMs is the gap between those readings and should not go below
+//  1000: the modem solves at 1 Hz, so a faster poll simply returns the same
+//  solution again - which the averager then skips, leaving fewer samples in the
+//  mean. The burst costs kFixAverageSampleCount * kFixAverageStepMs of awake
+//  time per cycle (~3 s by default), and never more: a reading that comes back
+//  without a fix is skipped rather than retried.
+//
+//  Set kFixAverageEnabled to `false` to publish the raw acquisition fix as
+//  before; the burst is then compiled out entirely.
+// -----------------------------------------------------------------------------
+constexpr bool     kFixAverageEnabled     = true;
+constexpr uint8_t  kFixAverageSampleCount = 3;
+constexpr uint32_t kFixAverageStepMs      = 1000;
+
+// -----------------------------------------------------------------------------
 //  ADXL345 accelerometer (GY-291) over I2C.
 //
 //  A 3-axis accelerometer wired to the ESP32's I2C bus. With the
