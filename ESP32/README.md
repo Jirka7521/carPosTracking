@@ -243,12 +243,18 @@ test:
 > secrets and the ack private key are spliced in locally and never reach the
 > server. The same tab also lists every constant below, read-only.
 >
-> **If you add, remove or rename a constant in `Config.example.h`, update the
-> API's copy of it** —
+> **Add, remove or rename a constant here and everything downstream follows by
+> itself.** The API embeds this exact file — an MSBuild target stages a verbatim
+> copy into
 > [`API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
-> — and the dashboard's reference table in `FE/src/utils/firmwareParameters.ts`.
-> The API cannot read this file (its Docker build context does not include
-> `ESP32/`), so a test there asserts the two agree and fails when they drift.
+> on every build, because the API image is built with `../../API` as its Docker
+> context and cannot read `ESP32/` — and rewrites the per-device constants in it
+> *by name*, so one it does not name simply passes through with the value you set
+> here. The dashboard's reference table is parsed out of that same rendered file.
+> The one thing to remember: that staged copy is **committed**, so build the API
+> (`dotnet build` in `API/`) in the same change and commit the refreshed file with
+> it — warning `CARPOS001` says so if you forget, and the Docker build cannot
+> regenerate it.
 
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 

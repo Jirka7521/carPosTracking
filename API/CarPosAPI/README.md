@@ -484,13 +484,30 @@ always safe to call — a device already in the field keeps working.
 > half, so none of the four ever travels through this API.
 
 **Where the template lives.** `Services/Provisioning/ConfigTemplate.h.txt`, an
-embedded resource. It is a *copy* of `ESP32/src/config/Config.example.h`, because
-the API image is built with `../../API` as its Docker context and the firmware
-tree does not exist where this code runs. **When the firmware gains or loses a
-constant, that template needs the same edit** —
-`ConfigSnippetBuilderTests.RendersACompleteCompilableFile` fails the build when it
-drifts, and the dashboard's `FE/src/utils/firmwareParameters.ts` lists the same
-constants for its reference table.
+embedded resource. It is a **verbatim, machine-written copy** of
+`ESP32/src/config/Config.example.h` — the `StageFirmwareConfigTemplate` target in
+`CarPosAPI.csproj` refreshes it on every build. It is embedded rather than read
+from `ESP32/` because the API image is built with `../../API` as its Docker
+context and the firmware tree does not exist where this code runs.
+
+**Never edit that file by hand, and never add a constant to it.** Nothing here
+needs to change when the firmware gains one: `ConfigSnippetBuilder` rewrites
+constants **by name** through `ConfigConstantWriter`, so a constant it does not
+name passes through carrying whatever value the firmware set. Only a *rename* of
+a constant the builder rewrites needs an edit here — and `ConfigConstantWriter`
+throws rather than skipping, so that failure is loud rather than a tracker
+publishing to the template's placeholder topic.
+
+It used to be a hand-maintained copy with `{{TOKEN}}` holes, guarded by a
+hand-written list of firmware constant names. Both drifted: the firmware gained
+three fix-averaging constants and the dashboard served a `Config.h` that no longer
+compiled. The guards now are `StagedTemplateMatchesFirmwareSource` (whole-file
+comparison, no maintenance) and build warning `CARPOS001`, which fires when the
+staged copy was behind — **commit the refreshed file with the firmware change**,
+because the Docker build cannot regenerate it.
+
+The dashboard's reference table is parsed out of the rendered file too
+(`FE/src/utils/parseFirmwareConfig.ts`), so it cannot fall behind either.
 
 > **The broker account is still a manual step.** The API does not manage MQTT
 > credentials or ACLs: create the account on the server (`mosquitto_passwd`) and

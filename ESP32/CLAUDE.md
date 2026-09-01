@@ -109,7 +109,12 @@ pio run -t fullclean    # clean rebuild (needed after partition/flash-size chang
   [`Config.example.h`](src/config/Config.example.h) carries empty placeholders.
 - **When you add a new setting**, add it to *both* `Config.h` **and**
   `Config.example.h` (placeholder only), and document it in the README's config
-  table.
+  table. That is the whole list — the API's provisioning template and the
+  dashboard's reference table both derive from `Config.example.h` now and need no
+  edit. The one follow-up is to run `dotnet build` in [`../API/`](../API/) and
+  commit the refreshed
+  [`ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
+  alongside your change; the build warns (`CARPOS001`) when it is behind.
 
 ---
 

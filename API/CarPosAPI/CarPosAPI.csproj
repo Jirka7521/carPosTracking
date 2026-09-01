@@ -27,14 +27,72 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The firmware Config.h template the provisioning endpoint renders. It is
-         embedded rather than read from ESP32/ because the API image is built with
-         ../../API as its Docker context, so the firmware tree does not exist where
-         this code runs. LogicalName is pinned so moving the file breaks loudly in
-         ConfigSnippetBuilder instead of silently at first request. -->
+    <!-- The firmware Config.h template the provisioning endpoint renders.
+
+         DO NOT EDIT ConfigTemplate.h.txt BY HAND. It is a verbatim, machine-written
+         copy of ESP32/src/config/Config.example.h, refreshed by the target below on
+         every local build. It used to be a hand-maintained copy with {{TOKEN}} holes
+         cut in it, and it drifted: the firmware gained three fix-averaging constants
+         and the copy did not, so the dashboard handed out a Config.h that no longer
+         compiled. ConfigSnippetBuilder now substitutes by constant *name* instead,
+         which is why the copy can be verbatim and why a new firmware constant needs
+         no edit here at all.
+
+         It is embedded rather than read from ESP32/ at runtime because the API image
+         is built with ../../API as its Docker context, so the firmware tree does not
+         exist where this code runs. LogicalName is pinned so moving the file breaks
+         loudly in ConfigSnippetBuilder instead of silently at first request. -->
     <EmbeddedResource Include="Services\Provisioning\ConfigTemplate.h.txt"
                       LogicalName="CarPosAPI.Services.Provisioning.ConfigTemplate.h.txt" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <!-- The firmware's committed config template, and the copy of it this project
+         embeds. Named once so the staging target below and its up-to-date check
+         cannot drift apart. -->
+    <_FirmwareConfigSource>$(MSBuildThisFileDirectory)..\..\ESP32\src\config\Config.example.h</_FirmwareConfigSource>
+    <_StagedConfigTemplate>$(MSBuildThisFileDirectory)Services\Provisioning\ConfigTemplate.h.txt</_StagedConfigTemplate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Makes the firmware source a build input, so an edit to it re-runs the copy
+         below on the next incremental build rather than only on a rebuild. -->
+    <UpToDateCheckInput Include="$(_FirmwareConfigSource)"
+                        Condition="Exists('$(_FirmwareConfigSource)')" />
+  </ItemGroup>
+
+  <!-- Stages the firmware's committed config template as the embedded resource, so
+       editing Config.example.h is the ONLY edit needed to change what the dashboard
+       hands out.
+
+       The Exists() condition is what makes this work in Docker: the build context is
+       API/, so the firmware tree is absent there, the copy is skipped, and the
+       git-tracked staged file — refreshed by the last local build and committed with
+       it — is what gets embedded. ConfigSnippetBuilderTests.StagedTemplateMatchesFirmwareSource
+       fails the build if the two ever disagree, which is what stops a stale copy
+       being committed. -->
+  <Target Name="StageFirmwareConfigTemplate"
+          BeforeTargets="BeforeBuild"
+          Condition="Exists('$(_FirmwareConfigSource)')">
+
+    <!-- Content hashes rather than timestamps, because the question is not "did the
+         file get touched" but "is what we are about to ship different". The warning
+         below is the only thing standing between an uncommitted refresh and a build
+         device — which clones the repo and never sees ESP32/ — quietly baking last
+         week's config into the image. -->
+    <PropertyGroup>
+      <_FirmwareConfigHash>$([MSBuild]::StableStringHash($([System.IO.File]::ReadAllText('$(_FirmwareConfigSource)'))))</_FirmwareConfigHash>
+      <_StagedConfigHash Condition="Exists('$(_StagedConfigTemplate)')">$([MSBuild]::StableStringHash($([System.IO.File]::ReadAllText('$(_StagedConfigTemplate)'))))</_StagedConfigHash>
+    </PropertyGroup>
+
+    <Warning Condition="'$(_FirmwareConfigHash)' != '$(_StagedConfigHash)'"
+             Code="CARPOS001"
+             Text="ConfigTemplate.h.txt was out of date with ESP32/src/config/Config.example.h and has been refreshed. COMMIT IT with the firmware change: it is what the provisioning endpoint serves, and the Docker build cannot regenerate it (its context is API/, so the firmware tree is not there)." />
+
+    <Copy SourceFiles="$(_FirmwareConfigSource)"
+          DestinationFiles="$(_StagedConfigTemplate)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <!-- Local developer secrets: copied next to the binaries so `dotnet run` picks

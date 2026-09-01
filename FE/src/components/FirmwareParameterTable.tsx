@@ -3,7 +3,7 @@
 //
 // Sits under the Config.h panel in the Settings tab. It answers a question the
 // file itself answers badly: "what is this thing actually configured to do?" —
-// 500 lines of C++ with comments is the wrong shape for that, a grouped table is
+// 700 lines of C++ with comments is the wrong shape for that, a grouped table is
 // the right one.
 //
 // Nothing here is editable, and that is not a limitation to apologise for: these
@@ -11,34 +11,38 @@
 // such, and the handful the dashboard *can* change at runtime point back up at
 // the Reporting & Power section rather than pretending to be settings.
 //
-// The data is static (utils/firmwareParameters.ts); only the per-device rows are
-// filled from the provisioning payload, so the table shows this tracker's real
-// id, topics, broker and key fingerprints rather than the template's placeholders.
+// The rows are parsed out of the very file shown above (utils/parseFirmwareConfig),
+// so the table cannot fall behind the firmware — it is the same text, read twice.
+// It used to be a hand transcription, and it was missing fifteen constants.
 // ============================================================
 
-import type { DeviceProvisioningDto } from '../services/apiTypes'
+import { useMemo } from 'react'
+
 import type { FirmwareParameter } from '../utils/firmwareParameters'
-import {
-  FIRMWARE_PARAMETER_GROUPS,
-  ORIGIN_LABELS,
-  resolveParameterValue,
-} from '../utils/firmwareParameters'
+import { ORIGIN_LABELS } from '../utils/firmwareParameters'
+import { parseFirmwareConfig } from '../utils/parseFirmwareConfig'
 
 export type FirmwareParameterTableProps = {
-  // Null renders the firmware defaults alone — the table is still useful, it
-  // just cannot name this device's topics.
-  provisioning: DeviceProvisioningDto | null
+  // The Config.h the API rendered for this device, EXACTLY as it arrived —
+  // never the copy the panel has woven the operator's secrets into, which
+  // carries a WiFi password and a private key.
+  configSnippet: string
 }
 
-export function FirmwareParameterTable({ provisioning }: FirmwareParameterTableProps) {
+export function FirmwareParameterTable({ configSnippet }: FirmwareParameterTableProps) {
+  // Parsing 700 lines on every keystroke in the secrets form would be pure
+  // waste: the file this reads does not change while the operator types.
+  const groups = useMemo(() => parseFirmwareConfig(configSnippet), [configSnippet])
+
   return (
     <div className="firmware-parameters">
       <p className="hint">
-        Everything the firmware is built with. These are compile-time constants —
-        changing one means editing <code>Config.h</code> and re-flashing. The
-        reporting interval, sleep flag, GNSS timeout and queue limits are the
-        exception: the values below are only the defaults a tracker falls back to,
-        and <strong>Reporting &amp; Power</strong> above is what actually sets them.
+        Everything the firmware is built with, read straight out of the file
+        above. These are compile-time constants — changing one means editing{' '}
+        <code>Config.h</code> and re-flashing. The reporting interval, sleep flag,
+        GNSS timeout and queue limits are the exception: the values below are only
+        the defaults a tracker falls back to, and <strong>Reporting &amp; Power</strong>{' '}
+        above is what actually sets them.
       </p>
 
       <ul className="firmware-legend">
@@ -60,7 +64,7 @@ export function FirmwareParameterTable({ provisioning }: FirmwareParameterTableP
         </li>
       </ul>
 
-      {FIRMWARE_PARAMETER_GROUPS.map((group) => (
+      {groups.map((group) => (
         <section key={group.title} className="firmware-parameter-group">
           <h5>{group.title}</h5>
 
@@ -81,9 +85,7 @@ export function FirmwareParameterTable({ provisioning }: FirmwareParameterTableP
                       <code>{parameter.name}</code>
                     </th>
                     <td>
-                      <code className="param-value">
-                        {resolveParameterValue(parameter, provisioning)}
-                      </code>
+                      <code className="param-value">{parameter.value}</code>
                       <span className={`param-badge param-badge--${parameter.origin}`}>
                         {ORIGIN_LABELS[parameter.origin]}
                       </span>

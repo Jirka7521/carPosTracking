@@ -760,7 +760,7 @@ export function DeviceSettingsTab() {
                     came here to do, and expanded it would dwarf the page. */}
                 <details className="firmware-parameters-details">
                   <summary>All firmware parameters</summary>
-                  <FirmwareParameterTable provisioning={provisioning} />
+                  <FirmwareParameterTable configSnippet={provisioning.configSnippet} />
                 </details>
               </>
             )}
