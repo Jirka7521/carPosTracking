@@ -291,7 +291,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kBatteryVbatSensePin` | `35` | Pack voltage sense — the **same pin** as `kBatteryChargeSensePin`, read as a voltage here |
 | `kBatterySolarSensePin` | `36` | Charge-input (solar/VIN) sense |
 | `kBatteryDividerRatio` / `kSolarDividerRatio` | `2.0f` / `2.0f` | On-board divider ratios; the solar one is an assumption that varies by board revision |
-| `kBatteryAdcSamples` | `16` | ADC conversions per measurement (averaged **and** medianed) |
+| `kBatteryAdcSamples` | `48` | ADC conversions per measurement (averaged **and** medianed) |
+| `kBatteryAdcSampleGapMs` | `40` | Delay **between** those conversions — spreads the burst over ~1.9 s so a TX droop is a minority of it (see [below](#why-the-burst-is-spread-and-trimmed)) |
+| `kBatteryOutlierMadFactor` | `3` | Discard a sample this many median absolute deviations from the burst median. `0` disables the trim |
+| `kBatteryQuietSettleMs` | `200` | Quiet pause before the sweep, after the acquire loop's WiFi traffic. `0` skips it |
 | `kSolarInputThresholdMv` | `1000` | Above this on GPIO36, a charge source is present |
 | `kBatteryNoReadingMv` | `2000` | Below this the ADC path is logged as absent, not as a flat pack |
 | **`kBatteryReportFromMethods`** | `true` | **Publish one of the method-log columns as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
@@ -1218,15 +1221,60 @@ uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
 | `fw_pct`, `fw_charging`, `fw_valid` | What the shipped `BatteryMonitor` concluded for the same moment — the thing every other column exists to be compared against. `fw_pct` is `-1` when that read failed, so it is never confused with the monitor's `0 = charging` sentinel. |
 | `v_spread_mv`, `p_spread` | How far apart the methods landed. This is the deliverable. |
 
+### Why the burst is spread and trimmed
+
+Under a SIM7000 transmit burst (~2 A) or a WiFi publish, VBAT sags for a few tens
+of milliseconds. That is the whole reason the reported percent used to move
+depending on what the radios happened to be doing when the pack was measured.
+
+A burst of back-to-back ADC conversions finishes in **microseconds**, so a sag
+that coincides with it drags *every* sample down together — and neither an
+average nor a median can reject what all the samples share. Two things fix that,
+and neither works without the other:
+
+- **Spacing** (`kBatteryAdcSampleGapMs`) puts the conversions on both sides of
+  such a sag rather than inside it, which demotes the sag from *all* of the burst
+  to a *minority* of it. 48 samples 40 ms apart span about 1.9 s.
+- **Trimming** (`kBatteryOutlierMadFactor`) then deletes that minority outright.
+  Samples further than 3 median absolute deviations from the burst median are
+  discarded, and `raw_mean`, `raw_median` and every source derived from them are
+  computed from the survivors alone. Measuring against the burst's *own* spread
+  rather than a fixed millivolt threshold is what keeps this free of per-board
+  tuning: a quiet pack keeps a tight window, a noisy one widens it by itself.
+
+Two guards stop the trim misfiring. A perfectly quiet burst can give a deviation
+of zero, which would reject everything not exactly on the median — so the window
+has a floor. And if fewer than **half** the samples survive, the full burst is
+used instead and a warning is logged: that is the pack genuinely collapsing, or a
+sag that lasted the whole window, and there is no quiet majority to fall back on.
+A device logging that every cycle is saying its window is too short for its
+radio, not that its pack is bad.
+
+Around all of this, the sweep runs **first** in the cycle — ahead of
+`BatteryMonitor`'s own `AT+CBC` — and after a short quiet pause
+(`kBatteryQuietSettleMs`), so the window does not open on the tail of the acquire
+loop's MQTT flush. `BatteryMethods` itself opens with the ADC burst and closes
+with its `AT+CBC`, keeping the quiet end for the pin that needs it.
+
+The cost is ~2 s of blocking per cycle, spent on `vTaskDelay` with the CPU idle.
+It comes out of the idle wait between reports, **not** out of the reporting
+cadence (the interval is anchored at fix capture), so the rhythm is unchanged;
+with `sleep_between` on it is ~2 s more awake time per cycle, small next to a
+GNSS acquire.
+
 ### Three caveats before you trust a capture
 
 - **On USB power, `v1`–`v4` read ~0.** On the T-SIM7000G the sense pin is cut off
   from the cell whenever USB is connected ([LilyGO issue #128][lilygo128]) — a
   hardware fact, not a bug here. `adc_valid` goes to `0` and only `v5` keeps
   answering, and then it reports the **charger rail**, not the cell.
-- **The modem's TX bursts sag VBAT.** A row captured during a publish reads low
-  across every source at once. That is why `uptime_ms` and `gps_utc` are on the
-  row: they let a sagging sample be lined up with what the device was doing.
+- **The modem's TX bursts sag VBAT** — that is what the spacing and the trim
+  above exist to reject, and captures taken before they were added read low
+  across every source at once. They are a *mitigation*, not a cure: a sag that
+  outlasts the whole ~1.9 s window still lands in the row, and the trim's
+  "too few survivors" warning is how it announces itself. `uptime_ms` and
+  `gps_utc` are on the row for exactly that case — they let a sagging sample be
+  lined up with what the device was doing.
 - **`solar_mv` assumes a 2:1 divider**, which varies across board revisions —
   check it against `solar_raw` before trusting the millivolts.
 
@@ -1235,7 +1283,9 @@ uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
 ### Cost and caveats
 
 - One ADC burst plus **one** extra `AT+CBC` per reporting cycle, and one appended
-  line — negligible next to an acquire, and nothing at all in deep sleep.
+  line. The burst blocks for ~2 s (see [above](#why-the-burst-is-spread-and-trimmed))
+  on `vTaskDelay` with the CPU idle; it comes out of the idle wait, not the
+  reporting cadence, and is negligible next to an acquire.
 - The file is capped at `kSdMaxBatteryLogRows` (20 000 ≈ 2.4 MB). The cap is
   checked once every 256 rows, not every row: enforcing it rewrites the file to
   keep the header, so it has to stay rare. The file can therefore overshoot the

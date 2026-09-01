@@ -5,6 +5,8 @@
 #include <cstring>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char* TAG = "BatteryMethods";
 
@@ -35,9 +37,19 @@ static constexpr uint32_t kAdcFullScaleMv     = 3300;
 // calibrated read and well below a real charge slope.
 static constexpr uint32_t kTrendRiseMv = 20;
 
+// Smallest median absolute deviation the outlier trim will work from, in raw
+// counts. A burst taken while nothing else on the board moved can come back with
+// every sample on the same count, i.e. MAD = 0 - and a zero-width window would
+// then reject every sample that is not EXACTLY the median, which is the opposite
+// of what a quiet burst deserves. Two counts is a shade under 2 mV at the pack
+// after the divider: below the ADC's own noise, so it never widens a window that
+// the data itself has already opened.
+static constexpr uint32_t kMinMadCounts = 2;
+
 BatteryMethods::BatteryMethods(AdcSampler& adc, Sim7000Modem& modem,
                                int vbatPin, int solarPin, float vbatDivider,
                                float solarDivider, std::size_t samples,
+                               uint32_t sampleGapMs, uint32_t madFactor,
                                uint32_t emptyMv, uint32_t fullMv,
                                uint32_t inputThresholdMv, uint32_t noReadingMv)
     : adc_(adc),
@@ -48,6 +60,8 @@ BatteryMethods::BatteryMethods(AdcSampler& adc, Sim7000Modem& modem,
       solarDivider_(solarDivider),
       samples_(samples == 0 ? 1
                             : (samples > kMaxSamples ? kMaxSamples : samples)),
+      sampleGapMs_(sampleGapMs),
+      madFactor_(madFactor),
       emptyMv_(emptyMv),
       fullMv_(fullMv),
       inputThresholdMv_(inputThresholdMv),
@@ -88,33 +102,66 @@ bool BatteryMethods::sample(BatteryMethodsSample& out) {
   // ---------------------------------------------------------------------------
   // 1. One burst of raw counts, converted four ways (see the header for why one
   //    burst and not two).
+  //
+  //    The conversions are SPACED, and every count is collected before any of
+  //    them is turned into millivolts. Both are deliberate:
+  //
+  //      * the spacing (sampleGapMs_) is what lets a transmit droop be a
+  //        MINORITY of the burst rather than all of it - see the header banner;
+  //      * collecting first is what lets the trim below run on raw counts, so
+  //        every source derives from the SAME surviving samples. Calibrating
+  //        inside the collection loop, as this used to, would leave
+  //        kSourceCalPerSample averaging samples the other sources had already
+  //        thrown away, and its disagreement with kSourceCalMean would then
+  //        measure the trim instead of the maths it exists to measure.
   // ---------------------------------------------------------------------------
-  uint32_t    raw[kMaxSamples] = {};
-  uint32_t    rawSum           = 0;
-  uint32_t    calSum           = 0;  // sum of per-sample calibrated millivolts
-  std::size_t taken            = 0;
-  bool        calPerSampleOk   = adc_.hasCalibration();
+  uint32_t    raw[kMaxSamples]  = {};
+  uint32_t    work[kMaxSamples] = {};  // scratch the trim borrows for deviations
+  std::size_t taken             = 0;
 
   for (std::size_t i = 0; i < samples_; ++i) {
+    // Between conversions only - not before the first (the caller has already
+    // paused for the rail to settle) and not after the last (a trailing delay
+    // lengthens the sweep without widening the window it covers).
+    if (i > 0 && sampleGapMs_ > 0) {
+      vTaskDelay(pdMS_TO_TICKS(sampleGapMs_));
+    }
+
     int value = 0;
     if (!adc_.readRaw(vbatPin_, value)) {
       continue;  // a failed conversion is dropped, not counted as a zero
     }
-    raw[taken] = static_cast<uint32_t>(value);
-    rawSum += raw[taken];
-    ++taken;
-
-    int mv = 0;
-    if (calPerSampleOk && adc_.rawToMv(value, mv)) {
-      calSum += static_cast<uint32_t>(mv);
-    } else {
-      calPerSampleOk = false;
-    }
+    raw[taken++] = static_cast<uint32_t>(value);
   }
 
   if (taken > 0) {
-    const uint32_t rawMean   = rawSum / taken;
-    out.rawMean              = static_cast<uint16_t>(rawMean);
+    // Delete the droop. This is the one line where the burst stops describing
+    // what the RAIL did during the window and starts describing what the PACK
+    // sits at; everything below works from the survivors.
+    taken = rejectOutliers(raw, taken, work);
+
+    uint32_t rawSum = 0;
+    for (std::size_t i = 0; i < taken; ++i) {
+      rawSum += raw[i];
+    }
+    const uint32_t rawMean = rawSum / taken;
+    out.rawMean            = static_cast<uint16_t>(rawMean);
+
+    // Source 1's input, taken here so it too sees only the survivors. One
+    // failed conversion disqualifies the whole source rather than silently
+    // averaging a short set - it is meant to be comparable to the mean beside
+    // it, and a different sample count would break that.
+    uint32_t calSum         = 0;
+    bool     calPerSampleOk = adc_.hasCalibration();
+    for (std::size_t i = 0; i < taken && calPerSampleOk; ++i) {
+      int mv = 0;
+      if (adc_.rawToMv(static_cast<int>(raw[i]), mv)) {
+        calSum += static_cast<uint32_t>(mv);
+      } else {
+        calPerSampleOk = false;
+      }
+    }
+
     const uint32_t rawMedian = medianOf(raw, taken);  // sorts raw[] in place
     out.rawMedian            = static_cast<uint16_t>(rawMedian);
 
@@ -339,6 +386,74 @@ uint32_t BatteryMethods::medianOf(uint32_t* values, std::size_t n) {
     values[j] = key;
   }
   return (n % 2) ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
+}
+
+std::size_t BatteryMethods::rejectOutliers(uint32_t* values, std::size_t n,
+                                           uint32_t* scratch) {
+  // Nothing to work with: one or two samples have no majority to be the odd one
+  // out of, and a disabled factor means the caller wants the raw burst.
+  if (madFactor_ == 0 || n < 3) {
+    return n;
+  }
+
+  // Median absolute deviation, in two passes of the median we already have. The
+  // deviations go in `scratch` because medianOf() sorts what it is handed, and
+  // sorting `values` a second time by deviation would scramble the counts.
+  const uint32_t median = medianOf(values, n);
+  for (std::size_t i = 0; i < n; ++i) {
+    scratch[i] = (values[i] > median) ? (values[i] - median)
+                                      : (median - values[i]);
+  }
+  uint32_t mad = medianOf(scratch, n);
+  if (mad < kMinMadCounts) {
+    mad = kMinMadCounts;  // see kMinMadCounts: a quiet burst is not an error
+  }
+
+  // Why the pack's own spread and not a fixed millivolt threshold: this way the
+  // window needs no per-board tuning. A quiet rail keeps it tight, a noisy one
+  // opens it by itself, and a transmit droop lands far outside either.
+  const uint32_t limit = mad * madFactor_;
+
+  // COUNT before compacting. Compaction overwrites the front of `values`, so
+  // doing it first would leave nothing to fall back to if the count turns out
+  // too low - the array would be neither the survivors nor the full burst.
+  std::size_t kept = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const uint32_t deviation =
+        (values[i] > median) ? (values[i] - median) : (median - values[i]);
+    if (deviation <= limit) {
+      ++kept;
+    }
+  }
+
+  // Fewer than half survived: the pack is genuinely collapsing, or the sag
+  // lasted the whole window. Either way there is no quiet majority to fall back
+  // on, and a "clean" reading assembled from a handful of samples would be a
+  // guess dressed up as a measurement. Hand back the honest low burst instead,
+  // and say so - a device logging this every cycle is telling you its window is
+  // too short for its radio, not that its pack is bad.
+  //
+  // `values` is left sorted rather than in sample order, which no caller minds:
+  // the mean sums it and the median re-sorts it.
+  if (kept * 2 < n) {
+    ESP_LOGW(TAG,
+             "outlier trim kept only %u of %u samples - using the full burst",
+             (unsigned)kept, (unsigned)n);
+    return n;
+  }
+
+  // Now compact, walking a sorted array: the survivors are a contiguous run, so
+  // this only ever shifts them down toward the front.
+  std::size_t write = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const uint32_t deviation =
+        (values[i] > median) ? (values[i] - median) : (median - values[i]);
+    if (deviation <= limit) {
+      values[write++] = values[i];
+    }
+  }
+
+  return write;
 }
 
 int8_t BatteryMethods::percentLinear(uint32_t mv) const {

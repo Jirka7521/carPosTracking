@@ -23,6 +23,18 @@
 //  It borrows AdcSampler and Sim7000Modem (owning neither), like every other
 //  user of those two.
 //
+//  The burst behind sources 0-3 is SPREAD IN TIME and TRIMMED, and both halves of
+//  that matter for the same reason. Under a SIM7000 transmit burst (~2 A) or a
+//  WiFi publish the pack rail sags for a few tens of milliseconds; a burst of
+//  back-to-back conversions finishes in microseconds, so a sag that coincides
+//  with it moves EVERY sample the same way and no amount of averaging or
+//  medianing can reject it. Spacing the conversions (kBatteryAdcSampleGapMs)
+//  puts them on both sides of such a sag rather than inside it, which demotes the
+//  sag to a minority - and the outlier trim then deletes that minority outright,
+//  so mean and median alike are computed from what the pack really sits at.
+//  Neither step is useful without the other: spacing alone only spreads the
+//  damage across the average, trimming alone has nothing but noise to trim.
+//
 //  Ported from the Arduino comparison rig (the standalone BatteryTest sketch,
 //  outside this repo), with two deliberate differences:
 //
@@ -56,14 +68,21 @@ class BatteryMethods {
   //   vbatDivider/solarDivider : on-board divider ratios (voltage is multiplied
   //                              back up by these)
   //   samples                  : ADC conversions per burst, averaged + medianed
+  //   sampleGapMs              : delay between those conversions, which is what
+  //                              spreads the burst across a transmit burst
+  //                              rather than into one (see the banner)
+  //   madFactor                : how many median absolute deviations from the
+  //                              burst median a sample may sit before it is
+  //                              discarded; 0 disables the trim
   //   emptyMv / fullMv         : the linear model's 0 % and 100 % ends
   //   inputThresholdMv         : charge input above this = a source is present
   //   noReadingMv              : pack voltage below this = the ADC path has no
   //                              battery in front of it (see the USB caveat)
   BatteryMethods(AdcSampler& adc, Sim7000Modem& modem, int vbatPin,
                  int solarPin, float vbatDivider, float solarDivider,
-                 std::size_t samples, uint32_t emptyMv, uint32_t fullMv,
-                 uint32_t inputThresholdMv, uint32_t noReadingMv);
+                 std::size_t samples, uint32_t sampleGapMs, uint32_t madFactor,
+                 uint32_t emptyMv, uint32_t fullMv, uint32_t inputThresholdMv,
+                 uint32_t noReadingMv);
 
   // Claim both sense pins on the shared ADC. Returns true when at least the pack
   // pin is usable; a missing charge-input pin only costs the solar columns, so
@@ -71,8 +90,14 @@ class BatteryMethods {
   bool begin();
 
   // Take one sweep. Always fills `out` (invalid sources are marked absent, never
-  // faked); returns out.valid, i.e. whether anything answered at all. Costs one
-  // ADC burst plus a single AT+CBC round trip.
+  // faked); returns out.valid, i.e. whether anything answered at all.
+  //
+  // BLOCKS for roughly samples * sampleGapMs (~2 s at the defaults) plus a single
+  // AT+CBC round trip. That is deliberate - see the banner - and it is spent on
+  // vTaskDelay, so the CPU is idle rather than busy for it. Call it once per
+  // reporting cycle and OUTSIDE the fix window; the cadence is unaffected because
+  // the reporting interval is anchored at fix capture, so the time comes out of
+  // the idle wait rather than out of the rhythm.
   bool sample(BatteryMethodsSample& out);
 
  private:
@@ -88,6 +113,18 @@ class BatteryMethods {
   // Median of `n` raw counts. Sorts `values` in place (insertion sort - n is a
   // handful, and it beats anything cleverer at this size).
   static uint32_t medianOf(uint32_t* values, std::size_t n);
+
+  // Delete the transmit-droop samples from a burst, in place.
+  //
+  // Keeps only the samples within madFactor_ median absolute deviations of the
+  // burst median, compacts the survivors to the front of `values` and returns how
+  // many there are (never 0 - see the two fallbacks in the implementation, which
+  // are what stop this filtering a legitimately collapsing pack down to nothing).
+  // `scratch` must have room for `n` entries; it holds the deviations.
+  //
+  // Not static only because it reads madFactor_. Sorts `values` as a side effect,
+  // which callers must not depend on - the compaction reorders it again.
+  std::size_t rejectOutliers(uint32_t* values, std::size_t n, uint32_t* scratch);
 
   // The three state-of-charge models. Each maps a pack voltage in millivolts to
   // 0-100 %. Kept static and pure so a capture can be re-scored offline with the
@@ -105,8 +142,12 @@ class BatteryMethods {
   static constexpr std::size_t kTrendWindow = 5;
 
   // Upper bound on one ADC burst. The burst lives on the stack, so this caps
-  // that too; `samples_` is clamped to it in the constructor.
-  static constexpr std::size_t kMaxSamples = 32;
+  // that too; `samples_` is clamped to it in the constructor. Raised from 32
+  // when the burst was spread in time: the window's span is set by the gap, but
+  // a longer span wants more samples in it to keep the median sharp. Two arrays
+  // of this size are now on the stack (the counts and the deviations the trim
+  // works from), which is still only half a kilobyte.
+  static constexpr std::size_t kMaxSamples = 64;
 
   AdcSampler&   adc_;
   Sim7000Modem& modem_;
@@ -116,6 +157,8 @@ class BatteryMethods {
   float       vbatDivider_;
   float       solarDivider_;
   std::size_t samples_;
+  uint32_t    sampleGapMs_;
+  uint32_t    madFactor_;
   uint32_t    emptyMv_;
   uint32_t    fullMv_;
   uint32_t    inputThresholdMv_;

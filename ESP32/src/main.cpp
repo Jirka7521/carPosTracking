@@ -247,6 +247,7 @@ extern "C" void app_main(void) {
       adcSampler, modem, config::kBatteryVbatSensePin,
       config::kBatterySolarSensePin, config::kBatteryDividerRatio,
       config::kSolarDividerRatio, config::kBatteryAdcSamples,
+      config::kBatteryAdcSampleGapMs, config::kBatteryOutlierMadFactor,
       config::kBatteryEmptyMv, config::kBatteryFullMv,
       config::kSolarInputThresholdMv, config::kBatteryNoReadingMv);
   static BatteryCsvLogger batteryCsv(sdCard, config::kSdBatteryLogPath,
@@ -471,24 +472,43 @@ extern "C" void app_main(void) {
     // lock, and the charger edge below can only be spotted by a detector that
     // actually ran on every cycle. The debug callback above is a separate,
     // debug-only read that runs during the wait.
+
+    // Every way this board can measure the pack. Three things fix where this
+    // call sits, and all three are about measuring the pack rather than the
+    // radios:
     //
+    //   * BEFORE the publish, because one of its columns is what gets published;
+    //   * exactly ONCE per cycle, because its trend detector's window is five
+    //     *calls* - a second call would quietly halve the span those columns
+    //     cover;
+    //   * FIRST, ahead of battery.read()'s AT+CBC below. The sweep opens with an
+    //     ADC burst and closes with its own AT+CBC, so it already keeps the
+    //     quiet end for the pin that needs it; running the monitor's AT+CBC
+    //     ahead of it - as this used to - put modem traffic right back in front
+    //     of the burst and undid that.
+    //
+    // The settle pause is the same argument one step further out: the acquire
+    // loop's per-poll hook flushes the MQTT backlog over WiFi and can finish
+    // microseconds before the first conversion, so give the rail a moment to
+    // come back up first. The burst's own spacing is what really does the work
+    // (see BatteryMethods.h); this just stops the window opening on a droop.
+    BatteryMethodsSample methods;
+    if (methodsReady) {
+      if (config::kBatteryQuietSettleMs > 0) {
+        vTaskDelay(pdMS_TO_TICKS(config::kBatteryQuietSettleMs));
+      }
+      batteryMethods.sample(methods);
+    }
+
     // fwBattery is BatteryMonitor's own verdict, and it is kept deliberately
     // SEPARATE from sample.battery further down, which is the published figure.
     // The CSV's fw_* columns exist precisely to be compared against the other
     // methods, so feeding them anything but the monitor's own answer would empty
-    // them of meaning.
+    // them of meaning. It also carries the charging flag the rest of this cycle
+    // acts on, which is why it still has to run before the charger edge below.
     BatteryStatus fwBattery;
     if (config::kBatteryEnabled) {
       battery.read(fwBattery);
-    }
-
-    // Every way this board can measure the pack. Taken BEFORE the publish
-    // because one of its columns is now what gets published, and called exactly
-    // ONCE per cycle, because its trend detector's window is five *calls* - a
-    // second call would quietly halve the span those columns cover.
-    BatteryMethodsSample methods;
-    if (methodsReady) {
-      batteryMethods.sample(methods);
     }
 
     // Has the charger just come off? Only the edge counts - see ChargerWatcher.

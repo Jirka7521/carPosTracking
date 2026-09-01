@@ -249,9 +249,42 @@ constexpr int kBatterySolarSensePin = 36;  // ADC1_CH0, charge input (solar/VIN)
 constexpr float kBatteryDividerRatio = 2.0f;
 constexpr float kSolarDividerRatio   = 2.0f;
 
-// ADC conversions per measurement. They are averaged AND medianed, which is two
-// of the five voltage sources; 16 smooths the noise without a visible delay.
-constexpr uint32_t kBatteryAdcSamples = 16;
+// ADC conversions per measurement, and how far apart in time they are taken.
+//
+// Both numbers exist because of the same problem. Under a SIM7000 transmit burst
+// (~2 A) or a WiFi publish, VBAT sags for a few tens of milliseconds. A burst of
+// back-to-back conversions finishes in MICROSECONDS, so a sag that coincides
+// with it drags EVERY sample down together - and neither an average nor a median
+// can reject what all the samples share. Spacing the conversions puts them on
+// both sides of such a burst instead of inside one, which is what turns the sag
+// into a minority the outlier filter below can delete.
+//
+// 48 x 40 ms spans about 1.9 s. That comes out of the idle wait between reports,
+// not out of the reporting cadence (the interval is anchored at fix capture), so
+// the only real cost is ~2 s more awake time per cycle when sleeping between
+// sends - small next to a GNSS acquire. The gap is quantised to the FreeRTOS
+// tick (10 ms by default), so keep it a multiple of 10.
+constexpr uint32_t kBatteryAdcSamples     = 48;
+constexpr uint32_t kBatteryAdcSampleGapMs = 40;
+
+// How far a sample may sit from the burst median before it is thrown away,
+// counted in median absolute deviations. Measuring against the burst's OWN
+// spread rather than a fixed millivolt threshold is what keeps this free of
+// per-board tuning: a quiet pack keeps a tight window, a noisy one widens it by
+// itself.
+//
+// 3 is the conventional choice - it keeps essentially all of a clean burst and
+// still cuts a transmit droop, which lands far outside it. Lower it to 2 to
+// reject harder, but watch that the "too few survivors" fallback in
+// BatteryMethods is not then firing every cycle.
+constexpr uint32_t kBatteryOutlierMadFactor = 3;
+
+// Quiet pause before the sweep starts. The GNSS acquire loop's per-poll hook
+// flushes the MQTT backlog over WiFi, and it can finish microseconds before the
+// first conversion would otherwise fire; this lets the rail come back up first.
+// Cheap insurance next to the spacing above, which is what actually does the
+// work. 0 skips the pause.
+constexpr uint32_t kBatteryQuietSettleMs = 200;
 
 // Above this on the charge-input pin, a charge source is considered present.
 constexpr uint32_t kSolarInputThresholdMv = 1000;
