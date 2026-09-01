@@ -275,6 +275,52 @@ Apply migrations manually **as `admin`** (never auto-migrate):
 dotnet ef database update --connection "Host=jimajer.cz;Port=5432;Database=carpos;Username=admin;Password=<admin password>;SSL Mode=VerifyFull;Root Certificate=<path to ca.crt>"
 ```
 
+### Seeing what would change first — the `schema-sync` CLI mode
+
+`dotnet ef database update` applies migrations blind: nothing shows what is about
+to change, and nothing warns that a step drops a column with rows behind it. The
+`schema-sync` mode answers that question before you commit to it.
+
+**The intended front door is Ctrl+Shift+M → option 2**
+([`scripts/Sync-DatabaseSchema.ps1`](../../scripts/Sync-DatabaseSchema.ps1)), which
+picks the database, drives the prompts and holds the confirmation gate. The mode is
+usable directly too:
+
+```powershell
+# What differs, as a numbered list. Exit 0 = in sync, 2 = differences, 1 = error.
+dotnet run -- schema-sync report --connection "<conn>" [--summary <path.json>]
+
+# Apply only the numbers you chose from that report.
+dotnet run -- schema-sync apply --connection "<conn>" --select 1,2,4 `
+    [--verify <path.json>] [--allow-data-loss]
+```
+
+It reads the target's **real** tables and columns out of the catalog and compares
+them with the compiled EF model, so it sees drift the migration history cannot —
+a column somebody added by hand, a type changed in place. Differences a pending
+migration covers are grouped under that migration and applied by EF's own migrator;
+the rest are repaired by generated DDL that is **printed before it runs**.
+
+Four things are worth knowing:
+
+- **`--allow-data-loss` is required** for anything that drops or retypes a populated
+  object, and `apply` refuses without it. A statement counts as destructive only when
+  the table it targets actually exists *and holds rows* — so a first-time deployment
+  is not plastered with warnings that cannot apply to it.
+- **`--verify` guards against a stale choice.** `apply` rebuilds the plan (so it never
+  acts on an out-of-date picture), which means the numbers could shift if the database
+  moved in between. Passing the summary you confirmed makes it refuse rather than apply
+  something you did not pick.
+- **Objects created by raw migration SQL are never offered for deletion.** The
+  `positions.location` generated column is absent from the EF model but very much part
+  of the source, so it is reported as a note instead of a stray to drop.
+- **It will not invent data.** Adding a `NOT NULL` column to a populated table is
+  reported and explained, not attempted — that needs a migration with a default or a
+  backfill.
+
+Migrations are still reviewed before they are applied, and the database is still
+never auto-migrated; this mode exists to make that review possible, not to replace it.
+
 ## REST API
 
 Every endpoint requires a session except `POST /api/auth/register`,

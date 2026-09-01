@@ -1,10 +1,12 @@
 // Program.cs — composition root only: configuration binding, DI registrations,
-// the import-device-key CLI branch and the HTTP pipeline. All behaviour lives in
-// the layer folders (Options/, Data/, Services/), per project guidelines.
+// the two CLI branches (schema-sync, import-device-key) and the HTTP pipeline. All
+// behaviour lives in the layer folders (Options/, Data/, Services/), per project
+// guidelines.
 
 using System.Text;
 using System.Threading.RateLimiting;
 using CarPosAPI.Data;
+using CarPosAPI.Data.SchemaSync;
 using CarPosAPI.Middleware;
 using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
@@ -22,6 +24,18 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+
+// CLI mode: compare a database against the schema this source describes, and
+// optionally bring it into line. Runs BEFORE the builder — unlike
+// import-device-key below — for two reasons: it must not need the JWT key, master
+// key or broker credentials, whose ValidateOnStart would refuse to boot for a task
+// that touches none of them; and it takes its database from --connection so it can
+// be pointed anywhere, which a DI-supplied context could not be (appsettings.Local
+// .json is added last and would override any connection passed in).
+if (SchemaSyncCommand.IsRequested(args))
+{
+    return await SchemaSyncCommand.RunAsync(args);
+}
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
