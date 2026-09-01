@@ -397,12 +397,20 @@ export function DeviceConfigSection({
             edit these values needs to know they are on a timetable. */}
         {isScheduled ? (
           <div className="banner banner--info" role="status">
-            This device is on a <strong>schedule</strong>
-            {schedule?.status?.activeProfileName
-              ? <> and is currently running the <strong>{schedule.status.activeProfileName}</strong> profile</>
-              : null}
-            . Saving here holds only until the next switch — to change it for good,
-            edit that profile in <em>Settings Schedule</em> above.
+            <span className="banner-icon" aria-hidden="true">🗓️</span>
+            {/* One flex child, so the copy flows as a sentence instead of the
+                banner's flex gap prising every <strong> apart. */}
+            <div className="banner-text">
+              <p className="banner-title">
+                {schedule?.status?.activeProfileName
+                  ? <>A schedule is running the <strong>{schedule.status.activeProfileName}</strong> profile on this device.</>
+                  : <>A schedule is in charge of these settings.</>}
+              </p>
+              <p className="banner-detail">
+                Saving here applies straight away, but the next profile switch replaces it.
+                To change it for good, edit the profile in <em>Settings › Schedule</em> above.
+              </p>
+            </div>
           </div>
         ) : null}
 

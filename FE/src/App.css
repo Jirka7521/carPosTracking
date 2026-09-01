@@ -1680,6 +1680,37 @@
   align-items: flex-start;
 }
 
+/*
+ * Banner body. The banner itself is a flex row, so a message written as prose
+ * with <strong>/<em> in it must be handed over as ONE child — otherwise every
+ * inline tag becomes its own flex item and inherits the 10px gap, which reads
+ * as a row of loose fragments rather than a sentence.
+ */
+.banner-icon {
+  font-size: 1rem;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.banner-title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.banner-detail {
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 .banner--info {
   background: var(--blue-50);
   border-color: var(--blue-200);
