@@ -876,10 +876,24 @@ lengthening it simply extends the wait. No extra GNSS acquire, no extra airtime.
 Switching `sleep_between` on mid-wait ends the wait immediately, so the device
 sleeps promptly instead of staying awake for what could be another 24 hours.
 
+**The acquire is the other place a config gets adopted.** Chasing a lock can take
+minutes, and the per-fix-poll hook in the main loop polls `RemoteSettings` on
+every step of it. It adopts the document *completely* — it takes it, moves the
+loop's working settings onto it and pushes them through `SettingsApplier` — so a
+change saved while the device is hunting for satellites is in force by the time
+that cycle's report is assembled, and is reported as such. Doing only the first
+of those three used to leave the report stamped with the previous revision, which
+showed up in the dashboard as a change staying "pending" until the report *after*
+the one that adopted it. The acquire already running keeps the `fix_timeout_s` it
+was started with: a shortened timeout takes effect from the next cycle rather
+than truncating a wait that is about to produce a lock.
+
 **With `sleep_between` on none of this runs** — the radio and the CPU are off, so
 there is nothing to push to and nothing to poll. Such a device gets its
 configuration through the retained replay on every wake, which is why
-`config_check_s` is documented as awake-mode-only.
+`config_check_s` is documented as awake-mode-only. If that replay is slower than
+the few seconds the wake allows for it, the document lands during the acquire
+instead and the hook above still gets it into that wake's report.
 
 In the other direction, every position report carries `settings_version`. The API
 records it against the device row, so the dashboard can show whether a change it
@@ -887,6 +901,13 @@ published has actually been adopted — and, because the API keeps every revisio
 *which* values the tracker is running while a newer one waits. The version is
 stamped when the fix is **captured**, not when it is published, so a backlog
 drained days later honestly reports the settings it was taken under.
+
+Two gaps are inherent to echoing the revision inside telemetry rather than
+acking it separately. A config that arrives *after* the sample is sealed but
+before the publish finishes is reported next cycle — that sample really was
+captured under the older settings. And a cycle that gets no fix publishes
+nothing, so a device that cannot see the sky adopts its new configuration
+silently and confirms it only once it gets a lock.
 
 ---
 

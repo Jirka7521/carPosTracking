@@ -388,21 +388,36 @@ extern "C" void app_main(void) {
   //      of the link coming back, instead of sitting on it through a 3-minute
   //      acquire it will lose anyway. The call is a cheap no-op when there is
   //      nothing queued or the broker is unreachable.
-  //   1b. Adopts a config that has arrived. An acquire can last minutes, and the
+  //   1b. Adopts a config that has arrived, FULLY: it takes the document, moves
+  //      the loop's `settings` copy onto it and pushes it through the applier.
+  //      Doing only the first of those three would leave the report built at the
+  //      end of this cycle stamped with the previous revision - the device would
+  //      be running the new settings while the dashboard still said "pending",
+  //      until the report after this one. An acquire can last minutes, and the
   //      CPU is fully awake here driving the modem, so polling costs nothing and
-  //      means a setting saved during the wait is in force by the time the
-  //      report is built rather than a whole cycle later. Runs on this same
-  //      task, so current() still needs no locking.
+  //      means a setting saved during the wait is in force - and *reported as
+  //      in force* - by the time the report is built, rather than a whole cycle
+  //      later. Runs on this same task, so current() still needs no locking.
+  //
+  //      The acquire already in flight keeps the fix budget it was started with:
+  //      settings.fixTimeoutSeconds() was read by value when acquire() was
+  //      called. That is deliberate - a shortened timeout should not truncate a
+  //      wait that is already half spent and about to produce a lock; it takes
+  //      effect from the next cycle.
   //   2. In debug builds only, prints the battery and accelerometer status
   //      beneath each satellite table while we wait - not just once the wait
   //      ends. Compiled out entirely when kGnssDebug is false, so production
   //      builds add no extra per-poll modem traffic.
-  // Only `fix` needs capturing - every collaborator it touches has static
-  // storage duration and is reachable without one.
-  std::function<void()> onEachPoll = [&fix]() {
+  // Only `fix` and `settings` need capturing - every collaborator touched here
+  // has static storage duration and is reachable without one. Both are locals of
+  // app_main(), which never returns, so the references cannot dangle.
+  std::function<void()> onEachPoll = [&fix, &settings]() {
     if (config::kMqttEnabled) {
       forwarder.flushBacklog(fix);
-      remoteSettings.poll();
+      if (remoteSettings.poll()) {
+        settings = remoteSettings.current();
+        settingsApplier.apply(settings);
+      }
     }
 
     if (config::kGnssDebug) {
@@ -518,7 +533,10 @@ extern "C" void app_main(void) {
     TelemetrySample sample;
     sample.gnss = fix;
     // Stamped from the settings in force at capture time, not at publish time -
-    // see the note on TelemetrySample::settingsVersion.
+    // see the note on TelemetrySample::settingsVersion. `settings` is current as
+    // of the end of the acquire: the per-poll hook above adopts anything that
+    // landed during it, so a config saved while we were chasing a lock is
+    // reported by THIS cycle's report rather than the next one.
     sample.settingsVersion = settings.version();
 
     // The one battery figure that goes on the wire. BatteryReporter turns the
@@ -591,10 +609,15 @@ extern "C" void app_main(void) {
       }
     }
 
-    // A config may have arrived while we were publishing (the per-poll hook
-    // above covers the acquire). Adopt whatever is current either way - apply()
-    // is a no-op when nothing changed, so this is cheaper than tracking whether
-    // it was the hook or us that took the message.
+    // Catches the one window the per-poll hook cannot: a config that arrived
+    // while we were sealing and publishing the sample. That one is genuinely
+    // reported next cycle - this sample was captured under the older settings,
+    // and back-dating it would be a lie - but the device must still start
+    // honouring it now rather than after another whole interval.
+    //
+    // poll() is a cheap no-op when the hook already took the document, and
+    // apply() is a no-op when nothing changed, so this costs nothing on the
+    // common path and is simpler than tracking who took the message.
     if (config::kMqttEnabled) {
       remoteSettings.poll();
       settings = remoteSettings.current();
