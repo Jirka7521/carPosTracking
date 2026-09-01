@@ -350,7 +350,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
-| `GET /health` | liveness (unauthenticated; database + MQTT state) |
+| `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
 Failures return **`ProblemDetails`** (`application/problem+json`), with `detail`
 written for the end user — never an exception message, SQL or a stack trace.
@@ -758,15 +758,67 @@ No new broker ACL is needed: scheduled changes go out on the same
 
 ```powershell
 dotnet build                       # must be clean
-dotnet test ..\CarPosAPI.Tests     # crypto/codec/validator unit tests
+dotnet test ..\CarPosAPI.Tests     # crypto/codec/validator/health unit tests
 dotnet run                         # http://localhost:5135 (https://localhost:7032)
 dotnet format                      # before finishing a change
 ```
 
-`GET /health` (unauthenticated liveness) reports the database check and the
-MQTT link (Degraded while reconnecting) plus ingest counters. OpenAPI is mapped
-in Development only. Neither is proxied to the public internet — the frontend's
-nginx serves `/api/` and nothing else.
+### The health endpoint
+
+`GET /health` is unauthenticated and returns a **JSON report with one entry per
+dependency**, written by
+[`Services/Health/HealthReportWriter.cs`](Services/Health/HealthReportWriter.cs):
+
+```json
+{
+  "status": "Degraded",
+  "checkedAtUtc": "2026-09-01T10:12:33.421Z",
+  "totalDurationMs": 12.41,
+  "checks": {
+    "database":   { "status": "Healthy",  "durationMs": 11.2, "description": "connection ok",
+                    "data": { "latencyMs": 11.2, "provider": "Npgsql.EntityFrameworkCore.PostgreSQL" } },
+    "mqtt":       { "status": "Degraded", "durationMs": 0.01, "description": "disconnected; the reconnect loop is running",
+                    "data": { "connected": false, "messagesReceived": 1204, "positionsInserted": 1190,
+                              "positionsDuplicate": 12, "envelopesRejected": 2,
+                              "lastMessageAtUtc": "2026-09-01T10:04:02Z", "secondsSinceLastMessage": 511.0 } },
+    "migrations": { "status": "Healthy",  "durationMs": 0.9,  "description": "schema up to date",
+                    "data": { "appliedCount": 10, "pendingCount": 0, "pending": [] } },
+    "scheduler":  { "status": "Healthy",  "durationMs": 0.01, "description": "reconciling on schedule",
+                    "data": { "passesCompleted": 412, "passesFailed": 0, "consecutiveFailures": 0,
+                              "devicesChangedTotal": 7, "lastSuccessfulPassAtUtc": "2026-09-01T10:12:03Z",
+                              "secondsSinceLastPass": 30.4 } },
+    "process":    { "status": "Healthy",  "durationMs": 0.0,  "description": "running",
+                    "data": { "version": "1.0.0", "environment": "Production", "uptimeSeconds": 84213 } }
+  }
+}
+```
+
+| Check | Healthy | Degraded | Unhealthy |
+|---|---|---|---|
+| `database` | connection opened, with its latency | — | unreachable, or slower than the 5 s probe timeout |
+| `mqtt` | broker connected | disconnected — the reconnect loop is self-healing | never |
+| `migrations` | the database has every migration this build carries | some are pending, **or the state could not be read** | never |
+| `scheduler` | a pass succeeded within 4 intervals (2 min) | stale, or failing since the last success | never |
+| `process` | always — it reports the build, not a dependency | — | — |
+
+**Only the database can produce a 503.** `Healthy` and `Degraded` both answer
+**200**, which is the contract the container healthcheck reads: a broker blip or
+a stale schedule pass is worth reporting, not worth restarting the process over —
+and a restart fixes neither. The overall `status` is the worst of the entries.
+
+**Nothing here leaks.** Because the endpoint is unauthenticated, the writer
+deliberately drops `HealthReportEntry.Exception` — an Npgsql failure message
+names the host, the database and the role — and every `description` is text this
+codebase wrote. The real failure goes to the log instead. The broker URI,
+username and client id are never included either.
+
+The migrations check memoises its answer for **5 minutes**: pending migrations
+change only when someone runs `--schema-sync`, while the container probes every
+30 s. It degrades rather than fails when it cannot read `__EFMigrationsHistory`,
+so a least-privilege runtime role cannot take a healthy container down.
+
+OpenAPI is mapped in Development only. Neither it nor `/health` is proxied to the
+public internet — the frontend's nginx serves `/api/` and nothing else.
 
 To run the whole stack in containers (API + frontend + nginx), see
 [`../../Container/App/docker-compose.yml`](../../Container/App/docker-compose.yml).
