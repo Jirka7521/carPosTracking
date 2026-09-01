@@ -1,0 +1,7 @@
+# Files that are executed inside Linux containers must keep LF endings no matter
+# what core.autocrlf does on the machine doing the checkout. A CR at the end of
+# the shebang makes the kernel look for an interpreter named "/bin/sh\r", which
+# fails as "not found" (exit 127) long before the script's first line runs.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf
