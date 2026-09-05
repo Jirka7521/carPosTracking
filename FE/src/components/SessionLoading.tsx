@@ -9,11 +9,15 @@
 // blank page would look broken. So: a spinner, briefly.
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
+
 export function SessionLoading() {
+  const { t } = useTranslation('common')
+
   return (
     <div className="loading-state" style={{ minHeight: '60vh' }} role="status" aria-live="polite">
       <div className="spinner" aria-hidden="true" />
-      <span>Loading…</span>
+      <span>{t('states.loading')}</span>
     </div>
   )
 }

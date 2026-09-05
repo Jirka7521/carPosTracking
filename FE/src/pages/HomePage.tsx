@@ -21,6 +21,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { DeviceCard } from '../components/DeviceCard'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
@@ -52,6 +53,8 @@ type ShareDraft = CapabilityFlags & {
 let nextShareKey = 1
 
 export function HomePage() {
+  const { t, i18n } = useTranslation(['home', 'common', 'errors'])
+
   // All devices returned by the API (includes inactive if user has access to them)
   const [devices, setDevices] = useState<DeviceDto[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -85,9 +88,12 @@ export function HomePage() {
   // Filtered + sorted list of devices shown in the grid
   const visibleDevices = useMemo<DeviceDto[]>(() => {
     const filtered = showInactive ? devices : devices.filter((d) => d.isActive)
-    // Sort by the label the user actually sees, not by the underlying id.
-    return [...filtered].sort((a, b) => deviceLabel(a).localeCompare(deviceLabel(b)))
-  }, [devices, showInactive])
+    // Sort by the label the user actually sees, not by the underlying id — and
+    // in the reader's own collation, which is what puts "Č" after "C" rather
+    // than at the end of the alphabet.
+    const collator = new Intl.Collator(i18n.resolvedLanguage ?? i18n.language)
+    return [...filtered].sort((a, b) => collator.compare(deviceLabel(a), deviceLabel(b)))
+  }, [devices, showInactive, i18n.resolvedLanguage, i18n.language])
 
   // How many inactive devices are hidden (used for the info hint)
   const hiddenCount = useMemo(
@@ -117,7 +123,7 @@ export function HomePage() {
         }
       } catch (error) {
         if (!canceled && isInitial) {
-          setLoadError(describeError(error, 'Failed to load devices.'))
+          setLoadError(describeError(error, t('errors:loadDevicesFailed')))
         }
       } finally {
         if (!canceled) {
@@ -131,6 +137,10 @@ export function HomePage() {
     return () => {
       canceled = true
     }
+    // `t` is deliberately not a dependency — it is only reached for the
+    // fallback error message, and listing it would re-fetch the device list
+    // every time the reader changes language.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh.token])
 
   function resetAddForm(): void {
@@ -181,9 +191,7 @@ export function HomePage() {
     const trimmedId = newDeviceId.trim()
     if (!DEVICE_ID_PATTERN.test(trimmedId)) {
       setAddIsError(true)
-      setAddMessage(
-        'The device ID may contain only letters, digits, hyphens and underscores (up to 64 characters).',
-      )
+      setAddMessage(t('home:add.invalidId'))
       return
     }
 
@@ -213,7 +221,7 @@ export function HomePage() {
       setShowAddForm(false)
     } catch (error) {
       setAddIsError(true)
-      setAddMessage(describeError(error, 'Failed to register device.'))
+      setAddMessage(describeError(error, t('errors:registerDeviceFailed')))
     } finally {
       setIsAdding(false)
     }
@@ -223,7 +231,7 @@ export function HomePage() {
     <div className="page-content">
       {/* Page title + Add Device button */}
       <div className="page-header">
-        <h1>My Devices</h1>
+        <h1>{t('home:title')}</h1>
         <button
           type="button"
           className="btn btn-primary"
@@ -236,7 +244,7 @@ export function HomePage() {
             setProvisioning(null)
           }}
         >
-          {showAddForm ? '✕  Cancel' : '+ Add Device'}
+          {showAddForm ? t('home:add.close') : t('home:add.open')}
         </button>
       </div>
 
@@ -246,24 +254,20 @@ export function HomePage() {
        */}
       {showAddForm ? (
         <div className="add-device-panel">
-          <h3>Register a new device</h3>
-          <p>
-            The device ID is the tracker's MQTT identity — the same string it
-            publishes under and authenticates with. It is permanent and must be
-            unique; the server rejects duplicates.
-          </p>
+          <h3>{t('home:add.title')}</h3>
+          <p>{t('home:add.intro')}</p>
 
           <form onSubmit={handleAddDevice}>
             <div className="add-device-row">
               <div className="form-field">
-                <label htmlFor="new-device-id">Device ID</label>
+                <label htmlFor="new-device-id">{t('home:add.deviceId')}</label>
                 <input
                   id="new-device-id"
                   className="form-input"
                   type="text"
                   value={newDeviceId}
                   onChange={(e) => setNewDeviceId(e.target.value)}
-                  placeholder="e.g. GNSS01"
+                  placeholder={t('home:add.deviceIdPlaceholder')}
                   pattern="[A-Za-z0-9_\-]{1,64}"
                   maxLength={64}
                   required
@@ -273,7 +277,8 @@ export function HomePage() {
 
               <div className="form-field">
                 <label htmlFor="new-device-name">
-                  Display name <span className="hint">(optional)</span>
+                  {t('home:add.displayName')}{' '}
+                  <span className="hint">{t('common:optional')}</span>
                 </label>
                 <input
                   id="new-device-name"
@@ -281,7 +286,7 @@ export function HomePage() {
                   type="text"
                   value={newDisplayName}
                   onChange={(e) => setNewDisplayName(e.target.value)}
-                  placeholder="e.g. Blue van"
+                  placeholder={t('home:add.displayNamePlaceholder')}
                   maxLength={128}
                 />
               </div>
@@ -292,16 +297,13 @@ export function HomePage() {
                 here. */}
             <div className="share-draft-list">
               <div className="filter-row">
-                <span className="hint">
-                  Share with other people now (optional). You always keep full
-                  access to devices you register.
-                </span>
+                <span className="hint">{t('home:add.shareHint')}</span>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={addShareRow}
                 >
-                  + Add person
+                  {t('home:add.addPerson')}
                 </button>
               </div>
 
@@ -309,7 +311,7 @@ export function HomePage() {
                 <div key={share.key} className="share-draft">
                   <div className="add-device-row">
                     <div className="form-field">
-                      <label htmlFor={`share-email-${share.key}`}>Email address</label>
+                      <label htmlFor={`share-email-${share.key}`}>{t('home:add.emailAddress')}</label>
                       <input
                         id={`share-email-${share.key}`}
                         className="form-input"
@@ -318,7 +320,7 @@ export function HomePage() {
                         onChange={(e) => setShares((current) => current.map((s) => (
                           s.key === share.key ? { ...s, email: e.target.value } : s
                         )))}
-                        placeholder="colleague@example.com"
+                        placeholder={t('home:add.emailPlaceholder')}
                       />
                     </div>
                     <button
@@ -327,7 +329,7 @@ export function HomePage() {
                       style={{ flexShrink: 0 }}
                       onClick={() => setShares((current) => current.filter((s) => s.key !== share.key))}
                     >
-                      Remove
+                      {t('common:actions.remove')}
                     </button>
                   </div>
 
@@ -342,7 +344,7 @@ export function HomePage() {
 
             <div className="add-device-row" style={{ marginTop: 12 }}>
               <button type="submit" className="btn btn-primary" disabled={isAdding}>
-                {isAdding ? 'Registering…' : 'Register device'}
+                {isAdding ? t('home:add.submitting') : t('home:add.submit')}
               </button>
             </div>
 
@@ -366,7 +368,7 @@ export function HomePage() {
         <div>
           <ProvisioningPanel
             provisioning={provisioning}
-            title={`Device "${provisioning.deviceId}" registered`}
+            title={t('home:provisioning.title', { deviceId: provisioning.deviceId })}
           />
           <div className="filter-row">
             <button
@@ -374,11 +376,9 @@ export function HomePage() {
               className="btn btn-secondary btn-sm"
               onClick={() => setProvisioning(null)}
             >
-              Dismiss
+              {t('home:provisioning.dismiss')}
             </button>
-            <span className="hint">
-              You can read this again later from the device's Settings tab.
-            </span>
+            <span className="hint">{t('home:provisioning.readAgainHint')}</span>
           </div>
         </div>
       ) : null}
@@ -392,13 +392,11 @@ export function HomePage() {
             checked={showInactive}
             onChange={(e) => setShowInactive(e.target.checked)}
           />
-          <span>Show inactive devices</span>
+          <span>{t('home:filter.showInactive')}</span>
         </label>
 
         {hiddenCount > 0 ? (
-          <span className="hint">
-            {hiddenCount} inactive device{hiddenCount === 1 ? '' : 's'} hidden
-          </span>
+          <span className="hint">{t('home:filter.hiddenCount', { count: hiddenCount })}</span>
         ) : null}
 
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -410,7 +408,7 @@ export function HomePage() {
       {isLoading ? (
         <div className="loading-state">
           <div className="spinner" aria-hidden="true" />
-          <span>Loading your devices…</span>
+          <span>{t('home:loading')}</span>
         </div>
       ) : loadError ? (
         /* Error state */
@@ -421,7 +419,7 @@ export function HomePage() {
             className="btn btn-secondary"
             onClick={() => window.location.reload()}
           >
-            Retry
+            {t('common:actions.retry')}
           </button>
         </div>
       ) : visibleDevices.length === 0 ? (
@@ -429,14 +427,10 @@ export function HomePage() {
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true">📡</span>
           <h3>
-            {devices.length === 0
-              ? 'No devices yet'
-              : 'No active devices'}
+            {devices.length === 0 ? t('home:empty.noneTitle') : t('home:empty.allInactiveTitle')}
           </h3>
           <p>
-            {devices.length === 0
-              ? 'Register your first GPS tracker using the "Add Device" button above.'
-              : 'All your devices are inactive. Enable "Show inactive devices" to see them.'}
+            {devices.length === 0 ? t('home:empty.noneBody') : t('home:empty.allInactiveBody')}
           </p>
           {devices.length === 0 ? (
             <button
@@ -445,7 +439,7 @@ export function HomePage() {
               style={{ marginTop: 12 }}
               onClick={() => setShowAddForm(true)}
             >
-              + Add your first device
+              {t('home:empty.addFirst')}
             </button>
           ) : null}
         </div>

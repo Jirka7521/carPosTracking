@@ -1,0 +1,47 @@
+{
+  "add": {
+    "addPerson": "+ Přidat osobu",
+    "close": "✕  Zrušit",
+    "deviceId": "ID zařízení",
+    "deviceIdPlaceholder": "např. GNSS01",
+    "displayName": "Zobrazovaný název",
+    "displayNamePlaceholder": "např. Modrá dodávka",
+    "emailAddress": "E-mailová adresa",
+    "emailPlaceholder": "kolega@example.com",
+    "intro": "ID zařízení je jeho MQTT identita — stejný řetězec, pod kterým tracker publikuje a kterým se ověřuje. Je trvalé a musí být jedinečné; server duplicity odmítá.",
+    "invalidId": "ID zařízení smí obsahovat pouze písmena, číslice, pomlčky a podtržítka (nejvýše 64 znaků).",
+    "open": "+ Přidat zařízení",
+    "shareHint": "Sdílejte hned s dalšími lidmi (nepovinné). U zařízení, která zaregistrujete, si vždy ponecháte plný přístup.",
+    "submit": "Zaregistrovat zařízení",
+    "submitting": "Registruji…",
+    "title": "Registrace nového zařízení"
+  },
+  "card": {
+    "deactivated": "Deaktivováno {{date}}",
+    "lastFix": "Poslední poloha: {{when}}",
+    "open": "Otevřít zařízení {{label}}",
+    "openCta": "Otevřít →",
+    "registered": "Zaregistrováno {{date}}"
+  },
+  "empty": {
+    "addFirst": "+ Přidat první zařízení",
+    "allInactiveBody": "Všechna vaše zařízení jsou neaktivní. Zaškrtněte „Zobrazit neaktivní zařízení“, chcete-li je vidět.",
+    "allInactiveTitle": "Žádná aktivní zařízení",
+    "noneBody": "Zaregistrujte svůj první GPS tracker tlačítkem „Přidat zařízení“ výše.",
+    "noneTitle": "Zatím žádná zařízení"
+  },
+  "filter": {
+    "hiddenCount_one": "{{count}} skryté neaktivní zařízení",
+    "hiddenCount_few": "{{count}} skrytá neaktivní zařízení",
+    "hiddenCount_many": "{{count}} skrytého neaktivního zařízení",
+    "hiddenCount_other": "{{count}} skrytých neaktivních zařízení",
+    "showInactive": "Zobrazit neaktivní zařízení"
+  },
+  "loading": "Načítám vaše zařízení…",
+  "provisioning": {
+    "dismiss": "Zavřít",
+    "readAgainHint": "Znovu si to můžete zobrazit později na kartě Nastavení daného zařízení.",
+    "title": "Zařízení „{{deviceId}}“ bylo zaregistrováno"
+  },
+  "title": "Moje zařízení"
+}

@@ -1,0 +1,117 @@
+{
+  "cannotEnableYet": "Create at least one profile and choose it as the fallback, then you can turn the schedule on.",
+  "confirm": {
+    "deleteProfile": "Delete the \"{{name}}\" profile?",
+    "deleteRule": "Delete the {{rule}} rule?"
+  },
+  "days": {
+    "everyDay": "Every day",
+    "never": "Never",
+    "weekdays": "Mon–Fri",
+    "weekend": "Sat & Sun",
+    "weekendPreset": "Weekends"
+  },
+  "enable": "Run this device on a schedule",
+  "fallback": {
+    "hint": "What the device runs at any hour no rule covers. Required before the schedule can be turned on.",
+    "label": "Fallback profile",
+    "none": "— none —"
+  },
+  "intro": "Switch this tracker between named profiles on a weekly timetable — reporting less often at night, say, or sleeping through the weekend. The server evaluates the schedule and pushes each change the same way saving settings by hand does, so nothing has to be reflashed and the tracker does not need to be online at the moment a window opens.",
+  "loadErrorHint": "If this keeps saying the schedule was not found, the server this dashboard is talking to is older than the dashboard itself and does not have schedules yet — it needs updating.",
+  "loading": "Loading the schedule…",
+  "message": {
+    "disabled": "Schedule turned off. The device keeps its current settings until you change them.",
+    "enabled": "Schedule enabled — the profile in force has been applied.",
+    "fallbackUpdated": "Fallback profile updated.",
+    "profileCreated": "Profile created.",
+    "profileSaved": "Profile saved.",
+    "resumed": "Schedule resumed.",
+    "ruleAdded": "Rule added.",
+    "ruleDeleted": "Rule deleted.",
+    "ruleSaved": "Rule saved."
+  },
+  "override": {
+    "label": "Overridden",
+    "manual": "Manual settings",
+    "resume": "Resume schedule now",
+    "resumeHint": "Discard the manual settings and apply the scheduled profile now",
+    "resumesNextSwitch": "The schedule resumes at the next switch.",
+    "resuming": "Resuming…",
+    "returnsAt": "<strong>{{profile}}</strong> returns at <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
+    "scheduledProfile": "The scheduled profile"
+  },
+  "previewWhenOff": "The schedule is off, so nothing below is being applied. This is what it would do.",
+  "profile": {
+    "add": "Add profile",
+    "create": "Create profile",
+    "empty": "No profiles yet.",
+    "heading": "Profiles",
+    "inForce": "in force",
+    "inForceWarning": "This profile is in force right now, so saving changes what the tracker is running immediately — not at the next switch.",
+    "intro": "A profile is a complete set of this device’s settings under a name the rules refer to.",
+    "isFallback": "fallback profile",
+    "name": "Profile name",
+    "namePlaceholder": "Night",
+    "nameRequired": "Give the profile a name — it is how the rules refer to it.",
+    "save": "Save profile",
+    "summaryEntry": "{{field}}: {{value}}",
+    "usedByRules_one": "used by {{count}} rule",
+    "usedByRules_other": "used by {{count}} rules"
+  },
+  "rule": {
+    "add": "Add rule",
+    "applyProfile": "Apply profile",
+    "days": "Days",
+    "daysGroup": "Days of the week",
+    "durationWrapping": "{{duration}} · ends the next day",
+    "enabled": "Enabled",
+    "errorBadTime": "Enter both times as HH:MM.",
+    "errorNoDays": "Pick at least one day. To park a rule without losing it, untick \"Enabled\".",
+    "errorNoProfile": "Choose the profile this window should apply.",
+    "from": "From",
+    "noProfiles": "No profiles yet",
+    "priority": "Priority",
+    "priorityHint": "Lower wins where windows overlap.",
+    "save": "Save rule",
+    "summary": "{{days}}, {{from}}–{{to}} · {{duration}}",
+    "summaryWrapping": "{{days}}, {{from}}–{{to}} the next day · {{duration}}",
+    "to": "To"
+  },
+  "ruleList": {
+    "add": "Add rule",
+    "empty": "No rules yet — the fallback profile applies at all times.",
+    "heading": "Rules",
+    "intro": "Listed in the order they are evaluated — lower priority number first. The first rule whose window contains the moment wins; if none does, the fallback applies.",
+    "matchingNow": "matching now",
+    "needProfile": "Create a profile first",
+    "prioritySummary": "priority {{priority}}"
+  },
+  "status": {
+    "awaitingFirstPass": "Waiting for the scheduler’s first pass — this is what it will apply.",
+    "fallback": "fallback",
+    "neverSwitches": "This schedule never switches — the same profile applies all week.",
+    "noProfile": "No profile",
+    "now": "Now",
+    "since": "since {{when}}",
+    "switchesTo": "Switches to <strong>{{profile}}</strong> at <strong>{{when}}</strong> <quiet>({{until}})</quiet>"
+  },
+  "timeline": {
+    "blockTitle": "{{name}} · {{from}}–{{to}}",
+    "building": "Building the week…",
+    "currentTime": "Current time",
+    "localTimeNote": "Shown in your local time ({{zone}}).",
+    "notCovered": "Not covered",
+    "now": "Now"
+  },
+  "title": "Settings Schedule",
+  "until": {
+    "days_one": "in {{value}} day",
+    "days_other": "in {{value}} days",
+    "daysHours": "in {{days}} d {{hours}} h",
+    "hours": "in {{hours}} h",
+    "hoursMinutes": "in {{hours}} h {{minutes}} min",
+    "minutes": "in {{minutes}} min",
+    "now": "now"
+  }
+}

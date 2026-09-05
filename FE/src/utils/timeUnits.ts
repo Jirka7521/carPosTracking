@@ -32,15 +32,23 @@ export const UNIT_SECONDS: Record<TimeUnit, number> = {
   days: 86400,
 }
 
-// What the combobox shows. Plural throughout: the value beside it is usually
-// not 1, and a dropdown that flips between "hour" and "hours" as you type
-// draws the eye to the wrong half of the control.
-export const UNIT_LABELS: Record<TimeUnit, string> = {
-  seconds: 'seconds',
-  minutes: 'minutes',
-  hours: 'hours',
-  days: 'days',
-}
+// What the combobox shows — as translation keys, not as text, because this
+// file stays free of any particular language for the same reason it stays free
+// of state: it is arithmetic, and DurationField is what renders.
+//
+// Plural throughout: the value beside it is usually not 1, and a dropdown that
+// flips between "hour" and "hours" as you type draws the eye to the wrong half
+// of the control. Czech has no single plural form, so these are the "many"
+// form its grammar uses after a bare numeral — see common:units.
+//
+// `as const` matters: it keeps the values literal types, which is what lets
+// t() type-check them against the catalogue.
+export const UNIT_LABEL_KEYS = {
+  seconds: 'common:units.seconds',
+  minutes: 'common:units.minutes',
+  hours: 'common:units.hours',
+  days: 'common:units.days',
+} as const satisfies Record<TimeUnit, string>
 
 // The unit a value reads most naturally in: the largest offered unit it divides
 // into evenly. 3600 s is "1 hour", 300 s is "5 minutes", and 90 s stays "90

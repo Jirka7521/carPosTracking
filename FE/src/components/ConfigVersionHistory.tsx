@@ -17,10 +17,13 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
+import { formatDateTime } from '../i18n/format'
 import { fetchDeviceConfigHistory } from '../services/apiClient'
 import type { DeviceConfigValuesDto, DeviceConfigVersionDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
-import { CONFIG_FIELD_LABELS, diffConfig, formatConfigValue } from '../utils/deviceConfig'
+import { CONFIG_FIELD_LABEL_KEYS, diffConfig, formatConfigValue } from '../utils/deviceConfig'
 import { describeError } from '../utils/errors'
 
 export type ConfigVersionHistoryProps = {
@@ -46,6 +49,8 @@ export function ConfigVersionHistory({
   refreshToken,
   onRestore,
 }: ConfigVersionHistoryProps) {
+  const { t } = useTranslation(['settings', 'common', 'errors'])
+
   const [isOpen, setIsOpen] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [versions, setVersions] = useState<DeviceConfigVersionDto[]>([])
@@ -60,7 +65,7 @@ export function ConfigVersionHistory({
     try {
       setVersions(await fetchDeviceConfigHistory(deviceId))
     } catch (caught) {
-      setError(describeError(caught, 'Failed to load the settings history.'))
+      setError(describeError(caught, t('errors:loadHistoryFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -117,12 +122,12 @@ export function ConfigVersionHistory({
         onClick={handleToggle}
         aria-expanded={isOpen}
       >
-        {isOpen ? '▾' : '▸'} Version history
+        {isOpen ? '▾' : '▸'} {t('settings:history.title')}
       </button>
 
       {isOpen ? (
         <div className="config-history-body">
-          {isLoading ? <p className="hint">Loading…</p> : null}
+          {isLoading ? <p className="hint">{t('common:states.loading')}</p> : null}
 
           {error ? (
             <div className="banner banner--error" role="alert">
@@ -131,7 +136,7 @@ export function ConfigVersionHistory({
           ) : null}
 
           {!isLoading && !error && versions.length === 0 ? (
-            <p className="hint">No revisions recorded.</p>
+            <p className="hint">{t('settings:history.empty')}</p>
           ) : null}
 
           {versions.map((version, index) => (
@@ -139,10 +144,14 @@ export function ConfigVersionHistory({
               <div className="config-history-meta">
                 <span className="config-history-version">v{version.version}</span>
                 {version.version === currentVersion ? (
-                  <span className="config-sync-badge config-sync-badge--synced">published</span>
+                  <span className="config-sync-badge config-sync-badge--synced">
+                    {t('settings:history.published')}
+                  </span>
                 ) : null}
                 {version.version === appliedVersion && version.version !== currentVersion ? (
-                  <span className="config-sync-badge config-sync-badge--pending">on device</span>
+                  <span className="config-sync-badge config-sync-badge--pending">
+                    {t('settings:history.onDevice')}
+                  </span>
                 ) : null}
                 {/* A scheduled revision has no author, and without this tag it
                     would render identically to the two genuinely authorless rows
@@ -151,7 +160,7 @@ export function ConfigVersionHistory({
                     what somebody opens this list to answer. */}
                 {version.source === 'schedule' ? (
                   <span className="schedule-status-tag">
-                    🗓 {version.sourceProfileName ?? 'schedule'}
+                    🗓 {version.sourceProfileName ?? t('settings:history.scheduleTag')}
                   </span>
                 ) : null}
                 <span className="hint">
@@ -159,8 +168,8 @@ export function ConfigVersionHistory({
                   {version.createdBy
                     ? ` · ${version.createdBy}`
                     : version.source === 'schedule'
-                      ? ' · automatic'
-                      : ' · defaults'}
+                      ? ` · ${t('settings:history.automatic')}`
+                      : ` · ${t('settings:history.defaults')}`}
                 </span>
               </div>
 
@@ -175,9 +184,9 @@ export function ConfigVersionHistory({
                   onClick={() => onRestore(version.values)}
                   // Deliberately does not save. It fills the form so the values
                   // can be reviewed (and adjusted) before a new revision is made.
-                  title="Load these values into the form above"
+                  title={t('settings:history.restoreHint')}
                 >
-                  Restore these values
+                  {t('settings:history.restore')}
                 </button>
               )}
             </div>
@@ -196,23 +205,26 @@ function summariseChange(
   previous: DeviceConfigVersionDto | undefined,
 ): string {
   if (previous === undefined) {
-    return 'Initial settings.'
+    return i18n.t('settings:history.initial')
   }
 
   const changed: (keyof DeviceConfigValuesDto)[] = diffConfig(previous.values, version.values)
   if (changed.length === 0) {
-    return 'No values changed.'
+    return i18n.t('settings:history.noChange')
   }
 
   return changed
-    .map(
-      (key) =>
-        `${CONFIG_FIELD_LABELS[key]}: ${formatConfigValue(key, previous.values)} → ${formatConfigValue(key, version.values)}`,
+    .map((key) =>
+      i18n.t('settings:history.changeEntry', {
+        field: i18n.t(CONFIG_FIELD_LABEL_KEYS[key]),
+        from: formatConfigValue(key, previous.values),
+        to: formatConfigValue(key, version.values),
+      }),
     )
     .join(' · ')
 }
 
 function formatTimestamp(value: string): string {
   const parsed: Date | null = parseApiTimestamp(value)
-  return parsed === null ? 'unknown date' : parsed.toLocaleString()
+  return parsed === null ? i18n.t('settings:history.unknownDate') : formatDateTime(parsed)
 }

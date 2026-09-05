@@ -1,0 +1,239 @@
+{
+  "ackKey": {
+    "activate": "I have saved the file — activate this key",
+    "activated": "The new key is active. The API now seals every delivery ack to it — make sure the tracker is flashed with the <code>Config.h</code> you just saved, or it will stop confirming deliveries.",
+    "activating": "Activating…",
+    "generate": "Generate a new ack key pair",
+    "generating": "Generating…",
+    "insecureContext": "Key generation needs a secure context. Open the dashboard over https (or on localhost), or mint the pair with <code>openssl</code> — the commands are in the file below.",
+    "intro": "With acks on, the tracker only clears a fix from its SD card once this API confirms the fix reached the database — a broker acknowledgement alone proves only that the broker took the message. The API seals each verdict to this device, so the device needs its own private key.",
+    "leavingIsSafe": "Leaving now costs nothing: the device keeps its current key and the server is untouched.",
+    "regenerate": "Generate a different pair",
+    "saveFirst": "Save the file first.",
+    "stepActivate": "Then activate the key here, which tells the API to start using its public half.",
+    "stepSave": "Download or copy the <code>Config.h</code> below — it now contains this private key.",
+    "title": "Delivery ack key",
+    "unsavedTitle": "<strong>Nothing has been saved yet.</strong> The private key below exists only in this page. Two steps remain:",
+    "warning": "<strong>Generating a new pair replaces the key this device uses.</strong> The tracker cannot read acks again until you flash it with the new <code>Config.h</code>, and the private key is shown <strong>once</strong> — it is never stored here or on the server, and cannot be recovered afterwards."
+  },
+  "alias": {
+    "clear": "Clear",
+    "cleared": "Device name cleared.",
+    "hint": "Only visible to you. Leave empty to fall back to the device's display name, or its ID.",
+    "inputLabel": "Custom device name",
+    "save": "Save name",
+    "saved": "Device name saved.",
+    "title": "Your name for this device",
+    "tooLong_one": "Name must be {{count}} character or fewer.",
+    "tooLong_other": "Name must be {{count}} characters or fewer."
+  },
+  "config": {
+    "configCheckLabel": "Re-check every",
+    "configCheckSleepNote": "Deep sleep is on, so this setting does nothing. A sleeping tracker has no connection to re-check — it reads its configuration afresh on every wake, which already makes this redundant.",
+    "deviceStillOn": "Device still on {{value}}",
+    "everyDuration": "every {{duration}}",
+    "field": {
+      "configCheckSeconds": "Re-check for settings every",
+      "fixTimeoutSeconds": "GNSS lock timeout",
+      "intervalSeconds": "Report every",
+      "queueMaxFixes": "Undelivered fixes kept",
+      "retryIntervalHours": "Retry rejected fixes every",
+      "retryMaxAgeHours": "Give up on rejected fixes after",
+      "sleepBetween": "Deep-sleep between reports"
+    },
+    "fixesCount_one": "{{value}} fix",
+    "fixesCount_other": "{{value}} fixes",
+    "fixTimeoutHint": "A cold start under a poor sky view can legitimately take minutes. Too short and a parked car never reports; too long and a sleeping tracker burns the battery the sleep was meant to save.",
+    "fixTimeoutLabel": "Give up on a lock after",
+    "group": {
+      "gnss": "GNSS",
+      "power": "Power",
+      "queue": "Undelivered fixes",
+      "rejected": "Rejected fixes",
+      "reporting": "Reporting",
+      "updates": "Configuration updates"
+    },
+    "intro": "How often this tracker reports, whether it sleeps in between, and what it does with fixes it could not deliver. Changes are published to the broker, which holds them — so the device does not need to be online right now, and nothing has to be reflashed. An awake tracker applies a change within seconds; a sleeping one on its next wake.",
+    "loading": "Loading settings…",
+    "outOfRange": "\"{{field}}\" must be a whole number between {{min}} and {{max}}.",
+    "queueMaxHint": "While the broker is unreachable each fix is encrypted and queued on the SD card. Past this many, the oldest are dropped so the card can never fill up. It is a count rather than a duration because a queued entry is bare ciphertext with no timestamp to age it by.",
+    "queueMaxLabel": "Keep at most (fixes)",
+    "queueSpan": "≈ {{duration}} at the current interval",
+    "rejectedHint": "Fixes this server refused are kept apart from the live queue and re-offered slowly, because several reject reasons are server-side and clear on their own. Giving up is the only path that deliberately discards data.",
+    "retryForever": "keep retrying forever",
+    "retryIntervalLabel": "Retry every",
+    "retryMaxAgeLabel": "Give up after (0 = never)",
+    "scheduled": "A schedule is in charge of these settings.",
+    "scheduledDetail": "Saving here applies straight away, but the next profile switch replaces it. To change it for good, edit the profile in <em>Settings › Schedule</em> above.",
+    "scheduledWithProfile": "A schedule is running the <strong>{{profile}}</strong> profile on this device.",
+    "sleepBetweenHint": "Powers the modem down and reboots the tracker on wake. A large battery saving above roughly five minutes, but every cycle then pays for a cold GNSS fix and a fresh TLS handshake — below that it can cost more than it saves.",
+    "title": "Reporting & Power",
+    "updatesHint": "Settings normally reach this tracker <strong>within a second</strong>: it holds an open subscription, so the broker pushes a change the moment it is saved, and a device that reconnects is handed the current settings automatically. The value below is only the backstop — how often it asks the broker to re-send them, in case a connection was quietly dead."
+  },
+  "danger": {
+    "alreadyInactive": "Device already inactive",
+    "confirmDelete": "Yes, delete device",
+    "confirmPrompt": "Are you sure? This cannot be undone.",
+    "delete": "Delete device…",
+    "deleting": "Deleting…",
+    "intro": "Deleting the device deactivates it permanently for <strong>all users</strong> who have access. Historical position data is retained but no new positions will be accepted. This action cannot be undone.",
+    "title": "Danger Zone"
+  },
+  "firmware": {
+    "allParameters": "All firmware parameters",
+    "column": {
+      "constant": "Constant",
+      "meaning": "What it does",
+      "value": "Value"
+    },
+    "intro": "Everything the firmware is built with, read straight out of the file above. These are compile-time constants — changing one means editing <code>Config.h</code> and re-flashing. The reporting interval, sleep flag, GNSS timeout and queue limits are the exception: the values below are only the defaults a tracker falls back to, and <strong>Reporting &amp; Power</strong> above is what actually sets them.",
+    "legend": {
+      "device": "filled in for this tracker",
+      "fixed": "same on every tracker",
+      "remote": "overridden by Reporting & Power",
+      "secret": "typed in above; never sent to the server"
+    },
+    "origin": {
+      "device": "this device",
+      "fixed": "compile-time",
+      "remote": "default only",
+      "secret": "you supply"
+    },
+    "sectionIntro": "A complete <code>Config.h</code> for this device — topics, broker URI, receiver public key and its current settings — ready to save and flash. Re-reading this is always safe: it re-renders the stored public key rather than generating a new pair, so a device already in the field keeps working.",
+    "show": "Show firmware configuration",
+    "title": "Firmware Configuration"
+  },
+  "history": {
+    "automatic": "automatic",
+    "changeEntry": "{{field}}: {{from}} → {{to}}",
+    "defaults": "defaults",
+    "empty": "No revisions recorded.",
+    "initial": "Initial settings.",
+    "noChange": "No values changed.",
+    "onDevice": "on device",
+    "published": "published",
+    "restore": "Restore these values",
+    "restored": "Loaded those values into the form — review them, then save.",
+    "restoreHint": "Load these values into the form above",
+    "scheduleTag": "schedule",
+    "title": "Version history",
+    "unknownDate": "unknown date"
+  },
+  "info": {
+    "battery": "Battery",
+    "deactivated": "Deactivated",
+    "deviceId": "Device ID",
+    "displayName": "Display name",
+    "lastFix": "Last fix received",
+    "registered": "Registered",
+    "status": "Status",
+    "title": "Device Information",
+    "yourPermissions": "Your permissions"
+  },
+  "override": {
+    "confirm": "Save until the next switch",
+    "intro": "This device is on a <strong>schedule</strong>, so saving here does not change what it runs from now on — it holds until the next scheduled switch, and then {{profile}} is applied again.",
+    "namedProfile": "the {{name}} profile",
+    "permanentDisable": "Turn the schedule off, which leaves whatever you save here in force until somebody changes it.",
+    "permanentEditProfile": "Edit the profile the schedule uses — in <em>Settings Schedule</em> above — so every future switch carries the new values; or",
+    "permanentIntro": "To change this device’s settings <strong>permanently</strong>:",
+    "resumesAt": "The schedule resumes <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
+    "resumesNextSwitch": "The schedule resumes at the next switch.",
+    "title": "This change is temporary",
+    "unnamedProfile": "the scheduled profile"
+  },
+  "pending": {
+    "running": "Running (v{{version}})",
+    "setting": "Setting",
+    "title": "Pending change",
+    "willBecome": "Will become (v{{version}})"
+  },
+  "provisioning": {
+    "ackKeyFingerprint": "Ack key fingerprint",
+    "ackNotConfigured": "Not configured — delivery acks are off",
+    "ackTopic": "Ack topic",
+    "broker": "Broker",
+    "configTopic": "Config topic",
+    "copy": "Copy to clipboard",
+    "copyFailed": "Copying is not available here — download it, or select the text below.",
+    "deviceId": "Device ID",
+    "download": "Download Config.h",
+    "fileContents": "Config.h contents",
+    "intro": "A complete <code>Config.h</code> for this device — save it as <code>ESP32/src/config/Config.h</code> and run <code>pio run</code>. Everything specific to this tracker is already in it; the only blanks are the secrets below, which your browser fills in without sending them anywhere.",
+    "keyNote": "Only public keys appear above. The receiver private key — the one that decrypts positions — stays encrypted in the API database and never leaves the server, so neither this device nor the broker can read back its own positions. The ack private key is the mirror image: it is generated here, belongs to the device, and is never sent to the server.",
+    "publicKeyFingerprint": "Public key fingerprint",
+    "telemetryTopic": "Telemetry topic",
+    "title": "Firmware configuration"
+  },
+  "save": {
+    "keptEdits": "Refreshed around your edits — the values you typed were kept.",
+    "republished": "Settings re-published to the broker.",
+    "reset": "Reset",
+    "resumed": "Schedule resumed — the scheduled profile is back in force.",
+    "resumingRefresh": "Schedule resumed. Refreshing the settings…",
+    "saved": "Settings saved.",
+    "savedPublished": "Settings saved and published as v{{version}}. The device applies them on its next report.",
+    "savedTemporary": "Saved as v{{version}}. These values hold until the next scheduled switch.",
+    "submit": "Save settings",
+    "submitScheduled": "Save settings…",
+    "unsaved": "Unsaved changes"
+  },
+  "secrets": {
+    "intro": "These four values are the only blanks left in the file. They are inserted <strong>in this browser</strong> — they are never sent to the server, never stored, and are gone when you leave this page. Leave any of them empty and the file still builds; the matching feature just stays off.",
+    "mqttPassword": "MQTT broker password",
+    "mqttPasswordHint": "The one you created for <code>{{deviceId}}</code> with <code>mosquitto_passwd</code>. The API does not issue broker accounts, so it cannot fill this in for you.",
+    "showPasswords": "Show passwords",
+    "title": "Your secrets",
+    "wifiPassword": "WiFi password",
+    "wifiSsid": "WiFi network (SSID)",
+    "wifiSsidHint": "Filling this in also switches <code>kWifiEnabled</code> on. Left empty, WiFi stays off so the tracker does not wait out a connect timeout on every boot."
+  },
+  "sharing": {
+    "cannotShareWithSelf": "You cannot share a device with yourself.",
+    "confirmRemove": "Remove access for {{email}}?\nThey will no longer be able to see this device.",
+    "emailPlaceholder": "user@example.com",
+    "emailRequired": "Enter the email of the person to invite.",
+    "inviteHint": "Enter their email address. Read access is always granted. Choose which additional permissions to give them.",
+    "inviteTitle": "Invite someone new",
+    "noAccount": "No account found with email \"{{email}}\".",
+    "noOtherUsers": "No other users have access to this device.",
+    "peopleWithAccess": "People with access",
+    "readOnlyNote": "You have Settings permission — you can view who has access, but you need the Share permission to invite or edit users.",
+    "remove": "Remove",
+    "removed": "Removed access for {{email}}.",
+    "share": "Share access",
+    "sharing": "Sharing…",
+    "title": "Access Management"
+  },
+  "sync": {
+    "badge": {
+      "pending": "Pending",
+      "synced": "In sync",
+      "unknown": "Unknown"
+    },
+    "diagram": {
+      "pending": "Settings are published to the broker and waiting for the device to pick them up.",
+      "synced": "Settings have reached the device: dashboard, broker and device all confirmed.",
+      "unknown": "Settings are published to the broker; the device has not confirmed a revision."
+    },
+    "explain": {
+      "deepSleepWait": "With deep sleep on it is only online briefly, so this can take up to one reporting interval ({{interval}}).",
+      "pending": "The broker is holding this change; the device applies it on its next report.",
+      "synced": "The settings below are the ones the tracker is using.",
+      "unknown": "Nothing is wrong with the settings — this device has simply never confirmed which revision it is running. Firmware older than remote settings never will."
+    },
+    "node": {
+      "broker": "Broker",
+      "dashboard": "Dashboard",
+      "device": "Device"
+    },
+    "republish": "Re-send to device",
+    "republishHint": "Publish the current settings to the broker again",
+    "republishing": "Sending…",
+    "status": {
+      "pending": "v{{version}} published · device is running v{{appliedVersion}} · last report {{lastReport}}",
+      "synced": "Device is running v{{version}} · confirmed {{confirmed}}",
+      "unknown": "v{{version}} published · the device has not reported a version yet"
+    }
+  }
+}

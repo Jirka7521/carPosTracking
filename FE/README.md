@@ -98,6 +98,74 @@ The dev server uses a fixed port (`61074`). If that port is in use it exits imme
 
 ---
 
+## Languages
+
+The dashboard ships in **English and Czech**, chosen from the 🌐 picker in the header — and, because the sign-in and registration pages render their own shell rather than `AppLayout`'s, from the top-right corner of those two as well. Somebody who cannot read English has to be able to switch *before* they can sign in.
+
+The choice is remembered in `localStorage` under `carpos.language`, the same `carpos.` namespace the CSV separator preference uses. A first-time visitor gets their browser's language (`cs-CZ` resolves to `cs`; anything unsupported falls back to English). It is a **per-browser** preference, not a per-account one — `UserProfileDto` carries no locale and the API is not involved.
+
+### How it is put together
+
+| | |
+|---|---|
+| [`src/i18n/index.ts`](src/i18n/index.ts) | i18next set-up, `SUPPORTED_LANGUAGES`, locale discovery |
+| [`src/i18n/resources.ts`](src/i18n/resources.ts) | the English catalogue, imported statically — it is also the key TYPE |
+| [`src/i18n/i18next.d.ts`](src/i18n/i18next.d.ts) | feeds that type to i18next, so `t()` is checked by `tsc` |
+| [`src/i18n/format.ts`](src/i18n/format.ts) | the one place `Intl` is configured — dates and numbers |
+| `src/i18n/locales/<lang>/*.json` | the catalogues, one file per namespace |
+
+Eight namespaces, following the route areas so a screen's strings sit together: `common` (buttons, units, weekdays, relative times, permissions), `auth`, `home`, `device` (the shell and the map / positions / charts tabs), `settings` (device settings, config panels, firmware table), `schedule`, `profile`, `errors`.
+
+**Catalogues are bundled, not fetched.** There is no `i18next-http-backend` on purpose: anything fetched at runtime would have to have `BASE_PATH` prepended or it 404s behind the `/carPosFE` prefix while working perfectly at the root — see [Referring to an asset](#referring-to-an-asset), which is the same trap. Two small languages cost a few kB gzipped, and i18next is ready synchronously, so there is no loading gate and no flash of untranslated text.
+
+### Adding a string
+
+```tsx
+const { t } = useTranslation(['device', 'common'])
+…
+<h2>{t('device:positions.title')}</h2>
+<button>{t('common:actions.saveChanges')}</button>
+```
+
+Then `npm run i18n:extract`, and fill in the Czech value. **Forgetting either step fails a build**, from opposite directions: a key that is not in the English JSON is a `tsc -b` error (the types come from that file), and a key the code uses that the catalogues lack fails `npm run i18n:check`.
+
+Counts take `count`, never a hand-written plural — `t('device:positions.loaded', { count: total })`. English has two forms, Czech has four, and `_one`/`_other` is not a shape the others can be squeezed into.
+
+A sentence with markup inside it uses `<Trans>` rather than three separate keys, so the translator gets a whole sentence and can reorder it:
+
+```tsx
+<Trans i18nKey="config.updatesHint" ns="settings" components={{ strong: <strong /> }} />
+```
+
+### Adding a language
+
+1. Copy `src/i18n/locales/en/` to `src/i18n/locales/<code>/` and translate it.
+2. Add `{ code: '<code>', nativeName: '…' }` to `SUPPORTED_LANGUAGES` in [`src/i18n/index.ts`](src/i18n/index.ts).
+
+That is all. Every language except English is discovered from disk by an `import.meta.glob`, so nothing else in the app changes. `nativeName` is deliberately not translated — a language is always listed in its own language, so somebody stranded in one they cannot read can still find the way out.
+
+### Dates, numbers and what stays untranslated
+
+Everything user-visible goes through [`src/i18n/format.ts`](src/i18n/format.ts). This is not cosmetic: `toFixed()` always writes a `.`, while `toLocaleString()` groups thousands the reader's way, so the two used side by side showed a Czech reader `1 234` and `12.3` in the same table row.
+
+Three things deliberately bypass it:
+
+- **`<input type="datetime-local">` values** — the format is fixed by the HTML spec (`formatDateTimeLocal` in [`utils/dates.ts`](src/utils/dates.ts)).
+- **The CSV export** — ISO-8601 UTC timestamps, `.` decimals, and the API's own field names as headers, because the file is read back by a machine. The *separator* is the reader's choice and handles the Czech-Excel case on its own.
+- **Config.h, MQTT topics and firmware constant names** — they must match what the firmware spells.
+
+### Known gap: API error messages
+
+The .NET API returns its ProblemDetails `detail` text in English, and `describeError()` displays it verbatim. So a few server-side errors — a wrong current password, a duplicate device id — still read English in a Czech UI. Fixing that means `Accept-Language` and resources on the backend; it is out of scope for the frontend and is the one place the translation is knowingly incomplete. Every message the *frontend* generates, including the fallback used when the server sends nothing usable, is translated.
+
+### Label tables and dynamic keys
+
+A number of tables map an enum to a label — `CONFIG_FIELD_LABEL_KEYS`, `SERIES[].labelKey`, `CSV_DELIMITERS`, the weekday names. They hold **translation keys, not text**, and the component resolves them, which is what keeps `utils/` free of any particular language.
+
+Because those call sites read `t(SOME_TABLE[key])`, a source scan cannot see them — and `removeUnusedKeys` defaults to true. Every such family is listed under `preservePatterns` in [`i18next.config.ts`](i18next.config.ts). **If you add another table like this, add its prefix there in the same commit**; `tsc` will not catch the loss, because deleting the English key deletes the type along with it.
+
+---
+
 ## Available Scripts
 
 | Script | Description |
@@ -106,6 +174,10 @@ The dev server uses a fixed port (`61074`). If that port is in use it exits imme
 | `npm run build` | Type-check and produce a production build in `dist/` |
 | `npm run preview` | Serve the `dist/` build locally for final checks |
 | `npm run lint` | Run ESLint across all source files |
+| `npm run i18n:extract` | Add keys the code uses to every catalogue; prune dead ones. Run after adding strings |
+| `npm run i18n:check` | Read-only version of the above — **fails when the catalogues are stale**. For CI |
+| `npm run i18n:missing` | List keys English has that another language does not, and ones still holding the English text |
+| `npm run i18n:lint` | Advisory scan for hardcoded strings. Not part of `npm run lint` — it also reports the decorative `aria-hidden` emoji used as section icons, and there is no way to exclude those without also excluding the `<span>`s carrying real text |
 
 ---
 
@@ -123,8 +195,15 @@ FE/
 │   ├── auth/
 │   │   ├── AuthContext.tsx        Session probe, current user, login/logout helpers
 │   │   └── RequireAuth.tsx        Route guard — waits for the probe, then redirects
+│   ├── i18n/                      See "Languages" above
+│   │   ├── index.ts               i18next set-up, SUPPORTED_LANGUAGES, locale discovery
+│   │   ├── resources.ts           The English catalogue — also the type every t() key is checked against
+│   │   ├── i18next.d.ts           Module augmentation that feeds that type to i18next
+│   │   ├── format.ts              The only place Intl is configured — dates and numbers
+│   │   └── locales/<lang>/*.json  One file per namespace; adding a language is adding a folder
 │   ├── components/                Reusable UI components (one file per component)
 │   │   ├── AppLayout.tsx          Sticky navigation bar shell
+│   │   ├── LanguageMenu.tsx       The 🌐 language picker — header, plus the login and register pages
 │   │   ├── SessionLoading.tsx     Spinner shown while the session probe runs
 │   │   ├── DeviceMap.tsx          Google Maps component with position markers
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit in the selection
@@ -167,6 +246,9 @@ FE/
 ├── nginx.conf                     SPA serving + /api proxy + caching
 ├── nginx-security-headers.conf    CSP and friends, included by every location
 ├── docker-entrypoint.sh           Substitutes BE URL, base path and Maps key into the nginx config
+├── scripts/
+│   └── i18n-missing.mjs           Reports untranslated keys — see npm run i18n:missing
+├── i18next.config.ts              Key extraction; preservePatterns for keys reached through a table
 ├── vite.config.ts
 ├── tsconfig.json
 └── eslint.config.js
@@ -329,7 +411,9 @@ The one deliberate CSP relaxation is `style-src 'unsafe-inline'`, which the Goog
 ## Code Quality
 
 ```bash
-npm run lint       # ESLint — TypeScript, React Hooks, React Refresh rules
+npm run lint         # ESLint — TypeScript, React Hooks, React Refresh rules
+npm run i18n:check   # Fails when the translation catalogues are stale
+npm run i18n:missing # Fails when a language is missing a string
 ```
 
 ---
@@ -347,6 +431,9 @@ npm run lint       # ESLint — TypeScript, React Hooks, React Refresh rules
 | Blank page after deploy | The SPA fallback is not in effect — check `try_files` in `nginx.conf` |
 | Blank page **only** through the tunnel, `/assets/*` 404s | The `<base href>` was not rewritten. `CARPOS_BASE_PATH` must match the tunnel's route (the entrypoint prints what it settled on), and the `sub_filter` search string in `nginx.conf` must match the `<base href="/" />` tag in `index.html` **byte for byte** |
 | One image is broken through the tunnel but the page works | That reference is a root-absolute path. Use `assetUrl()` — see [Referring to an asset](#referring-to-an-asset) |
+| A raw key such as `device:positions.title` renders instead of text | That key is missing from the catalogue. In development the console also warns. Run `npm run i18n:extract`, then fill the value in |
+| One screen is English while the rest is Czech | Either the Czech value is empty (i18next falls back to English) — `npm run i18n:missing` lists those — or the text came from the API, which is still English by design. See [Known gap](#known-gap-api-error-messages) |
+| A whole group of translations vanished after `npm run i18n:extract` | Those keys are reached through a table (`t(SOME_TABLE[key])`), which a source scan cannot see, so `removeUnusedKeys` pruned them. Add the prefix to `preservePatterns` in [`i18next.config.ts`](i18next.config.ts) and restore the values |
 | Map not configured **only** in the image you built from a clone, `GET /config.js` 404s at the origin while `<prefix>/config.js` returns 200 | `index.html` asked for `/config.js` instead of `./config.js`, so the request ignored the `<base href>`. Vite silently rewrites a root-absolute public reference to a relative one **only when the file exists in the build context** — and `public/config.js` is git-ignored, so it is present on the machine that created it and absent in a clone. That is why this reproduces in the image and never on the developer's PC. Keep the `./` in `index.html`; `public/config.js` is in `.dockerignore` so both builds behave the same |
 | Tunnel URL loads but every API call 404s | nginx is not stripping the prefix from `<prefix>/api/…`. Confirm the request arrives with the prefix you configured — the match is case-sensitive |
 | API answers 404 on `/carPosAPI/health` | `Hosting:PathBase` on the **backend** is unset or spelled differently — that route bypasses this nginx entirely |

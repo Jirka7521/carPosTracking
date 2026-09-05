@@ -9,6 +9,7 @@
 // read-only and no action buttons are shown.
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
 import { CapabilityCheckboxes } from './CapabilityCheckboxes'
 import type { CapabilityFlags } from './capabilityFlags'
 
@@ -45,6 +46,8 @@ export function SharedUserCard({
   onSave,
   onRemove,
 }: SharedUserCardProps) {
+  const { t } = useTranslation(['settings', 'common'])
+
   return (
     <div className="access-row">
       {/* User identity + remove button */}
@@ -62,7 +65,7 @@ export function SharedUserCard({
             onClick={onRemove}
             disabled={isSaving}
           >
-            Remove
+            {t('settings:sharing.remove')}
           </button>
         ) : null}
       </div>
@@ -87,7 +90,7 @@ export function SharedUserCard({
             onClick={onSave}
             disabled={isSaving}
           >
-            {isSaving ? 'Saving…' : 'Save changes'}
+            {isSaving ? t('common:actions.saving') : t('common:actions.saveChanges')}
           </button>
         </div>
       ) : null}

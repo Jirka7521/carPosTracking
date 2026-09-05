@@ -23,6 +23,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import DeviceMap from '../components/DeviceMap'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
@@ -30,6 +31,7 @@ import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, getDefaultDateRange } from '../utils/dates'
+import { formatInteger } from '../i18n/format'
 import { describeError } from '../utils/errors'
 import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
 
@@ -39,6 +41,8 @@ import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
 const MAX_MAP_ROWS = 50_000
 
 export function DeviceMapTab() {
+  const { t } = useTranslation(['device', 'common', 'errors'])
+
   // Device object passed down from DevicePage
   // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
   // bumps a token to re-run the query below and never touches the date range —
@@ -101,7 +105,7 @@ export function DeviceMapTab() {
       // so it goes rather than lingering through the walk.
       if (!isTopUp) {
         applyPositions([])
-        setStatusMessage('Loading positions…')
+        setStatusMessage(t('device:map.loadingPositions'))
       }
 
       try {
@@ -123,7 +127,10 @@ export function DeviceMapTab() {
             // while. Counting up beats an overlay that says nothing.
             onProgress: (loaded) => {
               if (!canceled) {
-                setStatusMessage(`Loading… ${loaded.toLocaleString()} positions so far.`)
+                setStatusMessage(t('device:map.loadingProgress', {
+                  count: loaded,
+                  value: formatInteger(loaded),
+                }))
               }
             },
           })
@@ -137,11 +144,12 @@ export function DeviceMapTab() {
             // The walk runs newest-first, so what is missing is the START of
             // the journey — worth saying, because the drawn track looks
             // complete either way.
-            setStatusMessage(
-              `Loaded the newest ${result.positions.length.toLocaleString()} positions ` +
-              `— this range holds more than one load can fetch, so the track ` +
-              `starts later than the “From” you chose.`,
-            )
+            // No `count`: the sentence does not vary with it — reaching the
+            // cap always means "a great many" — and passing one would make
+            // every language owe a full set of plural forms for nothing.
+            setStatusMessage(t('device:map.reachedCap', {
+              value: formatInteger(result.positions.length),
+            }))
             return
           }
         }
@@ -149,8 +157,8 @@ export function DeviceMapTab() {
         const total = positionsRef.current.length
         setStatusMessage(
           total === 0
-            ? 'No positions found for this time range.'
-            : `Loaded ${total.toLocaleString()} position${total === 1 ? '' : 's'}.`,
+            ? t('device:map.noPositions')
+            : t('device:map.loaded', { count: total, value: formatInteger(total) }),
         )
       } catch (error) {
         if (canceled) {
@@ -158,7 +166,7 @@ export function DeviceMapTab() {
         }
         // Keep the last good track on the map — a momentary network blip should
         // report itself in the status line, not blank the view.
-        setStatusMessage(describeError(error, 'Failed to load positions.'))
+        setStatusMessage(describeError(error, t('errors:loadPositionsFailed')))
       } finally {
         if (!canceled) {
           setIsLoading(false)
@@ -170,6 +178,7 @@ export function DeviceMapTab() {
     return () => {
       canceled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, dateRange.from, dateRange.to, refresh.token])
 
   return (
@@ -182,8 +191,8 @@ export function DeviceMapTab() {
         isLoading={isLoading}
         idPrefix="map"
         className="map-controls-bar"
-        refreshLabel="↻ Refresh now"
-        loadingLabel="Refreshing…"
+        refreshLabel={t('common:refresh.nowEmphatic')}
+        loadingLabel={t('common:refresh.refreshing')}
         extra={
           /* Refreshes never move the map, so this is how the user gets back to
              "show me everything" after panning away. */
@@ -194,7 +203,7 @@ export function DeviceMapTab() {
             disabled={positions.length === 0}
             style={{ alignSelf: 'flex-end' }}
           >
-            ⤢ Fit to positions
+            {t('device:map.fit')}
           </button>
         }
       />
@@ -212,7 +221,7 @@ export function DeviceMapTab() {
         {isLoading ? (
           <div className="map-loading-overlay" aria-live="polite">
             <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-            Loading…
+            {t('common:states.loading')}
           </div>
         ) : null}
 
@@ -230,23 +239,20 @@ export function DeviceMapTab() {
           /* Without a key the Maps script fails and leaves a grey box that
              looks like a bug. Say what is actually wrong instead. */
           <div className="error-state">
-            <p>
-              The map cannot be displayed: no Google Maps API key is configured
-              for this deployment.
-            </p>
+            <p>{t('device:map.noApiKey')}</p>
           </div>
         )}
       </div>
 
       {/* Legend explaining the two marker colors */}
-      <div className="map-legend" aria-label="Map legend">
+      <div className="map-legend" aria-label={t('device:map.legend')}>
         <div className="map-legend-item">
           <span className="legend-dot legend-dot--latest" aria-hidden="true" />
-          Latest position
+          {t('device:map.legendLatest')}
         </div>
         <div className="map-legend-item">
           <span className="legend-dot legend-dot--history" aria-hidden="true" />
-          Historical positions
+          {t('device:map.legendHistory')}
         </div>
       </div>
     </div>

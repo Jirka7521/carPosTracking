@@ -1,0 +1,121 @@
+{
+  "cannotEnableYet": "Vytvořte alespoň jeden profil a zvolte jej jako záložní; teprve pak lze rozvrh zapnout.",
+  "confirm": {
+    "deleteProfile": "Smazat profil „{{name}}“?",
+    "deleteRule": "Smazat pravidlo {{rule}}?"
+  },
+  "days": {
+    "everyDay": "Každý den",
+    "never": "Nikdy",
+    "weekdays": "Po–Pá",
+    "weekend": "So a Ne",
+    "weekendPreset": "Víkendy"
+  },
+  "enable": "Řídit toto zařízení rozvrhem",
+  "fallback": {
+    "hint": "Co zařízení používá v hodinách, které nepokrývá žádné pravidlo. Nutné dřív, než lze rozvrh zapnout.",
+    "label": "Záložní profil",
+    "none": "— žádný —"
+  },
+  "intro": "Přepínejte tento tracker mezi pojmenovanými profily podle týdenního rozvrhu — třeba aby v noci hlásil polohu méně často nebo přes víkend spal. Rozvrh vyhodnocuje server a každou změnu odesílá stejně, jako když nastavení uložíte ručně, takže se nic nemusí přehrávat do firmwaru a tracker nemusí být online ve chvíli, kdy se okno otevře.",
+  "loadErrorHint": "Pokud se stále objevuje, že rozvrh nebyl nalezen, je server, se kterým tento přehled mluví, starší než přehled sám a rozvrhy zatím neumí — potřebuje aktualizaci.",
+  "loading": "Načítám rozvrh…",
+  "message": {
+    "disabled": "Rozvrh vypnut. Zařízení si ponechá své současné nastavení, dokud jej nezměníte.",
+    "enabled": "Rozvrh zapnut — platný profil byl použit.",
+    "fallbackUpdated": "Záložní profil byl změněn.",
+    "profileCreated": "Profil byl vytvořen.",
+    "profileSaved": "Profil byl uložen.",
+    "resumed": "Rozvrh byl obnoven.",
+    "ruleAdded": "Pravidlo bylo přidáno.",
+    "ruleDeleted": "Pravidlo bylo smazáno.",
+    "ruleSaved": "Pravidlo bylo uloženo."
+  },
+  "override": {
+    "label": "Přepsáno ručně",
+    "manual": "Ruční nastavení",
+    "resume": "Obnovit rozvrh nyní",
+    "resumeHint": "Zahodit ruční nastavení a použít plánovaný profil hned",
+    "resumesNextSwitch": "Rozvrh se obnoví při nejbližším přepnutí.",
+    "resuming": "Obnovuji…",
+    "returnsAt": "<strong>{{profile}}</strong> se vrátí v <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
+    "scheduledProfile": "Plánovaný profil"
+  },
+  "previewWhenOff": "Rozvrh je vypnutý, takže se nic z toho níže nepoužívá. Takto by se choval.",
+  "profile": {
+    "add": "Přidat profil",
+    "create": "Vytvořit profil",
+    "empty": "Zatím žádné profily.",
+    "heading": "Profily",
+    "inForce": "platný",
+    "inForceWarning": "Tento profil je právě v platnosti, takže uložení změní to, co tracker používá, okamžitě — ne až při nejbližším přepnutí.",
+    "intro": "Profil je kompletní sada nastavení tohoto zařízení pod názvem, kterým se na něj odkazují pravidla.",
+    "isFallback": "záložní profil",
+    "name": "Název profilu",
+    "namePlaceholder": "Noc",
+    "nameRequired": "Pojmenujte profil — pravidla se na něj odkazují právě názvem.",
+    "save": "Uložit profil",
+    "summaryEntry": "{{field}}: {{value}}",
+    "usedByRules_one": "používá {{count}} pravidlo",
+    "usedByRules_few": "používají {{count}} pravidla",
+    "usedByRules_many": "používá {{count}} pravidla",
+    "usedByRules_other": "používá {{count}} pravidel"
+  },
+  "rule": {
+    "add": "Přidat pravidlo",
+    "applyProfile": "Použít profil",
+    "days": "Dny",
+    "daysGroup": "Dny v týdnu",
+    "durationWrapping": "{{duration}} · končí následující den",
+    "enabled": "Zapnuto",
+    "errorBadTime": "Zadejte oba časy ve formátu HH:MM.",
+    "errorNoDays": "Vyberte alespoň jeden den. Chcete-li pravidlo odstavit, aniž byste ho ztratili, odškrtněte „Zapnuto“.",
+    "errorNoProfile": "Zvolte profil, který má toto okno použít.",
+    "from": "Od",
+    "noProfiles": "Zatím žádné profily",
+    "priority": "Priorita",
+    "priorityHint": "Při překryvu oken vyhrává nižší hodnota.",
+    "save": "Uložit pravidlo",
+    "summary": "{{days}}, {{from}}–{{to}} · {{duration}}",
+    "summaryWrapping": "{{days}}, {{from}}–{{to}} následující den · {{duration}}",
+    "to": "Do"
+  },
+  "ruleList": {
+    "add": "Přidat pravidlo",
+    "empty": "Zatím žádná pravidla — po celou dobu platí záložní profil.",
+    "heading": "Pravidla",
+    "intro": "Vypsána v pořadí, v jakém se vyhodnocují — nižší číslo priority první. Vyhrává první pravidlo, jehož okno daný okamžik obsahuje; pokud žádné, použije se záložní profil.",
+    "matchingNow": "právě odpovídá",
+    "needProfile": "Nejprve vytvořte profil",
+    "prioritySummary": "priorita {{priority}}"
+  },
+  "status": {
+    "awaitingFirstPass": "Čeká se na první průchod plánovače — toto použije.",
+    "fallback": "záložní",
+    "neverSwitches": "Tento rozvrh nikdy nepřepíná — celý týden platí stejný profil.",
+    "noProfile": "Žádný profil",
+    "now": "Nyní",
+    "since": "od {{when}}",
+    "switchesTo": "Přepne na <strong>{{profile}}</strong> v <strong>{{when}}</strong> <quiet>({{until}})</quiet>"
+  },
+  "timeline": {
+    "blockTitle": "{{name}} · {{from}}–{{to}}",
+    "building": "Sestavuji týden…",
+    "currentTime": "Aktuální čas",
+    "localTimeNote": "Zobrazeno ve vašem místním čase ({{zone}}).",
+    "notCovered": "Nepokryto",
+    "now": "Nyní"
+  },
+  "title": "Rozvrh nastavení",
+  "until": {
+    "days_one": "za {{value}} den",
+    "days_few": "za {{value}} dny",
+    "days_many": "za {{value}} dne",
+    "days_other": "za {{value}} dní",
+    "daysHours": "za {{days}} d {{hours}} h",
+    "hours": "za {{hours}} h",
+    "hoursMinutes": "za {{hours}} h {{minutes}} min",
+    "minutes": "za {{minutes}} min",
+    "now": "nyní"
+  }
+}

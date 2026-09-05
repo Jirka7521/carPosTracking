@@ -1,0 +1,134 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "copied": "Copied",
+    "delete": "Delete",
+    "edit": "Edit",
+    "remove": "Remove",
+    "retry": "Try again",
+    "saveChanges": "Save changes",
+    "saving": "Saving…",
+    "signOut": "Sign out"
+  },
+  "appSubtitle": "Vehicle tracking dashboard",
+  "appTitle": "Car Position Tracker",
+  "battery": {
+    "charging": "Charging",
+    "level": "Battery {{value}}%",
+    "percent": "{{value}}%"
+  },
+  "csv": {
+    "comma": "Comma",
+    "commaHint": "Standard CSV",
+    "semicolon": "Semicolon",
+    "semicolonHint": "Excel in CZ / DE",
+    "tab": "Tab",
+    "tabHint": "TSV"
+  },
+  "deviceState": {
+    "active": "Active",
+    "inactive": "Inactive"
+  },
+  "duration": {
+    "days_one": "{{value}} day",
+    "days_other": "{{value}} days",
+    "hours_one": "{{value}} hour",
+    "hours_other": "{{value}} hours",
+    "minutes_one": "{{value}} minute",
+    "minutes_other": "{{value}} minutes",
+    "seconds_one": "{{value}} second",
+    "seconds_other": "{{value}} seconds"
+  },
+  "durationField": {
+    "unitFor": "Unit for {{label}}"
+  },
+  "fields": {
+    "email": "Email",
+    "firstName": "First name",
+    "lastName": "Last name"
+  },
+  "language": {
+    "change": "Change language",
+    "heading": "Language"
+  },
+  "nav": {
+    "home": "Go to home page",
+    "profile": "Edit your profile"
+  },
+  "onOff": {
+    "off": "off",
+    "on": "on"
+  },
+  "optional": "(optional)",
+  "permission": {
+    "delete": "Delete",
+    "deleteHint": "Deactivate (soft-delete) the device",
+    "grantedTitle": "{{description}} — granted",
+    "includedWithShare": "(included with Share)",
+    "listLabel": "Your permissions on this device",
+    "missingTitle": "{{description}} — not granted",
+    "read": "Read",
+    "readAlways": "Read (always)",
+    "readHint": "View the device and its position history",
+    "settings": "Settings",
+    "settingsHint": "Modify device settings and view the access roster",
+    "share": "Share",
+    "shareHint": "Manage who else has access to this device"
+  },
+  "range": {
+    "from": "From",
+    "to": "To"
+  },
+  "refresh": {
+    "auto": "Auto-refresh",
+    "countdown": "{{seconds}}s",
+    "now": "↻ Refresh",
+    "nowEmphatic": "↻ Refresh now",
+    "refreshing": "Refreshing…"
+  },
+  "relative": {
+    "daysAgo_one": "{{count}} d ago",
+    "daysAgo_other": "{{count}} d ago",
+    "hoursAgo_one": "{{count}} h ago",
+    "hoursAgo_other": "{{count}} h ago",
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}} min ago",
+    "minutesAgo_other": "{{count}} min ago",
+    "never": "never reported",
+    "unknown": "unknown"
+  },
+  "states": {
+    "loading": "Loading…",
+    "none": "—"
+  },
+  "units": {
+    "abbrevHours": "{{value}} h",
+    "abbrevHoursMinutes": "{{hours}} h {{minutes}} min",
+    "abbrevMinutes": "{{value}} min",
+    "abbrevSeconds": "{{value}} s",
+    "days": "days",
+    "hours": "hours",
+    "minutes": "minutes",
+    "seconds": "seconds"
+  },
+  "weekday": {
+    "long": {
+      "fri": "Friday",
+      "mon": "Monday",
+      "sat": "Saturday",
+      "sun": "Sunday",
+      "thu": "Thursday",
+      "tue": "Tuesday",
+      "wed": "Wednesday"
+    },
+    "short": {
+      "fri": "Fri",
+      "mon": "Mon",
+      "sat": "Sat",
+      "sun": "Sun",
+      "thu": "Thu",
+      "tue": "Tue",
+      "wed": "Wed"
+    }
+  }
+}

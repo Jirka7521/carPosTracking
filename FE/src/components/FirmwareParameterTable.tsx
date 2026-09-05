@@ -17,9 +17,10 @@
 // ============================================================
 
 import { useMemo } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 
 import type { FirmwareParameter } from '../utils/firmwareParameters'
-import { ORIGIN_LABELS } from '../utils/firmwareParameters'
+import { ORIGIN_LABEL_KEYS } from '../utils/firmwareParameters'
 import { parseFirmwareConfig } from '../utils/parseFirmwareConfig'
 
 export type FirmwareParameterTableProps = {
@@ -30,37 +31,40 @@ export type FirmwareParameterTableProps = {
 }
 
 export function FirmwareParameterTable({ configSnippet }: FirmwareParameterTableProps) {
+  const { t } = useTranslation(['settings'])
+
   // Parsing 700 lines on every keystroke in the secrets form would be pure
   // waste: the file this reads does not change while the operator types.
   const groups = useMemo(() => parseFirmwareConfig(configSnippet), [configSnippet])
 
   return (
     <div className="firmware-parameters">
+      {/* <Trans> because the sentence carries a <code> and a <strong> inside
+          it; three separate keys would leave a translator with fragments. */}
       <p className="hint">
-        Everything the firmware is built with, read straight out of the file
-        above. These are compile-time constants — changing one means editing{' '}
-        <code>Config.h</code> and re-flashing. The reporting interval, sleep flag,
-        GNSS timeout and queue limits are the exception: the values below are only
-        the defaults a tracker falls back to, and <strong>Reporting &amp; Power</strong>{' '}
-        above is what actually sets them.
+        <Trans
+          i18nKey="firmware.intro"
+          ns="settings"
+          components={{ code: <code />, strong: <strong /> }}
+        />
       </p>
 
       <ul className="firmware-legend">
         <li>
-          <span className="param-badge param-badge--device">{ORIGIN_LABELS.device}</span>
-          filled in for this tracker
+          <span className="param-badge param-badge--device">{t(ORIGIN_LABEL_KEYS.device)}</span>
+          {t('firmware.legend.device')}
         </li>
         <li>
-          <span className="param-badge param-badge--secret">{ORIGIN_LABELS.secret}</span>
-          typed in above; never sent to the server
+          <span className="param-badge param-badge--secret">{t(ORIGIN_LABEL_KEYS.secret)}</span>
+          {t('firmware.legend.secret')}
         </li>
         <li>
-          <span className="param-badge param-badge--remote">{ORIGIN_LABELS.remote}</span>
-          overridden by Reporting &amp; Power
+          <span className="param-badge param-badge--remote">{t(ORIGIN_LABEL_KEYS.remote)}</span>
+          {t('firmware.legend.remote')}
         </li>
         <li>
-          <span className="param-badge param-badge--fixed">{ORIGIN_LABELS.fixed}</span>
-          same on every tracker
+          <span className="param-badge param-badge--fixed">{t(ORIGIN_LABEL_KEYS.fixed)}</span>
+          {t('firmware.legend.fixed')}
         </li>
       </ul>
 
@@ -73,9 +77,9 @@ export function FirmwareParameterTable({ configSnippet }: FirmwareParameterTable
             <table className="firmware-table">
               <thead>
                 <tr>
-                  <th scope="col">Constant</th>
-                  <th scope="col">Value</th>
-                  <th scope="col">What it does</th>
+                  <th scope="col">{t('firmware.column.constant')}</th>
+                  <th scope="col">{t('firmware.column.value')}</th>
+                  <th scope="col">{t('firmware.column.meaning')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +91,7 @@ export function FirmwareParameterTable({ configSnippet }: FirmwareParameterTable
                     <td>
                       <code className="param-value">{parameter.value}</code>
                       <span className={`param-badge param-badge--${parameter.origin}`}>
-                        {ORIGIN_LABELS[parameter.origin]}
+                        {t(ORIGIN_LABEL_KEYS[parameter.origin])}
                       </span>
                     </td>
                     <td>{parameter.meaning}</td>

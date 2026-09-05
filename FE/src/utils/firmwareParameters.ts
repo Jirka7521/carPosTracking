@@ -85,10 +85,12 @@ export const GROUP_TITLE_BEFORE: Readonly<Record<string, string>> = {
   kDefaultSendIntervalSeconds: 'Reporting defaults & accepted ranges',
 }
 
-// Short badge text for the origin column.
-export const ORIGIN_LABELS: Record<ParameterOrigin, string> = {
-  device: 'this device',
-  secret: 'you supply',
-  remote: 'default only',
-  fixed: 'compile-time',
-}
+// Short badge text for the origin column, as translation keys against the
+// `settings` namespace. `as const` keeps them literal types so t() can check
+// them against the catalogue.
+export const ORIGIN_LABEL_KEYS = {
+  device: 'settings:firmware.origin.device',
+  secret: 'settings:firmware.origin.secret',
+  remote: 'settings:firmware.origin.remote',
+  fixed: 'settings:firmware.origin.fixed',
+} as const satisfies Record<ParameterOrigin, string>

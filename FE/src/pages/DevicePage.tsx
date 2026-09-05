@@ -32,6 +32,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchMyDevices } from '../services/apiClient'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
@@ -71,6 +72,8 @@ export type DevicePageContext = {
 }
 
 export function DevicePage() {
+  const { t } = useTranslation(['device', 'common', 'errors'])
+
   // :deviceId from the URL — the device's MQTT identity, e.g. "GNSS01".
   const { deviceId } = useParams<{ deviceId: string }>()
 
@@ -102,7 +105,7 @@ export function DevicePage() {
       const devices = await fetchMyDevices()
       const found = devices.find((d) => d.deviceId === deviceId)
       if (!found) {
-        setErrorMessage('Device not found, or you do not have access to it.')
+        setErrorMessage(t('device:notFoundOrNoAccess'))
       } else {
         loadedDeviceIdRef.current = deviceId ?? null
         setDevice(found)
@@ -114,7 +117,7 @@ export function DevicePage() {
       // a flaky connection would be worse than the stale battery reading it is
       // trying to correct.
       if (isInitial) {
-        setErrorMessage(describeError(error, 'Failed to load device.'))
+        setErrorMessage(describeError(error, t('errors:loadDeviceFailed')))
       }
     } finally {
       setIsLoading(false)
@@ -153,7 +156,7 @@ export function DevicePage() {
     return (
       <div className="loading-state" style={{ flex: 1 }}>
         <div className="spinner" aria-hidden="true" />
-        <span>Loading device…</span>
+        <span>{t('device:loading')}</span>
       </div>
     )
   }
@@ -162,9 +165,9 @@ export function DevicePage() {
   if (errorMessage || device === null) {
     return (
       <div className="error-state" style={{ flex: 1 }}>
-        <p>{errorMessage || 'Device not found.'}</p>
+        <p>{errorMessage || t('device:notFound')}</p>
         <Link to="/home" className="btn btn-secondary">
-          ← Back to devices
+          {t('device:backToDevices')}
         </Link>
       </div>
     )
@@ -175,8 +178,8 @@ export function DevicePage() {
     <div className="device-page">
       {/* Breadcrumb navigation */}
       <div className="device-page-header">
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <Link to="/home">Devices</Link>
+        <nav className="breadcrumb" aria-label={t('device:breadcrumb')}>
+          <Link to="/home">{t('device:devices')}</Link>
           <span className="breadcrumb-sep" aria-hidden="true">›</span>
           {/* Show the user's custom name in the breadcrumb when set */}
           <span>{deviceLabel(device)}</span>
@@ -211,7 +214,7 @@ export function DevicePage() {
             <span
               className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
             >
-              {device.isActive ? 'Active' : 'Inactive'}
+              {device.isActive ? t('common:deviceState.active') : t('common:deviceState.inactive')}
             </span>
           </div>
         </div>
@@ -222,33 +225,33 @@ export function DevicePage() {
        * NavLink automatically adds the "active" class when the current URL
        * matches the tab's path — we use `end` to prevent partial matches.
        */}
-      <nav className="device-tab-bar" aria-label="Device sections">
+      <nav className="device-tab-bar" aria-label={t('device:tabs.label')}>
         <NavLink
           to="map"
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
-          🗺 Map
+          🗺 {t('device:tabs.map')}
         </NavLink>
 
         <NavLink
           to="positions"
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
-          📋 Positions
+          📋 {t('device:tabs.positions')}
         </NavLink>
 
         <NavLink
           to="charts"
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
-          📈 Charts
+          📈 {t('device:tabs.charts')}
         </NavLink>
 
         <NavLink
           to="settings"
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
-          ⚙ Settings
+          ⚙ {t('device:tabs.settings')}
         </NavLink>
       </nav>
 

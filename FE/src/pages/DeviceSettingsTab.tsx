@@ -68,6 +68,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
+import { Trans, useTranslation } from 'react-i18next'
+import { formatDate } from '../i18n/format'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { DeviceConfigSection } from '../components/DeviceConfigSection'
 import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
@@ -118,6 +120,7 @@ export function DeviceSettingsTab() {
   } = useOutletContext<DevicePageContext>()
   const { currentUser } = useAuth()
   const navigate        = useNavigate()
+  const { t }           = useTranslation(['settings', 'common', 'errors'])
   const perms           = device.permissions
 
   // ---- Convenience booleans derived from permissions ----
@@ -183,7 +186,7 @@ export function DeviceSettingsTab() {
     const trimmed = (valueOverride !== undefined ? valueOverride : aliasInput).trim()
 
     if (trimmed.length > 100) {
-      setAliasMessage('Name must be 100 characters or fewer.')
+      setAliasMessage(t('settings:alias.tooLong', { count: 100 }))
       setAliasIsError(true)
       return
     }
@@ -196,10 +199,10 @@ export function DeviceSettingsTab() {
       // Push the new name up to DevicePage so the breadcrumb and heading
       // update immediately without a full reload.
       updateDevice({ customName: trimmed || null })
-      setAliasMessage(trimmed ? 'Device name saved.' : 'Device name cleared.')
+      setAliasMessage(trimmed ? t('settings:alias.saved') : t('settings:alias.cleared'))
       setAliasIsError(false)
     } catch (error) {
-      setAliasMessage(describeError(error, 'Failed to save device name.'))
+      setAliasMessage(describeError(error, t('errors:saveAliasFailed')))
       setAliasIsError(true)
     } finally {
       setIsSavingAlias(false)
@@ -258,13 +261,17 @@ export function DeviceSettingsTab() {
           return
         }
         setScheduleStatus('error')
-        setScheduleError(describeError(error, 'Failed to load the schedule.'))
+        setScheduleError(describeError(error, t('errors:loadScheduleFailed')))
       }
     })()
 
     return () => {
       canceled = true
     }
+    // `t` is deliberately not a dependency — it is only reached for the
+    // fallback error message, and listing it would re-fetch on a language
+    // change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, perms.canModifySettings, autoRefresh.token])
 
   // Accepts a schedule state that an endpoint just returned. Every schedule
@@ -298,7 +305,7 @@ export function DeviceSettingsTab() {
       // there — same reasoning as the tick above.
       if (schedule === null) {
         setScheduleStatus('error')
-        setScheduleError(describeError(error, 'Failed to load the schedule.'))
+        setScheduleError(describeError(error, t('errors:loadScheduleFailed')))
       }
     }
   }
@@ -347,7 +354,7 @@ export function DeviceSettingsTab() {
 
       setSharedUsers(rows)
     } catch (error) {
-      setAccessError(describeError(error, 'Failed to load access list.'))
+      setAccessError(describeError(error, t('errors:loadAccessFailed')))
     } finally {
       setIsLoadingAccess(false)
     }
@@ -410,7 +417,7 @@ export function DeviceSettingsTab() {
       await loadSharedUsers()
       setAccessSuccess(`Permissions updated for ${row.userEmail}.`)
     } catch (error) {
-      setAccessError(describeError(error, 'Failed to update permissions.'))
+      setAccessError(describeError(error, t('errors:updatePermissionsFailed')))
     } finally {
       setSavingUserId(null)
     }
@@ -421,9 +428,7 @@ export function DeviceSettingsTab() {
     if (!canEditAccess) {
       return
     }
-    const confirmed = window.confirm(
-      `Remove access for ${row.userEmail}?\nThey will no longer be able to see this device.`,
-    )
+    const confirmed = window.confirm(t('settings:sharing.confirmRemove', { email: row.userEmail }))
     if (!confirmed) {
       return
     }
@@ -433,9 +438,9 @@ export function DeviceSettingsTab() {
     try {
       await revokeAccessGrant(row.accessId)
       await loadSharedUsers()
-      setAccessSuccess(`Removed access for ${row.userEmail}.`)
+      setAccessSuccess(t('settings:sharing.removed', { email: row.userEmail }))
     } catch (error) {
-      setAccessError(describeError(error, 'Failed to remove access.'))
+      setAccessError(describeError(error, t('errors:removeAccessFailed')))
     } finally {
       setSavingUserId(null)
     }
@@ -449,7 +454,7 @@ export function DeviceSettingsTab() {
 
     const email = inviteEmail.trim().toLowerCase()
     if (!email) {
-      setAccessError('Enter the email of the person to invite.')
+      setAccessError(t('settings:sharing.emailRequired'))
       return
     }
 
@@ -458,14 +463,14 @@ export function DeviceSettingsTab() {
       // Look up the user by email (exact match)
       const matches = await fetchUsers(email, true)
       if (matches.length === 0) {
-        setAccessError(`No account found with email "${email}".`)
+        setAccessError(t('settings:sharing.noAccount', { email }))
         return
       }
       const targetUser = matches[0]
 
       // Prevent sharing with yourself
       if (currentUser !== null && targetUser.id === currentUser.id) {
-        setAccessError('You cannot share a device with yourself.')
+        setAccessError(t('settings:sharing.cannotShareWithSelf'))
         return
       }
 
@@ -482,7 +487,7 @@ export function DeviceSettingsTab() {
       setInviteEmail('')
       setInviteFlags(EMPTY_FLAGS)
     } catch (error) {
-      setAccessError(describeError(error, 'Failed to share access.'))
+      setAccessError(describeError(error, t('errors:shareAccessFailed')))
     } finally {
       setIsInviteSubmitting(false)
     }
@@ -502,7 +507,7 @@ export function DeviceSettingsTab() {
       // Return the user to the home page; the deleted device will show as inactive
       navigate('/home')
     } catch (error) {
-      setDeleteError(describeError(error, 'Failed to delete device.'))
+      setDeleteError(describeError(error, t('errors:deleteDeviceFailed')))
     } finally {
       setIsDeleting(false)
       setDeleteConfirmVisible(false)
@@ -516,16 +521,16 @@ export function DeviceSettingsTab() {
     try {
       setProvisioning(await fetchDeviceProvisioning(device.deviceId))
     } catch (error) {
-      setProvisioningError(describeError(error, 'Failed to load the firmware configuration.'))
+      setProvisioningError(describeError(error, t('errors:loadProvisioningFailed')))
     } finally {
       setIsLoadingProvisioning(false)
     }
   }
 
   // ---- Derived: registration + deactivation dates ----
-  const registeredDate = new Date(device.createdAt).toLocaleDateString()
+  const registeredDate = formatDate(new Date(device.createdAt))
   const deactivatedDate = device.deactivatedAt
-    ? new Date(device.deactivatedAt).toLocaleDateString()
+    ? formatDate(new Date(device.deactivatedAt))
     : null
 
   // ---- Render ----
@@ -545,7 +550,7 @@ export function DeviceSettingsTab() {
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-icon" aria-hidden="true">📡</span>
-          <h3>Device Information</h3>
+          <h3>{t('settings:info.title')}</h3>
         </div>
 
         <div className="settings-section-body">
@@ -555,37 +560,37 @@ export function DeviceSettingsTab() {
               {/* The tracker's MQTT identity: the same string it publishes
                   under, authenticates with, and carries inside every encrypted
                   payload. Permanent — it cannot be changed or reused. */}
-              <span className="info-label">Device ID</span>
+              <span className="info-label">{t('settings:info.deviceId')}</span>
               <span className="info-value mono">{device.deviceId}</span>
             </div>
 
             {device.displayName ? (
               <div className="info-item">
-                <span className="info-label">Display name</span>
+                <span className="info-label">{t('settings:info.displayName')}</span>
                 <span className="info-value">{device.displayName}</span>
               </div>
             ) : null}
 
             <div className="info-item">
-              <span className="info-label">Status</span>
+              <span className="info-label">{t('settings:info.status')}</span>
               <span className="info-value">
                 <span
                   className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
                 >
-                  {device.isActive ? 'Active' : 'Inactive'}
+                  {device.isActive ? t('common:deviceState.active') : t('common:deviceState.inactive')}
                 </span>
               </span>
             </div>
 
             <div className="info-item">
-              <span className="info-label">Registered</span>
+              <span className="info-label">{t('settings:info.registered')}</span>
               <span className="info-value">{registeredDate}</span>
             </div>
 
             <div className="info-item">
               {/* The only liveness signal there is — the firmware sends no
                   heartbeat, so this moves only when a real fix arrives. */}
-              <span className="info-label">Last fix received</span>
+              <span className="info-label">{t('settings:info.lastFix')}</span>
               <span className="info-value">{formatRelativeTime(device.lastSeenAt)}</span>
             </div>
 
@@ -594,7 +599,7 @@ export function DeviceSettingsTab() {
                 label — hence the guard rather than an "unknown" placeholder. */}
             {device.lastBatteryPct !== null && device.lastBatteryPct !== undefined ? (
               <div className="info-item">
-                <span className="info-label">Battery</span>
+                <span className="info-label">{t('settings:info.battery')}</span>
                 <span className="info-value">
                   <BatteryBadge value={device.lastBatteryPct} />
                 </span>
@@ -603,7 +608,7 @@ export function DeviceSettingsTab() {
 
             {deactivatedDate ? (
               <div className="info-item">
-                <span className="info-label">Deactivated</span>
+                <span className="info-label">{t('settings:info.deactivated')}</span>
                 <span className="info-value">{deactivatedDate}</span>
               </div>
             ) : null}
@@ -613,11 +618,8 @@ export function DeviceSettingsTab() {
           {/* Every user with CanRead can set their own name for this device.
               The hardware UUID is always visible as the canonical identifier. */}
           <div style={{ marginTop: 20 }}>
-            <p className="info-label" style={{ marginBottom: 8 }}>Your name for this device</p>
-            <p className="hint" style={{ marginBottom: 10 }}>
-              Only visible to you. Leave empty to fall back to the device's
-              display name, or its ID.
-            </p>
+            <p className="info-label" style={{ marginBottom: 8 }}>{t('settings:alias.title')}</p>
+            <p className="hint" style={{ marginBottom: 10 }}>{t('settings:alias.hint')}</p>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input
@@ -628,7 +630,7 @@ export function DeviceSettingsTab() {
                 placeholder={device.displayName ?? device.deviceId}
                 maxLength={100}
                 style={{ flex: '1 1 200px', minWidth: 0 }}
-                aria-label="Custom device name"
+                aria-label={t('settings:alias.inputLabel')}
               />
               <button
                 type="button"
@@ -636,7 +638,7 @@ export function DeviceSettingsTab() {
                 onClick={() => void handleAliasSave()}
                 disabled={isSavingAlias}
               >
-                {isSavingAlias ? 'Saving…' : 'Save name'}
+                {isSavingAlias ? t('common:actions.saving') : t('settings:alias.save')}
               </button>
               {/* Quick-clear button — only shown when an alias is currently set */}
               {aliasInput.trim() ? (
@@ -646,7 +648,7 @@ export function DeviceSettingsTab() {
                   onClick={() => void handleAliasSave('')}
                   disabled={isSavingAlias}
                 >
-                  Clear
+                  {t('settings:alias.clear')}
                 </button>
               ) : null}
             </div>
@@ -664,7 +666,7 @@ export function DeviceSettingsTab() {
 
           {/* The caller's own permission set on this device */}
           <div style={{ marginTop: 20 }}>
-            <p className="info-label" style={{ marginBottom: 8 }}>Your permissions</p>
+            <p className="info-label" style={{ marginBottom: 8 }}>{t('settings:info.yourPermissions')}</p>
             <PermissionBadges permissions={device.permissions} />
           </div>
         </div>
@@ -722,16 +724,12 @@ export function DeviceSettingsTab() {
         <div className="settings-section">
           <div className="settings-section-header">
             <span className="settings-section-icon" aria-hidden="true">🔧</span>
-            <h3>Firmware Configuration</h3>
+            <h3>{t('settings:firmware.title')}</h3>
           </div>
 
           <div className="settings-section-body">
             <p>
-              A complete <code>Config.h</code> for this device — topics, broker
-              URI, receiver public key and its current settings — ready to save
-              and flash. Re-reading this is always safe: it re-renders the stored
-              public key rather than generating a new pair, so a device already in
-              the field keeps working.
+              <Trans i18nKey="firmware.sectionIntro" ns="settings" components={{ code: <code /> }} />
             </p>
 
             {provisioningError ? (
@@ -745,7 +743,7 @@ export function DeviceSettingsTab() {
                 onClick={() => void loadProvisioning()}
                 disabled={isLoadingProvisioning}
               >
-                {isLoadingProvisioning ? 'Loading…' : 'Show firmware configuration'}
+                {isLoadingProvisioning ? t('common:states.loading') : t('settings:firmware.show')}
               </button>
             ) : (
               <>
@@ -759,7 +757,7 @@ export function DeviceSettingsTab() {
                 {/* Collapsed by default: it is a reference, not something you
                     came here to do, and expanded it would dwarf the page. */}
                 <details className="firmware-parameters-details">
-                  <summary>All firmware parameters</summary>
+                  <summary>{t('settings:firmware.allParameters')}</summary>
                   <FirmwareParameterTable configSnippet={provisioning.configSnippet} />
                 </details>
               </>
@@ -775,15 +773,14 @@ export function DeviceSettingsTab() {
         <div className="settings-section">
           <div className="settings-section-header">
             <span className="settings-section-icon" aria-hidden="true">👥</span>
-            <h3>Access Management</h3>
+            <h3>{t('settings:sharing.title')}</h3>
           </div>
 
           <div className="settings-section-body">
             {/* Info banner if the user can view but not edit */}
             {!canEditAccess ? (
               <div className="banner banner--info" role="status">
-                You have Settings permission — you can view who has access,
-                but you need the Share permission to invite or edit users.
+                {t('settings:sharing.readOnlyNote')}
               </div>
             ) : null}
 
@@ -797,15 +794,15 @@ export function DeviceSettingsTab() {
 
             {/* ---- People with access ---- */}
             <div>
-              <p className="info-label" style={{ marginBottom: 10 }}>People with access</p>
+              <p className="info-label" style={{ marginBottom: 10 }}>{t('settings:sharing.peopleWithAccess')}</p>
 
               {isLoadingAccess ? (
                 <div className="loading-state" style={{ minHeight: 80 }}>
                   <div className="spinner" />
-                  <span>Loading…</span>
+                  <span>{t('common:states.loading')}</span>
                 </div>
               ) : visibleSharedUsers.length === 0 ? (
-                <p className="hint">No other users have access to this device.</p>
+                <p className="hint">{t('settings:sharing.noOtherUsers')}</p>
               ) : (
                 <div className="access-list">
                   {visibleSharedUsers.map((row) => (
@@ -826,22 +823,19 @@ export function DeviceSettingsTab() {
             {/* ---- Invite form — only shown when the caller has canShare ---- */}
             {canEditAccess ? (
               <div className="invite-form">
-                <h4>Invite someone new</h4>
-                <p className="hint">
-                  Enter their email address. Read access is always granted.
-                  Choose which additional permissions to give them.
-                </p>
+                <h4>{t('settings:sharing.inviteTitle')}</h4>
+                <p className="hint">{t('settings:sharing.inviteHint')}</p>
 
                 <form onSubmit={handleInviteSubmit}>
                   <div className="form-field" style={{ marginBottom: 12 }}>
-                    <label className="form-label" htmlFor="invite-email">Email</label>
+                    <label className="form-label" htmlFor="invite-email">{t('common:fields.email')}</label>
                     <input
                       id="invite-email"
                       className="form-input"
                       type="email"
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder="user@example.com"
+                      placeholder={t('settings:sharing.emailPlaceholder')}
                       required
                     />
                   </div>
@@ -859,7 +853,7 @@ export function DeviceSettingsTab() {
                     disabled={isInviteSubmitting}
                     style={{ marginTop: 12 }}
                   >
-                    {isInviteSubmitting ? 'Sharing…' : 'Share access'}
+                    {isInviteSubmitting ? t('settings:sharing.sharing') : t('settings:sharing.share')}
                   </button>
                 </form>
               </div>
@@ -875,14 +869,12 @@ export function DeviceSettingsTab() {
         <div className="settings-section settings-section--danger">
           <div className="settings-section-header">
             <span className="settings-section-icon" aria-hidden="true">⚠️</span>
-            <h3>Danger Zone</h3>
+            <h3>{t('settings:danger.title')}</h3>
           </div>
 
           <div className="settings-section-body">
             <p>
-              Deleting the device deactivates it permanently for <strong>all users</strong> who
-              have access. Historical position data is retained but no new positions will
-              be accepted. This action cannot be undone.
+              <Trans i18nKey="danger.intro" ns="settings" components={{ strong: <strong /> }} />
             </p>
 
             {deleteError ? (
@@ -897,12 +889,12 @@ export function DeviceSettingsTab() {
                 onClick={() => setDeleteConfirmVisible(true)}
                 disabled={!device.isActive}
               >
-                {device.isActive ? 'Delete device…' : 'Device already inactive'}
+                {device.isActive ? t('settings:danger.delete') : t('settings:danger.alreadyInactive')}
               </button>
             ) : (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, color: 'var(--danger-dark)' }}>
-                  Are you sure? This cannot be undone.
+                  {t('settings:danger.confirmPrompt')}
                 </span>
                 <button
                   type="button"
@@ -910,7 +902,7 @@ export function DeviceSettingsTab() {
                   onClick={() => void handleDeleteDevice()}
                   disabled={isDeleting}
                 >
-                  {isDeleting ? 'Deleting…' : 'Yes, delete device'}
+                  {isDeleting ? t('settings:danger.deleting') : t('settings:danger.confirmDelete')}
                 </button>
                 <button
                   type="button"
@@ -918,7 +910,7 @@ export function DeviceSettingsTab() {
                   onClick={() => setDeleteConfirmVisible(false)}
                   disabled={isDeleting}
                 >
-                  Cancel
+                  {t('common:actions.cancel')}
                 </button>
               </div>
             )}

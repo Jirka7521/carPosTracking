@@ -21,6 +21,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { formatInteger } from '../i18n/format'
 import RangeToolbar from '../components/RangeToolbar'
 import TelemetryChart from '../components/TelemetryChart'
 import type { DevicePageContext } from './DevicePage'
@@ -56,6 +58,8 @@ const MAX_PLOT_POINTS = 6000
 const DEFAULT_SERIES: readonly SeriesKey[] = ['speedKmph', 'batteryPct']
 
 export function DeviceChartsTab() {
+  const { t } = useTranslation(['device', 'common', 'errors'])
+
   // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
   // bumps a token to re-run the query below and never touches the date range —
   // and because the header's battery and last-fix hang off the same token,
@@ -124,7 +128,7 @@ export function DeviceChartsTab() {
       if (!isTopUp) {
         applyPositions([])
         setReachedCap(false)
-        setStatusMessage('Loading positions…')
+        setStatusMessage(t('device:charts.loadingPositions'))
       }
 
       try {
@@ -146,7 +150,10 @@ export function DeviceChartsTab() {
             // while. Counting up beats a spinner that says nothing.
             onProgress: (loaded) => {
               if (!canceled) {
-                setStatusMessage(`Loading… ${loaded.toLocaleString()} positions so far.`)
+                setStatusMessage(t('device:charts.loadingProgress', {
+                  count: loaded,
+                  value: formatInteger(loaded),
+                }))
               }
             },
           })
@@ -161,8 +168,8 @@ export function DeviceChartsTab() {
         const total = positionsRef.current.length
         setStatusMessage(
           total === 0
-            ? 'No positions found for this time range.'
-            : `${total.toLocaleString()} position${total === 1 ? '' : 's'} found.`,
+            ? t('device:charts.noPositions')
+            : t('device:charts.found', { count: total, value: formatInteger(total) }),
         )
       } catch (error) {
         if (canceled) {
@@ -170,7 +177,7 @@ export function DeviceChartsTab() {
         }
         // Keep the plotted data — a momentary network blip should report itself
         // in the status line, not blank the chart.
-        setStatusMessage(describeError(error, 'Failed to load positions.'))
+        setStatusMessage(describeError(error, t('errors:loadPositionsFailed')))
       } finally {
         if (!canceled) {
           setIsLoading(false)
@@ -182,6 +189,9 @@ export function DeviceChartsTab() {
     return () => {
       canceled = true
     }
+    // `t` is deliberately not a dependency: it only produces the status line,
+    // and listing it would re-walk the whole range on a language change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, dateRange.from, dateRange.to, refresh.token])
 
   // `positions` only gets a new identity on a fetch, so the reshaping — which
@@ -234,7 +244,7 @@ export function DeviceChartsTab() {
       {/* ---- Series picker. Also the legend: every entry pairs its colour
               with a text label, so the chart never relies on colour alone. ---- */}
       <fieldset className="series-picker">
-        <legend className="form-label">Series</legend>
+        <legend className="form-label">{t('device:charts.series.legend')}</legend>
 
         {SERIES.map((definition) => {
           const isAvailable = available.has(definition.key)
@@ -243,7 +253,7 @@ export function DeviceChartsTab() {
             <label
               key={definition.key}
               className="checkbox-field series-chip"
-              title={isAvailable ? undefined : 'Not reported in this time range'}
+              title={isAvailable ? undefined : t('device:charts.notReported')}
             >
               <input
                 type="checkbox"
@@ -257,8 +267,11 @@ export function DeviceChartsTab() {
                 aria-hidden="true"
               />
               <span>
-                {definition.label} <span className="series-chip-unit">({definition.unit})</span>
-                {isAvailable ? null : <span className="series-chip-note"> — no data</span>}
+                {t(definition.labelKey)}{' '}
+                <span className="series-chip-unit">({definition.unit})</span>
+                {isAvailable ? null : (
+                  <span className="series-chip-note"> {t('device:charts.noData')}</span>
+                )}
               </span>
             </label>
           )
@@ -276,10 +289,10 @@ export function DeviceChartsTab() {
         <div className="banner banner--warning" role="status" style={{ marginBottom: 12 }}>
           <span aria-hidden="true">⚠️</span>
           <span>
-            This range holds more than {MAX_CHART_ROWS.toLocaleString()} fixes,
-            which is as far back as one load goes, so the chart starts at{' '}
-            {formatTooltipTime(rows[0].t)} rather than at the “From” you chose.
-            Narrow the range to see earlier data.
+            {t('device:charts.truncated', {
+              limit: formatInteger(MAX_CHART_ROWS),
+              start: formatTooltipTime(rows[0].t),
+            })}
           </span>
         </div>
       ) : null}
@@ -290,35 +303,35 @@ export function DeviceChartsTab() {
       {isLoading && rows.length === 0 ? (
         <div className="loading-state">
           <div className="spinner" />
-          <span>Loading telemetry…</span>
+          <span>{t('device:charts.loading')}</span>
         </div>
       ) : rows.length === 0 ? (
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true">📈</span>
-          <h3>No telemetry</h3>
-          <p>No GPS fixes were recorded in the selected time range.</p>
+          <h3>{t('device:charts.emptyTitle')}</h3>
+          <p>{t('device:charts.emptyBody')}</p>
         </div>
       ) : series.length === 0 ? (
         /* A <Line> pointing at an axis that does not exist throws, so an empty
            selection gets its own state rather than an empty grid. */
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true">📈</span>
-          <h3>Nothing selected</h3>
-          <p>Tick one or more series above to plot them.</p>
+          <h3>{t('device:charts.noneSelectedTitle')}</h3>
+          <p>{t('device:charts.noneSelectedBody')}</p>
         </div>
       ) : (
         <>
           <TelemetryChart rows={plotRows} series={series} />
 
           <p className="hint" style={{ marginTop: 10 }}>
-            Each unit gets its own vertical axis. A break in a line means the
-            device reported no value for those fixes — for Battery, that also
-            happens while it is charging.
+            {t('device:charts.axisNote')}
             {plotRows.length < rows.length ? (
               <>
-                {' '}Drawing {plotRows.length.toLocaleString()} of{' '}
-                {rows.length.toLocaleString()} points — the highest and lowest
-                reading of every ticked series is kept, so no peak is hidden.
+                {' '}
+                {t('device:charts.decimated', {
+                  drawn: formatInteger(plotRows.length),
+                  total: formatInteger(rows.length),
+                })}
               </>
             ) : null}
           </p>

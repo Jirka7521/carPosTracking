@@ -1,0 +1,243 @@
+{
+  "ackKey": {
+    "activate": "Soubor mám uložený — aktivovat tento klíč",
+    "activated": "Nový klíč je aktivní. API nyní každé potvrzení doručení pečetí pro něj — ujistěte se, že je v trackeru nahrán <code>Config.h</code>, který jste právě uložili, jinak přestane doručení potvrzovat.",
+    "activating": "Aktivuji…",
+    "generate": "Vygenerovat nový pár potvrzovacích klíčů",
+    "generating": "Generuji…",
+    "insecureContext": "Generování klíčů vyžaduje zabezpečený kontext. Otevřete přehled přes https (nebo na localhostu), případně vytvořte pár pomocí <code>openssl</code> — příkazy jsou v souboru níže.",
+    "intro": "Se zapnutým potvrzováním tracker smaže polohu ze SD karty teprve tehdy, až toto API potvrdí, že se poloha dostala do databáze — potvrzení od brokeru samo o sobě dokazuje jen to, že zprávu převzal broker. API každý verdikt zapečetí pro toto zařízení, takže zařízení potřebuje vlastní soukromý klíč.",
+    "leavingIsSafe": "Odchod nyní nic nestojí: zařízení si ponechá svůj současný klíč a na serveru se nic nezmění.",
+    "regenerate": "Vygenerovat jiný pár",
+    "saveFirst": "Nejprve uložte soubor.",
+    "stepActivate": "Poté zde klíč aktivujte, čímž API řeknete, aby začalo používat jeho veřejnou polovinu.",
+    "stepSave": "Stáhněte nebo zkopírujte <code>Config.h</code> níže — nyní obsahuje tento soukromý klíč.",
+    "title": "Klíč pro potvrzení doručení",
+    "unsavedTitle": "<strong>Zatím nebylo nic uloženo.</strong> Soukromý klíč níže existuje pouze na této stránce. Zbývají dva kroky:",
+    "warning": "<strong>Vygenerováním nového páru se nahradí klíč, který toto zařízení používá.</strong> Tracker nebude schopen číst potvrzení, dokud do něj nenahrajete nový <code>Config.h</code>, a soukromý klíč se zobrazí <strong>jen jednou</strong> — neukládá se zde ani na serveru a později jej nelze obnovit."
+  },
+  "alias": {
+    "clear": "Vymazat",
+    "cleared": "Název zařízení byl vymazán.",
+    "hint": "Viditelný jen pro vás. Ponecháte-li prázdné, použije se zobrazovaný název zařízení, případně jeho ID.",
+    "inputLabel": "Vlastní název zařízení",
+    "save": "Uložit název",
+    "saved": "Název zařízení byl uložen.",
+    "title": "Váš název pro toto zařízení",
+    "tooLong_one": "Název smí mít nejvýše {{count}} znak.",
+    "tooLong_few": "Název smí mít nejvýše {{count}} znaky.",
+    "tooLong_many": "Název smí mít nejvýše {{count}} znaku.",
+    "tooLong_other": "Název smí mít nejvýše {{count}} znaků."
+  },
+  "config": {
+    "configCheckLabel": "Znovu kontrolovat každých",
+    "configCheckSleepNote": "Hluboký spánek je zapnutý, takže toto nastavení nic nedělá. Spící tracker nemá spojení, které by kontroloval — konfiguraci si načte znovu při každém probuzení, což už tuto hodnotu činí zbytečnou.",
+    "deviceStillOn": "Zařízení stále používá {{value}}",
+    "everyDuration": "každých {{duration}}",
+    "field": {
+      "configCheckSeconds": "Kontrolovat nastavení každých",
+      "fixTimeoutSeconds": "Časový limit GNSS fixace",
+      "intervalSeconds": "Hlásit každých",
+      "queueMaxFixes": "Uchovaných nedoručených poloh",
+      "retryIntervalHours": "Opakovat odmítnuté polohy každých",
+      "retryMaxAgeHours": "Vzdát odmítnuté polohy po",
+      "sleepBetween": "Hluboký spánek mezi hlášeními"
+    },
+    "fixesCount_one": "{{value}} poloha",
+    "fixesCount_few": "{{value}} polohy",
+    "fixesCount_many": "{{value}} polohy",
+    "fixesCount_other": "{{value}} poloh",
+    "fixTimeoutHint": "Studený start pod špatným výhledem na oblohu může legitimně trvat minuty. Příliš krátká hodnota znamená, že zaparkované auto nikdy nenahlásí polohu; příliš dlouhá spálí baterii, kterou měl spánek ušetřit.",
+    "fixTimeoutLabel": "Vzdát fixaci po",
+    "group": {
+      "gnss": "GNSS",
+      "power": "Napájení",
+      "queue": "Nedoručené polohy",
+      "rejected": "Odmítnuté polohy",
+      "reporting": "Hlášení",
+      "updates": "Aktualizace konfigurace"
+    },
+    "intro": "Jak často tento tracker hlásí polohu, zda mezi hlášeními spí a co dělá s polohami, které se nepodařilo doručit. Změny se publikují na broker, který je podrží — zařízení tedy nemusí být právě teď online a nic se nemusí přehrávat do firmwaru. Bdělý tracker změnu použije během několika sekund, spící při nejbližším probuzení.",
+    "loading": "Načítám nastavení…",
+    "outOfRange": "„{{field}}“ musí být celé číslo mezi {{min}} a {{max}}.",
+    "queueMaxHint": "Dokud je broker nedostupný, každá poloha se zašifruje a zařadí do fronty na SD kartě. Nad tímto počtem se nejstarší zahazují, aby se karta nikdy nezaplnila. Je to počet, ne doba, protože položka ve frontě je holý šifrový text bez časového razítka.",
+    "queueMaxLabel": "Uchovat nejvýše (poloh)",
+    "queueSpan": "≈ {{duration}} při současném intervalu",
+    "rejectedHint": "Polohy, které server odmítl, se drží stranou od živé fronty a nabízejí se znovu jen pomalu, protože několik důvodů odmítnutí je na straně serveru a samo pomine. Vzdát se je jediná cesta, která data záměrně zahazuje.",
+    "retryForever": "opakovat donekonečna",
+    "retryIntervalLabel": "Opakovat každých",
+    "retryMaxAgeLabel": "Vzdát po (0 = nikdy)",
+    "scheduled": "O tato nastavení se stará rozvrh.",
+    "scheduledDetail": "Uložení se projeví okamžitě, ale při nejbližším přepnutí profilu bude nahrazeno. Chcete-li změnu natrvalo, upravte profil v sekci <em>Rozvrh nastavení</em> výše.",
+    "scheduledWithProfile": "Rozvrh na tomto zařízení právě používá profil <strong>{{profile}}</strong>.",
+    "sleepBetweenHint": "Vypne modem a při probuzení tracker restartuje. Nad zhruba pěti minutami je to velká úspora baterie, ale každý cyklus pak platí za studenou GNSS fixaci a nové TLS handshake — pod touto hranicí to může stát víc, než to ušetří.",
+    "title": "Hlášení a napájení",
+    "updatesHint": "Nastavení se k tomuto trackeru běžně dostane <strong>během sekundy</strong>: drží otevřené odebírání, takže broker změnu odešle ve chvíli uložení, a zařízení, které se znovu připojí, dostane aktuální nastavení automaticky. Hodnota níže je jen pojistka — jak často si o nastavení řekne znovu pro případ, že spojení bylo tiše mrtvé."
+  },
+  "danger": {
+    "alreadyInactive": "Zařízení je již neaktivní",
+    "confirmDelete": "Ano, smazat zařízení",
+    "confirmPrompt": "Opravdu? Tuto akci nelze vrátit zpět.",
+    "delete": "Smazat zařízení…",
+    "deleting": "Mažu…",
+    "intro": "Smazání zařízení jej trvale deaktivuje pro <strong>všechny uživatele</strong>, kteří k němu mají přístup. Historická data poloh zůstanou zachována, ale žádné nové polohy již nebudou přijímány. Tuto akci nelze vrátit zpět.",
+    "title": "Nebezpečná zóna"
+  },
+  "firmware": {
+    "allParameters": "Všechny parametry firmwaru",
+    "column": {
+      "constant": "Konstanta",
+      "meaning": "Co dělá",
+      "value": "Hodnota"
+    },
+    "intro": "Vše, s čím je firmware sestaven, načtené přímo ze souboru výše. Jde o konstanty z doby překladu — změnit některou znamená upravit <code>Config.h</code> a nahrát firmware znovu. Výjimkou jsou interval hlášení, příznak spánku, časový limit GNSS a limity fronty: hodnoty níže jsou jen výchozí, na které tracker spadne, a skutečně je nastavuje <strong>Hlášení a napájení</strong> výše.",
+    "legend": {
+      "device": "doplněno pro tento tracker",
+      "fixed": "stejné na každém trackeru",
+      "remote": "přepisuje Hlášení a napájení",
+      "secret": "zadáváte výše; na server se nikdy neposílá"
+    },
+    "origin": {
+      "device": "toto zařízení",
+      "fixed": "z doby překladu",
+      "remote": "jen výchozí",
+      "secret": "doplníte vy"
+    },
+    "sectionIntro": "Kompletní <code>Config.h</code> pro toto zařízení — topicy, URI brokeru, veřejný klíč příjemce a jeho současná nastavení — připravený k uložení a nahrání. Opakované načtení je vždy bezpečné: znovu vykreslí uložený veřejný klíč, místo aby generovalo nový pár, takže zařízení už v terénu dál funguje.",
+    "show": "Zobrazit konfiguraci firmwaru",
+    "title": "Konfigurace firmwaru"
+  },
+  "history": {
+    "automatic": "automaticky",
+    "changeEntry": "{{field}}: {{from}} → {{to}}",
+    "defaults": "výchozí",
+    "empty": "Nejsou zaznamenány žádné revize.",
+    "initial": "Počáteční nastavení.",
+    "noChange": "Žádné hodnoty se nezměnily.",
+    "onDevice": "na zařízení",
+    "published": "publikováno",
+    "restore": "Obnovit tyto hodnoty",
+    "restored": "Hodnoty byly načteny do formuláře — zkontrolujte je a pak uložte.",
+    "restoreHint": "Načíst tyto hodnoty do formuláře výše",
+    "scheduleTag": "rozvrh",
+    "title": "Historie verzí",
+    "unknownDate": "neznámé datum"
+  },
+  "info": {
+    "battery": "Baterie",
+    "deactivated": "Deaktivováno",
+    "deviceId": "ID zařízení",
+    "displayName": "Zobrazovaný název",
+    "lastFix": "Poslední přijatá poloha",
+    "registered": "Zaregistrováno",
+    "status": "Stav",
+    "title": "Informace o zařízení",
+    "yourPermissions": "Vaše oprávnění"
+  },
+  "override": {
+    "confirm": "Uložit do nejbližšího přepnutí",
+    "intro": "Toto zařízení má <strong>rozvrh</strong>, takže uložení zde nezmění, co bude spouštět od teď — platí do nejbližšího plánovaného přepnutí a poté se znovu použije {{profile}}.",
+    "namedProfile": "profil {{name}}",
+    "permanentDisable": "Vypněte rozvrh, což ponechá v platnosti to, co zde uložíte, dokud to někdo nezmění.",
+    "permanentEditProfile": "Upravte profil, který rozvrh používá — v sekci <em>Rozvrh nastavení</em> výše — aby každé další přepnutí neslo nové hodnoty; nebo",
+    "permanentIntro": "Chcete-li nastavení tohoto zařízení změnit <strong>natrvalo</strong>:",
+    "resumesAt": "Rozvrh se obnoví <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
+    "resumesNextSwitch": "Rozvrh se obnoví při nejbližším přepnutí.",
+    "title": "Tato změna je dočasná",
+    "unnamedProfile": "plánovaný profil"
+  },
+  "pending": {
+    "running": "Používá se (v{{version}})",
+    "setting": "Nastavení",
+    "title": "Čekající změna",
+    "willBecome": "Změní se na (v{{version}})"
+  },
+  "provisioning": {
+    "ackKeyFingerprint": "Otisk potvrzovacího klíče",
+    "ackNotConfigured": "Nenastaveno — potvrzování doručení je vypnuté",
+    "ackTopic": "Topic potvrzení",
+    "broker": "Broker",
+    "configTopic": "Topic konfigurace",
+    "copy": "Kopírovat do schránky",
+    "copyFailed": "Kopírování zde není k dispozici — stáhněte soubor, nebo označte text níže.",
+    "deviceId": "ID zařízení",
+    "download": "Stáhnout Config.h",
+    "fileContents": "Obsah souboru Config.h",
+    "intro": "Kompletní <code>Config.h</code> pro toto zařízení — uložte jej jako <code>ESP32/src/config/Config.h</code> a spusťte <code>pio run</code>. Vše, co je specifické pro tento tracker, už je uvnitř; jediné prázdné hodnoty jsou tajemství níže, která váš prohlížeč doplní, aniž by je kamkoli odeslal.",
+    "keyNote": "Výše se objevují pouze veřejné klíče. Soukromý klíč příjemce — ten, který dešifruje polohy — zůstává zašifrovaný v databázi API a nikdy neopustí server, takže ani toto zařízení, ani broker si své vlastní polohy nepřečtou. Soukromý potvrzovací klíč je zrcadlový případ: generuje se zde, patří zařízení a na server se nikdy neodesílá.",
+    "publicKeyFingerprint": "Otisk veřejného klíče",
+    "telemetryTopic": "Topic telemetrie",
+    "title": "Konfigurace firmwaru"
+  },
+  "save": {
+    "keptEdits": "Aktualizováno kolem vašich úprav — hodnoty, které jste zadali, zůstaly zachovány.",
+    "republished": "Nastavení bylo znovu publikováno na broker.",
+    "reset": "Vrátit zpět",
+    "resumed": "Rozvrh obnoven — plánovaný profil je opět v platnosti.",
+    "resumingRefresh": "Rozvrh obnoven. Aktualizuji nastavení…",
+    "saved": "Nastavení bylo uloženo.",
+    "savedPublished": "Nastavení bylo uloženo a publikováno jako v{{version}}. Zařízení je použije při nejbližším hlášení.",
+    "savedTemporary": "Uloženo jako v{{version}}. Tyto hodnoty platí do nejbližšího přepnutí rozvrhu.",
+    "submit": "Uložit nastavení",
+    "submitScheduled": "Uložit nastavení…",
+    "unsaved": "Neuložené změny"
+  },
+  "secrets": {
+    "intro": "Tyto čtyři hodnoty jsou jediné, co v souboru zbývá vyplnit. Vkládají se <strong>v tomto prohlížeči</strong> — nikdy se neposílají na server, neukládají se a s odchodem z této stránky zmizí. Kteroukoli z nich můžete nechat prázdnou a soubor se pořád přeloží; příslušná funkce jen zůstane vypnutá.",
+    "mqttPassword": "Heslo k MQTT brokeru",
+    "mqttPasswordHint": "To, které jste pro <code>{{deviceId}}</code> vytvořili pomocí <code>mosquitto_passwd</code>. API účty na brokeru nevydává, takže je za vás doplnit nemůže.",
+    "showPasswords": "Zobrazit hesla",
+    "title": "Vaše tajemství",
+    "wifiPassword": "Heslo k WiFi",
+    "wifiSsid": "Síť WiFi (SSID)",
+    "wifiSsidHint": "Vyplněním se také zapne <code>kWifiEnabled</code>. Ponecháte-li prázdné, WiFi zůstane vypnutá, aby tracker při každém startu nečekal na vypršení připojení."
+  },
+  "sharing": {
+    "cannotShareWithSelf": "Zařízení nelze nasdílet sami sobě.",
+    "confirmRemove": "Odebrat přístup uživateli {{email}}?\nToto zařízení pak již neuvidí.",
+    "emailPlaceholder": "uzivatel@example.com",
+    "emailRequired": "Zadejte e-mail osoby, kterou chcete pozvat.",
+    "inviteHint": "Zadejte jeho e-mailovou adresu. Přístup pro čtení se uděluje vždy. Vyberte, která další oprávnění mu dát.",
+    "inviteTitle": "Pozvat někoho nového",
+    "noAccount": "Nebyl nalezen žádný účet s e-mailem „{{email}}“.",
+    "noOtherUsers": "K tomuto zařízení nemá přístup žádný další uživatel.",
+    "peopleWithAccess": "Lidé s přístupem",
+    "readOnlyNote": "Máte oprávnění Nastavení — vidíte, kdo má přístup, ale k pozvání či úpravě uživatelů potřebujete oprávnění Sdílení.",
+    "remove": "Odebrat",
+    "removed": "Přístup uživatele {{email}} byl odebrán.",
+    "share": "Nasdílet přístup",
+    "sharing": "Sdílím…",
+    "title": "Správa přístupu"
+  },
+  "sync": {
+    "badge": {
+      "pending": "Čeká",
+      "synced": "Synchronizováno",
+      "unknown": "Neznámé"
+    },
+    "diagram": {
+      "pending": "Nastavení je publikováno na brokeru a čeká, až si ho zařízení vyzvedne.",
+      "synced": "Nastavení dorazilo do zařízení: přehled, broker i zařízení to potvrdily.",
+      "unknown": "Nastavení je publikováno na brokeru; zařízení revizi nepotvrdilo."
+    },
+    "explain": {
+      "deepSleepWait": "Se zapnutým hlubokým spánkem je online jen krátce, takže to může trvat až jeden interval hlášení ({{interval}}).",
+      "pending": "Broker tuto změnu drží; zařízení ji použije při nejbližším hlášení.",
+      "synced": "Nastavení níže je to, které tracker používá.",
+      "unknown": "S nastavením není nic v nepořádku — toto zařízení jen nikdy nepotvrdilo, kterou revizi používá. Firmware starší než vzdálená nastavení to nikdy neudělá."
+    },
+    "node": {
+      "broker": "Broker",
+      "dashboard": "Přehled",
+      "device": "Zařízení"
+    },
+    "republish": "Odeslat zařízení znovu",
+    "republishHint": "Publikovat současné nastavení na broker znovu",
+    "republishing": "Odesílám…",
+    "status": {
+      "pending": "Publikováno v{{version}} · zařízení používá v{{appliedVersion}} · poslední hlášení {{lastReport}}",
+      "synced": "Zařízení používá v{{version}} · potvrzeno {{confirmed}}",
+      "unknown": "Publikováno v{{version}} · zařízení zatím žádnou revizi nenahlásilo"
+    }
+  }
+}

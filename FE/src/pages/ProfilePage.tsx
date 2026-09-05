@@ -17,6 +17,7 @@
 // it would require a verification round-trip that is out of scope here.
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { PersonalInfoSection } from '../components/PersonalInfoSection'
 import { ChangePasswordSection } from '../components/ChangePasswordSection'
@@ -27,6 +28,7 @@ import { ChangePasswordSection } from '../components/ChangePasswordSection'
 
 export function ProfilePage() {
   const { currentUser, updateCurrentUser } = useAuth()
+  const { t } = useTranslation('profile')
 
   // Guard: this page is inside <RequireAuth> so currentUser should always be set,
   // but TypeScript doesn't know that — handle the edge case gracefully.
@@ -39,9 +41,9 @@ export function ProfilePage() {
       {/* page-header is a flex row (for title + action button) — use a plain
           block here so the subtitle sits below the title, not beside it. */}
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: '1.5rem', margin: 0 }}>Profile</h2>
+        <h2 style={{ fontSize: '1.5rem', margin: 0 }}>{t('title')}</h2>
         <p className="hint" style={{ marginTop: 6 }}>
-          Manage your personal information and account security.
+          {t('subtitle')}
         </p>
       </div>
 

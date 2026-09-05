@@ -14,11 +14,13 @@
 // ============================================================
 
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { PermissionBadges } from './PermissionBadges'
 import { BatteryBadge } from './BatteryBadge'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { formatRelativeTime } from '../utils/dates'
+import { formatDate } from '../i18n/format'
 
 // Props match DeviceDto directly — the parent passes a full device object.
 type DeviceCardProps = {
@@ -26,9 +28,11 @@ type DeviceCardProps = {
 }
 
 export function DeviceCard({ device }: DeviceCardProps) {
-  const registeredDate = new Date(device.createdAt).toLocaleDateString()
+  const { t } = useTranslation(['home', 'common'])
+
+  const registeredDate = formatDate(new Date(device.createdAt))
   const deactivatedDate = device.deactivatedAt
-    ? new Date(device.deactivatedAt).toLocaleDateString()
+    ? formatDate(new Date(device.deactivatedAt))
     : null
 
   const label = deviceLabel(device)
@@ -41,7 +45,7 @@ export function DeviceCard({ device }: DeviceCardProps) {
     <Link
       to={`/device/${encodeURIComponent(device.deviceId)}/map`}
       className="device-card"
-      aria-label={`Open device ${label}`}
+      aria-label={t('home:card.open', { label })}
     >
       {/* Display name + battery + status badge row */}
       <div className="device-card-header">
@@ -55,7 +59,7 @@ export function DeviceCard({ device }: DeviceCardProps) {
           <span
             className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
           >
-            {device.isActive ? 'Active' : 'Inactive'}
+            {device.isActive ? t('common:deviceState.active') : t('common:deviceState.inactive')}
           </span>
         </div>
       </div>
@@ -71,8 +75,8 @@ export function DeviceCard({ device }: DeviceCardProps) {
       {/* Registration / deactivation date */}
       <div className="device-card-meta">
         {device.isActive
-          ? `Registered ${registeredDate}`
-          : `Deactivated ${deactivatedDate ?? ''}`}
+          ? t('home:card.registered', { date: registeredDate })
+          : t('home:card.deactivated', { date: deactivatedDate ?? '' })}
       </div>
 
       {/* Liveness. The tracker sends no heartbeat, so this only moves when a
@@ -80,7 +84,7 @@ export function DeviceCard({ device }: DeviceCardProps) {
           not been flashed with this device's config yet. */}
       {device.isActive ? (
         <div className="device-card-meta">
-          Last fix: {formatRelativeTime(device.lastSeenAt)}
+          {t('home:card.lastFix', { when: formatRelativeTime(device.lastSeenAt) })}
         </div>
       ) : null}
 
@@ -89,7 +93,7 @@ export function DeviceCard({ device }: DeviceCardProps) {
 
       {/* Call-to-action link text */}
       <div className="device-card-footer">
-        <span className="btn btn-secondary btn-sm">Open →</span>
+        <span className="btn btn-secondary btn-sm">{t('home:card.openCta')}</span>
       </div>
     </Link>
   )

@@ -13,6 +13,7 @@
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { changePassword } from '../services/apiClient'
 import { describeError } from '../utils/errors'
 
@@ -24,6 +25,8 @@ type ChangePasswordSectionProps = {
 }
 
 export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
+  const { t } = useTranslation(['profile', 'common', 'errors'])
+
   const [currentPw, setCurrentPw] = useState<string>('')
   const [newPw,     setNewPw]     = useState<string>('')
   const [confirmPw, setConfirmPw] = useState<string>('')
@@ -38,19 +41,19 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
     // Client-side validation gives faster, friendlier feedback than waiting
     // for the server. The server enforces the same rules independently.
     if (!currentPw) {
-      setMessage('Enter your current password.')
+      setMessage(t('profile:password.currentRequired'))
       setIsError(true)
       return
     }
 
     if (newPw.length < MIN_PASSWORD_LENGTH) {
-      setMessage(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+      setMessage(t('profile:password.tooShort', { count: MIN_PASSWORD_LENGTH }))
       setIsError(true)
       return
     }
 
     if (newPw !== confirmPw) {
-      setMessage('New password and confirmation do not match.')
+      setMessage(t('profile:password.doNotMatch'))
       setIsError(true)
       return
     }
@@ -65,10 +68,10 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
       setCurrentPw('')
       setNewPw('')
       setConfirmPw('')
-      setMessage('Password changed successfully.')
+      setMessage(t('profile:password.changed'))
       setIsError(false)
     } catch (error) {
-      setMessage(describeError(error, 'Failed to change password.'))
+      setMessage(describeError(error, t('errors:changePasswordFailed')))
       setIsError(true)
     } finally {
       setIsSaving(false)
@@ -79,18 +82,17 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
     <div className="settings-section">
       <div className="settings-section-header">
         <span className="settings-section-icon" aria-hidden="true">🔒</span>
-        <h3>Change Password</h3>
+        <h3>{t('profile:password.title')}</h3>
       </div>
 
       <div className="settings-section-body">
         <p className="hint" style={{ marginBottom: 16 }}>
-          You must enter your current password to set a new one. The new password
-          must be at least {MIN_PASSWORD_LENGTH} characters.
+          {t('profile:password.hint', { count: MIN_PASSWORD_LENGTH })}
         </p>
 
         <form onSubmit={handleSubmit}>
           <div className="form-field" style={{ marginBottom: 12 }}>
-            <label className="form-label" htmlFor="pw-current">Current password</label>
+            <label className="form-label" htmlFor="pw-current">{t('profile:password.current')}</label>
             <input
               id="pw-current"
               className="form-input"
@@ -103,7 +105,7 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
           </div>
 
           <div className="form-field" style={{ marginBottom: 12 }}>
-            <label className="form-label" htmlFor="pw-new">New password</label>
+            <label className="form-label" htmlFor="pw-new">{t('profile:password.new')}</label>
             <input
               id="pw-new"
               className="form-input"
@@ -117,7 +119,7 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
           </div>
 
           <div className="form-field" style={{ marginBottom: 16 }}>
-            <label className="form-label" htmlFor="pw-confirm">Confirm new password</label>
+            <label className="form-label" htmlFor="pw-confirm">{t('profile:password.confirm')}</label>
             <input
               id="pw-confirm"
               className="form-input"
@@ -145,7 +147,7 @@ export function ChangePasswordSection({ userId }: ChangePasswordSectionProps) {
             className="btn btn-primary"
             disabled={isSaving}
           >
-            {isSaving ? 'Changing…' : 'Change password'}
+            {isSaving ? t('profile:password.submitting') : t('profile:password.submit')}
           </button>
         </form>
       </div>

@@ -28,8 +28,9 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { TimeUnit } from '../utils/timeUnits'
-import { UNIT_LABELS, UNIT_SECONDS, bestUnit, fromUnit, toUnit } from '../utils/timeUnits'
+import { UNIT_LABEL_KEYS, UNIT_SECONDS, bestUnit, fromUnit, toUnit } from '../utils/timeUnits'
 
 export type DurationFieldProps = {
   // Input id, so the label points at it the way every other field here does.
@@ -68,6 +69,8 @@ export function DurationField({
   pendingNote,
   required = false,
 }: DurationFieldProps) {
+  const { t } = useTranslation(['common'])
+
   // Everything is compared in seconds, because that is the only unit all four
   // of them share. `baseSeconds` converts in and out of the storage unit.
   const baseSeconds: number = UNIT_SECONDS[baseUnit]
@@ -144,7 +147,7 @@ export function DurationField({
           // The visible label belongs to the number input, so the combobox
           // names itself — "Unit for Report every" rather than a bare "unit"
           // repeated five times down the form.
-          aria-label={`Unit for ${label}`}
+          aria-label={t('durationField.unitFor', { label })}
           value={unit}
           onChange={(event) => {
             // The draft is text in the OLD unit; keeping it would show 300 as
@@ -155,7 +158,7 @@ export function DurationField({
         >
           {units.map((option) => (
             <option key={option} value={option}>
-              {UNIT_LABELS[option]}
+              {t(UNIT_LABEL_KEYS[option])}
             </option>
           ))}
         </select>

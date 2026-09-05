@@ -41,6 +41,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   fetchDeviceConfig,
   republishDeviceConfig,
@@ -85,6 +86,8 @@ export function DeviceConfigSection({
   onScheduleChanged,
   onScheduleReloadNeeded,
 }: DeviceConfigSectionProps) {
+  const { t } = useTranslation(['settings', 'common', 'errors'])
+
   const [state, setState]         = useState<DeviceConfigStateDto | null>(null)
   const [form, setForm]           = useState<DeviceConfigValuesDto | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -202,11 +205,11 @@ export function DeviceConfigSection({
           return
         }
         if (isInitial) {
-          setLoadError(describeError(caught, 'Failed to load the device settings.'))
+          setLoadError(describeError(caught, t('errors:loadConfigFailed')))
         } else {
           // A failed background tick must not replace a working panel with an
           // error state. Say it quietly and keep showing the last good values.
-          setMessage(describeError(caught, 'Could not refresh the settings just now.'))
+          setMessage(describeError(caught, t('errors:refreshConfigFailed')))
           setIsError(true)
         }
       } finally {
@@ -221,6 +224,10 @@ export function DeviceConfigSection({
     return () => {
       canceled = true
     }
+    // `t` is deliberately not a dependency. It is only reached on the failure
+    // path, for the fallback message, and listing it would re-fetch the
+    // settings every time the reader changes language.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, refreshToken])
 
   // Unsaved edits. Compared against the desired revision, so it goes false again
@@ -256,7 +263,9 @@ export function DeviceConfigSection({
     }
     return (
       <span className="config-field-state">
-        ⚠ Device still on {formatConfigValue(key, state.applied.values)}
+        ⚠ {t('settings:config.deviceStillOn', {
+          value: formatConfigValue(key, state.applied.values),
+        })}
       </span>
     )
   }
@@ -306,10 +315,10 @@ export function DeviceConfigSection({
       seedForm(saved.desired.values, true)
       setMessage(
         acknowledgeOverride
-          ? `Saved as v${saved.desired.version}. These values hold until the next scheduled switch.`
+          ? t('settings:save.savedTemporary', { version: saved.desired.version })
           : saved.isInSync
-            ? 'Settings saved.'
-            : `Settings saved and published as v${saved.desired.version}. The device applies them on its next report.`,
+            ? t('settings:save.saved')
+            : t('settings:save.savedPublished', { version: saved.desired.version }),
       )
       setIsError(false)
       setIsOverrideDialogOpen(false)
@@ -320,7 +329,7 @@ export function DeviceConfigSection({
         onScheduleReloadNeeded()
       }
     } catch (caught) {
-      setMessage(describeError(caught, 'Failed to save the settings.'))
+      setMessage(describeError(caught, t('errors:saveConfigFailed')))
       setIsError(true)
       setIsOverrideDialogOpen(false)
     } finally {
@@ -333,10 +342,10 @@ export function DeviceConfigSection({
     setMessage('')
     try {
       await republishDeviceConfig(deviceId)
-      setMessage('Settings re-published to the broker.')
+      setMessage(t('settings:save.republished'))
       setIsError(false)
     } catch (caught) {
-      setMessage(describeError(caught, 'Failed to re-publish the settings.'))
+      setMessage(describeError(caught, t('errors:republishConfigFailed')))
       setIsError(true)
     } finally {
       setIsRepublishing(false)
@@ -354,14 +363,14 @@ export function DeviceConfigSection({
       // The scheduled profile has just been applied, so the settings on screen
       // are now the wrong ones — bumping through a re-read is what puts the form
       // back in step.
-      setMessage('Schedule resumed. Refreshing the settings…')
+      setMessage(t('settings:save.resumingRefresh'))
       setIsError(false)
       const reloaded: DeviceConfigStateDto = await fetchDeviceConfig(deviceId)
       setState(reloaded)
       seedForm(reloaded.desired.values, true)
-      setMessage('Schedule resumed — the scheduled profile is back in force.')
+      setMessage(t('settings:save.resumed'))
     } catch (caught) {
-      setMessage(describeError(caught, 'Failed to resume the schedule.'))
+      setMessage(describeError(caught, t('errors:resumeScheduleFailed')))
       setIsError(true)
     } finally {
       setIsResuming(false)
@@ -381,17 +390,11 @@ export function DeviceConfigSection({
     <div className="settings-section">
       <div className="settings-section-header">
         <span className="settings-section-icon" aria-hidden="true">⚙️</span>
-        <h3>Reporting &amp; Power</h3>
+        <h3>{t('settings:config.title')}</h3>
       </div>
 
       <div className="settings-section-body">
-        <p>
-          How often this tracker reports, whether it sleeps in between, and what it
-          does with fixes it could not deliver. Changes are published to the broker,
-          which holds them — so the device does not need to be online right now, and
-          nothing has to be reflashed. An awake tracker applies a change within
-          seconds; a sleeping one on its next wake.
-        </p>
+        <p>{t('settings:config.intro')}</p>
 
         {/* Said before the form rather than after the save. Somebody about to
             edit these values needs to know they are on a timetable. */}
@@ -402,19 +405,25 @@ export function DeviceConfigSection({
                 banner's flex gap prising every <strong> apart. */}
             <div className="banner-text">
               <p className="banner-title">
-                {schedule?.status?.activeProfileName
-                  ? <>A schedule is running the <strong>{schedule.status.activeProfileName}</strong> profile on this device.</>
-                  : <>A schedule is in charge of these settings.</>}
+                {schedule?.status?.activeProfileName ? (
+                  <Trans
+                    i18nKey="config.scheduledWithProfile"
+                    ns="settings"
+                    values={{ profile: schedule.status.activeProfileName }}
+                    components={{ strong: <strong /> }}
+                  />
+                ) : (
+                  <>{t('settings:config.scheduled')}</>
+                )}
               </p>
               <p className="banner-detail">
-                Saving here applies straight away, but the next profile switch replaces it.
-                To change it for good, edit the profile in <em>Settings › Schedule</em> above.
+                <Trans i18nKey="config.scheduledDetail" ns="settings" components={{ em: <em /> }} />
               </p>
             </div>
           </div>
         ) : null}
 
-        {isLoading ? <p className="hint">Loading settings…</p> : null}
+        {isLoading ? <p className="hint">{t('settings:config.loading')}</p> : null}
 
         {loadError ? (
           <div className="banner banner--error" role="alert">
@@ -472,7 +481,11 @@ export function DeviceConfigSection({
                   className="btn btn-primary"
                   disabled={isSaving || !isDirty}
                 >
-                  {isSaving ? 'Saving…' : isScheduled ? 'Save settings…' : 'Save settings'}
+                  {isSaving
+                    ? t('common:actions.saving')
+                    : isScheduled
+                      ? t('settings:save.submitScheduled')
+                      : t('settings:save.submit')}
                 </button>
                 <button
                   type="button"
@@ -480,18 +493,18 @@ export function DeviceConfigSection({
                   onClick={handleReset}
                   disabled={isSaving || !isDirty}
                 >
-                  Reset
+                  {t('settings:save.reset')}
                 </button>
-                {isDirty ? <span className="hint">Unsaved changes</span> : null}
+                {isDirty ? <span className="hint">{t('settings:save.unsaved')}</span> : null}
                 {/* Only while both are true: a refresh happened AND it found
                     edits to step around. Otherwise the reader is left guessing
                     whether the sync badge above them is stale. */}
                 {isDirty && didKeepEdits ? (
-                  <span className="hint">
-                    Refreshed around your edits — the values you typed were kept.
-                  </span>
+                  <span className="hint">{t('settings:save.keptEdits')}</span>
                 ) : null}
-                {isRefreshing ? <span className="hint">Refreshing…</span> : null}
+                {isRefreshing ? (
+                  <span className="hint">{t('common:refresh.refreshing')}</span>
+                ) : null}
               </div>
             </form>
 
@@ -514,7 +527,7 @@ export function DeviceConfigSection({
                 setForm(values)
                 setFormSeedKey((key) => key + 1)
                 setDidKeepEdits(false)
-                setMessage('Loaded those values into the form — review them, then save.')
+                setMessage(t('settings:history.restored'))
                 setIsError(false)
               }}
             />

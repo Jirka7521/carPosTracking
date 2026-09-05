@@ -1,0 +1,45 @@
+{
+  "add": {
+    "addPerson": "+ Add person",
+    "close": "✕  Cancel",
+    "deviceId": "Device ID",
+    "deviceIdPlaceholder": "e.g. GNSS01",
+    "displayName": "Display name",
+    "displayNamePlaceholder": "e.g. Blue van",
+    "emailAddress": "Email address",
+    "emailPlaceholder": "colleague@example.com",
+    "intro": "The device ID is the tracker's MQTT identity — the same string it publishes under and authenticates with. It is permanent and must be unique; the server rejects duplicates.",
+    "invalidId": "The device ID may contain only letters, digits, hyphens and underscores (up to 64 characters).",
+    "open": "+ Add Device",
+    "shareHint": "Share with other people now (optional). You always keep full access to devices you register.",
+    "submit": "Register device",
+    "submitting": "Registering…",
+    "title": "Register a new device"
+  },
+  "card": {
+    "deactivated": "Deactivated {{date}}",
+    "lastFix": "Last fix: {{when}}",
+    "open": "Open device {{label}}",
+    "openCta": "Open →",
+    "registered": "Registered {{date}}"
+  },
+  "empty": {
+    "addFirst": "+ Add your first device",
+    "allInactiveBody": "All your devices are inactive. Enable \"Show inactive devices\" to see them.",
+    "allInactiveTitle": "No active devices",
+    "noneBody": "Register your first GPS tracker using the \"Add Device\" button above.",
+    "noneTitle": "No devices yet"
+  },
+  "filter": {
+    "hiddenCount_one": "{{count}} inactive device hidden",
+    "hiddenCount_other": "{{count}} inactive devices hidden",
+    "showInactive": "Show inactive devices"
+  },
+  "loading": "Loading your devices…",
+  "provisioning": {
+    "dismiss": "Dismiss",
+    "readAgainHint": "You can read this again later from the device's Settings tab.",
+    "title": "Device \"{{deviceId}}\" registered"
+  },
+  "title": "My Devices"
+}

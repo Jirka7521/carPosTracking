@@ -114,6 +114,11 @@
 /* Full-viewport gradient background */
 .auth-page {
   min-height: 100svh;
+  /* Anchors the language picker in the corner — the login and register pages
+     render their own shell, so they do not get the header's copy of it, and a
+     visitor who cannot read English has to be able to switch before they can
+     sign in at all. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -121,6 +126,30 @@
   /* Diagonal gradient from deep blue to medium blue */
   background: linear-gradient(155deg, var(--blue-900) 0%, var(--blue-800) 50%, var(--blue-700) 100%);
   padding: 24px;
+}
+
+/* The language picker on the auth pages. The trigger sits on the dark gradient
+   rather than on a white panel, so it is the one place its colours are
+   restated; the popover below it is white either way. */
+.auth-language {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.auth-language .export-trigger {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.auth-language .export-trigger:hover:not(:disabled),
+.auth-language .export-trigger[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.auth-language .export-trigger:focus-visible {
+  outline-color: #fff;
 }
 
 /* Branding block above the white card */
@@ -923,6 +952,26 @@
   grid-column: 2 / 4;
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+/* ---- Language picker ----
+ * Reuses the export menu's popover wholesale; only the two things that differ
+ * in a header are overridden. The panel is narrower because a language list is
+ * two words wide, and align-self is reset because the header is a row, not the
+ * column the toolbar is.
+ */
+.language-menu {
+  align-self: auto;
+}
+
+.language-menu .export-menu-panel {
+  min-width: 168px;
+}
+
+/* Two columns here, not three — a language has a tick and a name, and no
+   sample character to show beside it. */
+.language-menu .export-menu-item {
+  grid-template-columns: 16px 1fr;
 }
 
 /* Overflow wrapper so the table scrolls horizontally on small screens */

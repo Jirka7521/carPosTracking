@@ -13,7 +13,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
+import { LanguageMenu } from '../components/LanguageMenu'
 import { assetUrl } from '../services/runtimeConfig'
 import { describeError } from '../utils/errors'
 
@@ -23,6 +25,7 @@ const MIN_PASSWORD_LENGTH = 12
 export function RegisterPage() {
   const { register } = useAuth()
   const navigate = useNavigate()
+  const { t } = useTranslation(['auth', 'common', 'errors'])
 
   // Form fields
   const [firstName, setFirstName] = useState<string>('')
@@ -41,12 +44,12 @@ export function RegisterPage() {
 
     // Client-side validation — gives instant feedback before the round-trip.
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`)
+      setErrorMessage(t('auth:validation.passwordTooShort', { count: MIN_PASSWORD_LENGTH }))
       return
     }
 
     if (password !== passwordConfirm) {
-      setErrorMessage('Passwords do not match.')
+      setErrorMessage(t('auth:validation.passwordsDoNotMatch'))
       return
     }
 
@@ -57,7 +60,7 @@ export function RegisterPage() {
       await register(email, password, firstName, lastName)
       navigate('/home', { replace: true })
     } catch (error) {
-      setErrorMessage(describeError(error, 'Registration failed. Please try again.'))
+      setErrorMessage(describeError(error, t('errors:registrationFailed')))
     } finally {
       setIsSubmitting(false)
     }
@@ -65,25 +68,28 @@ export function RegisterPage() {
 
   return (
     <div className="auth-page">
+      {/* Own shell, own picker — same reason as LoginPage. */}
+      <div className="auth-language">
+        <LanguageMenu />
+      </div>
+
       {/* Branding block above the white form card */}
       <div className="auth-brand">
         <img src={assetUrl('favicon.svg')} alt="" aria-hidden="true" className="auth-logo-mark" />
-        <h1>Car Position Tracker</h1>
-        <p className="auth-brand-subtitle">Vehicle tracking dashboard</p>
+        <h1>{t('common:appTitle')}</h1>
+        <p className="auth-brand-subtitle">{t('common:appSubtitle')}</p>
       </div>
 
       {/* White card containing the registration form */}
       <div className="auth-card">
-        <h2 className="auth-card-title">Create account</h2>
-        <p className="auth-card-subtitle">
-          Fill in your details below to start tracking your devices.
-        </p>
+        <h2 className="auth-card-title">{t('auth:register.title')}</h2>
+        <p className="auth-card-subtitle">{t('auth:register.subtitle')}</p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           {/* First + last name side-by-side */}
           <div className="auth-name-row">
             <div className="form-field">
-              <label htmlFor="reg-firstname">First name</label>
+              <label htmlFor="reg-firstname">{t('auth:fields.firstName')}</label>
               <input
                 id="reg-firstname"
                 className="form-input"
@@ -92,12 +98,12 @@ export function RegisterPage() {
                 onChange={(e) => setFirstName(e.target.value)}
                 autoComplete="given-name"
                 required
-                placeholder="Jan"
+                placeholder={t('auth:fields.firstNamePlaceholder')}
               />
             </div>
 
             <div className="form-field">
-              <label htmlFor="reg-lastname">Last name</label>
+              <label htmlFor="reg-lastname">{t('auth:fields.lastName')}</label>
               <input
                 id="reg-lastname"
                 className="form-input"
@@ -106,14 +112,14 @@ export function RegisterPage() {
                 onChange={(e) => setLastName(e.target.value)}
                 autoComplete="family-name"
                 required
-                placeholder="Novák"
+                placeholder={t('auth:fields.lastNamePlaceholder')}
               />
             </div>
           </div>
 
           {/* Email */}
           <div className="form-field">
-            <label htmlFor="reg-email">Email</label>
+            <label htmlFor="reg-email">{t('auth:fields.email')}</label>
             <input
               id="reg-email"
               className="form-input"
@@ -122,15 +128,16 @@ export function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               required
-              placeholder="you@example.com"
+              placeholder={t('auth:fields.emailPlaceholder')}
             />
           </div>
 
           {/* Password */}
           <div className="form-field">
             <label htmlFor="reg-password">
-              Password <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
-                (min. {MIN_PASSWORD_LENGTH} characters)
+              {t('auth:fields.password')}{' '}
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                {t('auth:fields.passwordMinHint', { count: MIN_PASSWORD_LENGTH })}
               </span>
             </label>
             <input
@@ -148,7 +155,7 @@ export function RegisterPage() {
 
           {/* Confirm password — client-side match check only */}
           <div className="form-field">
-            <label htmlFor="reg-password-confirm">Confirm password</label>
+            <label htmlFor="reg-password-confirm">{t('auth:fields.confirmPassword')}</label>
             <input
               id="reg-password-confirm"
               className="form-input"
@@ -175,7 +182,7 @@ export function RegisterPage() {
             disabled={isSubmitting}
             style={{ marginTop: 4 }}
           >
-            {isSubmitting ? 'Creating account…' : 'Create account'}
+            {isSubmitting ? t('auth:register.submitting') : t('auth:register.submit')}
           </button>
         </form>
 
@@ -184,8 +191,8 @@ export function RegisterPage() {
 
       {/* Link back to login for users who already have an account */}
       <p className="auth-switch-link">
-        Already have an account?{' '}
-        <Link to="/login">Sign in here</Link>
+        {t('auth:register.haveAccount')}{' '}
+        <Link to="/login">{t('auth:register.signIn')}</Link>
       </p>
     </div>
   )

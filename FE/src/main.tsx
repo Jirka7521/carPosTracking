@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
+// Initialises i18next before anything renders. Catalogues are bundled, so this
+// is synchronous and the first paint is already in the reader's language.
+import './i18n'
 import App from './App.tsx'
 import { BASE_PATH } from './services/runtimeConfig'
 

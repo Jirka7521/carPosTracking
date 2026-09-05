@@ -15,13 +15,18 @@
 // The separators offered in the UI, in the order they are listed.
 //
 // `sample` is the character itself, shown beside the name because "semicolon"
-// is a word and ";" is what actually ends up between the columns. `hint` names
-// the case each one exists for — nobody picking a separator knows off-hand which
-// one their spreadsheet wants, but everybody knows which spreadsheet they have.
+// is a word and ";" is what actually ends up between the columns. `hintKey`
+// names the case each one exists for — nobody picking a separator knows
+// off-hand which one their spreadsheet wants, but everybody knows which
+// spreadsheet they have.
+//
+// The name and the hint are translation KEYS; the separator menu resolves them.
+// The characters themselves are of course not translated — a semicolon is a
+// semicolon. `as const` keeps the keys literal types so t() can check them.
 export const CSV_DELIMITERS = [
-  { value: ',',  label: 'Comma',     sample: ',', hint: 'Standard CSV' },
-  { value: ';',  label: 'Semicolon', sample: ';', hint: 'Excel in CZ / DE' },
-  { value: '\t', label: 'Tab',       sample: '⇥', hint: 'TSV' },
+  { value: ',',  labelKey: 'common:csv.comma',     sample: ',', hintKey: 'common:csv.commaHint' },
+  { value: ';',  labelKey: 'common:csv.semicolon', sample: ';', hintKey: 'common:csv.semicolonHint' },
+  { value: '\t', labelKey: 'common:csv.tab',       sample: '⇥', hintKey: 'common:csv.tabHint' },
 ] as const
 
 export type CsvDelimiter = (typeof CSV_DELIMITERS)[number]['value']

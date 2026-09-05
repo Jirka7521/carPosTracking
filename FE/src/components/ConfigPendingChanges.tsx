@@ -12,9 +12,10 @@
 // five say "unchanged" would bury the one that matters.
 // ---------------------------------------------------------------------------
 
+import { useTranslation } from 'react-i18next'
 import type { DeviceConfigValuesDto, DeviceConfigVersionDto } from '../services/apiTypes'
 import {
-  CONFIG_FIELD_LABELS,
+  CONFIG_FIELD_LABEL_KEYS,
   diffConfig,
   formatConfigValue,
 } from '../utils/deviceConfig'
@@ -27,6 +28,8 @@ export type ConfigPendingChangesProps = {
 }
 
 export function ConfigPendingChanges({ applied, desired }: ConfigPendingChangesProps) {
+  const { t } = useTranslation(['settings'])
+
   const changed: (keyof DeviceConfigValuesDto)[] = diffConfig(applied.values, desired.values)
 
   // Reachable when the version was bumped without the values changing — the API
@@ -39,7 +42,7 @@ export function ConfigPendingChanges({ applied, desired }: ConfigPendingChangesP
   return (
     <div className="config-compare">
       <div className="config-compare-header">
-        <span className="config-compare-title">Pending change</span>
+        <span className="config-compare-title">{t('pending.title')}</span>
         <span className="hint">
           v{applied.version} → v{desired.version}
         </span>
@@ -48,15 +51,15 @@ export function ConfigPendingChanges({ applied, desired }: ConfigPendingChangesP
       <table className="config-compare-table">
         <thead>
           <tr>
-            <th scope="col">Setting</th>
-            <th scope="col">Running (v{applied.version})</th>
-            <th scope="col">Will become (v{desired.version})</th>
+            <th scope="col">{t('pending.setting')}</th>
+            <th scope="col">{t('pending.running', { version: applied.version })}</th>
+            <th scope="col">{t('pending.willBecome', { version: desired.version })}</th>
           </tr>
         </thead>
         <tbody>
           {changed.map((key) => (
             <tr key={key}>
-              <th scope="row">{CONFIG_FIELD_LABELS[key]}</th>
+              <th scope="row">{t(CONFIG_FIELD_LABEL_KEYS[key])}</th>
               <td className="config-compare-from">{formatConfigValue(key, applied.values)}</td>
               <td className="config-compare-to">{formatConfigValue(key, desired.values)}</td>
             </tr>
