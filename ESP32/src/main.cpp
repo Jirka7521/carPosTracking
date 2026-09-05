@@ -21,6 +21,7 @@
 #include "power/BatteryMethods.h"
 #include "power/BatteryMonitor.h"
 #include "power/BatteryReporter.h"
+#include "power/BatteryWindowSampler.h"
 #include "power/BootJournal.h"
 #include "power/ChargerWatcher.h"
 #include "power/DeepSleepController.h"
@@ -236,12 +237,22 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
 
-  // The pack measurement behind the published percent: a spread, outlier-trimmed
-  // ADC burst scored with the Li-ion curve. It measures only - it decides
+  // The conversions behind the published percent, taken on their own task every
+  // kBatteryWindowSampleMs. Started HERE, as early as the ADC exists, because
+  // the window is meant to cover the whole awake stretch - the modem coming up,
+  // WiFi settling, the MQTT connect, the config fetch and the entire fix hunt -
+  // rather than a couple of seconds guessed at just before the publish. Every
+  // one of those is a moment the rail moves, and a median wants to see all of
+  // them. See BatteryWindowSampler.h.
+  static BatteryWindowSampler batteryWindow(adcSampler,
+                                            config::kBatteryVbatSensePin,
+                                            config::kBatteryWindowSampleMs);
+
+  // The pack measurement itself: the window, outlier-trimmed and taken down to
+  // its median, scored with the Li-ion curve. It measures only - it decides
   // nothing and stores nothing itself.
   static BatteryMethods batteryMethods(
-      adcSampler, config::kBatteryVbatSensePin, config::kBatteryDividerRatio,
-      config::kBatteryAdcSamples, config::kBatteryAdcSampleGapMs,
+      adcSampler, batteryWindow, config::kBatteryDividerRatio,
       config::kBatteryOutlierMadFactor, config::kBatteryNoReadingMv);
 
   // Tested once here rather than re-derived every cycle. A device whose ADC
@@ -249,7 +260,7 @@ extern "C" void app_main(void) {
   // battery_pct out (or falls back to the modem's own figure, below).
   bool methodsReady = false;
   if (config::kBatteryReportFromMethods) {
-    methodsReady = batteryMethods.begin();
+    methodsReady = batteryWindow.begin() && batteryWindow.start();
     if (!methodsReady) {
       ESP_LOGW(TAG,
                "Battery measurement unavailable - battery_pct will be "
@@ -450,25 +461,21 @@ extern "C" void app_main(void) {
     // detector that actually ran each time. The debug callback above is a
     // separate, debug-only read that runs during the wait.
 
-    // Measure the pack. Two things fix where this call sits, and both are about
-    // measuring the pack rather than the radios:
+    // Score the pack. The conversions were taken by the sampling task while all
+    // of the above was happening, so this neither blocks nor touches the ADC -
+    // it drains the window and does the arithmetic.
     //
-    //   * BEFORE the publish, because this is what gets published;
-    //   * FIRST, ahead of battery.read()'s AT+CBC below. The measurement is an
-    //     ADC burst on a rail the modem shares, so running the monitor's AT+CBC
-    //     ahead of it - as this used to - put modem traffic right in front of
-    //     the burst.
-    //
-    // The settle pause is the same argument one step further out: the acquire
-    // loop's per-poll hook flushes the MQTT backlog over WiFi and can finish
-    // microseconds before the first conversion, so give the rail a moment to
-    // come back up first. The burst's own spacing is what really does the work
-    // (see BatteryMethods.h); this just stops the window opening on a droop.
+    // What still fixes where the call sits is that taking the window RESETS it.
+    // It has to happen before forwarder.process() publishes, so the ~2 A
+    // transmit droop of this cycle's own publish lands in the NEXT window rather
+    // than in the one being scored. Everything else that used to pin this call
+    // down - keeping it ahead of the monitor's AT+CBC, pausing first to let the
+    // rail come back up after a backlog flush - was about a two-second burst
+    // having to find a quiet moment. A window spanning the whole cycle does not
+    // need one: the droops are in it, in the minority, where the outlier trim
+    // can delete them.
     BatteryMethodsSample methods;
     if (methodsReady) {
-      if (config::kBatteryQuietSettleMs > 0) {
-        vTaskDelay(pdMS_TO_TICKS(config::kBatteryQuietSettleMs));
-      }
       batteryMethods.sample(methods);
     }
 

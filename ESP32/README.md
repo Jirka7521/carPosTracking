@@ -32,10 +32,11 @@ reuse.
   plus charge detection on that same pin — a value of `0` is the agreed
   "charging" sentinel. Also reports the **modem die temperature**
   (`AT+CPMUTEMP`, published as `temp_c`).
-- 📊 **Battery measurement**: the pack voltage is read as a burst of ADC
-  conversions **spread over ~1.9 s** and **trimmed of outliers**, so a transmit
-  droop is a minority of the samples rather than all of them, then scored with
-  the Li-ion curve. See [Battery measurement](#battery-measurement).
+- 📊 **Battery measurement**: the pack voltage is sampled **every 0.5 s for the
+  whole time the device is awake** — boot, modem, MQTT connect and the entire fix
+  hunt — then **trimmed of outliers** and taken down to its **median**, so a
+  transmit droop is a minority of the samples rather than all of them, and scored
+  with the Li-ion curve. See [Battery measurement](#battery-measurement).
 - 🔌 **Charger-disconnect report**: while the charger is connected the pack is
   invisible to the ADC, so the first true reading of a trip only exists once it
   comes off. On that edge — and only when the cycle found no position — the
@@ -136,7 +137,8 @@ src/
     ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
     ├── BatteryMonitor.h/.cpp      ← Charge-sense on GPIO35 + the AT+CBC fallback %
     ├── BatteryMethodsData.h       ← Plain struct: one pack measurement (mV + %)
-    ├── BatteryMethods.h/.cpp      ← Measure the pack: trimmed ADC burst + Li-ion curve
+    ├── BatteryWindowSampler.h/.cpp← Sample the pack every 0.5 s, all cycle, on its own task
+    ├── BatteryMethods.h/.cpp      ← Measure the pack: trimmed window median + Li-ion curve
     ├── BatteryReporter.h/.cpp     ← Picks the ONE percent that goes on the wire
     ├── ChargerWatcher.h/.cpp      ← Spots the charger-off edge (RTC-backed)
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
@@ -191,7 +193,8 @@ test:
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
 | `BatteryMonitor` | Charging detection (GPIO35, via `AdcSampler`) — the single source of that verdict — plus the fallback pack % (Li-ion curve over the modem's `AT+CBC`). |
-| `BatteryMethods` | Measure the pack: a spread, outlier-trimmed ADC burst scored with the Li-ion curve. |
+| `BatteryWindowSampler` | Sample the pack every `kBatteryWindowSampleMs` on its own task and hold the raw counts until the report takes them. |
+| `BatteryMethods` | Measure the pack: that window, outlier-trimmed and medianed, scored with the Li-ion curve. |
 | `BatteryReporter` | Turn that measurement into the single `battery_pct` the payload carries — sentinel, floor, or absent. |
 | `ChargerWatcher` | Remember the charger across cycles (and deep sleeps) and report the moment it comes off. |
 | `BootJournal` | Record *why* the device restarted — reset reason, boot counter, whether RTC memory survived. |
@@ -275,17 +278,15 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
 | **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
-| `kAccelSampleIntervalMs` | `1000` | How often the sensor is sampled while peak tracking is on |
+| `kAccelSampleIntervalMs` | `500` | How often the sensor is sampled while peak tracking is on |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
 | `kBatteryEmptyMv` / `kBatteryFullMv` | `3300` / `4200` | Clamp ends of the Li-ion SoC curve (≤empty→1 %, ≥full→100 %) |
 | `kBatteryVbatSensePin` | `35` | Pack voltage sense — the **same pin** as `kBatteryChargeSensePin`, read as a voltage here |
 | `kBatteryDividerRatio` | `2.0f` | On-board divider ratio; the measured voltage is multiplied back up by it |
-| `kBatteryAdcSamples` | `48` | ADC conversions per measurement (trimmed, then medianed) |
-| `kBatteryAdcSampleGapMs` | `40` | Delay **between** those conversions — spreads the burst over ~1.9 s so a TX droop is a minority of it (see [below](#why-the-burst-is-spread-and-trimmed)) |
-| `kBatteryOutlierMadFactor` | `3` | Discard a sample this many median absolute deviations from the burst median. `0` disables the trim |
-| `kBatteryQuietSettleMs` | `200` | Quiet pause before the measurement, after the acquire loop's WiFi traffic. `0` skips it |
+| `kBatteryWindowSampleMs` | `500` | How often the pack is sampled, for the whole time the device is awake — spreading the conversions this far is what makes a TX droop a minority of them (see [below](#why-the-window-is-spread-and-trimmed)) |
+| `kBatteryOutlierMadFactor` | `3` | Discard a sample this many median absolute deviations from the window median. `0` disables the trim |
 | `kBatteryNoReadingMv` | `2000` | Below this the pack is reported as absent, not as a flat cell |
 | **`kBatteryReportFromMethods`** | `true` | **Publish the measured percent as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
 | `kUnplugFixTimeoutSeconds` | `60` | Extra acquire budget when the charger comes off and the cycle found no position. `0` disables it |
@@ -417,8 +418,8 @@ a curve-calibration aid only.
 
 `battery_pct` is produced by [`BatteryReporter`](src/power/BatteryReporter.h)
 from the measurement described under [Battery measurement](#battery-measurement)
-— the calibrated **median** of the trimmed ADC burst, scored with the piecewise
-Li-ion curve. Three rules, and each protects something downstream:
+— the calibrated **median** of the trimmed sampling window, scored with the
+piecewise Li-ion curve. Three rules, and each protects something downstream:
 
 | Situation | On the wire | Why |
 |-----------|-------------|-----|
@@ -1163,10 +1164,12 @@ did it lose power?", which the reset reason alone cannot.
 The published `battery_pct` is one number produced by one method, and the whole
 difficulty is that the pack is measured on a rail the radios share.
 
-Once per reporting cycle the firmware reads GPIO35 through the on-board divider
-as a **burst of ADC conversions spread across ~1.9 s**, throws out the samples a
-transmit droop dragged down, takes the **median** of what survives, calibrates it
-and scores it with a **piecewise Li-ion curve**.
+[`BatteryWindowSampler`](src/power/BatteryWindowSampler.h) reads GPIO35 through
+the on-board divider **every `kBatteryWindowSampleMs` (0.5 s) for the whole time
+the device is awake**, on its own small task. Once per reporting cycle
+[`BatteryMethods`](src/power/BatteryMethods.h) takes that window, throws out the
+samples a transmit droop dragged down, takes the **median** of what survives,
+calibrates it and scores it with a **piecewise Li-ion curve**.
 [`BatteryReporter`](src/power/BatteryReporter.h) then turns that into the
 payload's `battery_pct` — or into the `0` charging sentinel, or into nothing at
 all; see its banner for the three rules.
@@ -1182,46 +1185,66 @@ all; see its banner for the three rules.
 Set `kBatteryReportFromMethods` to `false` to publish `BatteryMonitor`'s own
 `AT+CBC` figure instead — a one-line rollback if the ADC path ever drifts.
 
-### Why the burst is spread and trimmed
+### Why the window is spread and trimmed
 
 Under a SIM7000 transmit burst (~2 A) or a WiFi publish, VBAT sags for a few tens
 of milliseconds. That is the whole reason the reported percent used to move
 depending on what the radios happened to be doing when the pack was measured.
 
-A burst of back-to-back ADC conversions finishes in **microseconds**, so a sag
-that coincides with it drags *every* sample down together — and neither an
-average nor a median can reject what all the samples share. Two things fix that,
-and neither works without the other:
+ADC conversions taken back to back finish in **microseconds**, so a sag that
+coincides with them drags *every* sample down together — and neither an average
+nor a median can reject what all the samples share. Two things fix that, and
+neither works without the other:
 
-- **Spacing** (`kBatteryAdcSampleGapMs`) puts the conversions on both sides of
-  such a sag rather than inside it, which demotes the sag from *all* of the burst
-  to a *minority* of it. 48 samples 40 ms apart span about 1.9 s.
+- **Spreading** (`kBatteryWindowSampleMs`) puts the conversions on both sides of
+  such a sag rather than inside it, which demotes the sag from *all* of the
+  samples to a *minority* of them. The window spans the entire awake stretch:
+
+  ```
+  boot / deep-sleep wake                                      publish
+     │                                                           │
+     │ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * │
+     │ one conversion every 0.5 s                                │
+     └───────────────────────────────────────────────────────────┘
+          modem, WiFi, MQTT, config, GNSS acquire      taken + reset
+  ```
+
+  That covers the modem power-on, the MQTT connect and the whole fix hunt — every
+  moment the rail actually moves — rather than a couple of seconds that had to
+  guess their way into a quiet gap. A three-minute acquire puts *hundreds* of
+  samples on both sides of every droop in it.
 - **Trimming** (`kBatteryOutlierMadFactor`) then deletes that minority outright.
-  Samples further than 3 median absolute deviations from the burst median are
+  Samples further than 3 median absolute deviations from the window median are
   discarded, and the median the published percent is scored from is taken over
-  the survivors alone. Measuring against the burst's *own* spread rather than a
+  the survivors alone. Measuring against the window's *own* spread rather than a
   fixed millivolt threshold is what keeps this free of per-board tuning: a quiet
   pack keeps a tight window, a noisy one widens it by itself.
 
-Two guards stop the trim misfiring. A perfectly quiet burst can give a deviation
+Two guards stop the trim misfiring. A perfectly quiet window can give a deviation
 of zero, which would reject everything not exactly on the median — so the window
-has a floor. And if fewer than **half** the samples survive, the full burst is
+has a floor. And if fewer than **half** the samples survive, the full window is
 used instead and a warning is logged: that is the pack genuinely collapsing, or a
-sag that lasted the whole window, and there is no quiet majority to fall back on.
-A device logging that every cycle is saying its window is too short for its
-radio, not that its pack is bad.
+sag that lasted the whole time we were awake, and there is no quiet majority to
+fall back on.
 
-Around all of this, the measurement runs **first** in the cycle — ahead of
-`BatteryMonitor`'s own `AT+CBC` — and after a short quiet pause
-(`kBatteryQuietSettleMs`), so the window does not open on the tail of the acquire
-loop's MQTT flush. `BatteryMethods` issues no modem traffic of its own, so
-nothing else in the cycle competes with the burst for the rail.
+**A long acquire cannot overflow it.** The fix budget is a runtime setting and
+can be minutes, so the sample count is unbounded while memory is not. Keeping the
+*first* N samples would describe the boot and ignore the acquire; a ring keeping
+the *last* N would describe the minutes nearest the publish — precisely where the
+radio traffic is, so it would weight the median *toward* the droops. Instead,
+when the reservoir fills (256 samples, about two minutes) every second entry is
+dropped and the sampling stride doubles, so the window stays a **uniform sample
+of its whole span** at any duration, in fixed memory.
 
-The cost is ~2 s of blocking per cycle, spent on `vTaskDelay` with the CPU idle.
-It comes out of the idle wait between reports, **not** out of the reporting
-cadence (the interval is anchored at fix capture), so the rhythm is unchanged;
-with `sleep_between` on it is ~2 s more awake time per cycle, small next to a
-GNSS acquire.
+The measurement is taken **before** the publish, because taking it resets the
+window: this cycle's own transmit droop then lands in the *next* window rather
+than in the one being scored. Beyond that its position in the cycle no longer
+matters — a window spanning the whole cycle has the droops in it either way, in
+the minority, where the trim can delete them.
+
+The cost is **no blocking at all**. The conversions happen on a background task
+while the device is waiting for something else, so the ~2 s the old spread burst
+spent on `vTaskDelay` before each publish is simply gone from the cycle.
 
 ### Three caveats before you trust a reading
 
@@ -1230,10 +1253,11 @@ GNSS acquire.
   hardware fact, not a bug here. The reading falls below `kBatteryNoReadingMv`
   and is reported as **absent**, never as a flat pack; the charging sentinel
   covers that case instead.
-- **The modem's TX bursts sag VBAT** — that is what the spacing and the trim
-  above exist to reject. They are a *mitigation*, not a cure: a sag that outlasts
-  the whole ~1.9 s window still lands in the measurement, and the trim's
-  "too few survivors" warning on the console is how it announces itself.
+- **The modem's TX bursts sag VBAT** — that is what the spreading and the trim
+  above exist to reject. They are a *mitigation*, not a cure: a pack that sags
+  for most of the time the device is awake still lands in the measurement, and
+  the trim's "too few survivors" warning on the console is how it announces
+  itself.
 - **Without the eFuse ADC calibration there is no reading.** The raw count is
   never converted with a nominal full scale and published as if it were
   calibrated; the firmware warns and leaves `battery_pct` out of the payload.
@@ -1242,11 +1266,11 @@ GNSS acquire.
 
 ### Cost
 
-One ADC burst per reporting cycle and nothing else — no file, no extra modem
-traffic. The burst blocks for ~2 s (see
-[above](#why-the-burst-is-spread-and-trimmed)) on `vTaskDelay` with the CPU idle;
-it comes out of the idle wait, not the reporting cadence, and is negligible next
-to an acquire.
+One ADC conversion every 0.5 s and nothing else — no file, no extra modem
+traffic. It runs on a 2 KB task that is asleep between conversions, and the
+reporting path itself no longer blocks at all (the old spread burst cost ~2 s per
+cycle). Memory is ~3 KB of `.bss`: the window's 256 raw counts and the trim's
+scratch copy of them.
 
 ---
 
@@ -1363,7 +1387,7 @@ reports and are simply never seen.
 
 Set **`kAccelPeakEnabled = true`** and
 [`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) starts a small background
-task that samples the sensor every `kAccelSampleIntervalMs` (default 1000 ms) and
+task that samples the sensor every `kAccelSampleIntervalMs` (default 500 ms) and
 keeps a running **per-axis maximum**. The ordinary report then carries that
 maximum instead of a live reading, and the window restarts:
 
@@ -1388,7 +1412,7 @@ window has closed yet.
 |---|---|
 | **The triple is a composite** | The three axes are tracked *independently*, so the reported X, Y and Z can come from three different moments — it is not a reading that ever occurred. The dashboard derives a magnitude as √(x²+y²+z²) from these, so **that line reads higher than any real sample**. Tracking the largest \|a\| and keeping that whole sample is the alternative; it was considered and not chosen |
 | **Peaks clip at ±2 g** | The driver runs the sensor in its ±2 g range. Braking (~0.8 g) and cornering (~0.5 g) are comfortably inside; a sharp pothole saturates |
-| **1000 ms under-samples badly** | The ADXL345 free-runs at 100 Hz, so a 1 s poll sees **one sample in a hundred** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else |
+| **500 ms still under-samples** | The ADXL345 free-runs at 100 Hz, so a half-second poll sees **one sample in fifty** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else. 500 ms matches the pack sampler's cadence (`kBatteryWindowSampleMs`), so both onboard sensors are read at the same rate |
 
 `sleep_between` narrows what this can see: the chip is powered down between
 reports, so the sampling task only covers the awake part of each cycle. The
@@ -1397,8 +1421,12 @@ firmware logs that once rather than overriding the server's setting.
 Sharing the sensor with the main loop's `kGnssDebug` console block means two
 tasks call `Adxl345::read()`, so that method takes a mutex (via
 [`ScopedLock`](src/util/ScopedLock.h)); the accumulator inside the tracker takes
-another. Nothing else in the firmware became concurrent — the delivery path is
-still driven entirely from the main task.
+another. The pack sampler is the same shape one layer down: it reads the ADC
+from its task while the main loop reads that very same GPIO35 as a charge flag,
+so [`AdcSampler`](src/power/AdcSampler.h) guards its conversions and its pin
+table too, and the sampler's reservoir takes a lock of its own. Nothing else in
+the firmware became concurrent — the delivery path is still driven entirely from
+the main task.
 
 ---
 
@@ -1449,9 +1477,11 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
-[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) runs on its own task, but it
-only does one I2C read and three comparisons per tick — no crypto, no files — so
-2 KB is plenty there. That task only exists while `kAccelPeakEnabled` is on.
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) and
+[`BatteryWindowSampler`](src/power/BatteryWindowSampler.h) run on their own
+tasks, but each only does one sensor read and a handful of stores per tick — no
+crypto, no files — so 2 KB is plenty for both. Those tasks only exist while
+`kAccelPeakEnabled` / `kBatteryReportFromMethods` are on.
 
 ### Long filenames on the SD card
 

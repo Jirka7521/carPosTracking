@@ -157,10 +157,12 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //      assembled from three different moments and is not a reading that ever
 //      occurred. Anything deriving a magnitude from it (the dashboard does) will
 //      read high.
-//    * At kAccelSampleIntervalMs = 1000 you see one sample in a hundred - the
-//      ADXL345 free-runs at 100 Hz - so most short transients are missed
-//      entirely. 100 ms is the value actually worth using if you care about
-//      catching events; it costs one extra I2C read per 100 ms and nothing else.
+//    * At kAccelSampleIntervalMs = 500 you see one sample in fifty - the ADXL345
+//      free-runs at 100 Hz - so most short transients are still missed. 100 ms
+//      is the value actually worth using if you care about catching events; it
+//      costs one extra I2C read per 100 ms and nothing else. 500 matches the
+//      pack sampler's cadence (kBatteryWindowSampleMs) so the two onboard
+//      sensors are read at the same rate.
 //
 //  Note the sensor runs in its +/-2 g range, so a peak clips there. Braking
 //  (~0.8 g) and cornering (~0.5 g) are fine; a sharp pothole will saturate.
@@ -169,7 +171,7 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //  report carries a live reading exactly as before.
 // -----------------------------------------------------------------------------
 constexpr bool     kAccelPeakEnabled      = false;
-constexpr uint32_t kAccelSampleIntervalMs = 1000;
+constexpr uint32_t kAccelSampleIntervalMs = 500;
 
 // -----------------------------------------------------------------------------
 //  Battery monitor (single-cell Li-ion pack, incl. 1S parallel packs).
@@ -204,10 +206,11 @@ constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
 //  Battery measurement (the published battery_pct).
 //
 //  BatteryMonitor above owns the charge DETECTION and the AT+CBC fallback. This
-//  block configures the measuring path: BatteryMethods reads the pack through
-//  the on-board divider - a burst of ADC conversions, spread in time and trimmed
-//  of outliers, taken down to its median - and scores it with a piecewise Li-ion
-//  curve. BatteryReporter then turns that into the payload's battery_pct.
+//  block configures the measuring path: BatteryWindowSampler reads the pack
+//  through the on-board divider for the whole time the device is awake, and
+//  BatteryMethods trims that window of outliers, takes its median and scores it
+//  with a piecewise Li-ion curve. BatteryReporter then turns that into the
+//  payload's battery_pct.
 //
 //  The method is not arbitrary. It was chosen by logging five voltage sources
 //  and three state-of-charge models side by side against a real pack; the
@@ -229,42 +232,41 @@ constexpr int kBatteryVbatSensePin = 35;  // ADC1_CH7, pack voltage (divided)
 // On-board divider ratio: the measured voltage is multiplied back up by this.
 constexpr float kBatteryDividerRatio = 2.0f;
 
-// ADC conversions per measurement, and how far apart in time they are taken.
+// How often the pack is sampled.
 //
-// Both numbers exist because of the same problem. Under a SIM7000 transmit burst
-// (~2 A) or a WiFi publish, VBAT sags for a few tens of milliseconds. A burst of
-// back-to-back conversions finishes in MICROSECONDS, so a sag that coincides
-// with it drags EVERY sample down together - and neither an average nor a median
-// can reject what all the samples share. Spacing the conversions puts them on
-// both sides of such a burst instead of inside one, which is what turns the sag
-// into a minority the outlier filter below can delete.
+// The cadence exists because of one problem. Under a SIM7000 transmit burst
+// (~2 A) or a WiFi publish, VBAT sags for a few tens of milliseconds.
+// Conversions taken back to back finish in MICROSECONDS, so a sag that coincides
+// with them drags EVERY sample down together - and neither an average nor a
+// median can reject what all the samples share. Spreading the conversions out
+// puts them on both sides of such a burst instead of inside one, which is what
+// turns the sag into a minority the outlier filter below can delete.
 //
-// 48 x 40 ms spans about 1.9 s. That comes out of the idle wait between reports,
-// not out of the reporting cadence (the interval is anchored at fix capture), so
-// the only real cost is ~2 s more awake time per cycle when sleeping between
-// sends - small next to a GNSS acquire. The gap is quantised to the FreeRTOS
-// tick (10 ms by default), so keep it a multiple of 10.
-constexpr uint32_t kBatteryAdcSamples     = 48;
-constexpr uint32_t kBatteryAdcSampleGapMs = 40;
+// BatteryWindowSampler spreads them as far as they go: one conversion every
+// half second on its own task, from the moment the ADC comes up until the report
+// is assembled. That covers the modem power-on, the MQTT connect and the whole
+// fix hunt - the moments the rail actually moves - and it costs NO awake time,
+// because it runs while the device is waiting for something else anyway. The
+// interval is quantised to the FreeRTOS tick (10 ms by default), so keep it a
+// multiple of 10.
+//
+// A long acquire is not a problem for it: once its reservoir is full
+// (BatteryWindowSampler::kMaxSamples, about two minutes at this cadence) it
+// keeps every second conversion instead, doubling again as needed, so a
+// three-minute hunt is still summarised across its whole span in fixed memory.
+constexpr uint32_t kBatteryWindowSampleMs = 500;
 
-// How far a sample may sit from the burst median before it is thrown away,
-// counted in median absolute deviations. Measuring against the burst's OWN
+// How far a sample may sit from the window median before it is thrown away,
+// counted in median absolute deviations. Measuring against the window's OWN
 // spread rather than a fixed millivolt threshold is what keeps this free of
 // per-board tuning: a quiet pack keeps a tight window, a noisy one widens it by
 // itself.
 //
-// 3 is the conventional choice - it keeps essentially all of a clean burst and
+// 3 is the conventional choice - it keeps essentially all of a clean window and
 // still cuts a transmit droop, which lands far outside it. Lower it to 2 to
 // reject harder, but watch that the "too few survivors" fallback in
 // BatteryMethods is not then firing every cycle.
 constexpr uint32_t kBatteryOutlierMadFactor = 3;
-
-// Quiet pause before the measurement starts. The GNSS acquire loop's per-poll
-// hook flushes the MQTT backlog over WiFi, and it can finish microseconds before
-// the first conversion would otherwise fire; this lets the rail come back up
-// first. Cheap insurance next to the spacing above, which is what actually does
-// the work. 0 skips the pause.
-constexpr uint32_t kBatteryQuietSettleMs = 200;
 
 // Below this the ADC path is treated as having no battery in front of it, and
 // the reading is reported as absent rather than as a flat pack. This is the USB
