@@ -201,53 +201,33 @@ constexpr uint32_t kBatteryEmptyMv = 3300;  // ~0 %
 constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
 
 // -----------------------------------------------------------------------------
-//  Battery method log (CSV on the microSD card; one column is published).
+//  Battery measurement (the published battery_pct).
 //
 //  BatteryMonitor above owns the charge DETECTION and the AT+CBC fallback. This
-//  block configures the measuring path: BatteryMethods measures the pack
-//  every way this board allows - five voltage sources, three state-of-charge
-//  models each, the modem's own percentage and the charge-input pin - and
-//  BatteryCsvLogger writes one row per reporting cycle to a plaintext CSV. Every
-//  row carries the uptime in milliseconds and the current GNSS UTC, so a capture
-//  can be lined up against the position backlog.
+//  block configures the measuring path: BatteryMethods reads the pack through
+//  the on-board divider - a burst of ADC conversions, spread in time and trimmed
+//  of outliers, taken down to its median - and scores it with a piecewise Li-ion
+//  curve. BatteryReporter then turns that into the payload's battery_pct.
 //
-//  It exists because the published percent is only as good as the curve behind
-//  it, and that curve cannot be calibrated without real captures showing how far
-//  apart the methods actually land.
+//  The method is not arbitrary. It was chosen by logging five voltage sources
+//  and three state-of-charge models side by side against a real pack; the
+//  calibrated MEDIAN scored with the curve tracked it best, and it is the only
+//  one the firmware still computes.
 //
 //  ⚠ GPIO35 means two different things in this firmware, and both are correct:
 //  BatteryMonitor reads it as a CHARGING flag (the charger pulls it to ~0), while
 //  this path reads it as VBAT through the on-board divider. On the T-SIM7000G
 //  that pin is cut off from the cell whenever USB power is connected (LilyGO
-//  issue #128) - which is exactly why sources 1-4 read ~0 on USB while the
-//  modem's AT+CBC keeps answering (with the charger rail, not the cell).
-//
-//  Set kBatteryLogEnabled to `false` and the whole path is compiled out; nothing
-//  else in the firmware depends on it.
+//  issue #128) - which is exactly why the ADC reads ~0 on USB while the modem's
+//  AT+CBC keeps answering (with the charger rail, not the cell).
 // -----------------------------------------------------------------------------
-constexpr bool kBatteryLogEnabled = true;
 
-// Plaintext, like the boot log - it holds diagnostics, not position data (the
-// fix TIME is logged; the coordinates deliberately are not). A file whose header
-// does not match the current column list is left alone and the logger steps to
-// battery2.csv ... battery9.csv, so a format change never corrupts old captures.
-constexpr char kSdBatteryLogPath[] = "/sdcard/battery.csv";
+// The pack sense pin. This is the SAME pin as kBatteryChargeSensePin above -
+// see the warning in this block's banner.
+constexpr int kBatteryVbatSensePin = 35;  // ADC1_CH7, pack voltage (divided)
 
-// Safety cap on the data rows (the header does not count). At ~120 bytes a row
-// the default is about 2.4 MB, which is weeks of captures at a 30 s interval.
-// 0 means "no cap".
-constexpr uint32_t kSdMaxBatteryLogRows = 20000;
-
-// The two sense pins. kBatteryVbatSensePin is the SAME pin as
-// kBatteryChargeSensePin above - see the warning in this block's banner.
-constexpr int kBatteryVbatSensePin  = 35;  // ADC1_CH7, pack voltage (divided)
-constexpr int kBatterySolarSensePin = 36;  // ADC1_CH0, charge input (solar/VIN)
-
-// On-board divider ratios: the measured voltage is multiplied back up by these.
-// The solar one is an ASSUMPTION that varies across board revisions - check it
-// against the raw count column before trusting the solar millivolts.
+// On-board divider ratio: the measured voltage is multiplied back up by this.
 constexpr float kBatteryDividerRatio = 2.0f;
-constexpr float kSolarDividerRatio   = 2.0f;
 
 // ADC conversions per measurement, and how far apart in time they are taken.
 //
@@ -279,44 +259,21 @@ constexpr uint32_t kBatteryAdcSampleGapMs = 40;
 // BatteryMethods is not then firing every cycle.
 constexpr uint32_t kBatteryOutlierMadFactor = 3;
 
-// Quiet pause before the sweep starts. The GNSS acquire loop's per-poll hook
-// flushes the MQTT backlog over WiFi, and it can finish microseconds before the
-// first conversion would otherwise fire; this lets the rail come back up first.
-// Cheap insurance next to the spacing above, which is what actually does the
-// work. 0 skips the pause.
+// Quiet pause before the measurement starts. The GNSS acquire loop's per-poll
+// hook flushes the MQTT backlog over WiFi, and it can finish microseconds before
+// the first conversion would otherwise fire; this lets the rail come back up
+// first. Cheap insurance next to the spacing above, which is what actually does
+// the work. 0 skips the pause.
 constexpr uint32_t kBatteryQuietSettleMs = 200;
 
-// Above this on the charge-input pin, a charge source is considered present.
-constexpr uint32_t kSolarInputThresholdMv = 1000;
-
 // Below this the ADC path is treated as having no battery in front of it, and
-// the four ADC sources are logged as absent rather than as a flat pack. This is
-// the USB case above: the pin reads ~0, not a low cell.
+// the reading is reported as absent rather than as a flat pack. This is the USB
+// case above: the pin reads ~0, not a low cell.
 constexpr uint32_t kBatteryNoReadingMv = 2000;
 
-// -----------------------------------------------------------------------------
-//  Which measurement becomes the PUBLISHED battery percent.
-//
-//  The block above measures the pack five ways and scores each three ways, which
-//  is how the best method was found; this is where that answer is put to work.
-//  The default publishes the capture's "p4_curve" column - the calibrated MEDIAN
-//  of the ADC burst, scored with the piecewise Li-ion curve - because that is the
-//  method that tracked the real pack best across the captures on the card.
-//
-//  The two indices are the BatterySource / BatteryModel enums in
-//  power/BatteryMethodsData.h. They are plain ints here so this file keeps
-//  depending on nothing from src/power/; main.cpp casts them where it builds the
-//  BatteryReporter. The comments name the matching battery.csv column, so a
-//  capture and a payload can be read side by side.
-//
-//  Set kBatteryReportFromMethods to `false` to go back to publishing
-//  BatteryMonitor's own AT+CBC figure - a one-line rollback if a capture ever
-//  says the ADC path has drifted.
-// -----------------------------------------------------------------------------
+// Set this to `false` to publish BatteryMonitor's own AT+CBC figure instead of
+// the measurement above - a one-line rollback if the ADC path ever drifts.
 constexpr bool kBatteryReportFromMethods = true;
-
-constexpr int kBatteryReportSourceIndex = 3;  // kSourceCalMedian -> "p4_*"
-constexpr int kBatteryReportModelIndex  = 1;  // kModelCurve      -> "*_curve"
 
 // -----------------------------------------------------------------------------
 //  Charger-disconnect report.

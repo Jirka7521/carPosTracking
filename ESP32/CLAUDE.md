@@ -62,8 +62,7 @@ src/
 ├── crypto/     PayloadCrypto / AckCrypto  ← RSA-OAEP + AES-256-GCM envelope
 ├── mqtt/       MqttClient / TelemetryPublisher / TelemetrySample / AckWatcher
 ├── power/      AdcSampler / BatteryMonitor / BatteryMethods / BatteryReporter
-│               BatteryCsvLogger / ChargerWatcher / BootJournal
-│               DeepSleepController
+│               ChargerWatcher / BootJournal / DeepSleepController
 ├── sensors/    Adxl345 / AccelPeakTracker  ← ADXL345 accelerometer
 ├── sdcard/     SdCard / FixQueue / RetryQueue / QueueIndex / FixForwarder
 ├── settings/   DeviceSettings / SettingsStore / SettingsCodec / SettingsApplier
