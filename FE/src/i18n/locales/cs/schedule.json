@@ -91,6 +91,9 @@
   },
   "status": {
     "awaitingFirstPass": "Čeká se na první průchod plánovače — toto použije.",
+    "deviceAdrift": "Zařízení nebylo na profilu, který rozvrh určuje; byla odeslána oprava.",
+    "deviceBehind": "Zatím nepřevzalo nejnovější rozvrh.",
+    "deviceReports": "Zařízení hlásilo <strong>{{profile}}</strong> v {{when}}.",
     "fallback": "záložní",
     "neverSwitches": "Tento rozvrh nikdy nepřepíná — celý týden platí stejný profil.",
     "noProfile": "Žádný profil",

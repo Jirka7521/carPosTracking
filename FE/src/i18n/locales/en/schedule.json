@@ -89,6 +89,9 @@
   },
   "status": {
     "awaitingFirstPass": "Waiting for the scheduler’s first pass — this is what it will apply.",
+    "deviceAdrift": "The tracker was not where the schedule put it; a correction has been sent.",
+    "deviceBehind": "It has not picked up the latest schedule yet.",
+    "deviceReports": "Tracker reported <strong>{{profile}}</strong> at {{when}}.",
     "fallback": "fallback",
     "neverSwitches": "This schedule never switches — the same profile applies all week.",
     "noProfile": "No profile",

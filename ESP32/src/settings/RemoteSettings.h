@@ -36,22 +36,30 @@
 //    also wakes the instant a config arrives, which is what turns "applied within
 //    one reporting interval" into "applied within a second". Same pattern as
 //    WifiManager, which waits on its own event group for the IP.
+//
+//  The event group is BORROWED (UpdateSignal), not owned. It used to be a member
+//  here, which was right while a config document was the only thing that could
+//  change the settings in force. RemoteSchedule is a second such source, a task
+//  can only wait on one event group, and a schedule bundle that had to wait out
+//  a reporting interval before being noticed would defeat the point of an
+//  on-device schedule - so the two watchers share one signal, a bit each.
 // =============================================================================
 
 #include <cstdint>
 #include <string>
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "mqtt/MqttClient.h"
 #include "settings/DeviceSettings.h"
 #include "settings/SettingsStore.h"
+#include "settings/UpdateSignal.h"
 
 class RemoteSettings {
  public:
   // Borrows all collaborators and `topic` (all must outlive this object).
-  RemoteSettings(MqttClient& mqtt, SettingsStore& store, const char* topic);
+  RemoteSettings(MqttClient& mqtt, SettingsStore& store, UpdateSignal& signal,
+                 const char* topic);
   ~RemoteSettings();
 
   // Seed the in-memory settings with `initial` (normally what SettingsStore
@@ -115,6 +123,7 @@ class RemoteSettings {
 
   MqttClient&    mqtt_;
   SettingsStore& store_;
+  UpdateSignal&  signal_;
   const char*    topic_;
 
   DeviceSettings current_;  // application-task only
@@ -123,11 +132,6 @@ class RemoteSettings {
   // boot, and reset by the deep-sleep reboot - which is exactly right, since a
   // fresh wake has just been handed the retained config anyway).
   int64_t nextResyncUs_;
-
-  // Signalled by onMessage() on the esp-mqtt event task, waited on by the
-  // application task in waitForUpdate(). Carries no data - the payload itself
-  // travels in pendingPayload_ under the mutex; this only says "look now".
-  EventGroupHandle_t events_;
 
   SemaphoreHandle_t mutex_;          // guards the two fields below
   std::string       pendingPayload_;

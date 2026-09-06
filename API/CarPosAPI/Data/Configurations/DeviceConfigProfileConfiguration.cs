@@ -47,6 +47,9 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
                 table.HasCheckConstraint(
                     "ck_device_config_profiles_config_check_s",
                     $"config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_schedule_slot",
+                    $"schedule_slot BETWEEN {ScheduleRules.MinScheduleSlot} AND {ScheduleRules.MaxScheduleSlot}");
             });
 
         builder.HasKey(profile => profile.Id);
@@ -72,6 +75,18 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
         builder.HasIndex(profile => new { profile.DeviceId, profile.Name })
             .IsUnique()
             .HasDatabaseName("ux_device_config_profiles_device_id_name");
+
+        builder.Property(profile => profile.ScheduleSlot)
+            .HasColumnName("schedule_slot")
+            .IsRequired();
+
+        // The firmware addresses profiles by slot, so two profiles sharing one would
+        // not be a cosmetic problem — it would make a device's report ambiguous about
+        // which settings it is actually running. Unique per device, and the CHECK
+        // above keeps every value inside the range the bundle can express.
+        builder.HasIndex(profile => new { profile.DeviceId, profile.ScheduleSlot })
+            .IsUnique()
+            .HasDatabaseName("ux_device_config_profiles_device_id_schedule_slot");
 
         builder.Property(profile => profile.IntervalSeconds)
             .HasColumnName("interval_s")

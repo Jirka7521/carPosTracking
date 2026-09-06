@@ -16,6 +16,32 @@ const char* const SettingsCodec::kRetryIntervalKey = "retry_interval_h";
 const char* const SettingsCodec::kRetryMaxAgeKey   = "retry_max_age_h";
 const char* const SettingsCodec::kConfigCheckKey   = "config_check_s";
 
+void SettingsCodec::encodeInto(cJSON* object, const DeviceSettings& settings,
+                               bool includeVersion) {
+  // Version first, and only when we actually have one: a device that has never
+  // received a config message should not claim to be running revision 0. A
+  // profile inside a schedule bundle has no revision at all, which is why the
+  // caller can suppress the key outright.
+  if (includeVersion && settings.version() != 0) {
+    cJSON_AddNumberToObject(object, kVersionKey,
+                            static_cast<double>(settings.version()));
+  }
+
+  cJSON_AddNumberToObject(object, kIntervalKey,
+                          static_cast<double>(settings.intervalSeconds()));
+  cJSON_AddBoolToObject(object, kSleepKey, settings.sleepBetweenSends());
+  cJSON_AddNumberToObject(object, kFixTimeoutKey,
+                          static_cast<double>(settings.fixTimeoutSeconds()));
+  cJSON_AddNumberToObject(object, kQueueMaxFixesKey,
+                          static_cast<double>(settings.queueMaxFixes()));
+  cJSON_AddNumberToObject(object, kRetryIntervalKey,
+                          static_cast<double>(settings.retryIntervalHours()));
+  cJSON_AddNumberToObject(object, kRetryMaxAgeKey,
+                          static_cast<double>(settings.retryMaxAgeHours()));
+  cJSON_AddNumberToObject(object, kConfigCheckKey,
+                          static_cast<double>(settings.configCheckSeconds()));
+}
+
 std::string SettingsCodec::encode(const DeviceSettings& settings) {
   cJSON* root = cJSON_CreateObject();
   if (root == nullptr) {
@@ -23,26 +49,7 @@ std::string SettingsCodec::encode(const DeviceSettings& settings) {
     return std::string();
   }
 
-  // Version first, and only when we actually have one: a device that has never
-  // received a config message should not claim to be running revision 0.
-  if (settings.version() != 0) {
-    cJSON_AddNumberToObject(root, kVersionKey,
-                            static_cast<double>(settings.version()));
-  }
-
-  cJSON_AddNumberToObject(root, kIntervalKey,
-                          static_cast<double>(settings.intervalSeconds()));
-  cJSON_AddBoolToObject(root, kSleepKey, settings.sleepBetweenSends());
-  cJSON_AddNumberToObject(root, kFixTimeoutKey,
-                          static_cast<double>(settings.fixTimeoutSeconds()));
-  cJSON_AddNumberToObject(root, kQueueMaxFixesKey,
-                          static_cast<double>(settings.queueMaxFixes()));
-  cJSON_AddNumberToObject(root, kRetryIntervalKey,
-                          static_cast<double>(settings.retryIntervalHours()));
-  cJSON_AddNumberToObject(root, kRetryMaxAgeKey,
-                          static_cast<double>(settings.retryMaxAgeHours()));
-  cJSON_AddNumberToObject(root, kConfigCheckKey,
-                          static_cast<double>(settings.configCheckSeconds()));
+  encodeInto(root, settings, /*includeVersion=*/true);
 
   std::string out;
   char*       printed = cJSON_PrintUnformatted(root);
@@ -95,6 +102,16 @@ bool SettingsCodec::decode(const char* json, std::size_t length,
     return false;
   }
 
+  const bool ok = decodeObject(root, settings);
+  cJSON_Delete(root);
+  return ok;
+}
+
+bool SettingsCodec::decodeObject(const cJSON* root, DeviceSettings& settings) {
+  if (root == nullptr || !cJSON_IsObject(root)) {
+    return false;
+  }
+
   // Decode into a copy so a document that turns out to carry nothing usable
   // cannot half-update the caller's settings.
   DeviceSettings decoded     = settings;
@@ -140,8 +157,6 @@ bool SettingsCodec::decode(const char* json, std::size_t length,
       ESP_LOGW(TAG, "decode: '%s' is not a boolean - ignored", kSleepKey);
     }
   }
-
-  cJSON_Delete(root);
 
   if (!sawKnownKey) {
     ESP_LOGW(TAG, "decode: document carried no field we recognise");

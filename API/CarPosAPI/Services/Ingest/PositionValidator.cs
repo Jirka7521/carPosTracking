@@ -213,7 +213,17 @@ internal sealed class PositionValidator
             // server has never issued is not a reason to throw away a good position:
             // the worst case is that the dashboard shows the device as out of sync,
             // which is exactly what it would be.
-            payload.SettingsVersion > 0 ? payload.SettingsVersion : null);
+            payload.SettingsVersion > 0 ? payload.SettingsVersion : null,
+            // Range-checked, unlike the revision above, because a slot is an index the
+            // reconciler compares against one it computes: a value outside the range the
+            // bundle can express is meaningless rather than merely unfamiliar, and
+            // silently keeping it would let a garbled report trigger a correction. The
+            // fix itself is still perfectly good, so it is dropped to null, not rejected.
+            payload.ProfileSlot >= ScheduleRules.MinScheduleSlot
+                && payload.ProfileSlot <= ScheduleRules.MaxScheduleSlot
+                    ? payload.ProfileSlot
+                    : null,
+            payload.ScheduleVersion > 0 ? payload.ScheduleVersion : null);
         reason = PositionRejectReason.None;
         return true;
     }

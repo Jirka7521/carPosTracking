@@ -178,6 +178,11 @@ builder.Services.AddScoped<IAccessService, AccessService>();
 // living for the lifetime of the process.
 // ---------------------------------------------------------------------------
 builder.Services.AddSingleton<ScheduleEvaluator>();
+// Stateless like the evaluator, and shared for the same reason. It takes the DbContext
+// per call rather than by injection, which is what lets both the scoped bundle
+// publisher and the singleton MqttConfigPublisher use the one instance.
+builder.Services.AddSingleton<ScheduleBundleBuilder>();
+builder.Services.AddScoped<IScheduleBundlePublisher, ScheduleBundlePublisher>();
 builder.Services.AddScoped<IDeviceConfigRevisionWriter, DeviceConfigRevisionWriter>();
 builder.Services.AddScoped<IDeviceScheduleResolver, DeviceScheduleResolver>();
 builder.Services.AddScoped<IDeviceConfigScheduleService, DeviceConfigScheduleService>();

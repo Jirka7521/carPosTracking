@@ -2,6 +2,7 @@ using System.Text.Json;
 using CarPosAPI.Data;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
+using CarPosAPI.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -46,6 +47,9 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
     /// <summary>Suffix identifying the settings topic for a device.</summary>
     private const string ConfigTopicSuffix = "/config";
 
+    /// <summary>Suffix identifying the schedule-bundle topic for a device.</summary>
+    private const string ScheduleTopicSuffix = "/schedule";
+
     /// <summary>
     /// QoS 1 for settings. The document is idempotent — applying the same revision
     /// twice changes nothing, and the firmware skips the card write when the values
@@ -62,6 +66,7 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
     private const int PublishTimeoutSeconds = 10;
 
     private readonly IDbContextFactory<CarPosDbContext> _contextFactory;
+    private readonly ScheduleBundleBuilder _bundleBuilder;
     private readonly MqttOptions _options;
     private readonly ILogger<MqttConfigPublisher> _logger;
 
@@ -73,14 +78,17 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
 
     /// <summary>Creates the publisher.</summary>
     /// <param name="contextFactory">Factory for short-lived DbContexts (singleton-safe).</param>
+    /// <param name="bundleBuilder">Assembles schedule bundles for the reconnect sweep.</param>
     /// <param name="options">Broker settings.</param>
     /// <param name="logger">Structured logger.</param>
     public MqttConfigPublisher(
         IDbContextFactory<CarPosDbContext> contextFactory,
+        ScheduleBundleBuilder bundleBuilder,
         IOptions<MqttOptions> options,
         ILogger<MqttConfigPublisher> logger)
     {
         _contextFactory = contextFactory;
+        _bundleBuilder = bundleBuilder;
         _options = options.Value;
         _logger = logger;
     }
@@ -99,21 +107,72 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
     {
         ArgumentNullException.ThrowIfNull(document);
 
+        return await PublishRetainedAsync(
+            deviceId,
+            ConfigTopicSuffix,
+            JsonSerializer.SerializeToUtf8Bytes(document),
+            "config",
+            document.Version,
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> PublishScheduleAsync(
+        string deviceId,
+        DeviceScheduleBundleDto bundle,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(bundle);
+
+        return await PublishRetainedAsync(
+            deviceId,
+            ScheduleTopicSuffix,
+            JsonSerializer.SerializeToUtf8Bytes(bundle, DeviceScheduleBundleDto.SerializerOptions),
+            "schedule bundle",
+            bundle.ScheduleVersion,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Puts one already-serialized payload on one of this device's retained topics.
+    ///
+    /// Shared by both publishes above because everything except the topic and the
+    /// payload is identical between them — the retain flag, the QoS, the timeout, and
+    /// above all the four catch clauses that make a transport fault a log line instead
+    /// of a failed request. Two copies of that error handling would be two chances to
+    /// let an exception escape into a caller that has already committed its rows.
+    /// </summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="topicSuffix">Which of the device's topics to publish to.</param>
+    /// <param name="payload">The serialized document.</param>
+    /// <param name="what">Human-readable name of the payload, for the logs.</param>
+    /// <param name="version">Revision number of the payload, for the logs.</param>
+    /// <param name="cancellationToken">Cancels the publish.</param>
+    /// <returns>True when the broker accepted it.</returns>
+    private async Task<bool> PublishRetainedAsync(
+        string deviceId,
+        string topicSuffix,
+        byte[] payload,
+        string what,
+        int version,
+        CancellationToken cancellationToken)
+    {
         IMqttClient? client = _client;
         if (client is null || !client.IsConnected)
         {
-            // Not fatal, and not even unusual during a restart. The saved revision is
-            // safe in the database and the reconnect sweep will publish it.
+            // Not fatal, and not even unusual during a restart. The saved rows are safe
+            // in the database and the reconnect sweep will publish them.
             _logger.LogWarning(
-                "Config for device {DeviceId} not published — no live broker connection; it will go out on reconnect",
+                "The {What} for device {DeviceId} was not published — no live broker connection; it will go out on reconnect",
+                what,
                 deviceId);
             return false;
         }
 
-        string topic = string.Concat(TopicPrefix, deviceId, ConfigTopicSuffix);
+        string topic = string.Concat(TopicPrefix, deviceId, topicSuffix);
         MqttApplicationMessage message = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
-            .WithPayload(JsonSerializer.SerializeToUtf8Bytes(document))
+            .WithPayload(payload)
             .WithQualityOfServiceLevel(ConfigQos)
             .WithRetainFlag(true)
             .Build();
@@ -126,15 +185,18 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
         {
             await client.PublishAsync(message, timeout.Token);
             _logger.LogInformation(
-                "Published config v{Version} to {Topic} (retained)",
-                document.Version,
-                topic);
+                "Published {What} v{Version} to {Topic} (retained, {ByteCount} bytes)",
+                what,
+                version,
+                topic,
+                payload.Length);
             return true;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
-                "Publishing config for device {DeviceId} timed out after {TimeoutSeconds}s",
+                "Publishing the {What} for device {DeviceId} timed out after {TimeoutSeconds}s",
+                what,
                 deviceId,
                 PublishTimeoutSeconds);
             return false;
@@ -146,10 +208,11 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
         }
         catch (Exception exception)
         {
-            // Deliberately broad, for the reason in the class summary: the revision is
+            // Deliberately broad, for the reason in the class summary: the rows are
             // already saved, and no transport fault may turn that into a failed request.
             _logger.LogWarning(
-                "Publishing config for device {DeviceId} failed: {ExceptionType}",
+                "Publishing the {What} for device {DeviceId} failed: {ExceptionType}",
+                what,
                 deviceId,
                 exception.GetType().Name);
             return false;
@@ -166,6 +229,7 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
         }
 
         List<DeviceConfigPublication> pending;
+        List<DeviceScheduleBundlePublication> pendingBundles;
         try
         {
             // One query for the whole fleet: join each active device to the version row
@@ -193,6 +257,8 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
                             configVersion.RetryMaxAgeHours,
                             configVersion.ConfigCheckSeconds)))
                 .ToListAsync(cancellationToken);
+
+            pendingBundles = await _bundleBuilder.BuildAllAsync(context, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -219,12 +285,22 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
             }
         }
 
-        if (published > 0)
+        int bundlesPublished = 0;
+        foreach (DeviceScheduleBundlePublication publication in pendingBundles)
+        {
+            if (await PublishScheduleAsync(publication.DeviceId, publication.Bundle, cancellationToken))
+            {
+                bundlesPublished++;
+            }
+        }
+
+        if (published > 0 || bundlesPublished > 0)
         {
             _logger.LogInformation(
-                "Re-published retained config for {PublishedCount} of {DeviceCount} active device(s)",
+                "Re-published retained config for {PublishedCount} of {DeviceCount} active device(s), and {BundleCount} schedule bundle(s)",
                 published,
-                pending.Count);
+                pending.Count,
+                bundlesPublished);
         }
 
         return published;

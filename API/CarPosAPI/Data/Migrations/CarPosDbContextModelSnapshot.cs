@@ -175,6 +175,24 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("public_key_pem");
 
+                    b.Property<DateTime?>("ReportedProfileAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reported_profile_at");
+
+                    b.Property<int?>("ReportedProfileSlot")
+                        .HasColumnType("integer")
+                        .HasColumnName("reported_profile_slot");
+
+                    b.Property<int?>("ReportedScheduleVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("reported_schedule_version");
+
+                    b.Property<int>("ScheduleBundleVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("schedule_bundle_version");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ConfigScheduleFallbackProfileId");
@@ -278,6 +296,10 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("retry_max_age_h");
 
+                    b.Property<int>("ScheduleSlot")
+                        .HasColumnType("integer")
+                        .HasColumnName("schedule_slot");
+
                     b.Property<bool>("SleepBetween")
                         .HasColumnType("boolean")
                         .HasColumnName("sleep_between");
@@ -296,6 +318,10 @@ namespace CarPosAPI.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_device_config_profiles_device_id_name");
 
+                    b.HasIndex("DeviceId", "ScheduleSlot")
+                        .IsUnique()
+                        .HasDatabaseName("ux_device_config_profiles_device_id_schedule_slot");
+
                     b.ToTable("device_config_profiles", null, t =>
                         {
                             t.HasCheckConstraint("ck_device_config_profiles_config_check_s", "config_check_s BETWEEN 60 AND 86400");
@@ -309,6 +335,8 @@ namespace CarPosAPI.Data.Migrations
                             t.HasCheckConstraint("ck_device_config_profiles_retry_interval_h", "retry_interval_h BETWEEN 1 AND 720");
 
                             t.HasCheckConstraint("ck_device_config_profiles_retry_max_age_h", "retry_max_age_h BETWEEN 0 AND 8760");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_schedule_slot", "schedule_slot BETWEEN 0 AND 11");
                         });
                 });
 

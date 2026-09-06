@@ -127,10 +127,23 @@ src/
 │   └── FixForwarder.h/.cpp  ← Publish-now-or-store; flush the backlog, lock or not
 │
 ├── settings/
-│   ├── DeviceSettings.h/.cpp ← The two runtime knobs, validated & clamped
-│   ├── SettingsCodec.h/.cpp  ← DeviceSettings ⇄ the config JSON (one format)
-│   ├── SettingsStore.h/.cpp  ← Cache them, in the clear, on the SD card
-│   └── RemoteSettings.h/.cpp ← Subscribe to the config topic; apply & persist
+│   ├── DeviceSettings.h/.cpp   ← The seven runtime knobs, validated & clamped
+│   ├── SettingsCodec.h/.cpp    ← DeviceSettings ⇄ the config JSON (one format)
+│   ├── SettingsStore.h/.cpp    ← Cache them, in the clear, on the SD card
+│   ├── SettingsApplier.h/.cpp  ← Push the storage settings into the two queues
+│   ├── RemoteSettings.h/.cpp   ← Subscribe to the config topic; apply & persist
+│   ├── UpdateSignal.h/.cpp     ← One wake-up shared by both retained-topic watchers
+│   ├── ScheduleBundle.h/.cpp   ← The profiles + weekly windows this device switches on
+│   ├── ScheduleCodec.h/.cpp    ← ScheduleBundle ⇄ the bundle JSON (one format)
+│   ├── ScheduleStore.h/.cpp    ← Cache the bundle, in the clear, on the SD card
+│   ├── ScheduleEvaluator.h/.cpp← Which profile is in force, and when that changes
+│   ├── RemoteSchedule.h/.cpp   ← Subscribe to the schedule topic; apply & persist
+│   └── SettingsSelector.h/.cpp ← Config vs. schedule vs. override: the precedence rule
+│
+├── util/
+│   ├── ScopedLock.h/.cpp     ← RAII guard for a FreeRTOS mutex
+│   ├── CivilTime.h/.cpp      ← Civil dates ⇄ epoch ⇄ ISO-8601, no libc timezone
+│   └── DeviceClock.h/.cpp    ← UTC wall clock seeded from GNSS; survives deep sleep
 │
 └── power/
     ├── AdcSampler.h/.cpp          ← The one owner of ADC1: raw counts + calibrated mV
@@ -308,6 +321,11 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
 | `kDefaultConfigCheckSeconds` | `3600` | **Default** for `config_check_s` — awake-mode re-check interval |
 | `kMinConfigCheckSeconds` / `kMaxConfigCheckSeconds` | `60` / `86400` | Clamps on `config_check_s` |
+| **`kScheduleEnabled`** | `true` | **Evaluate the profile schedule on the device** (see [Device-side profile scheduling](#device-side-profile-scheduling)) |
+| `kScheduleTopic` | `devices/GNSSXX/schedule` | Topic the **retained** schedule bundle is read from |
+| `kMaxScheduleProfiles` / `kMaxScheduleRules` | `12` / `32` | Caps on one bundle; mirror `ScheduleRules` in the API |
+| `kSdSchedulePath` | `/sdcard/schedule.json` | Cached schedule bundle (**plaintext**) |
+| `kClockTrustSeconds` | `86400` | How long the GNSS-seeded clock may be trusted without a new fix; `0` = never expire |
 | `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
@@ -812,6 +830,8 @@ everything else, and is written to `/sdcard/settings.json` in the clear.
 
 ### Precedence
 
+Where a *configuration document* comes from:
+
 ```
 Config.h defaults  ←  /sdcard/settings.json  ←  retained MQTT config
    (weakest)              (survives reboot)         (strongest, wins)
@@ -823,6 +843,21 @@ briefly for the broker. Anything that arrives is validated, clamped, adopted, an
 — only if it actually differs from what was already in force — written back to
 the card. That cache is what lets a device that boots in a tunnel still know it
 is meant to be sleeping.
+
+That settles which *document* is in force. A second question sits on top of it —
+whether the device's own schedule overrides that document at all — and
+[`SettingsSelector`](src/settings/SettingsSelector.h) is the one place that
+decides:
+
+```
+retained config document   ←   schedule-selected profile   ←   bundle override
+    (the fallthrough)            (needs a trusted clock)       (strongest, wins)
+```
+
+Everything the schedule can fail at — no bundle, schedule disabled, a profile
+that will not resolve, a clock too stale to trust — lands back on the config
+document, which is exactly what this firmware did before schedules existed. See
+[Device-side profile scheduling](#device-side-profile-scheduling) below.
 
 ### Staying in step
 
@@ -901,6 +936,170 @@ nothing, so a device that cannot see the sky adopts its new configuration
 silently and confirms it only once it gets a lock.
 
 ---
+---
+
+## Device-side profile scheduling
+
+The dashboard lets a device be given named **profiles** — a complete set of the
+seven runtime settings, called "Night", "Weekend", "Commute" — and weekly
+**rules** that decide which one applies when. The device evaluates those rules
+**itself**, against its own clock, from a bundle cached on the SD card.
+
+**Why it is on the device.** It did not use to be. The server evaluated the rules
+and simply republished a new configuration document whenever the winning profile
+changed, which worked and required no firmware at all. The catch is that it only
+worked *while the broker could reach the tracker* — and a car parked in an
+underground garage overnight is precisely the case a low-power night profile
+exists for. A device that cannot be reached is a device that never switches.
+
+### The bundle
+
+Published **retained**, QoS 1, plaintext, to `devices/<id>/schedule`:
+
+```json
+{
+  "sched_v": 7,
+  "enabled": true,
+  "fallback": 0,
+  "profiles": [
+    { "slot": 0, "name": "Day", "interval_s": 60, "sleep_between": false,
+      "fix_timeout_s": 180, "queue_max_fixes": 20000, "retry_interval_h": 24,
+      "retry_max_age_h": 168, "config_check_s": 3600 }
+  ],
+  "rules": [
+    { "slot": 1, "days": 62, "start_m": 1320, "dur_m": 480, "prio": 100, "ord": 3 }
+  ],
+  "override": { "until": "2026-09-06T22:00:00Z", "interval_s": 30, "...": "..." }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `sched_v` | Bundle revision. Bumped on every change; echoed back in every fix. |
+| `enabled` | False turns device-side switching off — the config document takes over. |
+| `fallback` | Profile slot used where no window covers the instant; `-1` for none. |
+| `profiles[].slot` | Stable 0-based index, at most `kMaxScheduleProfiles` of them. |
+| `profiles[].name` | For the serial log only. Nothing on the device keys off it. |
+| `rules[].slot` | Which profile the window selects. |
+| `rules[].days` | 7-bit weekday mask, **bit 0 = Sunday**. |
+| `rules[].start_m` | Minute of the UTC day the window opens, 0–1439. |
+| `rules[].dur_m` | Length in minutes, **end-exclusive**, may wrap midnight. |
+| `rules[].prio` | Lower wins where two windows overlap. |
+| `rules[].ord` | Tie-break rank; lower is older, and wins. |
+| `override` | Values that beat the schedule until `until`. Absent when there is none. |
+
+The seven value keys inside a profile are **deliberately identical** to the
+configuration document's, so [`ScheduleCodec`](src/settings/ScheduleCodec.h) hands
+each profile object straight to `SettingsCodec::decodeObject`. One decoder, one
+set of bounds, and no second place for a profile and a config document to disagree
+about what `interval_s` means.
+
+Two encoding choices exist to keep the device's parser free of branches it could
+get wrong: `fallback` uses `-1` rather than a JSON null, and `override` is
+genuinely **absent** rather than null when there is none.
+
+Profiles are addressed by **slot**, not by the dashboard's profile id. The slot
+travels back inside every encrypted fix, and a 36-character identifier in that
+position — on every report, for ever — would be a poor trade for something one
+byte says as well.
+
+**Decoding is all-or-nothing.** A partial configuration document is a legitimate
+partial update; a partial bundle is corruption. A rule set missing its last entry
+is not an incomplete schedule, it is a *different* one, and the device would
+follow it with total confidence.
+
+### The clock, and why it expires
+
+This board has **no RTC crystal** (`CONFIG_RTC_CLK_SRC_INT_RC` — the internal RC
+oscillator) and no NTP. `esp_timer_get_time()` restarts at zero on the deep-sleep
+reboot, so every other deadline in this firmware is "microseconds since this
+wake" and cannot be turned into a date. **A GNSS fix is the only wall clock on
+the board**, and it only speaks when it has a lock.
+
+[`DeviceClock`](src/util/DeviceClock.h) therefore:
+
+* seeds from a fix (rejecting implausible dates — a modem that has powered up but
+  not yet locked will cheerfully report 1980, and seeding from that would put
+  every window on the wrong week while looking perfectly fresh);
+* coasts between fixes on the ESP32's own timekeeping, which ESP-IDF restores
+  across deep sleep, with the seed instant held in `RTC_DATA_ATTR` so it survives
+  the reboot but **not** a battery pull;
+* stops being trusted `kClockTrustSeconds` (default 24 h) after the last seed.
+
+That expiry is the whole safety story. The RC oscillator is temperature-dependent
+and drifts — minutes per day is realistic — so a device that stops seeing the sky
+stops evaluating windows and falls back to the retained config document, letting
+the server take over. Failing closed like that is what makes an on-device
+schedule safe on hardware with no crystal.
+
+### Switching on time
+
+Two places make a boundary punctual rather than approximate:
+
+* **The interval wait** is cut short at the next switch, as well as at
+  `config_check_s`. A device that stays awake switches at the boundary itself.
+* **The deep sleep** is capped at the next switch. Without it a device reporting
+  hourly would start its 22:00 profile at 22:59, and the dashboard's timeline
+  would be honestly wrong about the tracker.
+
+**What that costs, precisely.** Waking from deep sleep runs a *whole* cycle —
+modem, GNSS acquire, publish — because `app_main()` restarts from the top and has
+no notion of a partial wake. So a switch costs one extra **report**, not merely
+one extra wake: two or three a day on a typical schedule.
+
+That is accepted rather than merely tolerated. The server verifies the schedule
+from the `profile_slot` inside each report, so the report this produces is exactly
+the one that confirms the switch happened — without it, a switch would go
+unconfirmed until the next scheduled report, which on an hourly device could be
+most of an hour. If the extra reports ever matter more than punctuality, the cap
+is the two `secondsUntilNextChange` calls in `main.cpp` and removing them returns
+the old behaviour.
+
+`RemoteSchedule` and `RemoteSettings` share one [`UpdateSignal`](src/settings/UpdateSignal.h)
+because a FreeRTOS task can only wait on one event group, and a bundle that had to
+sit unnoticed until the next reporting interval would defeat the point.
+
+### What the device reports, and what the server does with it
+
+Every position payload carries `profile_slot` and `sched_v` alongside the existing
+`settings_version` — stamped at **capture** time, like everything else in a
+report, so a backlog drained after a weekend honestly says which profile each fix
+was taken under. Both keys are **omitted together** when the schedule is not in
+force, and the API reads that absence as "this device does not switch itself".
+
+The server still evaluates the same rules, but to **check** rather than to drive.
+It compares the reported slot against what the rules called for *at that fix's
+time* — not at the present moment, which would make every switch look like a
+failure on a device with a long interval — and writes a corrective revision only
+when the two genuinely disagree. A device that agrees costs no writes at all.
+
+A correction arrives as an **override in the bundle**, not just a new config
+document: the device is evaluating its own schedule and would otherwise switch
+straight back at the next boundary it computes. The override self-expires at that
+boundary, so a correction costs one wrong stretch rather than pinning a tracker
+to one profile until somebody notices.
+
+### Backward compatibility
+
+Nothing above changes `devices/<id>/config` or its schema by one character.
+Firmware without this feature never subscribes to the schedule topic, never sends
+`profile_slot`, and is driven by the server exactly as it always was — the API has
+an explicit branch for it. Setting `kScheduleEnabled` to `false` compiles the
+whole thing out and restores that behaviour on this firmware too.
+
+### ⚠️ Parity with the API
+
+[`ScheduleEvaluator`](src/settings/ScheduleEvaluator.h) is a port of
+`API/CarPosAPI/Services/Scheduling/ScheduleEvaluator.cs` and **must produce
+identical answers**. A disagreement does not show up as a wrong answer — it shows
+up as the server "correcting" a device that was, by its own lights, right. Any
+change to the semantics (minute-of-week numbering, the half-open window, the
+priority tie-break, the boundary walk) has to be made on both sides in the same
+commit.
+
+This joins the two parity obligations that already existed: `SettingsCodec` ⇄
+`DeviceConfigDocumentDto`, and `PayloadCrypto` ⇄ the desktop `crypto_box.py`.
+
 
 ## Using it in your own code
 

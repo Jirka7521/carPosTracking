@@ -89,6 +89,8 @@ export function ScheduleStatusBanner({
         )}
       </p>
 
+      <DeviceReport status={status} />
+
       {evaluatedAt === null ? (
         // An enabled schedule the worker has not reached yet. Distinguishing
         // "computed and acted on" from "computed for display only" is the whole
@@ -96,6 +98,47 @@ export function ScheduleStatusBanner({
         <p className="hint">{t('status.awaitingFirstPass')}</p>
       ) : null}
     </div>
+  )
+}
+
+// What the tracker itself last said it was running.
+//
+// Worth its own line because the device switches profiles on its own, from a
+// bundle cached on its SD card, and can therefore be somewhere the server did not
+// put it — a clock that has drifted, a bundle that never arrived. Everything
+// above this is what the rules SAY; this is what the hardware DID.
+//
+// Three states, and the quiet one matters most: a device that agrees gets a plain
+// grey line, because the normal case must not look like a warning.
+function DeviceReport({ status }: { status: DeviceScheduleStatusDto }) {
+  const { t } = useTranslation('schedule')
+
+  const reportedAt: Date | null = status.reportedAt ? parseApiTimestamp(status.reportedAt) : null
+
+  if (status.reportedProfileName === null || reportedAt === null) {
+    // Either firmware that does not switch itself — in which case the server is
+    // driving it, exactly as it always did, and there is nothing to report — or a
+    // device that has not been heard from since it gained a schedule.
+    return null
+  }
+
+  // A bundle newer than the one the device holds is a delivery in flight, not a
+  // fault, and says so rather than showing the profile difference as a problem.
+  const isBehind: boolean =
+    status.reportedScheduleVersion !== null &&
+    status.reportedScheduleVersion < status.bundleVersion
+
+  return (
+    <p className={status.isDeviceInStep === false && !isBehind ? 'schedule-status-device is-adrift' : 'hint'}>
+      <Trans
+        i18nKey="status.deviceReports"
+        ns="schedule"
+        values={{ profile: status.reportedProfileName, when: formatLocalDayTime(reportedAt) }}
+        components={{ strong: <strong /> }}
+      />
+      {isBehind ? <> {t('status.deviceBehind')}</> : null}
+      {!isBehind && status.isDeviceInStep === false ? <> {t('status.deviceAdrift')}</> : null}
+    </p>
   )
 }
 

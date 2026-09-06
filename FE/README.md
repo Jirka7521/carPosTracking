@@ -316,6 +316,31 @@ tick may touch:
 - A tick landing **mid-save** is skipped, and a tick that **fails** leaves the
   panel it has rather than replacing it with an error.
 
+### The schedule banner reports the tracker, not just the rules
+
+The tracker evaluates its own schedule, from a bundle cached on its SD card, so
+that it keeps switching profiles with no broker in reach. That means it can be
+somewhere the rules did not put it — a clock that has drifted (the board has no
+RTC crystal and re-seeds only from a GNSS fix), or a bundle that never arrived.
+
+[`ScheduleStatusBanner`](src/components/ScheduleStatusBanner.tsx) therefore shows
+two different things and does not blur them: everything above the last line is
+what the rules **say**, and the last line is what the hardware **did** —
+`Tracker reported Night at Thu 22:04`. Three states:
+
+- **agreeing** — a quiet grey line. The normal case must not read as a warning.
+- **behind** — it has not picked up the newest bundle yet. A delivery in flight,
+  not a fault, and said so in words rather than shown as a profile mismatch.
+- **adrift** — amber. The server has already sent a correction, so this is a
+  thing to know, not a thing to do.
+
+The comparison behind `isDeviceInStep` is made **server-side, at the reported
+fix's own timestamp**, not against the browser's clock or the present moment — a
+fix taken five minutes before a boundary should report the older profile, and
+judging it against "now" would light this up after every single switch. The line
+is absent entirely for firmware that does not switch itself; such a device is
+driven by the server exactly as it always was.
+
 ### Durations are typed in the unit you choose
 
 Every duration is stored in one canonical unit — whole seconds for the reporting

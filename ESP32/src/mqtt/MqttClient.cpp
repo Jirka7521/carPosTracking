@@ -28,6 +28,15 @@ static constexpr int kOutboxLimitBytes = 64 * 1024;
 // trade against a burst message of ~10 KB; the default 1 KB is needlessly small.
 static constexpr int kMqttOutBufferBytes = 2048;
 
+// Inbound MQTT buffer. handleData() below reassembles a payload larger than
+// this, so nothing breaks without it - but the schedule bundle is up to ~4 KB
+// (twelve profiles and thirty-two rules), and it is replayed retained on every
+// single connect, which for a sleeping device is every wake. Taking it in one
+// event instead of five is worth 4 KB of permanently allocated RAM on a part
+// with 4 MB of PSRAM; the default 1 KB was chosen when the only subscriptions
+// were small ack and settings messages.
+static constexpr int kMqttInBufferBytes = 4096;
+
 // One place to render the heap situation for a failed publish. Free heap alone
 // does not explain an allocation failure - a fragmented heap can report plenty
 // free and still refuse a contiguous request - so the largest free block is
@@ -77,8 +86,7 @@ bool MqttClient::begin() {
   // allocation inside esp-mqtt rather than a diagnosable refusal here.
   cfg.outbox.limit     = kOutboxLimitBytes;
   cfg.buffer.out_size  = kMqttOutBufferBytes;
-  // cfg.buffer.size (inbound) stays at the default: the only thing we subscribe
-  // to is small ack and settings messages.
+  cfg.buffer.size      = kMqttInBufferBytes;
 
   // Only pass credentials we actually have, so an empty username/password is
   // treated as "no credential" rather than an empty string.

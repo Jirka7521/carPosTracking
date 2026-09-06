@@ -33,9 +33,14 @@
 #include "sdcard/SdCard.h"
 #include "serial/SerialPort.h"
 #include "settings/DeviceSettings.h"
+#include "settings/RemoteSchedule.h"
 #include "settings/RemoteSettings.h"
+#include "settings/ScheduleStore.h"
 #include "settings/SettingsApplier.h"
+#include "settings/SettingsSelector.h"
 #include "settings/SettingsStore.h"
+#include "settings/UpdateSignal.h"
+#include "util/DeviceClock.h"
 #include "wifi/WifiManager.h"
 
 static const char* TAG = "main";
@@ -156,6 +161,19 @@ extern "C" void app_main(void) {
   // an unreadable card, so `settings` is always usable from here on.
   static SettingsStore settingsStore(sdCard, config::kSdSettingsFilePath);
   DeviceSettings       settings = settingsStore.load(DeviceSettings());
+
+  // The schedule this device switches itself on, cached beside the settings.
+  // Loaded here rather than waiting for the broker for the same reason as the
+  // settings, only more so: the schedule is what the device needs precisely when
+  // it CANNOT reach the broker, so a bundle that only ever lived in RAM would be
+  // gone by the first deep-sleep reboot.
+  static ScheduleStore  scheduleStore(sdCard, config::kSdSchedulePath);
+  static ScheduleBundle cachedSchedule = scheduleStore.load();
+
+  // The wall clock. Restored from RTC memory if this is a wake rather than a
+  // cold boot; otherwise it stays unseeded until the first GNSS fix below.
+  static DeviceClock deviceClock(config::kClockTrustSeconds);
+  deviceClock.begin();
 
   // Pushes the storage-related settings into the two queues. Applied here for
   // the cached document, and again every time a new one arrives, so the queues
@@ -303,14 +321,39 @@ extern "C" void app_main(void) {
                                 config::kSdMaxBurstFixes,
                                 config::kBacklogFlushRetryMs,
                                 config::kBacklogFlushBudgetMs);
-  static RemoteSettings remoteSettings(mqtt, settingsStore,
+  // One event group shared by both retained-topic watchers, so the interval wait
+  // below can block on a single object and still be woken by either. A task can
+  // only wait on one event group, and a schedule bundle that had to sit unnoticed
+  // for a whole reporting interval would defeat the point of an on-device
+  // schedule.
+  static UpdateSignal   updateSignal;
+  static RemoteSettings remoteSettings(mqtt, settingsStore, updateSignal,
                                        config::kConfigTopic);
+  static RemoteSchedule remoteSchedule(mqtt, scheduleStore, updateSignal,
+                                       config::kScheduleTopic);
+
+  // The one place that knows which of the three opinions about this device's
+  // settings wins - see the banner on SettingsSelector.
+  static SettingsSelector selector(remoteSettings, remoteSchedule, deviceClock,
+                                   updateSignal);
+
+  // Seeded here rather than inside the MQTT block below, because begin() does
+  // two things: it arms the subscription AND it hands the watcher the document
+  // loaded from the card. The selector reads the second of those on every
+  // resolve, so with kMqttEnabled off it would otherwise see empty watchers and
+  // hand back factory defaults instead of the cached configuration. Arming a
+  // subscription on a client that is never started is free - MqttClient just
+  // remembers it (see its subscribe()).
+  //
+  // Both must run BEFORE MqttClient::begin(): the broker replays the retained
+  // documents the instant we connect, and that must not race the handlers being
+  // installed. The ack subscription is armed for the same reason.
+  remoteSettings.begin(settings);
+  if (config::kScheduleEnabled) {
+    remoteSchedule.begin(cachedSchedule);
+  }
 
   if (config::kMqttEnabled) {
-    // Subscribe before starting the client: the broker replays the retained
-    // config the instant we connect, and that must not race the handler being
-    // installed. The ack subscription is armed here for the same reason.
-    remoteSettings.begin(settings);
     if (config::kAckEnabled) {
       if (ackWatcher.begin()) {
         ESP_LOGI(TAG, "Delivery acks enabled; listening on %s.",
@@ -337,14 +380,20 @@ extern "C" void app_main(void) {
                  "cached settings (is it published retained?)",
                  (unsigned)config::kConfigFetchTimeoutMs);
       }
-      settings = remoteSettings.current();
-      settingsApplier.apply(settings);
     } else {
       ESP_LOGW(TAG, "MQTT failed to start; continuing without publishing.");
     }
   } else {
     ESP_LOGI(TAG, "MQTT disabled in Config.h.");
   }
+
+  // First resolve of the run. Done outside the MQTT block so it also covers the
+  // kMqttEnabled-off case, where it simply returns the documents loaded from the
+  // card. The clock is almost certainly unseeded at this point on a cold boot,
+  // so this usually resolves to the config document and the first real schedule
+  // evaluation happens after the first fix below.
+  settings = selector.resolve();
+  settingsApplier.apply(settings);
 
   // Owns the ordered shutdown for the sleep_between path. Only ever used when
   // that setting is on, but wiring it here keeps the loop below free of the
@@ -402,13 +451,23 @@ extern "C" void app_main(void) {
   // has static storage duration and is reachable without one. Both are locals of
   // app_main(), which never returns, so the references cannot dangle.
   std::function<void()> onEachPoll = [&fix, &settings]() {
+    // Seed the clock from the poll that has just happened. Doing it here rather
+    // than only after the acquire succeeds means the schedule starts being
+    // evaluated the moment the receiver has a time, which on a cold boot can be
+    // a minute or two before it has a position worth publishing.
+    if (config::kScheduleEnabled) {
+      deviceClock.seedFromGnss(fix.time);
+    }
+
     if (config::kMqttEnabled) {
       forwarder.flushBacklog(fix);
-      if (remoteSettings.poll()) {
-        settings = remoteSettings.current();
-        settingsApplier.apply(settings);
-      }
     }
+
+    // Re-resolved on every poll, not just when a document arrives: the clock
+    // being seeded a moment ago can change the answer all by itself, with
+    // nothing having been delivered.
+    settings = selector.resolve();
+    settingsApplier.apply(settings);
 
     if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
@@ -527,6 +586,14 @@ extern "C" void app_main(void) {
     // reported by THIS cycle's report rather than the next one.
     sample.settingsVersion = settings.version();
 
+    // Where the device's own schedule placed it at capture time, stamped from
+    // the same instant and for the same reason. Both are left at their "not
+    // scheduled" defaults when the selector is not running the schedule, and the
+    // publisher then omits the pair entirely - which is exactly how the API
+    // recognises a device that does not switch itself.
+    sample.profileSlot     = selector.activeSlot();
+    sample.scheduleVersion = selector.scheduleVersion();
+
     // The one battery figure that goes on the wire. BatteryReporter turns the
     // measurement above into it - or reports nothing at all rather than
     // guessing; see its banner for the three rules, and for why none of them
@@ -604,14 +671,11 @@ extern "C" void app_main(void) {
     // and back-dating it would be a lie - but the device must still start
     // honouring it now rather than after another whole interval.
     //
-    // poll() is a cheap no-op when the hook already took the document, and
+    // resolve() is a cheap no-op when the hook already took the document, and
     // apply() is a no-op when nothing changed, so this costs nothing on the
     // common path and is simpler than tracking who took the message.
-    if (config::kMqttEnabled) {
-      remoteSettings.poll();
-      settings = remoteSettings.current();
-      settingsApplier.apply(settings);
-    }
+    settings = selector.resolve();
+    settingsApplier.apply(settings);
 
     // Where this interval is measured from. With no fix there is nothing to
     // measure from, so we start a fresh interval here instead - otherwise a
@@ -654,19 +718,42 @@ extern "C" void app_main(void) {
       // cost of the periodic check.
       const int64_t checkUs =
           static_cast<int64_t>(settings.configCheckSeconds()) * 1000000LL;
-      const int64_t chunkUs =
-          (checkUs > 0 && checkUs < remainingUs) ? checkUs : remainingUs;
+      int64_t chunkUs = (checkUs > 0 && checkUs < remainingUs) ? checkUs
+                                                              : remainingUs;
 
-      if (remoteSettings.waitForUpdate(static_cast<uint32_t>(chunkUs / 1000))) {
-        settings = remoteSettings.current();
+      // ...nor past the next scheduled profile switch. Without this a device
+      // whose "Night" profile starts at 22:00 would carry on with its daytime
+      // settings until whatever it was already waiting for expired - up to a
+      // whole reporting interval late, and the dashboard's timeline would be
+      // saying something that is not true of the device.
+      int64_t untilSwitchS = 0;
+      if (selector.secondsUntilNextChange(untilSwitchS)) {
+        const int64_t untilSwitchUs = untilSwitchS * 1000000LL;
+        if (untilSwitchUs < chunkUs) {
+          chunkUs = untilSwitchUs;
+        }
+      }
+
+      if (selector.waitForChange(static_cast<uint32_t>(chunkUs / 1000))) {
+        settings = selector.current();
         settingsApplier.apply(settings);
         continue;  // re-time against the settings we have just adopted
       }
 
-      // Nothing arrived within the chunk. Ask the broker to re-send the retained
-      // document if the re-check is due; it self-paces, so this is a no-op on a
-      // chunk that ended because the interval did.
-      remoteSettings.resyncIfDue(settings.configCheckSeconds());
+      // Nothing was delivered within the chunk - but the chunk may have ended
+      // because a switch fell due, so re-resolve before deciding anything. This
+      // is what actually performs the switch on a device that stays awake.
+      const DeviceSettings previous = settings;
+      settings                      = selector.resolve();
+      settingsApplier.apply(settings);
+      if (settings != previous) {
+        continue;  // the schedule just moved us; re-time against the new interval
+      }
+
+      // Ask the broker to re-send the retained documents if the re-check is due;
+      // it self-paces, so this is a no-op on a chunk that ended for any other
+      // reason.
+      selector.resyncIfDue(settings.configCheckSeconds());
     }
 
     // Deep sleep narrows what peak tracking can see: the chip is powered down
@@ -693,6 +780,30 @@ extern "C" void app_main(void) {
       const int64_t minSleepUs =
           static_cast<int64_t>(config::kMinDeepSleepMs) * 1000LL;
       int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
+
+      // Cut the sleep short at the next profile switch, so a schedule boundary
+      // is honoured to the minute instead of whenever the device next happened
+      // to wake. On a device reporting hourly that is the difference between a
+      // low-power profile starting at 22:00 and starting at 22:59.
+      //
+      // Be clear about the cost: waking here runs a WHOLE cycle - modem, GNSS
+      // acquire, publish - not just a re-resolve, because app_main() restarts
+      // from the top on every wake and has no notion of a partial one. So a
+      // switch costs one extra report, not merely one extra wake.
+      //
+      // That is accepted rather than merely tolerated. The server verifies the
+      // schedule from the profile slot inside each report, so the report this
+      // produces is exactly the one that confirms the switch happened; without
+      // it the switch would go unconfirmed until the next scheduled report. A
+      // couple of switches a day is a couple of extra reports a day.
+      int64_t untilSwitchS = 0;
+      if (selector.secondsUntilNextChange(untilSwitchS)) {
+        const int64_t untilSwitchUs = untilSwitchS * 1000000LL;
+        if (untilSwitchUs < remainingUs) {
+          remainingUs = untilSwitchUs;
+        }
+      }
+
       if (remainingUs < minSleepUs) {
         remainingUs = minSleepUs;
       }

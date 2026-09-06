@@ -1,98 +1,10 @@
 #include "sdcard/RetryQueue.h"
 
-#include <cstdio>
-
 #include "cJSON.h"
 #include "esp_log.h"
+#include "util/CivilTime.h"
 
 static const char* TAG = "RetryQueue";
-
-namespace {
-
-  constexpr int64_t kSecondsPerHour = 3600;
-
-  // Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
-  //
-  // Hand-rolled rather than using timegm(): that function's availability varies
-  // across newlib configurations, and mktime() would drag in the local timezone,
-  // which on a device with no zone data is a trap. This is branch-free, exact for
-  // every date we will ever see, and has no libc dependency at all.
-  int64_t daysFromCivil(int64_t year, unsigned month, unsigned day) {
-    year -= month <= 2;
-    const int64_t  era = (year >= 0 ? year : year - 399) / 400;
-    const unsigned yoe = static_cast<unsigned>(year - era * 400);
-    const unsigned doy =
-        (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
-    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 146097LL + static_cast<int64_t>(doe) - 719468;
-  }
-
-  // Inverse of daysFromCivil.
-  void civilFromDays(int64_t days, int& yearOut, unsigned& monthOut,
-                     unsigned& dayOut) {
-    days += 719468;
-    const int64_t  era = (days >= 0 ? days : days - 146096) / 146097;
-    const unsigned doe = static_cast<unsigned>(days - era * 146097);
-    const unsigned yoe =
-        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const int64_t  year = static_cast<int64_t>(yoe) + era * 400;
-    const unsigned doy  = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const unsigned mp   = (5 * doy + 2) / 153;
-    dayOut              = doy - (153 * mp + 2) / 5 + 1;
-    monthOut            = mp + (mp < 10 ? 3 : -9);
-    yearOut             = static_cast<int>(year + (monthOut <= 2));
-  }
-
-  // Parse "YYYY-MM-DDTHH:MM:SSZ" into seconds since the Unix epoch. Returns
-  // false for anything that is not exactly that shape - the format is produced
-  // by us and by the API, so a deviation is corruption, not a variant.
-  bool parseIso(const std::string& text, int64_t& epochOut) {
-    int      year   = 0;
-    unsigned month  = 0;
-    unsigned day    = 0;
-    unsigned hour   = 0;
-    unsigned minute = 0;
-    unsigned second = 0;
-    if (text.size() != 20 ||
-        std::sscanf(text.c_str(), "%4d-%2u-%2uT%2u:%2u:%2uZ", &year, &month,
-                    &day, &hour, &minute, &second) != 6) {
-      return false;
-    }
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 ||
-        minute > 59 || second > 59) {
-      return false;
-    }
-
-    epochOut = daysFromCivil(year, month, day) * 86400LL +
-               static_cast<int64_t>(hour) * 3600 +
-               static_cast<int64_t>(minute) * 60 + second;
-    return true;
-  }
-
-  // Render seconds since the Unix epoch back to "YYYY-MM-DDTHH:MM:SSZ".
-  std::string formatIso(int64_t epoch) {
-    int64_t days      = epoch / 86400;
-    int64_t remainder = epoch % 86400;
-    if (remainder < 0) {  // floor division, so a pre-epoch value still works
-      remainder += 86400;
-      days -= 1;
-    }
-
-    int      year  = 0;
-    unsigned month = 0;
-    unsigned day   = 0;
-    civilFromDays(days, year, month, day);
-
-    char buffer[32];
-    std::snprintf(buffer, sizeof(buffer), "%04d-%02u-%02uT%02u:%02u:%02uZ",
-                  year, month, day,
-                  static_cast<unsigned>(remainder / 3600),
-                  static_cast<unsigned>((remainder / 60) % 60),
-                  static_cast<unsigned>(remainder % 60));
-    return std::string(buffer);
-  }
-
-}  // namespace
 
 RetryQueue::RetryQueue(SdCard& card, const char* filePath,
                        std::size_t maxEntries, uint32_t retryIntervalHours,
@@ -193,13 +105,13 @@ RetryQueue::Disposition RetryQueue::classify(const std::string& line,
   // Give up on anything that has been failing for longer than the cap. This is
   // the only path that discards data, so the caller logs it at error level.
   int64_t firstEpoch = 0;
-  if (maxAgeHours_ > 0 && parseIso(entry.firstUtc, firstEpoch) &&
-      nowEpoch - firstEpoch > static_cast<int64_t>(maxAgeHours_) * kSecondsPerHour) {
+  if (maxAgeHours_ > 0 && CivilTime::parseIso(entry.firstUtc, firstEpoch) &&
+      nowEpoch - firstEpoch > static_cast<int64_t>(maxAgeHours_) * CivilTime::kSecondsPerHour) {
     return Disposition::Abandon;
   }
 
   int64_t nextEpoch = 0;
-  const bool due = parseIso(entry.nextUtc, nextEpoch) && nowEpoch >= nextEpoch;
+  const bool due = CivilTime::parseIso(entry.nextUtc, nextEpoch) && nowEpoch >= nextEpoch;
   if (!due || takenSoFar >= maxCount) {
     return Disposition::Keep;
   }
@@ -216,7 +128,7 @@ bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
                      const char* reason, const std::string& firstUtc,
                      uint32_t priorAttempts) {
   int64_t nowEpoch = 0;
-  if (!parseIso(nowUtc, nowEpoch)) {
+  if (!CivilTime::parseIso(nowUtc, nowEpoch)) {
     // No usable clock: we cannot say when to try again, and guessing would
     // either hammer the API or abandon the fix. Better to report the failure and
     // let the caller leave it in the live queue.
@@ -230,7 +142,7 @@ bool RetryQueue::add(const std::string& envelope, const std::string& nowUtc,
   // measures the whole ordeal instead of restarting on every attempt.
   entry.firstUtc = firstUtc.empty() ? nowUtc : firstUtc;
   entry.nextUtc =
-      formatIso(nowEpoch + static_cast<int64_t>(retryIntervalHours_) * kSecondsPerHour);
+      CivilTime::formatIso(nowEpoch + static_cast<int64_t>(retryIntervalHours_) * CivilTime::kSecondsPerHour);
   entry.attempts = priorAttempts + 1;
 
   const std::string line = encodeEntry(entry);
@@ -272,7 +184,7 @@ bool RetryQueue::takeDue(const std::string& nowUtc, std::size_t maxCount,
   }
 
   int64_t nowEpoch = 0;
-  if (!parseIso(nowUtc, nowEpoch)) {
+  if (!CivilTime::parseIso(nowUtc, nowEpoch)) {
     // No clock this cycle: nothing is due. Entries simply wait, which is the
     // safe direction to fail.
     return true;

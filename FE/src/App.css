@@ -2501,6 +2501,22 @@
   color: var(--text);
 }
 
+/* What the tracker itself reported. Normally a quiet grey line (it uses .hint),
+   because a device that agrees with its schedule is the ordinary case and must
+   not read as a warning. This variant is only for the one that does not — and it
+   is warning-coloured, not danger-coloured: the server has already sent the
+   correction, so it is a thing to know, not a thing to do. */
+.schedule-status-device {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.schedule-status-device.is-adrift {
+  color: var(--warning);
+  font-weight: 500;
+}
+
 .schedule-status-tag {
   display: inline-block;
   padding: 1px 8px;

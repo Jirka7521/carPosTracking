@@ -672,32 +672,53 @@ device needs the matching read:
 ```
 user dashboard
 topic write devices/+/config
+topic write devices/+/schedule
 
 user GNSS01
 topic read devices/GNSS01/config
+topic read devices/GNSS01/schedule
 ```
 
 Without the write rule the publish is refused; without the read rule Mosquitto
 ACKs the subscription and silently drops the document. Both are in
 [`../../Container/MQTTBroker/mosquitto/acl`](../../Container/MQTTBroker/mosquitto/acl).
 
+The `schedule` pair is newer than the `config` pair — see
+[the schedule ACL note](#️-the-broker-acl-must-grant-the-schedule-topic) for what
+a missing grant looks like from the dashboard.
+
 ## Settings schedules
 
 A device can switch between named **profiles** on a weekly timetable — reporting
 every minute on weekday mornings, sleeping through the night, something else at
-weekends. **The firmware knows nothing about this.** The scheduler produces
-exactly the same revisions and the same retained document a manual save does, so
-`ESP32/` needed no change and a tracker cannot tell the two apart.
+weekends.
 
-Three tables and four columns:
+**The device does the switching.** It used to be entirely server-side: the
+scheduler evaluated the rules and republished the ordinary configuration
+document, so `ESP32/` needed no change and a tracker could not tell a scheduled
+revision from a manual one. That worked, and it only worked *while the broker
+could reach the tracker* — which is the wrong property for a car parked in an
+underground garage overnight, the exact case a night profile exists for.
+
+So the whole schedule is now published to the device as a **bundle** and
+evaluated there. **This server still evaluates the same rules, but to verify
+rather than to drive**: it checks the profile the device reports and corrects it
+only on a genuine disagreement. See [The bundle](#the-bundle) and
+[Verify, not drive](#verify-not-drive) below.
+
+Three tables and the columns that drive them:
 
 | Table / column | Holds |
 |---|---|
 | `device_config_profiles` | a name plus the same seven values, under the same CHECK constraints |
+| `device_config_profiles.schedule_slot` | the 0-based index the **firmware** knows this profile by; unique per device, never reused while it lives |
 | `device_config_schedule_rules` | one weekly window: `days_mask_utc`, `start_minute_utc`, `duration_minutes`, `priority`, `is_enabled` |
 | `devices.config_schedule_enabled` / `..._fallback_profile_id` | whether rules drive this device, and what applies where none matches |
 | `devices.config_override_until` | while in the future, the scheduler leaves this device alone |
 | `devices.config_schedule_evaluated_at` | when the worker last completed a pass (diagnostic) |
+| `devices.schedule_bundle_version` | the bundle revision published; bumped on every schedule change |
+| `devices.reported_profile_slot` / `..._schedule_version` | what the device last said it was running, and under which bundle |
+| `devices.reported_profile_at` | the **fix time** of that report — not its arrival time |
 | `device_config_versions.source` / `source_profile_id` | `Manual` or `Schedule`, and which profile — so the history can say *why* |
 
 **Everything is UTC, and the API never converts a local time.** A rule is a start
@@ -722,6 +743,46 @@ at 06:00 have neither a gap nor an overlap. The highest-priority enabled rule wh
 window contains the instant wins; ties break on age, then id. If none matches, the
 fallback applies.
 
+> ⚠️ **This file now has a second implementation.**
+> `ESP32/src/settings/ScheduleEvaluator.cpp` is a port of it and must produce
+> identical answers — a divergence does not surface as a wrong answer but as this
+> server "correcting" a device that was, by its own lights, right. Any change to
+> the minute-of-week numbering, the half-open window, the priority tie-break or
+> the boundary walk must be made on both sides in the same commit. This joins
+> `DeviceConfigDocumentDto` ⇄ `SettingsCodec` as a parity obligation.
+
+### The bundle
+
+[`ScheduleBundleBuilder`](Services/Scheduling/ScheduleBundleBuilder.cs) turns a
+device's profiles, rules, fallback and override into a
+[`DeviceScheduleBundleDto`](Dtos/DeviceScheduleBundleDto.cs), published
+**retained, QoS 1, plaintext** to `devices/<id>/schedule` by
+[`MqttConfigPublisher`](Services/Ingest/MqttConfigPublisher.cs). It carries no
+position data, so there is nothing to encrypt end to end; the broker hop is TLS.
+
+`devices/<id>/config` is **unchanged** and still carries exactly the document it
+always did. It remains what an unscheduled device runs, the channel a correction
+travels on, and the reason firmware without this feature keeps working untouched.
+
+Two things about the shape are load-bearing:
+
+- **Profiles travel as `schedule_slot`, not as their Guid.** The slot is echoed
+  back inside *every* encrypted fix, and a 36-character identifier in that
+  position, for ever, would be a poor trade for what one byte says as well. It is
+  persisted rather than derived, so a profile deleted between a publish and the
+  device's next report cannot silently re-map a slot some fix is still carrying.
+- **`override` is omitted, not null**, when there is none — the firmware tests for
+  the key's presence, which is why the publisher serialises the bundle with
+  `WhenWritingNull`.
+
+[`IScheduleBundlePublisher`](Services/Scheduling/IScheduleBundlePublisher.cs) is
+the single entry point: it bumps `schedule_bundle_version` and republishes, and
+every mutation on `DeviceConfigScheduleService` ends there. The version is bumped
+unconditionally, even when the rebuilt bundle is identical — it is not a content
+hash, its job is to let a device say "I have seen everything up to revision N",
+and a change that did not move it would leave a device that missed it looking
+perfectly in step.
+
 ### The worker
 
 [`DeviceConfigScheduleWorker`](Services/Scheduling/DeviceConfigScheduleWorker.cs)
@@ -734,6 +795,35 @@ manual save and the scheduler go through
 there is one code path that appends a revision and publishes it — and its
 "unchanged values append nothing" rule is what makes a quiet pass cost two reads
 and no writes.
+
+### Verify, not drive
+
+[`ScheduleReconciler`](Services/Scheduling/ScheduleReconciler.cs) now decides, per
+device, whether the server needs to intervene at all. Four of the five branches do
+nothing:
+
+| The device… | The pass… | Why |
+|---|---|---|
+| reports **no** `sched_v` | drives it unconditionally, exactly as before | firmware that does not switch itself. This branch is the whole backward-compatibility story |
+| reports a **lower** `sched_v` than published | does nothing | a delivery in flight, not a fault. Nothing is republished: the bundle is already retained, the device re-subscribes on every wake, and a publish every 30 s until it next reports would be a storm |
+| last reported **> `StaleReportAfter`** ago (25 h) | does nothing | genuinely offline. It is switching itself from the bundle it holds, and a correction from a day-old observation is noise in the history |
+| reports the slot the rules called for **at that fix's time** | does nothing | agreement — the common path, and it costs no writes |
+| reports a **different** slot | writes a revision **and** stamps an override to the next boundary | a genuine disagreement |
+
+**The comparison is made at the reported fix's instant, not at "now".** A fix
+taken five minutes before a 22:00 boundary *should* report the profile that was in
+force then, and judging it against the present would make every switch look like a
+failure on a device with a long reporting interval. That is also why
+`reported_profile_at` stores the fix time rather than the arrival time, and why it
+only ever moves forward — a backlog drain must not replace a fresh observation with
+a week-old one.
+
+The correction is an override rather than only a new config document because the
+device is evaluating its own schedule and would otherwise switch straight back at
+the next boundary it computes. It self-expires at that boundary, so a correction
+costs one wrong stretch rather than pinning a tracker until somebody notices —
+which matters, because the likeliest cause of a disagreement is a drifted clock
+on a board with no crystal.
 
 ### Manual overrides
 
@@ -751,8 +841,26 @@ holds until the next scheduled switch, which then reasserts its profile.
   fallback) has nothing for an override to expire at, so such a save is refused
   with a message pointing at the profile.
 
-No new broker ACL is needed: scheduled changes go out on the same
-`devices/+/config` topic as manual ones.
+### ⚠️ The broker ACL must grant the schedule topic
+
+Corrections and manual saves still go out on `devices/+/config`, which is already
+granted. **The bundle does not** — it is a new topic, and it needs two grants:
+
+```
+# the account this API connects as (see Mqtt:Username) must be able to write it
+topic write devices/+/schedule
+
+# ...and each device must be able to READ its own, or Mosquitto ACKs the
+# subscription and silently drops every bundle:
+#   user GNSS01
+#   topic read devices/GNSS01/schedule
+```
+
+The device-side failure is quiet by design and easy to misread: the tracker
+subscribes successfully, never receives a bundle, keeps running whatever the
+config topic last told it, and looks completely healthy. The dashboard is where it
+shows up — the banner reports the device has never said which profile it is
+running. This is the same trap the ack topic has, and it has caught us before.
 
 ## Build, test, run
 
@@ -858,6 +966,15 @@ mosquitto_passwd -b /mosquitto/config/passwords carpos-api '<password>'
 # subscription and silently drops every ack:
 #   user GNSS01
 #   topic read devices/GNSS01/ack
+#
+# The dashboard account additionally writes the config document and the schedule
+# bundle, and each device reads its own of both:
+#   user dashboard
+#   topic write devices/+/config
+#   topic write devices/+/schedule
+#   user GNSS01
+#   topic read devices/GNSS01/config
+#   topic read devices/GNSS01/schedule
 ```
 
 **Verify actual delivery, not just the SUBACK** — this broker once granted a

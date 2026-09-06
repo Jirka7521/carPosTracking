@@ -405,6 +405,68 @@ constexpr char kConfigTopic[] = "devices/GNSSXX/config";
 constexpr uint32_t kConfigFetchTimeoutMs = 8000;
 
 // -----------------------------------------------------------------------------
+//  Device-side profile scheduling.
+// -----------------------------------------------------------------------------
+//  The dashboard lets a device be given named PROFILES (a set of the seven
+//  settings above) and weekly RULES that switch between them - "Night" from
+//  22:00, "Weekend" all Saturday, and so on.
+//
+//  That used to be evaluated entirely on the server, which republished a new
+//  config document whenever the winning profile changed. It worked, but it meant
+//  a tracker only ever changed profile while the broker could reach it - and a
+//  car in an underground garage overnight is exactly the case a low-power
+//  profile exists for.
+//
+//  So the whole schedule is now published, retained, to the topic below as one
+//  JSON "bundle" (see ScheduleCodec for the format). The device caches it on the
+//  card, evaluates it against its own GNSS-seeded clock, and switches on its
+//  own. The server still evaluates the same rules, but only to CHECK the profile
+//  slot the device reports in every fix, and it corrects the device - through the
+//  ordinary config topic above - when the two genuinely disagree.
+//
+//  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET, for the same reason as the
+//  config topic: a sleeping device is almost never online for a live publish.
+//
+//  Set kScheduleEnabled to false to compile the whole thing out. The device then
+//  behaves exactly as it did before this existed - it runs whatever the config
+//  topic last told it - which is also what happens at runtime whenever the
+//  schedule is disabled, absent, or the clock is not trustworthy.
+// -----------------------------------------------------------------------------
+constexpr bool kScheduleEnabled = true;
+
+constexpr char kScheduleTopic[] = "devices/GNSSXX/schedule";
+
+// Caps on one bundle. These mirror ScheduleRules.MaxProfilesPerDevice and
+// MaxRulesPerDevice in the API - the server will not create more than this, and
+// a document that somehow carries more is rejected whole rather than truncated,
+// because half a schedule resolves to confidently wrong answers.
+//
+// Sizing: a profile is ~150 bytes of JSON and a rule ~55, so a full bundle is
+// under 4 KB. MqttClient reassembles a payload larger than its RX buffer, and
+// that buffer is sized to take a bundle in one piece.
+constexpr uint32_t kMaxScheduleProfiles = 12;
+constexpr uint32_t kMaxScheduleRules    = 32;
+
+// Cached copy of the last bundle received, in the clear beside settings.json and
+// for the same reason: profiles and windows are a cadence, not a position.
+//
+// ⚠ Needs long filenames (CONFIG_FATFS_LFN_HEAP in sdkconfig.defaults). With LFN
+// off the card mounts fine and every fopen() of this path fails with ENOENT.
+constexpr char kSdSchedulePath[] = "/sdcard/schedule.json";
+
+// How long the device may keep evaluating its schedule after the last GNSS fix
+// that set its clock, in seconds. Zero means "never expire".
+//
+// This board has no RTC crystal (sdkconfig selects CONFIG_RTC_CLK_SRC_INT_RC,
+// the internal RC oscillator) and no NTP, so a GNSS fix is the only thing that
+// can set the clock. ESP-IDF carries the time base across deep sleep, but the RC
+// oscillator is temperature-dependent and drifts - minutes per day is realistic.
+// Past this window the device stops evaluating windows and falls back to the
+// retained config document, letting the server take over. Failing closed is the
+// point: a schedule acted on with an hour-wrong clock is worse than no schedule.
+constexpr uint32_t kClockTrustSeconds = 86400;  // 24 h
+
+// -----------------------------------------------------------------------------
 //  Delivery acknowledgements.
 // -----------------------------------------------------------------------------
 //  A QoS-2 ack from the broker only proves Mosquitto took the message. It says
