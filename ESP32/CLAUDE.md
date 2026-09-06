@@ -61,9 +61,9 @@ src/
 ├── gnss/       GnssData / CgnsinfParser / NmeaParser / GnssModule
 ├── crypto/     PayloadCrypto / AckCrypto  ← RSA-OAEP + AES-256-GCM envelope
 ├── mqtt/       MqttClient / TelemetryPublisher / TelemetrySample / AckWatcher
-├── power/      AdcSampler / BatteryMonitor / BatteryMethods / BatteryReporter
-│               BatteryCsvLogger / ChargerWatcher / BootJournal
-│               DeepSleepController
+├── power/      AdcSampler / BatteryMonitor / BatteryWindowSampler
+│               BatteryMethods / BatteryReporter / ChargerWatcher
+│               BootJournal / DeepSleepController
 ├── sensors/    Adxl345 / AccelPeakTracker  ← ADXL345 accelerometer
 ├── sdcard/     SdCard / FixQueue / RetryQueue / QueueIndex / FixForwarder
 ├── settings/   DeviceSettings / SettingsStore / SettingsCodec / SettingsApplier
@@ -109,7 +109,12 @@ pio run -t fullclean    # clean rebuild (needed after partition/flash-size chang
   [`Config.example.h`](src/config/Config.example.h) carries empty placeholders.
 - **When you add a new setting**, add it to *both* `Config.h` **and**
   `Config.example.h` (placeholder only), and document it in the README's config
-  table.
+  table. That is the whole list — the API's provisioning template and the
+  dashboard's reference table both derive from `Config.example.h` now and need no
+  edit. The one follow-up is to run `dotnet build` in [`../API/`](../API/) and
+  commit the refreshed
+  [`ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
+  alongside your change; the build warns (`CARPOS001`) when it is behind.
 
 ---
 

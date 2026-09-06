@@ -8,8 +8,13 @@
 // ever disagreeing with each other.
 //
 // Everything here is a pure function of its arguments — no API calls, no state.
+// The helpers that produce PROSE read the active language from the i18next
+// singleton, which is the one input they do not take as an argument; see the
+// note at the top of utils/dates.ts for why it is not passed in.
 // ---------------------------------------------------------------------------
 
+import i18n from '../i18n'
+import { formatInteger, formatNumber } from '../i18n/format'
 import type { DeviceConfigStateDto, DeviceConfigValuesDto } from '../services/apiTypes'
 
 // 'unknown' is deliberately distinct from 'pending'. Pending means we published
@@ -51,16 +56,21 @@ export const CONFIG_FIELD_ORDER: readonly (keyof DeviceConfigValuesDto)[] = [
   'configCheckSeconds',
 ]
 
-// Short labels used wherever a setting is named outside its own form field.
-export const CONFIG_FIELD_LABELS: Record<keyof DeviceConfigValuesDto, string> = {
-  intervalSeconds: 'Report every',
-  sleepBetween: 'Deep-sleep between reports',
-  fixTimeoutSeconds: 'GNSS lock timeout',
-  queueMaxFixes: 'Undelivered fixes kept',
-  retryIntervalHours: 'Retry rejected fixes every',
-  retryMaxAgeHours: 'Give up on rejected fixes after',
-  configCheckSeconds: 'Re-check for settings every',
-}
+// Short labels used wherever a setting is named outside its own form field —
+// as translation keys rather than text, so the form, the pending table and the
+// version history all name a setting the same way in every language.
+//
+// `as const` keeps the values literal types, which is what lets t() check them
+// against the catalogue.
+export const CONFIG_FIELD_LABEL_KEYS = {
+  intervalSeconds: 'settings:config.field.intervalSeconds',
+  sleepBetween: 'settings:config.field.sleepBetween',
+  fixTimeoutSeconds: 'settings:config.field.fixTimeoutSeconds',
+  queueMaxFixes: 'settings:config.field.queueMaxFixes',
+  retryIntervalHours: 'settings:config.field.retryIntervalHours',
+  retryMaxAgeHours: 'settings:config.field.retryMaxAgeHours',
+  configCheckSeconds: 'settings:config.field.configCheckSeconds',
+} as const satisfies Record<keyof DeviceConfigValuesDto, string>
 
 // Which settings differ between two revisions. Returns keys in CONFIG_FIELD_ORDER
 // order so the pending table reads the same way as the form above it.
@@ -80,20 +90,25 @@ export function formatConfigValue(
 ): string {
   switch (key) {
     case 'sleepBetween':
-      return values.sleepBetween ? 'on' : 'off'
+      return values.sleepBetween ? i18n.t('common:onOff.on') : i18n.t('common:onOff.off')
     case 'intervalSeconds':
-      return `${values.intervalSeconds} s`
+      return i18n.t('common:units.abbrevSeconds', { value: values.intervalSeconds })
     case 'fixTimeoutSeconds':
-      return `${values.fixTimeoutSeconds} s`
+      return i18n.t('common:units.abbrevSeconds', { value: values.fixTimeoutSeconds })
     case 'queueMaxFixes':
-      return `${values.queueMaxFixes.toLocaleString()} fixes`
+      return i18n.t('settings:config.fixesCount', {
+        count: values.queueMaxFixes,
+        value: formatInteger(values.queueMaxFixes),
+      })
     case 'retryIntervalHours':
-      return `${values.retryIntervalHours} h`
+      return i18n.t('common:units.abbrevHours', { value: values.retryIntervalHours })
     case 'retryMaxAgeHours':
       // 0 is not "zero hours", it is the deliberate "keep retrying forever".
-      return values.retryMaxAgeHours === 0 ? 'never' : `${values.retryMaxAgeHours} h`
+      return values.retryMaxAgeHours === 0
+        ? i18n.t('common:relative.never')
+        : i18n.t('common:units.abbrevHours', { value: values.retryMaxAgeHours })
     case 'configCheckSeconds':
-      return `${values.configCheckSeconds} s`
+      return i18n.t('common:units.abbrevSeconds', { value: values.configCheckSeconds })
   }
 }
 
@@ -104,7 +119,7 @@ export function describeSeconds(seconds: number): string {
     return ''
   }
   if (seconds < 60) {
-    return `${seconds} seconds`
+    return describeRounded(seconds, 'second')
   }
   if (seconds < 3600) {
     return describeRounded(seconds / 60, 'minute')
@@ -139,15 +154,34 @@ export function estimateQueueSpan(maxFixes: number, intervalSeconds: number): st
   if (maxFixes <= 0 || intervalSeconds <= 0) {
     return ''
   }
-  return `≈ ${describeSeconds(maxFixes * intervalSeconds)} at the current interval`
+  return i18n.t('settings:config.queueSpan', {
+    duration: describeSeconds(maxFixes * intervalSeconds),
+  })
 }
 
 // One decimal place, but only when it carries information: "5 minutes", not
 // "5.0 minutes", and "1 day" rather than "1 days".
-function describeRounded(value: number, unit: string): string {
+//
+// The plural form is i18next's job rather than a trailing "s": Czech needs
+// one/few/many/other here, and English's two forms are not a subset of that
+// anyone can fake. `count` is the rounded NUMBER, so the plural rule sees 1.5
+// as "other"; `value` carries the already-formatted text that is displayed.
+function describeRounded(value: number, unit: 'second' | 'minute' | 'hour' | 'day'): string {
   const rounded: number = Math.round(value * 10) / 10
-  const text: string = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
-  return `${text} ${unit}${rounded === 1 ? '' : 's'}`
+  const text: string = Number.isInteger(rounded)
+    ? formatInteger(rounded)
+    : formatNumber(rounded, 1)
+
+  switch (unit) {
+    case 'second':
+      return i18n.t('common:duration.seconds', { count: rounded, value: text })
+    case 'minute':
+      return i18n.t('common:duration.minutes', { count: rounded, value: text })
+    case 'hour':
+      return i18n.t('common:duration.hours', { count: rounded, value: text })
+    case 'day':
+      return i18n.t('common:duration.days', { count: rounded, value: text })
+  }
 }
 
 // Mirrors the API's [Range] attributes and the firmware's clamps. Returns the
@@ -169,7 +203,11 @@ export function validateConfigRanges(values: DeviceConfigValuesDto): string | nu
   for (const check of checks) {
     const limit = CONFIG_LIMITS[check.key]
     if (!Number.isInteger(check.value) || check.value < limit.min || check.value > limit.max) {
-      return `"${CONFIG_FIELD_LABELS[check.key]}" must be a whole number between ${limit.min} and ${limit.max}.`
+      return i18n.t('settings:config.outOfRange', {
+        field: i18n.t(CONFIG_FIELD_LABEL_KEYS[check.key]),
+        min: formatInteger(limit.min),
+        max: formatInteger(limit.max),
+      })
     }
   }
 

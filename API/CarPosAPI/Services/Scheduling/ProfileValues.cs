@@ -14,5 +14,10 @@ namespace CarPosAPI.Services.Scheduling;
 /// </summary>
 /// <param name="ProfileId">The profile, recorded on the revision it produces.</param>
 /// <param name="Name">Its name, for logging.</param>
+/// <param name="ScheduleSlot">How the device names it — what a report has to be compared against.</param>
 /// <param name="Values">The seven settings to publish.</param>
-internal sealed record ProfileValues(Guid ProfileId, string Name, DeviceConfigValuesDto Values);
+internal sealed record ProfileValues(
+    Guid ProfileId,
+    string Name,
+    int ScheduleSlot,
+    DeviceConfigValuesDto Values);

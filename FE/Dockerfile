@@ -47,7 +47,10 @@ COPY docker-entrypoint.sh /docker-entrypoint.d/40-carpos-config.sh
 
 # The nginx image runs the scripts in /docker-entrypoint.d/ in name order before
 # starting the server, so the config file exists before the first request can
-# arrive. It must be executable regardless of what the checkout preserved.
-RUN chmod +x /docker-entrypoint.d/40-carpos-config.sh
+# arrive. It must be executable regardless of what the checkout preserved, and
+# free of the CR a Windows checkout can leave behind: that would send the kernel
+# looking for an interpreter named "/bin/sh<CR>" and fail the boot with 127.
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-carpos-config.sh \
+ && chmod +x /docker-entrypoint.d/40-carpos-config.sh
 
 EXPOSE 80

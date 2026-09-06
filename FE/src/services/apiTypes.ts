@@ -322,6 +322,21 @@ export type DeviceScheduleStatusDto = {
   nextChangeAt: string | null
   nextProfileId: string | null
   nextProfileName: string | null
+  // What the DEVICE last said it was running. The tracker evaluates the schedule
+  // itself, from a bundle cached on its SD card, so that it keeps switching with
+  // no broker in reach — these fields are how the dashboard shows whether it is
+  // actually doing so. Null on firmware that predates that, and on a device that
+  // has not reported since.
+  reportedProfileId: string | null
+  reportedProfileName: string | null
+  // The FIX time of that report, not its arrival time.
+  reportedAt: string | null
+  bundleVersion: number
+  reportedScheduleVersion: number | null
+  // Whether the device was running what the rules called for AT reportedAt.
+  // Null when there is nothing to compare. False is a genuine disagreement, and
+  // the server will already be correcting it.
+  isDeviceInStep: boolean | null
 }
 
 // A manual change holding the schedule off. Present only while live — branch on

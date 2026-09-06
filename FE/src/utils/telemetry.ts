@@ -2,7 +2,7 @@
 // telemetry — turning PositionDto rows into something chartable.
 //
 // Everything the Charts tab needs to know about *what* can be plotted lives in
-// the SERIES table below: the label, the unit, the colour and the number of
+// the SERIES table below: the label key, the unit, the colour and the number of
 // decimals. That one array drives the checkbox picker, the <Line> elements, the
 // Y axes and the tooltip, so adding a series later means editing one place
 // rather than four that can drift apart.
@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { PositionDto } from '../services/apiTypes'
+import { formatDateTime, formatDayMonth, formatNumber, formatTime } from '../i18n/format'
 import { parseApiTimestamp } from './dates'
 
 // Every value the chart can plot. The key doubles as the Recharts `dataKey` and
@@ -33,11 +34,16 @@ export type SeriesUnit = 'km/h' | 'm' | '%' | '°C' | 'g'
 
 export type SeriesDef = {
   key:      SeriesKey
-  label:    string
+  // A translation key, not a name. The chart, the tooltip and the picker each
+  // resolve it against the `device` namespace at render time.
+  labelKey: SeriesLabelKey
   unit:     SeriesUnit
   color:    string
   decimals: number
 }
+
+// Kept as a literal union so t() can check it against the catalogue.
+export type SeriesLabelKey = `device:charts.series.${SeriesKey}`
 
 // One row per GPS fix, in the shape Recharts wants: a flat object with numeric
 // fields, `t` being the epoch milliseconds the whole chart is keyed on.
@@ -69,14 +75,14 @@ export const UNIT_ORDER = ['km/h', 'm', '%', '°C', 'g'] as const
 // Colour is never the only cue — the picker pairs every swatch with a text
 // label and the tooltip names each series.
 export const SERIES: readonly SeriesDef[] = [
-  { key: 'speedKmph',      label: 'Speed',       unit: 'km/h', color: '#0065BD', decimals: 1 },
-  { key: 'altitudeMeters', label: 'Altitude',    unit: 'm',    color: '#9085E9', decimals: 0 },
-  { key: 'batteryPct',     label: 'Battery',     unit: '%',    color: '#199E70', decimals: 0 },
-  { key: 'temperatureC',   label: 'Temperature', unit: '°C',   color: '#EB6834', decimals: 1 },
-  { key: 'accelXG',        label: 'Accel X',     unit: 'g',    color: '#C06FD0', decimals: 2 },
-  { key: 'accelYG',        label: 'Accel Y',     unit: 'g',    color: '#EDA100', decimals: 2 },
-  { key: 'accelZG',        label: 'Accel Z',     unit: 'g',    color: '#B5651D', decimals: 2 },
-  { key: 'accelMagG',      label: 'Accel |a|',   unit: 'g',    color: '#00A3A3', decimals: 2 },
+  { key: 'speedKmph',      labelKey: 'device:charts.series.speedKmph',      unit: 'km/h', color: '#0065BD', decimals: 1 },
+  { key: 'altitudeMeters', labelKey: 'device:charts.series.altitudeMeters', unit: 'm',    color: '#9085E9', decimals: 0 },
+  { key: 'batteryPct',     labelKey: 'device:charts.series.batteryPct',     unit: '%',    color: '#199E70', decimals: 0 },
+  { key: 'temperatureC',   labelKey: 'device:charts.series.temperatureC',   unit: '°C',   color: '#EB6834', decimals: 1 },
+  { key: 'accelXG',        labelKey: 'device:charts.series.accelXG',        unit: 'g',    color: '#C06FD0', decimals: 2 },
+  { key: 'accelYG',        labelKey: 'device:charts.series.accelYG',        unit: 'g',    color: '#EDA100', decimals: 2 },
+  { key: 'accelZG',        labelKey: 'device:charts.series.accelZG',        unit: 'g',    color: '#B5651D', decimals: 2 },
+  { key: 'accelMagG',      labelKey: 'device:charts.series.accelMagG',      unit: 'g',    color: '#00A3A3', decimals: 2 },
 ]
 
 // Total acceleration √(x² + y² + z²). Undefined unless all three axes were
@@ -254,30 +260,28 @@ export function availableSeriesKeys(rows: readonly ChartRow[]): Set<SeriesKey> {
 
 // One decimal place too many turns "12 km/h" into noise; one too few hides a
 // 0.02 g bump. The per-series `decimals` is the answer to both.
+//
+// formatNumber rather than toFixed: toFixed always writes a ".", which would
+// put "12.3" next to a locale-grouped "1 234" in the same tooltip.
 export function formatSeriesValue(series: SeriesDef, value: number): string {
-  return `${value.toFixed(series.decimals)} ${series.unit}`
+  return `${formatNumber(value, series.decimals)} ${series.unit}`
 }
 
 // Axis tick labels. Within a day the date is redundant and costs horizontal
 // room; across days it is the only thing that disambiguates the tick.
 export function formatAxisTime(value: number, spanMs: number): string {
   const date = new Date(value)
-  const time = date.toLocaleTimeString(undefined, {
-    hour:   '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  const time = formatTime(date)
 
   if (spanMs < 24 * 60 * 60 * 1000) {
     return time
   }
 
-  const day = date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
-  return `${day} ${time}`
+  return `${formatDayMonth(date)} ${time}`
 }
 
 // The tooltip heading: full date and time, matching how the Positions table
 // renders a timestamp so the two tabs read the same.
 export function formatTooltipTime(value: number): string {
-  return new Date(value).toLocaleString(undefined, { hour12: false })
+  return formatDateTime(new Date(value))
 }

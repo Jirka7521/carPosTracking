@@ -25,6 +25,16 @@ namespace CarPosAPI.Services.Ingest;
 /// beside the batch because a backlog drain mixes fixes taken under different
 /// revisions, so the value only means anything attached to its own fix time.
 /// </param>
+/// <param name="ProfileSlot">
+/// Schedule profile slot the device was running when it took this fix, or null when it
+/// sent none. Not a column of <c>positions</c> either, and carried per fix for exactly
+/// the same reason as <paramref name="SettingsVersion"/> — more so, in fact, since a
+/// device switches profiles far more often than its settings revision changes.
+/// </param>
+/// <param name="ScheduleVersion">
+/// Schedule bundle revision the device held when it took this fix, or null when it
+/// sent none.
+/// </param>
 internal sealed record ValidatedPosition(
     string DeviceId,
     DateTime FixTimeUtc,
@@ -37,4 +47,6 @@ internal sealed record ValidatedPosition(
     double? AccelYG,
     double? AccelZG,
     double? TemperatureC,
-    int? SettingsVersion);
+    int? SettingsVersion,
+    int? ProfileSlot,
+    int? ScheduleVersion);

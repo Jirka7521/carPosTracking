@@ -12,11 +12,14 @@
 // ============================================================
 
 import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { assetUrl } from '../services/runtimeConfig'
+import { LanguageMenu } from './LanguageMenu'
 
 export function AppLayout() {
   const { currentUser, logout } = useAuth()
+  const { t } = useTranslation('common')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100svh' }}>
@@ -24,7 +27,7 @@ export function AppLayout() {
       <header className="app-header">
 
         {/* Left: logo + application name + faculty sub-label */}
-        <Link to="/home" className="header-brand" aria-label="Go to home page">
+        <Link to="/home" className="header-brand" aria-label={t('nav.home')}>
           {/* Logo mark — same icon as the browser tab favicon. assetUrl keeps it
               loading when the app is served under a path prefix. */}
           <img
@@ -35,20 +38,22 @@ export function AppLayout() {
           />
 
           <div className="header-brand-text">
-            <span className="header-app-name">Car Position Tracker</span>
-            <span className="header-faculty">Vehicle tracking dashboard</span>
+            <span className="header-app-name">{t('appTitle')}</span>
+            <span className="header-faculty">{t('appSubtitle')}</span>
           </div>
         </Link>
 
-        {/* Right: display name + profile link + logout */}
+        {/* Right: language picker + display name + profile link + logout */}
         <div className="header-user">
+          <LanguageMenu />
+
           {currentUser ? (
             /* The name is a link to the profile page so the user can click it
                to edit their name or change their password. */
             <NavLink
               to="/profile"
               className="header-user-name"
-              aria-label="Edit your profile"
+              aria-label={t('nav.profile')}
               style={{ textDecoration: 'none', cursor: 'pointer' }}
             >
               {currentUser.firstName} {currentUser.lastName}
@@ -61,9 +66,9 @@ export function AppLayout() {
             // Logging out is a round-trip now — the API has to expire the
             // session cookies, since this code cannot touch them itself.
             onClick={() => void logout()}
-            aria-label="Sign out"
+            aria-label={t('actions.signOut')}
           >
-            Sign out
+            {t('actions.signOut')}
           </button>
         </div>
       </header>

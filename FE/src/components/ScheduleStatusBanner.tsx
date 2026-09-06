@@ -19,6 +19,7 @@
 // loosely enough to be harmless if the two disagree by a minute.
 // ---------------------------------------------------------------------------
 
+import { Trans, useTranslation } from 'react-i18next'
 import type { DeviceScheduleOverrideDto, DeviceScheduleStatusDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
 import { describeTimeUntil, formatLocalDayTime } from '../utils/schedule'
@@ -40,6 +41,8 @@ export function ScheduleStatusBanner({
   isResuming,
   onResume,
 }: ScheduleStatusBannerProps) {
+  const { t } = useTranslation('schedule')
+
   if (override !== null) {
     return <OverrideBanner override={override} isResuming={isResuming} onResume={onResume} />
   }
@@ -50,18 +53,18 @@ export function ScheduleStatusBanner({
   return (
     <div className="schedule-status schedule-status--active" role="status">
       <div className="schedule-status-main">
-        <span className="schedule-status-label">Now</span>
+        <span className="schedule-status-label">{t('status.now')}</span>
         <span className="schedule-status-profile">
-          {status.activeProfileName ?? 'No profile'}
+          {status.activeProfileName ?? t('status.noProfile')}
         </span>
         {status.activeRuleId === null ? (
           // Naming the fallback explicitly matters: "why is it on Day at
           // midnight?" is answered by "no rule covers this hour", and that is not
           // guessable from the profile name alone.
-          <span className="schedule-status-tag">fallback</span>
+          <span className="schedule-status-tag">{t('status.fallback')}</span>
         ) : null}
         {since !== null ? (
-          <span className="hint">since {formatLocalDayTime(since)}</span>
+          <span className="hint">{t('status.since', { when: formatLocalDayTime(since) })}</span>
         ) : null}
       </div>
 
@@ -69,25 +72,73 @@ export function ScheduleStatusBanner({
         {next === null || status.nextProfileName === null ? (
           // A schedule that resolves the same way all week. Saying so is better
           // than an empty space the reader reads as "still loading".
-          <>This schedule never switches — the same profile applies all week.</>
+          <>{t('status.neverSwitches')}</>
         ) : (
-          <>
-            Switches to <strong>{status.nextProfileName}</strong> at{' '}
-            <strong>{formatLocalDayTime(next)}</strong>{' '}
-            <span className="hint">({describeTimeUntil(next)})</span>
-          </>
+          // <Trans> because the two emphasised values sit inside one sentence
+          // whose word order differs between languages.
+          <Trans
+            i18nKey="status.switchesTo"
+            ns="schedule"
+            values={{
+              profile: status.nextProfileName,
+              when: formatLocalDayTime(next),
+              until: describeTimeUntil(next),
+            }}
+            components={{ strong: <strong />, quiet: <span className="hint" /> }}
+          />
         )}
       </p>
+
+      <DeviceReport status={status} />
 
       {evaluatedAt === null ? (
         // An enabled schedule the worker has not reached yet. Distinguishing
         // "computed and acted on" from "computed for display only" is the whole
         // reason the API returns this timestamp.
-        <p className="hint">
-          Waiting for the scheduler&rsquo;s first pass — this is what it will apply.
-        </p>
+        <p className="hint">{t('status.awaitingFirstPass')}</p>
       ) : null}
     </div>
+  )
+}
+
+// What the tracker itself last said it was running.
+//
+// Worth its own line because the device switches profiles on its own, from a
+// bundle cached on its SD card, and can therefore be somewhere the server did not
+// put it — a clock that has drifted, a bundle that never arrived. Everything
+// above this is what the rules SAY; this is what the hardware DID.
+//
+// Three states, and the quiet one matters most: a device that agrees gets a plain
+// grey line, because the normal case must not look like a warning.
+function DeviceReport({ status }: { status: DeviceScheduleStatusDto }) {
+  const { t } = useTranslation('schedule')
+
+  const reportedAt: Date | null = status.reportedAt ? parseApiTimestamp(status.reportedAt) : null
+
+  if (status.reportedProfileName === null || reportedAt === null) {
+    // Either firmware that does not switch itself — in which case the server is
+    // driving it, exactly as it always did, and there is nothing to report — or a
+    // device that has not been heard from since it gained a schedule.
+    return null
+  }
+
+  // A bundle newer than the one the device holds is a delivery in flight, not a
+  // fault, and says so rather than showing the profile difference as a problem.
+  const isBehind: boolean =
+    status.reportedScheduleVersion !== null &&
+    status.reportedScheduleVersion < status.bundleVersion
+
+  return (
+    <p className={status.isDeviceInStep === false && !isBehind ? 'schedule-status-device is-adrift' : 'hint'}>
+      <Trans
+        i18nKey="status.deviceReports"
+        ns="schedule"
+        values={{ profile: status.reportedProfileName, when: formatLocalDayTime(reportedAt) }}
+        components={{ strong: <strong /> }}
+      />
+      {isBehind ? <> {t('status.deviceBehind')}</> : null}
+      {!isBehind && status.isDeviceInStep === false ? <> {t('status.deviceAdrift')}</> : null}
+    </p>
   )
 }
 
@@ -100,24 +151,31 @@ function OverrideBanner({
   isResuming: boolean
   onResume: () => void
 }) {
+  const { t } = useTranslation('schedule')
+
   const until: Date | null = parseApiTimestamp(override.until)
 
   return (
     <div className="schedule-status schedule-status--override" role="status">
       <div className="schedule-status-main">
-        <span className="schedule-status-label">Overridden</span>
-        <span className="schedule-status-profile">Manual settings</span>
+        <span className="schedule-status-label">{t('override.label')}</span>
+        <span className="schedule-status-profile">{t('override.manual')}</span>
       </div>
 
       <p className="schedule-status-next">
         {until === null ? (
-          <>The schedule resumes at the next switch.</>
+          <>{t('override.resumesNextSwitch')}</>
         ) : (
-          <>
-            <strong>{override.resumingProfileName ?? 'The scheduled profile'}</strong>{' '}
-            returns at <strong>{formatLocalDayTime(until)}</strong>{' '}
-            <span className="hint">({describeTimeUntil(until)})</span>
-          </>
+          <Trans
+            i18nKey="override.returnsAt"
+            ns="schedule"
+            values={{
+              profile: override.resumingProfileName ?? t('override.scheduledProfile'),
+              when: formatLocalDayTime(until),
+              until: describeTimeUntil(until),
+            }}
+            components={{ strong: <strong />, quiet: <span className="hint" /> }}
+          />
         )}
       </p>
 
@@ -126,9 +184,9 @@ function OverrideBanner({
         className="btn btn-secondary btn-sm"
         onClick={onResume}
         disabled={isResuming}
-        title="Discard the manual settings and apply the scheduled profile now"
+        title={t('override.resumeHint')}
       >
-        {isResuming ? 'Resuming…' : 'Resume schedule now'}
+        {isResuming ? t('override.resuming') : t('override.resume')}
       </button>
     </div>
   )

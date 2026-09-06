@@ -32,13 +32,11 @@ reuse.
   plus charge detection on that same pin — a value of `0` is the agreed
   "charging" sentinel. Also reports the **modem die temperature**
   (`AT+CPMUTEMP`, published as `temp_c`).
-- 📊 **Battery method log** *(SD card)*: one CSV row per report comparing
-  **every** way this board can measure the pack — 5 voltage sources × 3
-  state-of-charge models, the modem's own percentage, the charge-input pin and
-  three charging detectors — each row stamped with the **uptime in milliseconds**
-  and the **current GNSS UTC**. **One** of those columns is the number that gets
-  published (`p4_curve` by default); the rest exist so that choice can be checked
-  against real captures. See [Battery method log](#battery-method-log).
+- 📊 **Battery measurement**: the pack voltage is sampled **every 0.5 s for the
+  whole time the device is awake** — boot, modem, MQTT connect and the entire fix
+  hunt — then **trimmed of outliers** and taken down to its **median**, so a
+  transmit droop is a minority of the samples rather than all of them, and scored
+  with the Li-ion curve. See [Battery measurement](#battery-measurement).
 - 🔌 **Charger-disconnect report**: while the charger is connected the pack is
   invisible to the ADC, so the first true reading of a trip only exists once it
   comes off. On that edge — and only when the cycle found no position — the
@@ -129,18 +127,31 @@ src/
 │   └── FixForwarder.h/.cpp  ← Publish-now-or-store; flush the backlog, lock or not
 │
 ├── settings/
-│   ├── DeviceSettings.h/.cpp ← The two runtime knobs, validated & clamped
-│   ├── SettingsCodec.h/.cpp  ← DeviceSettings ⇄ the config JSON (one format)
-│   ├── SettingsStore.h/.cpp  ← Cache them, in the clear, on the SD card
-│   └── RemoteSettings.h/.cpp ← Subscribe to the config topic; apply & persist
+│   ├── DeviceSettings.h/.cpp   ← The seven runtime knobs, validated & clamped
+│   ├── SettingsCodec.h/.cpp    ← DeviceSettings ⇄ the config JSON (one format)
+│   ├── SettingsStore.h/.cpp    ← Cache them, in the clear, on the SD card
+│   ├── SettingsApplier.h/.cpp  ← Push the storage settings into the two queues
+│   ├── RemoteSettings.h/.cpp   ← Subscribe to the config topic; apply & persist
+│   ├── UpdateSignal.h/.cpp     ← One wake-up shared by both retained-topic watchers
+│   ├── ScheduleBundle.h/.cpp   ← The profiles + weekly windows this device switches on
+│   ├── ScheduleCodec.h/.cpp    ← ScheduleBundle ⇄ the bundle JSON (one format)
+│   ├── ScheduleStore.h/.cpp    ← Cache the bundle, in the clear, on the SD card
+│   ├── ScheduleEvaluator.h/.cpp← Which profile is in force, and when that changes
+│   ├── RemoteSchedule.h/.cpp   ← Subscribe to the schedule topic; apply & persist
+│   └── SettingsSelector.h/.cpp ← Config vs. schedule vs. override: the precedence rule
+│
+├── util/
+│   ├── ScopedLock.h/.cpp     ← RAII guard for a FreeRTOS mutex
+│   ├── CivilTime.h/.cpp      ← Civil dates ⇄ epoch ⇄ ISO-8601, no libc timezone
+│   └── DeviceClock.h/.cpp    ← UTC wall clock seeded from GNSS; survives deep sleep
 │
 └── power/
     ├── AdcSampler.h/.cpp          ← The one owner of ADC1: raw counts + calibrated mV
     ├── BatteryData.h              ← Plain BatteryStatus struct (percent + charging)
     ├── BatteryMonitor.h/.cpp      ← Charge-sense on GPIO35 + the AT+CBC fallback %
-    ├── BatteryMethodsData.h       ← Plain struct: one multi-method measurement
-    ├── BatteryMethods.h/.cpp      ← Measure the pack every way at once (diagnostic)
-    ├── BatteryCsvLogger.h/.cpp    ← One CSV row per report, on the card
+    ├── BatteryMethodsData.h       ← Plain struct: one pack measurement (mV + %)
+    ├── BatteryWindowSampler.h/.cpp← Sample the pack every 0.5 s, all cycle, on its own task
+    ├── BatteryMethods.h/.cpp      ← Measure the pack: trimmed window median + Li-ion curve
     ├── BatteryReporter.h/.cpp     ← Picks the ONE percent that goes on the wire
     ├── ChargerWatcher.h/.cpp      ← Spots the charger-off edge (RTC-backed)
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
@@ -195,9 +206,9 @@ test:
 | `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
 | `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
 | `BatteryMonitor` | Charging detection (GPIO35, via `AdcSampler`) — the single source of that verdict — plus the fallback pack % (Li-ion curve over the modem's `AT+CBC`). |
-| `BatteryMethods` | Measure the pack five ways, score each with three models, and report the spread. |
-| `BatteryCsvLogger` | *Diagnostic:* write one of those measurements per report as a CSV row on the card. |
-| `BatteryReporter` | Turn one of those measurements into the single `battery_pct` the payload carries — sentinel, floor, or absent. |
+| `BatteryWindowSampler` | Sample the pack every `kBatteryWindowSampleMs` on its own task and hold the raw counts until the report takes them. |
+| `BatteryMethods` | Measure the pack: that window, outlier-trimmed and medianed, scored with the Li-ion curve. |
+| `BatteryReporter` | Turn that measurement into the single `battery_pct` the payload carries — sentinel, floor, or absent. |
 | `ChargerWatcher` | Remember the charger across cycles (and deep sleeps) and report the moment it comes off. |
 | `BootJournal` | Record *why* the device restarted — reset reason, boot counter, whether RTC memory survived. |
 | `PayloadCrypto` | Seal a plaintext string into the encrypted JSON envelope (and stamp its `id`). |
@@ -243,12 +254,18 @@ test:
 > secrets and the ack private key are spliced in locally and never reach the
 > server. The same tab also lists every constant below, read-only.
 >
-> **If you add, remove or rename a constant in `Config.example.h`, update the
-> API's copy of it** —
+> **Add, remove or rename a constant here and everything downstream follows by
+> itself.** The API embeds this exact file — an MSBuild target stages a verbatim
+> copy into
 > [`API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt`](../API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt)
-> — and the dashboard's reference table in `FE/src/utils/firmwareParameters.ts`.
-> The API cannot read this file (its Docker build context does not include
-> `ESP32/`), so a test there asserts the two agree and fails when they drift.
+> on every build, because the API image is built with `../../API` as its Docker
+> context and cannot read `ESP32/` — and rewrites the per-device constants in it
+> *by name*, so one it does not name simply passes through with the value you set
+> here. The dashboard's reference table is parsed out of that same rendered file.
+> The one thing to remember: that staged copy is **committed**, so build the API
+> (`dotnet build` in `API/`) in the same change and commit the refreshed file with
+> it — warning `CARPOS001` says so if you forget, and the Docker build cannot
+> regenerate it.
 
 Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 
@@ -274,23 +291,17 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
 | **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
-| `kAccelSampleIntervalMs` | `1000` | How often the sensor is sampled while peak tracking is on |
+| `kAccelSampleIntervalMs` | `500` | How often the sensor is sampled while peak tracking is on |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
 | `kBatteryEmptyMv` / `kBatteryFullMv` | `3300` / `4200` | Clamp ends of the Li-ion SoC curve (≤empty→1 %, ≥full→100 %) |
-| **`kBatteryLogEnabled`** | `true` | **Enable/disable the battery method log** (see [Battery method log](#battery-method-log)) |
-| `kSdBatteryLogPath` | `/sdcard/battery.csv` | The CSV (**plaintext**); a header mismatch rotates to `battery2.csv` … `battery9.csv` |
-| `kSdMaxBatteryLogRows` | `20000` | Cap on data rows (header excluded); oldest are dropped past this. `0` = no cap |
 | `kBatteryVbatSensePin` | `35` | Pack voltage sense — the **same pin** as `kBatteryChargeSensePin`, read as a voltage here |
-| `kBatterySolarSensePin` | `36` | Charge-input (solar/VIN) sense |
-| `kBatteryDividerRatio` / `kSolarDividerRatio` | `2.0f` / `2.0f` | On-board divider ratios; the solar one is an assumption that varies by board revision |
-| `kBatteryAdcSamples` | `16` | ADC conversions per measurement (averaged **and** medianed) |
-| `kSolarInputThresholdMv` | `1000` | Above this on GPIO36, a charge source is present |
-| `kBatteryNoReadingMv` | `2000` | Below this the ADC path is logged as absent, not as a flat pack |
-| **`kBatteryReportFromMethods`** | `true` | **Publish one of the method-log columns as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
-| `kBatteryReportSourceIndex` | `3` | Which voltage source to publish — a `BatterySource` index; `3` = `kSourceCalMedian`, the CSV's `p4_*` |
-| `kBatteryReportModelIndex` | `1` | Which model to score it with — a `BatteryModel` index; `1` = `kModelCurve`, the CSV's `*_curve` |
+| `kBatteryDividerRatio` | `2.0f` | On-board divider ratio; the measured voltage is multiplied back up by it |
+| `kBatteryWindowSampleMs` | `500` | How often the pack is sampled, for the whole time the device is awake — spreading the conversions this far is what makes a TX droop a minority of them (see [below](#why-the-window-is-spread-and-trimmed)) |
+| `kBatteryOutlierMadFactor` | `3` | Discard a sample this many median absolute deviations from the window median. `0` disables the trim |
+| `kBatteryNoReadingMv` | `2000` | Below this the pack is reported as absent, not as a flat cell |
+| **`kBatteryReportFromMethods`** | `true` | **Publish the measured percent as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
 | `kUnplugFixTimeoutSeconds` | `60` | Extra acquire budget when the charger comes off and the cycle found no position. `0` disables it |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
@@ -310,6 +321,11 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
 | `kDefaultConfigCheckSeconds` | `3600` | **Default** for `config_check_s` — awake-mode re-check interval |
 | `kMinConfigCheckSeconds` / `kMaxConfigCheckSeconds` | `60` / `86400` | Clamps on `config_check_s` |
+| **`kScheduleEnabled`** | `true` | **Evaluate the profile schedule on the device** (see [Device-side profile scheduling](#device-side-profile-scheduling)) |
+| `kScheduleTopic` | `devices/GNSSXX/schedule` | Topic the **retained** schedule bundle is read from |
+| `kMaxScheduleProfiles` / `kMaxScheduleRules` | `12` / `32` | Caps on one bundle; mirror `ScheduleRules` in the API |
+| `kSdSchedulePath` | `/sdcard/schedule.json` | Cached schedule bundle (**plaintext**) |
+| `kClockTrustSeconds` | `86400` | How long the GNSS-seeded clock may be trusted without a new fix; `0` = never expire |
 | `kAckEnabled` | `false` | Wait for the API to confirm a fix was stored before dropping it |
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
@@ -419,10 +435,9 @@ raw pack millivolts are **not** on the wire — they stay on the serial console 
 a curve-calibration aid only.
 
 `battery_pct` is produced by [`BatteryReporter`](src/power/BatteryReporter.h)
-from one column of the method log — `p4_curve` by default, i.e. the calibrated
-**median** of the ADC burst scored with the piecewise Li-ion curve
-(`kBatteryReportSourceIndex` / `kBatteryReportModelIndex`). Three rules, and each
-protects something downstream:
+from the measurement described under [Battery measurement](#battery-measurement)
+— the calibrated **median** of the trimmed sampling window, scored with the
+piecewise Li-ion curve. Three rules, and each protects something downstream:
 
 | Situation | On the wire | Why |
 |-----------|-------------|-----|
@@ -815,6 +830,8 @@ everything else, and is written to `/sdcard/settings.json` in the clear.
 
 ### Precedence
 
+Where a *configuration document* comes from:
+
 ```
 Config.h defaults  ←  /sdcard/settings.json  ←  retained MQTT config
    (weakest)              (survives reboot)         (strongest, wins)
@@ -826,6 +843,21 @@ briefly for the broker. Anything that arrives is validated, clamped, adopted, an
 — only if it actually differs from what was already in force — written back to
 the card. That cache is what lets a device that boots in a tunnel still know it
 is meant to be sleeping.
+
+That settles which *document* is in force. A second question sits on top of it —
+whether the device's own schedule overrides that document at all — and
+[`SettingsSelector`](src/settings/SettingsSelector.h) is the one place that
+decides:
+
+```
+retained config document   ←   schedule-selected profile   ←   bundle override
+    (the fallthrough)            (needs a trusted clock)       (strongest, wins)
+```
+
+Everything the schedule can fail at — no bundle, schedule disabled, a profile
+that will not resolve, a clock too stale to trust — lands back on the config
+document, which is exactly what this firmware did before schedules existed. See
+[Device-side profile scheduling](#device-side-profile-scheduling) below.
 
 ### Staying in step
 
@@ -870,10 +902,24 @@ lengthening it simply extends the wait. No extra GNSS acquire, no extra airtime.
 Switching `sleep_between` on mid-wait ends the wait immediately, so the device
 sleeps promptly instead of staying awake for what could be another 24 hours.
 
+**The acquire is the other place a config gets adopted.** Chasing a lock can take
+minutes, and the per-fix-poll hook in the main loop polls `RemoteSettings` on
+every step of it. It adopts the document *completely* — it takes it, moves the
+loop's working settings onto it and pushes them through `SettingsApplier` — so a
+change saved while the device is hunting for satellites is in force by the time
+that cycle's report is assembled, and is reported as such. Doing only the first
+of those three used to leave the report stamped with the previous revision, which
+showed up in the dashboard as a change staying "pending" until the report *after*
+the one that adopted it. The acquire already running keeps the `fix_timeout_s` it
+was started with: a shortened timeout takes effect from the next cycle rather
+than truncating a wait that is about to produce a lock.
+
 **With `sleep_between` on none of this runs** — the radio and the CPU are off, so
 there is nothing to push to and nothing to poll. Such a device gets its
 configuration through the retained replay on every wake, which is why
-`config_check_s` is documented as awake-mode-only.
+`config_check_s` is documented as awake-mode-only. If that replay is slower than
+the few seconds the wake allows for it, the document lands during the acquire
+instead and the hook above still gets it into that wake's report.
 
 In the other direction, every position report carries `settings_version`. The API
 records it against the device row, so the dashboard can show whether a change it
@@ -882,7 +928,178 @@ published has actually been adopted — and, because the API keeps every revisio
 stamped when the fix is **captured**, not when it is published, so a backlog
 drained days later honestly reports the settings it was taken under.
 
+Two gaps are inherent to echoing the revision inside telemetry rather than
+acking it separately. A config that arrives *after* the sample is sealed but
+before the publish finishes is reported next cycle — that sample really was
+captured under the older settings. And a cycle that gets no fix publishes
+nothing, so a device that cannot see the sky adopts its new configuration
+silently and confirms it only once it gets a lock.
+
 ---
+---
+
+## Device-side profile scheduling
+
+The dashboard lets a device be given named **profiles** — a complete set of the
+seven runtime settings, called "Night", "Weekend", "Commute" — and weekly
+**rules** that decide which one applies when. The device evaluates those rules
+**itself**, against its own clock, from a bundle cached on the SD card.
+
+**Why it is on the device.** It did not use to be. The server evaluated the rules
+and simply republished a new configuration document whenever the winning profile
+changed, which worked and required no firmware at all. The catch is that it only
+worked *while the broker could reach the tracker* — and a car parked in an
+underground garage overnight is precisely the case a low-power night profile
+exists for. A device that cannot be reached is a device that never switches.
+
+### The bundle
+
+Published **retained**, QoS 1, plaintext, to `devices/<id>/schedule`:
+
+```json
+{
+  "sched_v": 7,
+  "enabled": true,
+  "fallback": 0,
+  "profiles": [
+    { "slot": 0, "name": "Day", "interval_s": 60, "sleep_between": false,
+      "fix_timeout_s": 180, "queue_max_fixes": 20000, "retry_interval_h": 24,
+      "retry_max_age_h": 168, "config_check_s": 3600 }
+  ],
+  "rules": [
+    { "slot": 1, "days": 62, "start_m": 1320, "dur_m": 480, "prio": 100, "ord": 3 }
+  ],
+  "override": { "until": "2026-09-06T22:00:00Z", "interval_s": 30, "...": "..." }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `sched_v` | Bundle revision. Bumped on every change; echoed back in every fix. |
+| `enabled` | False turns device-side switching off — the config document takes over. |
+| `fallback` | Profile slot used where no window covers the instant; `-1` for none. |
+| `profiles[].slot` | Stable 0-based index, at most `kMaxScheduleProfiles` of them. |
+| `profiles[].name` | For the serial log only. Nothing on the device keys off it. |
+| `rules[].slot` | Which profile the window selects. |
+| `rules[].days` | 7-bit weekday mask, **bit 0 = Sunday**. |
+| `rules[].start_m` | Minute of the UTC day the window opens, 0–1439. |
+| `rules[].dur_m` | Length in minutes, **end-exclusive**, may wrap midnight. |
+| `rules[].prio` | Lower wins where two windows overlap. |
+| `rules[].ord` | Tie-break rank; lower is older, and wins. |
+| `override` | Values that beat the schedule until `until`. Absent when there is none. |
+
+The seven value keys inside a profile are **deliberately identical** to the
+configuration document's, so [`ScheduleCodec`](src/settings/ScheduleCodec.h) hands
+each profile object straight to `SettingsCodec::decodeObject`. One decoder, one
+set of bounds, and no second place for a profile and a config document to disagree
+about what `interval_s` means.
+
+Two encoding choices exist to keep the device's parser free of branches it could
+get wrong: `fallback` uses `-1` rather than a JSON null, and `override` is
+genuinely **absent** rather than null when there is none.
+
+Profiles are addressed by **slot**, not by the dashboard's profile id. The slot
+travels back inside every encrypted fix, and a 36-character identifier in that
+position — on every report, for ever — would be a poor trade for something one
+byte says as well.
+
+**Decoding is all-or-nothing.** A partial configuration document is a legitimate
+partial update; a partial bundle is corruption. A rule set missing its last entry
+is not an incomplete schedule, it is a *different* one, and the device would
+follow it with total confidence.
+
+### The clock, and why it expires
+
+This board has **no RTC crystal** (`CONFIG_RTC_CLK_SRC_INT_RC` — the internal RC
+oscillator) and no NTP. `esp_timer_get_time()` restarts at zero on the deep-sleep
+reboot, so every other deadline in this firmware is "microseconds since this
+wake" and cannot be turned into a date. **A GNSS fix is the only wall clock on
+the board**, and it only speaks when it has a lock.
+
+[`DeviceClock`](src/util/DeviceClock.h) therefore:
+
+* seeds from a fix (rejecting implausible dates — a modem that has powered up but
+  not yet locked will cheerfully report 1980, and seeding from that would put
+  every window on the wrong week while looking perfectly fresh);
+* coasts between fixes on the ESP32's own timekeeping, which ESP-IDF restores
+  across deep sleep, with the seed instant held in `RTC_DATA_ATTR` so it survives
+  the reboot but **not** a battery pull;
+* stops being trusted `kClockTrustSeconds` (default 24 h) after the last seed.
+
+That expiry is the whole safety story. The RC oscillator is temperature-dependent
+and drifts — minutes per day is realistic — so a device that stops seeing the sky
+stops evaluating windows and falls back to the retained config document, letting
+the server take over. Failing closed like that is what makes an on-device
+schedule safe on hardware with no crystal.
+
+### Switching on time
+
+Two places make a boundary punctual rather than approximate:
+
+* **The interval wait** is cut short at the next switch, as well as at
+  `config_check_s`. A device that stays awake switches at the boundary itself.
+* **The deep sleep** is capped at the next switch. Without it a device reporting
+  hourly would start its 22:00 profile at 22:59, and the dashboard's timeline
+  would be honestly wrong about the tracker.
+
+**What that costs, precisely.** Waking from deep sleep runs a *whole* cycle —
+modem, GNSS acquire, publish — because `app_main()` restarts from the top and has
+no notion of a partial wake. So a switch costs one extra **report**, not merely
+one extra wake: two or three a day on a typical schedule.
+
+That is accepted rather than merely tolerated. The server verifies the schedule
+from the `profile_slot` inside each report, so the report this produces is exactly
+the one that confirms the switch happened — without it, a switch would go
+unconfirmed until the next scheduled report, which on an hourly device could be
+most of an hour. If the extra reports ever matter more than punctuality, the cap
+is the two `secondsUntilNextChange` calls in `main.cpp` and removing them returns
+the old behaviour.
+
+`RemoteSchedule` and `RemoteSettings` share one [`UpdateSignal`](src/settings/UpdateSignal.h)
+because a FreeRTOS task can only wait on one event group, and a bundle that had to
+sit unnoticed until the next reporting interval would defeat the point.
+
+### What the device reports, and what the server does with it
+
+Every position payload carries `profile_slot` and `sched_v` alongside the existing
+`settings_version` — stamped at **capture** time, like everything else in a
+report, so a backlog drained after a weekend honestly says which profile each fix
+was taken under. Both keys are **omitted together** when the schedule is not in
+force, and the API reads that absence as "this device does not switch itself".
+
+The server still evaluates the same rules, but to **check** rather than to drive.
+It compares the reported slot against what the rules called for *at that fix's
+time* — not at the present moment, which would make every switch look like a
+failure on a device with a long interval — and writes a corrective revision only
+when the two genuinely disagree. A device that agrees costs no writes at all.
+
+A correction arrives as an **override in the bundle**, not just a new config
+document: the device is evaluating its own schedule and would otherwise switch
+straight back at the next boundary it computes. The override self-expires at that
+boundary, so a correction costs one wrong stretch rather than pinning a tracker
+to one profile until somebody notices.
+
+### Backward compatibility
+
+Nothing above changes `devices/<id>/config` or its schema by one character.
+Firmware without this feature never subscribes to the schedule topic, never sends
+`profile_slot`, and is driven by the server exactly as it always was — the API has
+an explicit branch for it. Setting `kScheduleEnabled` to `false` compiles the
+whole thing out and restores that behaviour on this firmware too.
+
+### ⚠️ Parity with the API
+
+[`ScheduleEvaluator`](src/settings/ScheduleEvaluator.h) is a port of
+`API/CarPosAPI/Services/Scheduling/ScheduleEvaluator.cs` and **must produce
+identical answers**. A disagreement does not show up as a wrong answer — it shows
+up as the server "correcting" a device that was, by its own lights, right. Any
+change to the semantics (minute-of-week numbering, the half-open window, the
+priority tie-break, the boundary walk) has to be made on both sides in the same
+commit.
+
+This joins the two parity obligations that already existed: `SettingsCodec` ⇄
+`DeviceConfigDocumentDto`, and `PayloadCrypto` ⇄ the desktop `crypto_box.py`.
+
 
 ## Using it in your own code
 
@@ -1141,97 +1358,127 @@ did it lose power?", which the reset reason alone cannot.
 
 ---
 
-## Battery method log
+## Battery measurement
 
-The published `battery_pct` is one number produced by one method, and that number
-is only as good as the method behind it — which cannot be judged without knowing
-how the alternatives behave on the same pack, at the same instant.
+The published `battery_pct` is one number produced by one method, and the whole
+difficulty is that the pack is measured on a rail the radios share.
 
-So the firmware measures the pack **every** way this board allows, once per
-reporting cycle, and appends the lot to a plaintext CSV on the card
-(`kSdBatteryLogPath`, default `/sdcard/battery.csv`, written when
-`kBatteryLogEnabled`). Nothing on the card is encrypted or queued — it changes
-neither the envelope nor the shape of the payload.
+[`BatteryWindowSampler`](src/power/BatteryWindowSampler.h) reads GPIO35 through
+the on-board divider **every `kBatteryWindowSampleMs` (0.5 s) for the whole time
+the device is awake**, on its own small task. Once per reporting cycle
+[`BatteryMethods`](src/power/BatteryMethods.h) takes that window, throws out the
+samples a transmit droop dragged down, takes the **median** of what survives,
+calibrates it and scores it with a **piecewise Li-ion curve**.
+[`BatteryReporter`](src/power/BatteryReporter.h) then turns that into the
+payload's `battery_pct` — or into the `0` charging sentinel, or into nothing at
+all; see its banner for the three rules.
 
-**Exactly one of these columns leaves the device.** `kBatteryReportFromMethods`
-selects it — `p4_curve` by default, the calibrated **median** of the ADC burst
-scored with the piecewise Li-ion curve — and
-[`BatteryReporter`](src/power/BatteryReporter.h) turns it into the payload's
-`battery_pct`. Every other column is there to keep that choice honest: change
-`kBatteryReportSourceIndex` / `kBatteryReportModelIndex` and a different column
-is published, with no other code touched.
+> That method was not picked by taste. The firmware used to log **five** voltage
+> sources scored by **three** state-of-charge models to a CSV on the card, next
+> to the modem's own percentage, the charge-input pin and a voltage-trend
+> detector, so the alternatives could be compared against a real pack over weeks.
+> The calibrated median with the curve tracked it best, and it is the only one
+> still computed — the diagnostic log and everything that existed only to feed it
+> have been removed.
 
-> The sweep is taken **before** the publish and exactly **once** per cycle. Once,
-> because the trend detector's window is five *calls* — a second sweep would
-> quietly halve the span `trend_charging` covers.
+Set `kBatteryReportFromMethods` to `false` to publish `BatteryMonitor`'s own
+`AT+CBC` figure instead — a one-line rollback if the ADC path ever drifts.
 
-```
-uptime_ms,gps_utc,gps_time_valid,has_fix,sats_used,raw_mean,raw_median,...
-41230,2026-08-24T09:14:07Z,1,1,9,2043,2044,3291,3288,3288,3290,3872,1,1,...
-```
+### Why the window is spread and trimmed
 
-### What one row contains
+Under a SIM7000 transmit burst (~2 A) or a WiFi publish, VBAT sags for a few tens
+of milliseconds. That is the whole reason the reported percent used to move
+depending on what the radios happened to be doing when the pack was measured.
 
-| Column(s) | Meaning |
-|-----------|---------|
-| `uptime_ms` | Milliseconds since boot (`esp_timer`). Always present, always monotonic — and the only usable x-axis before the receiver has a fix. |
-| `gps_utc`, `gps_time_valid` | The current GNSS UTC as `YYYY-MM-DDThh:mm:ssZ`, **empty** until the receiver decodes one. The flag keeps "unknown" from being read as 1970. |
-| `has_fix`, `sats_used` | Whether this cycle got a lock, and how many satellites went into it. |
-| `raw_mean`, `raw_median` | The ADC burst behind the first four sources. A count near 0 is the fingerprint of the USB cut-off below. |
-| `v1_naive_mv` | Raw counts × nominal full scale — no calibration at all. |
-| `v2_calper_mv` | Each sample calibrated, then averaged. |
-| `v3_calmean_mv` | Calibration applied to the mean count. |
-| `v4_calmed_mv` | Calibration applied to the median count. |
-| `v5_modem_mv` | The modem's own VBAT measurement (`AT+CBC`). |
-| `adc_valid`, `v5_valid` | Whether the ADC path and the modem actually produced a reading. Sources 1–4 live or die together. |
-| `p1_*` … `p5_*` | Each source scored by three models: `lin` (straight line), `curve` (piecewise Li-ion), `sig` (LiPo sigmoid). `-1` = that source had no reading. |
-| `modem_pct`, `modem_bcs` | The modem's own percentage and charge status (`0` not charging, `1` charging, `2` complete), `-1` when unavailable. |
-| `solar_raw`, `solar_mv`, `input_present` | The charge-input pin (GPIO36) and whether it says a source is connected. |
-| `trend_charging`, `trend_usable` | Charging inferred from a rising pack voltage. **The window is five *cycles*, not five seconds** — it reacts in minutes and is a corroborating signal, not the primary one. |
-| `fw_pct`, `fw_charging`, `fw_valid` | What the shipped `BatteryMonitor` concluded for the same moment — the thing every other column exists to be compared against. `fw_pct` is `-1` when that read failed, so it is never confused with the monitor's `0 = charging` sentinel. |
-| `v_spread_mv`, `p_spread` | How far apart the methods landed. This is the deliverable. |
+ADC conversions taken back to back finish in **microseconds**, so a sag that
+coincides with them drags *every* sample down together — and neither an average
+nor a median can reject what all the samples share. Two things fix that, and
+neither works without the other:
 
-### Three caveats before you trust a capture
+- **Spreading** (`kBatteryWindowSampleMs`) puts the conversions on both sides of
+  such a sag rather than inside it, which demotes the sag from *all* of the
+  samples to a *minority* of them. The window spans the entire awake stretch:
 
-- **On USB power, `v1`–`v4` read ~0.** On the T-SIM7000G the sense pin is cut off
+  ```
+  boot / deep-sleep wake                                      publish
+     │                                                           │
+     │ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * │
+     │ one conversion every 0.5 s                                │
+     └───────────────────────────────────────────────────────────┘
+          modem, WiFi, MQTT, config, GNSS acquire      taken + reset
+  ```
+
+  That covers the modem power-on, the MQTT connect and the whole fix hunt — every
+  moment the rail actually moves — rather than a couple of seconds that had to
+  guess their way into a quiet gap. A three-minute acquire puts *hundreds* of
+  samples on both sides of every droop in it.
+- **Trimming** (`kBatteryOutlierMadFactor`) then deletes that minority outright.
+  Samples further than 3 median absolute deviations from the window median are
+  discarded, and the median the published percent is scored from is taken over
+  the survivors alone. Measuring against the window's *own* spread rather than a
+  fixed millivolt threshold is what keeps this free of per-board tuning: a quiet
+  pack keeps a tight window, a noisy one widens it by itself.
+
+Two guards stop the trim misfiring. A perfectly quiet window can give a deviation
+of zero, which would reject everything not exactly on the median — so the window
+has a floor. And if fewer than **half** the samples survive, the full window is
+used instead and a warning is logged: that is the pack genuinely collapsing, or a
+sag that lasted the whole time we were awake, and there is no quiet majority to
+fall back on.
+
+**A long acquire cannot overflow it.** The fix budget is a runtime setting and
+can be minutes, so the sample count is unbounded while memory is not. Keeping the
+*first* N samples would describe the boot and ignore the acquire; a ring keeping
+the *last* N would describe the minutes nearest the publish — precisely where the
+radio traffic is, so it would weight the median *toward* the droops. Instead,
+when the reservoir fills (256 samples, about two minutes) every second entry is
+dropped and the sampling stride doubles, so the window stays a **uniform sample
+of its whole span** at any duration, in fixed memory.
+
+The measurement is taken **before** the publish, because taking it resets the
+window: this cycle's own transmit droop then lands in the *next* window rather
+than in the one being scored. Beyond that its position in the cycle no longer
+matters — a window spanning the whole cycle has the droops in it either way, in
+the minority, where the trim can delete them.
+
+The cost is **no blocking at all**. The conversions happen on a background task
+while the device is waiting for something else, so the ~2 s the old spread burst
+spent on `vTaskDelay` before each publish is simply gone from the cycle.
+
+### Three caveats before you trust a reading
+
+- **On USB power the ADC reads ~0.** On the T-SIM7000G the sense pin is cut off
   from the cell whenever USB is connected ([LilyGO issue #128][lilygo128]) — a
-  hardware fact, not a bug here. `adc_valid` goes to `0` and only `v5` keeps
-  answering, and then it reports the **charger rail**, not the cell.
-- **The modem's TX bursts sag VBAT.** A row captured during a publish reads low
-  across every source at once. That is why `uptime_ms` and `gps_utc` are on the
-  row: they let a sagging sample be lined up with what the device was doing.
-- **`solar_mv` assumes a 2:1 divider**, which varies across board revisions —
-  check it against `solar_raw` before trusting the millivolts.
+  hardware fact, not a bug here. The reading falls below `kBatteryNoReadingMv`
+  and is reported as **absent**, never as a flat pack; the charging sentinel
+  covers that case instead.
+- **The modem's TX bursts sag VBAT** — that is what the spreading and the trim
+  above exist to reject. They are a *mitigation*, not a cure: a pack that sags
+  for most of the time the device is awake still lands in the measurement, and
+  the trim's "too few survivors" warning on the console is how it announces
+  itself.
+- **Without the eFuse ADC calibration there is no reading.** The raw count is
+  never converted with a nominal full scale and published as if it were
+  calibrated; the firmware warns and leaves `battery_pct` out of the payload.
 
 [lilygo128]: https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/issues/128
 
-### Cost and caveats
+### Cost
 
-- One ADC burst plus **one** extra `AT+CBC` per reporting cycle, and one appended
-  line — negligible next to an acquire, and nothing at all in deep sleep.
-- The file is capped at `kSdMaxBatteryLogRows` (20 000 ≈ 2.4 MB). The cap is
-  checked once every 256 rows, not every row: enforcing it rewrites the file to
-  keep the header, so it has to stay rare. The file can therefore overshoot the
-  cap by up to 256 rows.
-- A file whose first line is not the current header is **left alone** and the
-  logger steps to `battery2.csv` … `battery9.csv`, so changing the columns never
-  corrupts an older capture.
-- With no card there are no rows and a warning; tracking carries on, like every
-  other SD-backed subsystem.
-- The origin of all this is the Arduino comparison rig in `../../BatteryTest/`
-  (a standalone sketch outside this repo), which prints the same measurements as
-  a live table over serial. Two deliberate differences here: one burst of samples
-  feeds sources 1–4 (so `v2`/`v3` differ by *maths*, not by *samples*), and the
-  trend window counts cycles rather than seconds.
+One ADC conversion every 0.5 s and nothing else — no file, no extra modem
+traffic. It runs on a 2 KB task that is asleep between conversions, and the
+reporting path itself no longer blocks at all (the old spread burst cost ~2 s per
+cycle). Memory is ~3 KB of `.bss`: the window's 256 raw counts and the trim's
+scratch copy of them.
 
 ---
 
 ## Charger-disconnect report
 
 On the T-SIM7000G the pack sense pin is **cut off from the cell whenever USB
-power is connected** ([LilyGO issue #128][lilygo128]). That is why `v1`–`v4` read
-~0 on charge, and it has a consequence beyond the capture: while the charger is
-in, the device genuinely cannot know the battery level. It reports the `0`
+power is connected** ([LilyGO issue #128][lilygo128]). That is why the ADC reads
+~0 on charge, and it has a consequence: while the charger is in, the device
+genuinely cannot know the battery level. It reports the `0`
 sentinel, the front end says "charging", and the first true reading of a trip
 only comes into existence the moment the charger comes off.
 
@@ -1315,10 +1562,9 @@ solution, which would silently weight it twice.
 | 0 | the acquisition fix, unaveraged — **a cycle never goes silent because the burst was unlucky** |
 
 **The card holds the average too.** Averaging happens in place before anything
-downstream sees the fix, so the SD queue, the retry queue and the diagnostic
-battery CSV all carry the same averaged position — no raw sample is stored
-anywhere, and an offline cycle stores exactly the bytes an online one would have
-sent.
+downstream sees the fix, so the SD queue and the retry queue carry the same
+averaged position — no raw sample is stored anywhere, and an offline cycle stores
+exactly the bytes an online one would have sent.
 
 In a `kGnssDebug` build the burst reads with the NMEA satellite scan suppressed
 (`readFix(fix, /*scanSatellites=*/false)`). That scan listens for
@@ -1340,7 +1586,7 @@ reports and are simply never seen.
 
 Set **`kAccelPeakEnabled = true`** and
 [`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) starts a small background
-task that samples the sensor every `kAccelSampleIntervalMs` (default 1000 ms) and
+task that samples the sensor every `kAccelSampleIntervalMs` (default 500 ms) and
 keeps a running **per-axis maximum**. The ordinary report then carries that
 maximum instead of a live reading, and the window restarts:
 
@@ -1365,7 +1611,7 @@ window has closed yet.
 |---|---|
 | **The triple is a composite** | The three axes are tracked *independently*, so the reported X, Y and Z can come from three different moments — it is not a reading that ever occurred. The dashboard derives a magnitude as √(x²+y²+z²) from these, so **that line reads higher than any real sample**. Tracking the largest \|a\| and keeping that whole sample is the alternative; it was considered and not chosen |
 | **Peaks clip at ±2 g** | The driver runs the sensor in its ±2 g range. Braking (~0.8 g) and cornering (~0.5 g) are comfortably inside; a sharp pothole saturates |
-| **1000 ms under-samples badly** | The ADXL345 free-runs at 100 Hz, so a 1 s poll sees **one sample in a hundred** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else |
+| **500 ms still under-samples** | The ADXL345 free-runs at 100 Hz, so a half-second poll sees **one sample in fifty** and misses most transients. `kAccelSampleIntervalMs = 100` is the value actually worth using — it costs one extra I2C read per 100 ms and nothing else. 500 ms matches the pack sampler's cadence (`kBatteryWindowSampleMs`), so both onboard sensors are read at the same rate |
 
 `sleep_between` narrows what this can see: the chip is powered down between
 reports, so the sampling task only covers the awake part of each cycle. The
@@ -1374,8 +1620,12 @@ firmware logs that once rather than overriding the server's setting.
 Sharing the sensor with the main loop's `kGnssDebug` console block means two
 tasks call `Adxl345::read()`, so that method takes a mutex (via
 [`ScopedLock`](src/util/ScopedLock.h)); the accumulator inside the tracker takes
-another. Nothing else in the firmware became concurrent — the delivery path is
-still driven entirely from the main task.
+another. The pack sampler is the same shape one layer down: it reads the ADC
+from its task while the main loop reads that very same GPIO35 as a charge flag,
+so [`AdcSampler`](src/power/AdcSampler.h) guards its conversions and its pin
+table too, and the sampler's reservoir takes a lock of its own. Nothing else in
+the firmware became concurrent — the delivery path is still driven entirely from
+the main task.
 
 ---
 
@@ -1426,9 +1676,11 @@ I (24150) main: Fix: 50.541373, 13.711591  0.0 km/h
 the build uses under 3% of it). If you switch to an RSA-4096 receiver key, keep
 this at 12 KB or above.
 
-[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) runs on its own task, but it
-only does one I2C read and three comparisons per tick — no crypto, no files — so
-2 KB is plenty there. That task only exists while `kAccelPeakEnabled` is on.
+[`AccelPeakTracker`](src/sensors/AccelPeakTracker.h) and
+[`BatteryWindowSampler`](src/power/BatteryWindowSampler.h) run on their own
+tasks, but each only does one sensor read and a handful of stores per tick — no
+crypto, no files — so 2 KB is plenty for both. Those tasks only exist while
+`kAccelPeakEnabled` / `kBatteryReportFromMethods` are on.
 
 ### Long filenames on the SD card
 
@@ -1473,9 +1725,9 @@ change the temp-file naming to replace the extension instead of appending
 > The sdkconfig options are kept in [`sdkconfig.defaults`](sdkconfig.defaults) so
 > they survive a `menuconfig` run or a framework upgrade.
 
-Together these take the build from **~99% of 1 MB** down to **~69% of 1.5 MB**
-(≈1,027 KB firmware, including the FAT/SD store-and-forward stack, the battery
-method log and the remote-settings/deep-sleep paths). After pulling these changes
+Together these take the build from **~99% of 1 MB** down to **~68% of 1.5 MB**
+(≈1,023 KB firmware, including the FAT/SD store-and-forward stack and the
+remote-settings/deep-sleep paths). After pulling these changes
 do a clean rebuild so the new flash size and partition layout take effect:
 
 ```bash

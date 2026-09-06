@@ -18,6 +18,8 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useRef } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
+import { formatDateTime } from '../i18n/format'
 import { parseApiTimestamp } from '../utils/dates'
 import { describeTimeUntil } from '../utils/schedule'
 
@@ -38,6 +40,8 @@ export function ConfigOverrideDialog({
   onConfirm,
   onCancel,
 }: ConfigOverrideDialogProps) {
+  const { t } = useTranslation(['settings', 'common'])
+
   const confirmRef = useRef<HTMLButtonElement>(null)
 
   // Focus the confirm button rather than the dialog: the reader arrived here by
@@ -59,8 +63,8 @@ export function ConfigOverrideDialog({
 
   const resumes: Date | null = parseApiTimestamp(resumesAt)
   const profileLabel: string = resumingProfileName
-    ? `the ${resumingProfileName} profile`
-    : 'the scheduled profile'
+    ? t('settings:override.namedProfile', { name: resumingProfileName })
+    : t('settings:override.unnamedProfile')
 
   return (
     <div
@@ -81,38 +85,43 @@ export function ConfigOverrideDialog({
         aria-describedby="override-dialog-body"
       >
         <h4 id="override-dialog-title" className="modal-title">
-          This change is temporary
+          {t('settings:override.title')}
         </h4>
 
         <div id="override-dialog-body" className="modal-body">
           <p>
-            This device is on a <strong>schedule</strong>, so saving here does not
-            change what it runs from now on — it holds until the next scheduled
-            switch, and then {profileLabel} is applied again.
+            <Trans
+              i18nKey="override.intro"
+              ns="settings"
+              values={{ profile: profileLabel }}
+              components={{ strong: <strong /> }}
+            />
           </p>
 
           <p className="modal-highlight">
             {resumes === null ? (
-              <>The schedule resumes at the next switch.</>
+              <>{t('settings:override.resumesNextSwitch')}</>
             ) : (
-              <>
-                The schedule resumes{' '}
-                <strong>{resumes.toLocaleString()}</strong>{' '}
-                <span className="hint">({describeTimeUntil(resumes)})</span>
-              </>
+              <Trans
+                i18nKey="override.resumesAt"
+                ns="settings"
+                values={{
+                  when: formatDateTime(resumes),
+                  until: describeTimeUntil(resumes),
+                }}
+                components={{ strong: <strong />, quiet: <span className="hint" /> }}
+              />
             )}
           </p>
 
-          <p>To change this device&rsquo;s settings <strong>permanently</strong>:</p>
+          <p>
+            <Trans i18nKey="override.permanentIntro" ns="settings" components={{ strong: <strong /> }} />
+          </p>
           <ul className="modal-list">
             <li>
-              Edit the profile the schedule uses — in <em>Settings Schedule</em>{' '}
-              above — so every future switch carries the new values; or
+              <Trans i18nKey="override.permanentEditProfile" ns="settings" components={{ em: <em /> }} />
             </li>
-            <li>
-              Turn the schedule off, which leaves whatever you save here in force
-              until somebody changes it.
-            </li>
+            <li>{t('settings:override.permanentDisable')}</li>
           </ul>
         </div>
 
@@ -123,7 +132,7 @@ export function ConfigOverrideDialog({
             onClick={onCancel}
             disabled={isSaving}
           >
-            Cancel
+            {t('common:actions.cancel')}
           </button>
           <button
             ref={confirmRef}
@@ -132,7 +141,7 @@ export function ConfigOverrideDialog({
             onClick={onConfirm}
             disabled={isSaving}
           >
-            {isSaving ? 'Saving…' : 'Save until the next switch'}
+            {isSaving ? t('common:actions.saving') : t('settings:override.confirm')}
           </button>
         </div>
       </div>

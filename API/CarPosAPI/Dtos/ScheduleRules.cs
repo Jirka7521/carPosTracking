@@ -13,11 +13,21 @@ namespace CarPosAPI.Dtos;
 /// </para>
 ///
 /// <para>
-/// Unlike <see cref="DeviceConfigRules"/>, <b>none of this is mirrored in the
-/// firmware</b> — the device never learns a schedule exists. It receives the same
-/// configuration document it always did, and cannot tell a revision the scheduler
-/// wrote from one a person saved. That is what allowed schedules to be built without
-/// touching <c>ESP32/</c> at all.
+/// <b>Most of this is now mirrored in the firmware.</b> It was not always: schedules
+/// were built entirely server-side, the device received the same configuration
+/// document it always had, and it could not tell a revision the scheduler wrote from
+/// one a person saved. That let the whole feature land without touching
+/// <c>ESP32/</c> — at the cost of a tracker that could only change profile while the
+/// broker could reach it.
+/// </para>
+///
+/// <para>
+/// The device now evaluates its own schedule from a bundle published to
+/// <c>devices/&lt;id&gt;/schedule</c>, so <see cref="MaxProfilesPerDevice"/>,
+/// <see cref="MaxRulesPerDevice"/>, the day-mask numbering and the window arithmetic
+/// all have a second implementation in <c>ESP32/src/settings/</c> that must agree with
+/// this one. The server still evaluates the same rules, but to <em>verify</em> what
+/// the device reports rather than to drive it.
 /// </para>
 /// </summary>
 public static class ScheduleRules
@@ -87,4 +97,37 @@ public static class ScheduleRules
 
     /// <summary>Priority given to a rule whose author did not choose one.</summary>
     public const int DefaultPriority = 100;
+
+    /// <summary>
+    /// The bundle revision a device row starts at. Mirrors
+    /// <see cref="DeviceConfigRules.InitialVersion"/>: a device that has never had its
+    /// schedule touched still has a bundle, and a version of zero would be
+    /// indistinguishable from "never published".
+    /// </summary>
+    public const int InitialBundleVersion = 1;
+
+    /// <summary>Lowest profile slot the firmware will accept.</summary>
+    public const int MinScheduleSlot = 0;
+
+    /// <summary>
+    /// Highest profile slot. Derived from <see cref="MaxProfilesPerDevice"/> rather
+    /// than written out, because the two are the same fact: slots are dense from zero,
+    /// which is what guarantees a free one always exists below the cap.
+    /// </summary>
+    public const int MaxScheduleSlot = MaxProfilesPerDevice - 1;
+
+    /// <summary>
+    /// How stale a device's last report may be before the reconciler stops drawing
+    /// conclusions from it.
+    ///
+    /// <para>
+    /// Deliberately longer than <see cref="DeviceConfigRules.MaxIntervalSeconds"/> —
+    /// a device legitimately configured to report once a day is not offline at hour
+    /// twenty-three, and treating it as such would make the dashboard cry wolf every
+    /// single day. Past this, the device is genuinely unreachable: it is switching
+    /// itself from the bundle it already holds, and inventing a correction from a
+    /// day-old observation would only add noise to the revision history.
+    /// </para>
+    /// </summary>
+    public static readonly TimeSpan StaleReportAfter = TimeSpan.FromHours(25);
 }

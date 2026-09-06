@@ -15,7 +15,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
+import { LanguageMenu } from '../components/LanguageMenu'
 import { assetUrl } from '../services/runtimeConfig'
 import { describeError } from '../utils/errors'
 
@@ -26,6 +28,7 @@ export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation(['auth', 'common', 'errors'])
 
   // Form field state
   const [email, setEmail] = useState<string>('')
@@ -51,7 +54,7 @@ export function LoginPage() {
 
     // Basic client-side check — avoids a round-trip for obvious mistakes.
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+      setErrorMessage(t('auth:validation.passwordTooShort', { count: MIN_PASSWORD_LENGTH }))
       return
     }
 
@@ -64,7 +67,7 @@ export function LoginPage() {
       navigate(getRedirectTarget(), { replace: true })
     } catch (error) {
       // describeError() extracts a friendly message from ApiError or falls back.
-      setErrorMessage(describeError(error, 'Login failed. Please check your credentials.'))
+      setErrorMessage(describeError(error, t('errors:loginFailed')))
     } finally {
       setIsSubmitting(false)
     }
@@ -72,24 +75,28 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      {/* This page renders its own shell rather than AppLayout's, so it needs
+          its own copy of the picker — see LanguageMenu. */}
+      <div className="auth-language">
+        <LanguageMenu />
+      </div>
+
       {/* Branding block above the white form card */}
       <div className="auth-brand">
         <img src={assetUrl('favicon.svg')} alt="" aria-hidden="true" className="auth-logo-mark" />
-        <h1>Car Position Tracker</h1>
-        <p className="auth-brand-subtitle">Vehicle tracking dashboard</p>
+        <h1>{t('common:appTitle')}</h1>
+        <p className="auth-brand-subtitle">{t('common:appSubtitle')}</p>
       </div>
 
       {/* White card containing the login form */}
       <div className="auth-card">
-        <h2 className="auth-card-title">Sign in</h2>
-        <p className="auth-card-subtitle">
-          Enter your email and password to access the tracking dashboard.
-        </p>
+        <h2 className="auth-card-title">{t('auth:login.title')}</h2>
+        <p className="auth-card-subtitle">{t('auth:login.subtitle')}</p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           {/* Email field */}
           <div className="form-field">
-            <label htmlFor="login-email">Email</label>
+            <label htmlFor="login-email">{t('auth:fields.email')}</label>
             <input
               id="login-email"
               className="form-input"
@@ -98,13 +105,13 @@ export function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               required
-              placeholder="you@example.com"
+              placeholder={t('auth:fields.emailPlaceholder')}
             />
           </div>
 
           {/* Password field */}
           <div className="form-field">
-            <label htmlFor="login-password">Password</label>
+            <label htmlFor="login-password">{t('auth:fields.password')}</label>
             <input
               id="login-password"
               className="form-input"
@@ -132,7 +139,7 @@ export function LoginPage() {
             disabled={isSubmitting}
             style={{ marginTop: 4 }}
           >
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
+            {isSubmitting ? t('auth:login.submitting') : t('auth:login.submit')}
           </button>
         </form>
 
@@ -141,8 +148,8 @@ export function LoginPage() {
 
       {/* Link to the register page — shown below the card */}
       <p className="auth-switch-link">
-        Don't have an account?{' '}
-        <Link to="/register">Create one here</Link>
+        {t('auth:login.noAccount')}{' '}
+        <Link to="/register">{t('auth:login.createOne')}</Link>
       </p>
     </div>
   )

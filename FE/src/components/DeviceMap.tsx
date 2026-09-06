@@ -21,6 +21,9 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
+import i18n from '../i18n'
+import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
 import type { PositionDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
 
@@ -50,17 +53,17 @@ type MapState = {
 
 // ---- Helpers ----
 
-function formatCoordinate(value: number): string {
-  return value.toFixed(6)
-}
-
 // Treat timestamps without an explicit timezone as UTC (the API convention).
 function formatTimestamp(value: string): string {
   const parsed = parseApiTimestamp(value)
-  return parsed === null ? value : parsed.toLocaleString(undefined, { hour12: false })
+  return parsed === null ? value : formatDateTime(parsed)
 }
 
 // Builds the info-window body as DOM nodes rather than an HTML string.
+//
+// It runs outside React — Google Maps owns this subtree — so its strings come
+// from the i18next singleton. The window is rebuilt from scratch on every
+// marker click, so a language switch is picked up the next time one is opened.
 //
 // Two reasons. The window's content is styled through the app's own stylesheet
 // (see .map-info-* in App.css) instead of inline style attributes, which the
@@ -73,7 +76,7 @@ function buildInfoContent(position: PositionDto): HTMLElement {
 
   const title = document.createElement('div')
   title.className = 'map-info-title'
-  title.textContent = 'Position'
+  title.textContent = i18n.t('device:map.info.title')
   container.appendChild(title)
 
   const appendRow = (label: string, value: string): void => {
@@ -88,27 +91,38 @@ function buildInfoContent(position: PositionDto): HTMLElement {
     container.appendChild(valueNode)
   }
 
-  appendRow('Latitude', formatCoordinate(position.latitude))
-  appendRow('Longitude', formatCoordinate(position.longitude))
-  appendRow('Speed', `${position.speedKmph.toFixed(1)} km/h`)
-  appendRow('Altitude', `${Math.round(position.altitudeMeters)} m`)
+  appendRow(i18n.t('device:map.info.latitude'), formatCoordinate(position.latitude))
+  appendRow(i18n.t('device:map.info.longitude'), formatCoordinate(position.longitude))
+  appendRow(i18n.t('device:map.info.speed'), `${formatNumber(position.speedKmph, 1)} km/h`)
+  appendRow(i18n.t('device:map.info.altitude'), `${formatInteger(Math.round(position.altitudeMeters))} m`)
 
   // Battery (0 = charging) and the raw ADXL345 sample — only when the device
   // sent them for this fix, so older fixes show no empty rows.
   if (position.batteryPct !== null) {
-    appendRow('Battery', position.batteryPct === 0 ? 'Charging' : `${position.batteryPct}%`)
+    appendRow(
+      i18n.t('device:map.info.battery'),
+      position.batteryPct === 0
+        ? i18n.t('common:battery.charging')
+        : i18n.t('common:battery.percent', { value: position.batteryPct }),
+    )
   }
   if (position.accelXG !== null || position.accelYG !== null || position.accelZG !== null) {
-    const axis = (value: number | null): string => (value === null ? '—' : value.toFixed(2))
-    appendRow('Accel X/Y/Z (g)', `${axis(position.accelXG)}, ${axis(position.accelYG)}, ${axis(position.accelZG)}`)
+    const axis = (value: number | null): string =>
+      value === null ? i18n.t('common:states.none') : formatNumber(value, 2)
+    appendRow(
+      i18n.t('device:map.info.accel'),
+      `${axis(position.accelXG)}, ${axis(position.accelYG)}, ${axis(position.accelZG)}`,
+    )
   }
   if (position.temperatureC !== null) {
-    appendRow('Temperature', `${position.temperatureC.toFixed(1)} °C`)
+    appendRow(i18n.t('device:map.info.temperature'), `${formatNumber(position.temperatureC, 1)} °C`)
   }
 
   const recorded = document.createElement('div')
   recorded.className = 'map-info-footer'
-  recorded.textContent = `Recorded: ${formatTimestamp(position.timestamp)}`
+  recorded.textContent = i18n.t('device:map.info.recorded', {
+    when: formatTimestamp(position.timestamp),
+  })
   container.appendChild(recorded)
 
   return container
@@ -394,6 +408,8 @@ function updateMapOverlays(state: MapState, positions: PositionDto[]): void {
 // ---- React component ----
 
 function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
+  const { t } = useTranslation('device')
+
   const mapContainerRef           = useRef<HTMLDivElement | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -465,10 +481,7 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
       <div className="map-placeholder">
         <span style={{ fontSize: '2rem' }} aria-hidden="true">🗺</span>
         <p>
-          Map not configured.{' '}
-          <br />
-          Set <code>CARPOS_GOOGLE_MAPS_API_KEY</code> on the frontend container
-          to enable it.
+          <Trans i18nKey="map.notConfigured" ns="device" components={{ br: <br />, code: <code /> }} />
         </p>
       </div>
     )
@@ -478,13 +491,13 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
     return (
       <div className="map-placeholder">
         <span style={{ fontSize: '2rem' }} aria-hidden="true">⚠️</span>
-        <p>Could not load Google Maps: {loadError}</p>
+        <p>{t('map.loadFailed', { error: loadError })}</p>
       </div>
     )
   }
 
   return (
-    <div className="map-canvas" ref={mapContainerRef} aria-label="Device position map" />
+    <div className="map-canvas" ref={mapContainerRef} aria-label={t('map.canvasLabel')} />
   )
 }
 

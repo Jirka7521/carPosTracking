@@ -6,9 +6,6 @@
 
 static const char* TAG = "RemoteSettings";
 
-// The single bit in events_: "a config payload is waiting in pendingPayload_".
-static constexpr EventBits_t kConfigArrivedBit = BIT0;
-
 // QoS 1 is the right level for config: the broker keeps trying until we have it,
 // and a duplicate delivery is harmless because applying the same settings twice
 // changes nothing (and, thanks to the equality check in poll(), does not even
@@ -16,12 +13,12 @@ static constexpr EventBits_t kConfigArrivedBit = BIT0;
 static constexpr int kConfigSubscribeQos = 1;
 
 RemoteSettings::RemoteSettings(MqttClient& mqtt, SettingsStore& store,
-                               const char* topic)
+                               UpdateSignal& signal, const char* topic)
     : mqtt_(mqtt),
       store_(store),
+      signal_(signal),
       topic_(topic),
       nextResyncUs_(0),
-      events_(xEventGroupCreate()),
       mutex_(xSemaphoreCreateMutex()),
       pending_(false) {}
 
@@ -29,15 +26,12 @@ RemoteSettings::~RemoteSettings() {
   if (mutex_ != nullptr) {
     vSemaphoreDelete(mutex_);
   }
-  if (events_ != nullptr) {
-    vEventGroupDelete(events_);
-  }
 }
 
 bool RemoteSettings::begin(const DeviceSettings& initial) {
   current_ = initial;
 
-  if (mutex_ == nullptr || events_ == nullptr) {
+  if (mutex_ == nullptr || !signal_.valid()) {
     ESP_LOGE(TAG, "could not create sync primitives - remote config disabled.");
     return false;
   }
@@ -73,7 +67,7 @@ void RemoteSettings::onMessage(const std::string& topic,
   // the mutex so the woken task never immediately blocks on a lock we still
   // hold. This is the whole of the fast path - no parsing, no card write, and
   // nothing that could stall the esp-mqtt event task behind slow IO.
-  xEventGroupSetBits(events_, kConfigArrivedBit);
+  signal_.raise(UpdateSignal::kConfigArrived);
 }
 
 bool RemoteSettings::takePending(std::string& payloadOut) {
@@ -138,7 +132,7 @@ bool RemoteSettings::poll() {
 }
 
 bool RemoteSettings::waitForUpdate(uint32_t timeoutMs) {
-  if (events_ == nullptr) {
+  if (!signal_.valid()) {
     return false;
   }
 
@@ -162,12 +156,15 @@ bool RemoteSettings::waitForUpdate(uint32_t timeoutMs) {
 
     // The task is genuinely asleep here for up to the whole remaining time -
     // no polling - and is woken by onMessage() the moment a config lands.
-    // pdTRUE clears the bit on exit so the next wait starts clean.
-    const EventBits_t bits =
-        xEventGroupWaitBits(events_, kConfigArrivedBit, pdTRUE, pdFALSE,
-                            pdMS_TO_TICKS(remainingUs / 1000));
+    //
+    // Only the config bit: this method is the boot-time "wait for my settings"
+    // window, and a schedule bundle arriving does not end it. The interval wait
+    // in the main loop is the one that watches both, through SettingsSelector.
+    const EventBits_t bits = signal_.wait(
+        UpdateSignal::kConfigArrived,
+        static_cast<uint32_t>(remainingUs / 1000));
 
-    if ((bits & kConfigArrivedBit) == 0) {
+    if ((bits & UpdateSignal::kConfigArrived) == 0) {
       return false;  // timed out with nothing delivered
     }
     if (poll()) {

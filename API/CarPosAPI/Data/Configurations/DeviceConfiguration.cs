@@ -74,6 +74,19 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.ConfigScheduleEvaluatedAt)
             .HasColumnName("config_schedule_evaluated_at");
 
+        builder.Property(device => device.ScheduleBundleVersion)
+            .HasColumnName("schedule_bundle_version")
+            .HasDefaultValue(Dtos.ScheduleRules.InitialBundleVersion);
+
+        builder.Property(device => device.ReportedProfileSlot)
+            .HasColumnName("reported_profile_slot");
+
+        builder.Property(device => device.ReportedScheduleVersion)
+            .HasColumnName("reported_schedule_version");
+
+        builder.Property(device => device.ReportedProfileAt)
+            .HasColumnName("reported_profile_at");
+
         // SetNull, not Restrict as on the rules table. The asymmetry is deliberate: a
         // rule without its profile is broken and must be prevented, whereas a schedule
         // without a fallback is merely incomplete — the service refuses to *enable* one

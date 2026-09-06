@@ -18,10 +18,10 @@
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
 #include "power/AdcSampler.h"
-#include "power/BatteryCsvLogger.h"
 #include "power/BatteryMethods.h"
 #include "power/BatteryMonitor.h"
 #include "power/BatteryReporter.h"
+#include "power/BatteryWindowSampler.h"
 #include "power/BootJournal.h"
 #include "power/ChargerWatcher.h"
 #include "power/DeepSleepController.h"
@@ -33,9 +33,14 @@
 #include "sdcard/SdCard.h"
 #include "serial/SerialPort.h"
 #include "settings/DeviceSettings.h"
+#include "settings/RemoteSchedule.h"
 #include "settings/RemoteSettings.h"
+#include "settings/ScheduleStore.h"
 #include "settings/SettingsApplier.h"
+#include "settings/SettingsSelector.h"
 #include "settings/SettingsStore.h"
+#include "settings/UpdateSignal.h"
+#include "util/DeviceClock.h"
 #include "wifi/WifiManager.h"
 
 static const char* TAG = "main";
@@ -157,6 +162,19 @@ extern "C" void app_main(void) {
   static SettingsStore settingsStore(sdCard, config::kSdSettingsFilePath);
   DeviceSettings       settings = settingsStore.load(DeviceSettings());
 
+  // The schedule this device switches itself on, cached beside the settings.
+  // Loaded here rather than waiting for the broker for the same reason as the
+  // settings, only more so: the schedule is what the device needs precisely when
+  // it CANNOT reach the broker, so a bundle that only ever lived in RAM would be
+  // gone by the first deep-sleep reboot.
+  static ScheduleStore  scheduleStore(sdCard, config::kSdSchedulePath);
+  static ScheduleBundle cachedSchedule = scheduleStore.load();
+
+  // The wall clock. Restored from RTC memory if this is a wake rather than a
+  // cold boot; otherwise it stays unseeded until the first GNSS fix below.
+  static DeviceClock deviceClock(config::kClockTrustSeconds);
+  deviceClock.begin();
+
   // Pushes the storage-related settings into the two queues. Applied here for
   // the cached document, and again every time a new one arrives, so the queues
   // are never running limits the server has already superseded.
@@ -213,11 +231,10 @@ extern "C" void app_main(void) {
 
   // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
   // on a unit that is already claimed, and two subsystems below need pins on it
-  // (the monitor's charge sense, the method log's pack + charge-input sense).
-  // See AdcSampler.h.
+  // (the monitor's charge sense, the measurement's pack sense). See
+  // AdcSampler.h.
   static AdcSampler adcSampler;
-  if (config::kBatteryEnabled || config::kBatteryLogEnabled ||
-      config::kBatteryReportFromMethods) {
+  if (config::kBatteryEnabled || config::kBatteryReportFromMethods) {
     if (!adcSampler.begin()) {
       ESP_LOGW(TAG, "ADC unavailable - battery readings will be omitted.");
     }
@@ -238,50 +255,41 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
 
-  // Every way this board can measure the pack, in one sweep. It has TWO
-  // consumers now, which is why its bring-up is no longer tied to the CSV alone:
-  // the diagnostic log below writes all of it to the card, and BatteryReporter
-  // picks one of its columns to publish. It still measures only - it decides
+  // The conversions behind the published percent, taken on their own task every
+  // kBatteryWindowSampleMs. Started HERE, as early as the ADC exists, because
+  // the window is meant to cover the whole awake stretch - the modem coming up,
+  // WiFi settling, the MQTT connect, the config fetch and the entire fix hunt -
+  // rather than a couple of seconds guessed at just before the publish. Every
+  // one of those is a moment the rail moves, and a median wants to see all of
+  // them. See BatteryWindowSampler.h.
+  static BatteryWindowSampler batteryWindow(adcSampler,
+                                            config::kBatteryVbatSensePin,
+                                            config::kBatteryWindowSampleMs);
+
+  // The pack measurement itself: the window, outlier-trimmed and taken down to
+  // its median, scored with the Li-ion curve. It measures only - it decides
   // nothing and stores nothing itself.
   static BatteryMethods batteryMethods(
-      adcSampler, modem, config::kBatteryVbatSensePin,
-      config::kBatterySolarSensePin, config::kBatteryDividerRatio,
-      config::kSolarDividerRatio, config::kBatteryAdcSamples,
-      config::kBatteryEmptyMv, config::kBatteryFullMv,
-      config::kSolarInputThresholdMv, config::kBatteryNoReadingMv);
-  static BatteryCsvLogger batteryCsv(sdCard, config::kSdBatteryLogPath,
-                                     config::kSdMaxBatteryLogRows);
+      adcSampler, batteryWindow, config::kBatteryDividerRatio,
+      config::kBatteryOutlierMadFactor, config::kBatteryNoReadingMv);
 
-  // Two flags, because the two consumers can fail independently: a device with
-  // no SD card still publishes a percent, and a device that publishes the older
-  // AT+CBC figure still writes a full capture. The loop tests these rather than
-  // re-deriving them every cycle.
+  // Tested once here rather than re-derived every cycle. A device whose ADC
+  // never came up still tracks and still publishes positions; it just leaves
+  // battery_pct out (or falls back to the modem's own figure, below).
   bool methodsReady = false;
-  bool csvReady     = false;
-  if (config::kBatteryLogEnabled || config::kBatteryReportFromMethods) {
-    methodsReady = batteryMethods.begin();
+  if (config::kBatteryReportFromMethods) {
+    methodsReady = batteryWindow.begin() && batteryWindow.start();
     if (!methodsReady) {
       ESP_LOGW(TAG,
-               "Battery methods unavailable - no CSV rows, and battery_pct "
-               "will be omitted.");
+               "Battery measurement unavailable - battery_pct will be "
+               "omitted.");
     }
-  }
-  if (config::kBatteryLogEnabled) {
-    csvReady = methodsReady && batteryCsv.begin();
-    if (!csvReady) {
-      ESP_LOGW(TAG,
-               "Battery method log unavailable - no CSV rows will be written.");
-    }
-  } else {
-    ESP_LOGI(TAG, "Battery method log disabled in Config.h.");
   }
 
-  // Turns that sweep into the ONE percent the payload carries. Constructed
-  // unconditionally - it is two enums and a name - so the loop can call it
+  // Turns that measurement into the ONE percent the payload carries.
+  // Constructed unconditionally - it holds no state - so the loop can call it
   // without re-testing the flag around every use.
-  static BatteryReporter reporter(
-      static_cast<BatterySource>(config::kBatteryReportSourceIndex),
-      static_cast<BatteryModel>(config::kBatteryReportModelIndex));
+  static BatteryReporter reporter;
   if (config::kBatteryReportFromMethods) {
     ESP_LOGI(TAG, "Publishing battery_pct from %s.", reporter.methodName());
   } else {
@@ -313,14 +321,39 @@ extern "C" void app_main(void) {
                                 config::kSdMaxBurstFixes,
                                 config::kBacklogFlushRetryMs,
                                 config::kBacklogFlushBudgetMs);
-  static RemoteSettings remoteSettings(mqtt, settingsStore,
+  // One event group shared by both retained-topic watchers, so the interval wait
+  // below can block on a single object and still be woken by either. A task can
+  // only wait on one event group, and a schedule bundle that had to sit unnoticed
+  // for a whole reporting interval would defeat the point of an on-device
+  // schedule.
+  static UpdateSignal   updateSignal;
+  static RemoteSettings remoteSettings(mqtt, settingsStore, updateSignal,
                                        config::kConfigTopic);
+  static RemoteSchedule remoteSchedule(mqtt, scheduleStore, updateSignal,
+                                       config::kScheduleTopic);
+
+  // The one place that knows which of the three opinions about this device's
+  // settings wins - see the banner on SettingsSelector.
+  static SettingsSelector selector(remoteSettings, remoteSchedule, deviceClock,
+                                   updateSignal);
+
+  // Seeded here rather than inside the MQTT block below, because begin() does
+  // two things: it arms the subscription AND it hands the watcher the document
+  // loaded from the card. The selector reads the second of those on every
+  // resolve, so with kMqttEnabled off it would otherwise see empty watchers and
+  // hand back factory defaults instead of the cached configuration. Arming a
+  // subscription on a client that is never started is free - MqttClient just
+  // remembers it (see its subscribe()).
+  //
+  // Both must run BEFORE MqttClient::begin(): the broker replays the retained
+  // documents the instant we connect, and that must not race the handlers being
+  // installed. The ack subscription is armed for the same reason.
+  remoteSettings.begin(settings);
+  if (config::kScheduleEnabled) {
+    remoteSchedule.begin(cachedSchedule);
+  }
 
   if (config::kMqttEnabled) {
-    // Subscribe before starting the client: the broker replays the retained
-    // config the instant we connect, and that must not race the handler being
-    // installed. The ack subscription is armed here for the same reason.
-    remoteSettings.begin(settings);
     if (config::kAckEnabled) {
       if (ackWatcher.begin()) {
         ESP_LOGI(TAG, "Delivery acks enabled; listening on %s.",
@@ -347,14 +380,20 @@ extern "C" void app_main(void) {
                  "cached settings (is it published retained?)",
                  (unsigned)config::kConfigFetchTimeoutMs);
       }
-      settings = remoteSettings.current();
-      settingsApplier.apply(settings);
     } else {
       ESP_LOGW(TAG, "MQTT failed to start; continuing without publishing.");
     }
   } else {
     ESP_LOGI(TAG, "MQTT disabled in Config.h.");
   }
+
+  // First resolve of the run. Done outside the MQTT block so it also covers the
+  // kMqttEnabled-off case, where it simply returns the documents loaded from the
+  // card. The clock is almost certainly unseeded at this point on a cold boot,
+  // so this usually resolves to the config document and the first real schedule
+  // evaluation happens after the first fix below.
+  settings = selector.resolve();
+  settingsApplier.apply(settings);
 
   // Owns the ordered shutdown for the sleep_between path. Only ever used when
   // that setting is on, but wiring it here keeps the loop below free of the
@@ -388,22 +427,47 @@ extern "C" void app_main(void) {
   //      of the link coming back, instead of sitting on it through a 3-minute
   //      acquire it will lose anyway. The call is a cheap no-op when there is
   //      nothing queued or the broker is unreachable.
-  //   1b. Adopts a config that has arrived. An acquire can last minutes, and the
+  //   1b. Adopts a config that has arrived, FULLY: it takes the document, moves
+  //      the loop's `settings` copy onto it and pushes it through the applier.
+  //      Doing only the first of those three would leave the report built at the
+  //      end of this cycle stamped with the previous revision - the device would
+  //      be running the new settings while the dashboard still said "pending",
+  //      until the report after this one. An acquire can last minutes, and the
   //      CPU is fully awake here driving the modem, so polling costs nothing and
-  //      means a setting saved during the wait is in force by the time the
-  //      report is built rather than a whole cycle later. Runs on this same
-  //      task, so current() still needs no locking.
+  //      means a setting saved during the wait is in force - and *reported as
+  //      in force* - by the time the report is built, rather than a whole cycle
+  //      later. Runs on this same task, so current() still needs no locking.
+  //
+  //      The acquire already in flight keeps the fix budget it was started with:
+  //      settings.fixTimeoutSeconds() was read by value when acquire() was
+  //      called. That is deliberate - a shortened timeout should not truncate a
+  //      wait that is already half spent and about to produce a lock; it takes
+  //      effect from the next cycle.
   //   2. In debug builds only, prints the battery and accelerometer status
   //      beneath each satellite table while we wait - not just once the wait
   //      ends. Compiled out entirely when kGnssDebug is false, so production
   //      builds add no extra per-poll modem traffic.
-  // Only `fix` needs capturing - every collaborator it touches has static
-  // storage duration and is reachable without one.
-  std::function<void()> onEachPoll = [&fix]() {
+  // Only `fix` and `settings` need capturing - every collaborator touched here
+  // has static storage duration and is reachable without one. Both are locals of
+  // app_main(), which never returns, so the references cannot dangle.
+  std::function<void()> onEachPoll = [&fix, &settings]() {
+    // Seed the clock from the poll that has just happened. Doing it here rather
+    // than only after the acquire succeeds means the schedule starts being
+    // evaluated the moment the receiver has a time, which on a cold boot can be
+    // a minute or two before it has a position worth publishing.
+    if (config::kScheduleEnabled) {
+      deviceClock.seedFromGnss(fix.time);
+    }
+
     if (config::kMqttEnabled) {
       forwarder.flushBacklog(fix);
-      remoteSettings.poll();
     }
+
+    // Re-resolved on every poll, not just when a document arrives: the clock
+    // being seeded a moment ago can change the answer all by itself, with
+    // nothing having been delivered.
+    settings = selector.resolve();
+    settingsApplier.apply(settings);
 
     if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
@@ -437,8 +501,8 @@ extern "C" void app_main(void) {
     //
     // `fix` comes back AVERAGED: the averager discards the fix the acquisition
     // produced and returns the mean of the readings that follow it. Everything
-    // downstream - the CSV row, the payload, the copy stored on the card - is
-    // therefore working from the same averaged position.
+    // downstream - the payload, the copy stored on the card - is therefore
+    // working from the same averaged position.
     bool haveFix = averager.acquire(fix, settings.fixTimeoutSeconds() * 1000,
                                     config::kFixPollStepMs, onEachPoll);
 
@@ -451,43 +515,41 @@ extern "C" void app_main(void) {
     int64_t fixCapturedUs = esp_timer_get_time();
 
     // ---- Sensors: once per cycle now, fix or no fix -------------------------
-    // These used to run only for a fix we were about to publish. Two things need
-    // them unconditionally now: the CSV wants a row whether or not there was a
-    // lock, and the charger edge below can only be spotted by a detector that
-    // actually ran on every cycle. The debug callback above is a separate,
-    // debug-only read that runs during the wait.
-    //
-    // fwBattery is BatteryMonitor's own verdict, and it is kept deliberately
-    // SEPARATE from sample.battery further down, which is the published figure.
-    // The CSV's fw_* columns exist precisely to be compared against the other
-    // methods, so feeding them anything but the monitor's own answer would empty
-    // them of meaning.
-    BatteryStatus fwBattery;
-    if (config::kBatteryEnabled) {
-      battery.read(fwBattery);
-    }
+    // These used to run only for a fix we were about to publish. They run on
+    // every cycle now, because the charger edge below can only be spotted by a
+    // detector that actually ran each time. The debug callback above is a
+    // separate, debug-only read that runs during the wait.
 
-    // Every way this board can measure the pack. Taken BEFORE the publish
-    // because one of its columns is now what gets published, and called exactly
-    // ONCE per cycle, because its trend detector's window is five *calls* - a
-    // second call would quietly halve the span those columns cover.
+    // Score the pack. The conversions were taken by the sampling task while all
+    // of the above was happening, so this neither blocks nor touches the ADC -
+    // it drains the window and does the arithmetic.
+    //
+    // What still fixes where the call sits is that taking the window RESETS it.
+    // It has to happen before forwarder.process() publishes, so the ~2 A
+    // transmit droop of this cycle's own publish lands in the NEXT window rather
+    // than in the one being scored. Everything else that used to pin this call
+    // down - keeping it ahead of the monitor's AT+CBC, pausing first to let the
+    // rail come back up after a backlog flush - was about a two-second burst
+    // having to find a quiet moment. A window spanning the whole cycle does not
+    // need one: the droops are in it, in the minority, where the outlier trim
+    // can delete them.
     BatteryMethodsSample methods;
     if (methodsReady) {
       batteryMethods.sample(methods);
     }
 
+    // fwBattery is BatteryMonitor's own verdict, and it is kept deliberately
+    // SEPARATE from sample.battery further down, which is the published figure.
+    // Two things still need it: it carries the charging flag the rest of this
+    // cycle acts on - which is why it has to run before the charger edge below -
+    // and it is the percent published when kBatteryReportFromMethods is off.
+    BatteryStatus fwBattery;
+    if (config::kBatteryEnabled) {
+      battery.read(fwBattery);
+    }
+
     // Has the charger just come off? Only the edge counts - see ChargerWatcher.
     const bool justUnplugged = chargerWatcher.update(fwBattery.charging);
-
-    // Diagnostic capture: one CSV row per cycle, fix or no fix, so a device
-    // parked without a lock still leaves a discharge curve behind. Written right
-    // next to the sweep it records, so a row's voltages and its fix come from
-    // the same instant. Costs one line on the card and touches nothing that gets
-    // published - see BatteryCsvLogger.
-    if (csvReady) {
-      batteryCsv.append(static_cast<uint32_t>(esp_timer_get_time() / 1000), fix,
-                        methods, fwBattery);
-    }
 
     // The charger has just come off and this cycle has no position to attach the
     // news to. That first post-unplug reading is worth chasing: while the
@@ -518,12 +580,24 @@ extern "C" void app_main(void) {
     TelemetrySample sample;
     sample.gnss = fix;
     // Stamped from the settings in force at capture time, not at publish time -
-    // see the note on TelemetrySample::settingsVersion.
+    // see the note on TelemetrySample::settingsVersion. `settings` is current as
+    // of the end of the acquire: the per-poll hook above adopts anything that
+    // landed during it, so a config saved while we were chasing a lock is
+    // reported by THIS cycle's report rather than the next one.
     sample.settingsVersion = settings.version();
 
+    // Where the device's own schedule placed it at capture time, stamped from
+    // the same instant and for the same reason. Both are left at their "not
+    // scheduled" defaults when the selector is not running the schedule, and the
+    // publisher then omits the pair entirely - which is exactly how the API
+    // recognises a device that does not switch itself.
+    sample.profileSlot     = selector.activeSlot();
+    sample.scheduleVersion = selector.scheduleVersion();
+
     // The one battery figure that goes on the wire. BatteryReporter turns the
-    // sweep above into it - or reports nothing at all rather than guessing; see
-    // its banner for the three rules, and for why none of them may emit -1.
+    // measurement above into it - or reports nothing at all rather than
+    // guessing; see its banner for the three rules, and for why none of them
+    // may emit -1.
     if (config::kBatteryReportFromMethods) {
       reporter.toStatus(methods, fwBattery.charging, sample.battery);
     } else {
@@ -531,8 +605,8 @@ extern "C" void app_main(void) {
     }
 
     // Say where this cycle's percent came from. Worth a line of its own: the
-    // number now has two possible sources and a third state (absent), and the
-    // capture on the card is the only place to check it against.
+    // number has two possible sources and a third state (absent), and this line
+    // is the only place that distinction is visible.
     if (!sample.battery.valid) {
       ESP_LOGI(TAG, "Battery: n/a (no reading this cycle).");
     } else if (sample.battery.charging) {
@@ -591,15 +665,17 @@ extern "C" void app_main(void) {
       }
     }
 
-    // A config may have arrived while we were publishing (the per-poll hook
-    // above covers the acquire). Adopt whatever is current either way - apply()
-    // is a no-op when nothing changed, so this is cheaper than tracking whether
-    // it was the hook or us that took the message.
-    if (config::kMqttEnabled) {
-      remoteSettings.poll();
-      settings = remoteSettings.current();
-      settingsApplier.apply(settings);
-    }
+    // Catches the one window the per-poll hook cannot: a config that arrived
+    // while we were sealing and publishing the sample. That one is genuinely
+    // reported next cycle - this sample was captured under the older settings,
+    // and back-dating it would be a lie - but the device must still start
+    // honouring it now rather than after another whole interval.
+    //
+    // resolve() is a cheap no-op when the hook already took the document, and
+    // apply() is a no-op when nothing changed, so this costs nothing on the
+    // common path and is simpler than tracking who took the message.
+    settings = selector.resolve();
+    settingsApplier.apply(settings);
 
     // Where this interval is measured from. With no fix there is nothing to
     // measure from, so we start a fresh interval here instead - otherwise a
@@ -642,19 +718,42 @@ extern "C" void app_main(void) {
       // cost of the periodic check.
       const int64_t checkUs =
           static_cast<int64_t>(settings.configCheckSeconds()) * 1000000LL;
-      const int64_t chunkUs =
-          (checkUs > 0 && checkUs < remainingUs) ? checkUs : remainingUs;
+      int64_t chunkUs = (checkUs > 0 && checkUs < remainingUs) ? checkUs
+                                                              : remainingUs;
 
-      if (remoteSettings.waitForUpdate(static_cast<uint32_t>(chunkUs / 1000))) {
-        settings = remoteSettings.current();
+      // ...nor past the next scheduled profile switch. Without this a device
+      // whose "Night" profile starts at 22:00 would carry on with its daytime
+      // settings until whatever it was already waiting for expired - up to a
+      // whole reporting interval late, and the dashboard's timeline would be
+      // saying something that is not true of the device.
+      int64_t untilSwitchS = 0;
+      if (selector.secondsUntilNextChange(untilSwitchS)) {
+        const int64_t untilSwitchUs = untilSwitchS * 1000000LL;
+        if (untilSwitchUs < chunkUs) {
+          chunkUs = untilSwitchUs;
+        }
+      }
+
+      if (selector.waitForChange(static_cast<uint32_t>(chunkUs / 1000))) {
+        settings = selector.current();
         settingsApplier.apply(settings);
         continue;  // re-time against the settings we have just adopted
       }
 
-      // Nothing arrived within the chunk. Ask the broker to re-send the retained
-      // document if the re-check is due; it self-paces, so this is a no-op on a
-      // chunk that ended because the interval did.
-      remoteSettings.resyncIfDue(settings.configCheckSeconds());
+      // Nothing was delivered within the chunk - but the chunk may have ended
+      // because a switch fell due, so re-resolve before deciding anything. This
+      // is what actually performs the switch on a device that stays awake.
+      const DeviceSettings previous = settings;
+      settings                      = selector.resolve();
+      settingsApplier.apply(settings);
+      if (settings != previous) {
+        continue;  // the schedule just moved us; re-time against the new interval
+      }
+
+      // Ask the broker to re-send the retained documents if the re-check is due;
+      // it self-paces, so this is a no-op on a chunk that ended for any other
+      // reason.
+      selector.resyncIfDue(settings.configCheckSeconds());
     }
 
     // Deep sleep narrows what peak tracking can see: the chip is powered down
@@ -681,6 +780,30 @@ extern "C" void app_main(void) {
       const int64_t minSleepUs =
           static_cast<int64_t>(config::kMinDeepSleepMs) * 1000LL;
       int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
+
+      // Cut the sleep short at the next profile switch, so a schedule boundary
+      // is honoured to the minute instead of whenever the device next happened
+      // to wake. On a device reporting hourly that is the difference between a
+      // low-power profile starting at 22:00 and starting at 22:59.
+      //
+      // Be clear about the cost: waking here runs a WHOLE cycle - modem, GNSS
+      // acquire, publish - not just a re-resolve, because app_main() restarts
+      // from the top on every wake and has no notion of a partial one. So a
+      // switch costs one extra report, not merely one extra wake.
+      //
+      // That is accepted rather than merely tolerated. The server verifies the
+      // schedule from the profile slot inside each report, so the report this
+      // produces is exactly the one that confirms the switch happened; without
+      // it the switch would go unconfirmed until the next scheduled report. A
+      // couple of switches a day is a couple of extra reports a day.
+      int64_t untilSwitchS = 0;
+      if (selector.secondsUntilNextChange(untilSwitchS)) {
+        const int64_t untilSwitchUs = untilSwitchS * 1000000LL;
+        if (untilSwitchUs < remainingUs) {
+          remainingUs = untilSwitchUs;
+        }
+      }
+
       if (remainingUs < minSleepUs) {
         remainingUs = minSleepUs;
       }

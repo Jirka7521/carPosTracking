@@ -1,36 +1,23 @@
-// =============================================================================
-//  Config.h  -  generated for carPosTracking device "{{DEVICE_ID}}"
-//               rendered {{GENERATED_AT}} by the dashboard.
-// -----------------------------------------------------------------------------
-//  This is a COMPLETE, ready-to-build config file. Save it as
-//      ESP32/src/config/Config.h
-//  and run `pio run`. Nothing else needs merging in.
-//
-//  Everything specific to this device - its id, MQTT topics, broker URI and the
-//  receiver public key it encrypts to - is already filled in below.
-//
-//  WHAT IS STILL BLANK (and why):
-//      kWifiSsid / kWifiPassword     your network. Set them and flip
-//                                    kWifiEnabled to true.
-//      kMqttPassword                 the broker account is created by hand on
-//                                    the server with mosquitto_passwd - the API
-//                                    does not issue MQTT credentials, so it
-//                                    cannot fill in one it never minted.
-//      kDeviceAckPrivateKeyPem       this device's own private key. It must
-//                                    never reach the server, so the dashboard
-//                                    generates it in your browser and weaves it
-//                                    in there - it was never sent to the API.
-//
-//  Config.h is git-ignored precisely because of those four values. Never commit
-//  it, and never paste them into Config.example.h.
-// =============================================================================
-
 #pragma once
 #include <cstddef>
 #include <cstdint>
 
 #include "driver/spi_common.h"
 #include "driver/uart.h"
+
+// =============================================================================
+//  Config.example.h  -  Committed template (NO secrets).
+// -----------------------------------------------------------------------------
+//  This is the version-controlled template for `Config.h`. The real `Config.h`
+//  holds your private WiFi credentials and is git-ignored so it never reaches
+//  GitHub.
+//
+//  First-time setup:
+//      cp src/config/Config.example.h src/config/Config.h
+//  then open Config.h and fill in kWifiSsid / kWifiPassword.
+//
+//  Keep this template free of real credentials.
+// =============================================================================
 
 namespace config {
 
@@ -92,13 +79,38 @@ constexpr uint32_t kSatelliteScanMs = 3000;  // How long to listen to NMEA when
 // was meant to save.
 //
 // The timeout is a runtime setting (`fix_timeout_s`) - this value is only the
-// DEFAULT for a device that has never received a config message, and it is
-// rendered from what this device is configured with *right now*, so a freshly
-// flashed tracker behaves correctly before the first broker document lands. The
-// poll step stays compile-time: it is a property of how fast the modem answers,
-// not something an operator has any reason to tune from a dashboard.
-constexpr uint32_t kFixAcquireTimeoutSeconds = {{DEFAULT_FIX_TIMEOUT_S}};
+// DEFAULT for a device that has never received a config message. The poll step
+// stays compile-time: it is a property of how fast the modem answers, not
+// something an operator has any reason to tune from a dashboard.
+constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
 constexpr uint32_t kFixPollStepMs            = 2000;
+
+// -----------------------------------------------------------------------------
+//  Averaged position reports.
+//
+//  A single GNSS solution carries several metres of noise, and the FIRST
+//  solution after a lock is the least settled of all - the receiver is still
+//  converging when it first declares a fix. Publishing that one reading is what
+//  makes a parked car's track wander.
+//
+//  With averaging on, every report is built from four positions instead of one:
+//  the fix the acquisition returned is discarded, and the next
+//  kFixAverageSampleCount readings are averaged into the position that gets
+//  published (and stored on the card). See FixAverager.
+//
+//  kFixAverageStepMs is the gap between those readings and should not go below
+//  1000: the modem solves at 1 Hz, so a faster poll simply returns the same
+//  solution again - which the averager then skips, leaving fewer samples in the
+//  mean. The burst costs kFixAverageSampleCount * kFixAverageStepMs of awake
+//  time per cycle (~3 s by default), and never more: a reading that comes back
+//  without a fix is skipped rather than retried.
+//
+//  Set kFixAverageEnabled to `false` to publish the raw acquisition fix as
+//  before; the burst is then compiled out entirely.
+// -----------------------------------------------------------------------------
+constexpr bool     kFixAverageEnabled     = true;
+constexpr uint8_t  kFixAverageSampleCount = 3;
+constexpr uint32_t kFixAverageStepMs      = 1000;
 
 // -----------------------------------------------------------------------------
 //  ADXL345 accelerometer (GY-291) over I2C.
@@ -145,10 +157,12 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //      assembled from three different moments and is not a reading that ever
 //      occurred. Anything deriving a magnitude from it (the dashboard does) will
 //      read high.
-//    * At kAccelSampleIntervalMs = 1000 you see one sample in a hundred - the
-//      ADXL345 free-runs at 100 Hz - so most short transients are missed
-//      entirely. 100 ms is the value actually worth using if you care about
-//      catching events; it costs one extra I2C read per 100 ms and nothing else.
+//    * At kAccelSampleIntervalMs = 500 you see one sample in fifty - the ADXL345
+//      free-runs at 100 Hz - so most short transients are still missed. 100 ms
+//      is the value actually worth using if you care about catching events; it
+//      costs one extra I2C read per 100 ms and nothing else. 500 matches the
+//      pack sampler's cadence (kBatteryWindowSampleMs) so the two onboard
+//      sensors are read at the same rate.
 //
 //  Note the sensor runs in its +/-2 g range, so a peak clips there. Braking
 //  (~0.8 g) and cornering (~0.5 g) are fine; a sharp pothole will saturate.
@@ -157,7 +171,7 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //  report carries a live reading exactly as before.
 // -----------------------------------------------------------------------------
 constexpr bool     kAccelPeakEnabled      = false;
-constexpr uint32_t kAccelSampleIntervalMs = 1000;
+constexpr uint32_t kAccelSampleIntervalMs = 500;
 
 // -----------------------------------------------------------------------------
 //  Battery monitor (single-cell Li-ion pack, incl. 1S parallel packs).
@@ -189,89 +203,79 @@ constexpr uint32_t kBatteryEmptyMv = 3300;  // ~0 %
 constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
 
 // -----------------------------------------------------------------------------
-//  Battery method log (CSV on the microSD card; one column is published).
+//  Battery measurement (the published battery_pct).
 //
 //  BatteryMonitor above owns the charge DETECTION and the AT+CBC fallback. This
-//  block configures the measuring path: BatteryMethods measures the pack
-//  every way this board allows - five voltage sources, three state-of-charge
-//  models each, the modem's own percentage and the charge-input pin - and
-//  BatteryCsvLogger writes one row per reporting cycle to a plaintext CSV. Every
-//  row carries the uptime in milliseconds and the current GNSS UTC, so a capture
-//  can be lined up against the position backlog.
+//  block configures the measuring path: BatteryWindowSampler reads the pack
+//  through the on-board divider for the whole time the device is awake, and
+//  BatteryMethods trims that window of outliers, takes its median and scores it
+//  with a piecewise Li-ion curve. BatteryReporter then turns that into the
+//  payload's battery_pct.
 //
-//  It exists because the published percent is only as good as the curve behind
-//  it, and that curve cannot be calibrated without real captures showing how far
-//  apart the methods actually land.
+//  The method is not arbitrary. It was chosen by logging five voltage sources
+//  and three state-of-charge models side by side against a real pack; the
+//  calibrated MEDIAN scored with the curve tracked it best, and it is the only
+//  one the firmware still computes.
 //
 //  ⚠ GPIO35 means two different things in this firmware, and both are correct:
 //  BatteryMonitor reads it as a CHARGING flag (the charger pulls it to ~0), while
 //  this path reads it as VBAT through the on-board divider. On the T-SIM7000G
 //  that pin is cut off from the cell whenever USB power is connected (LilyGO
-//  issue #128) - which is exactly why sources 1-4 read ~0 on USB while the
-//  modem's AT+CBC keeps answering (with the charger rail, not the cell).
-//
-//  Set kBatteryLogEnabled to `false` and the whole path is compiled out; nothing
-//  else in the firmware depends on it.
+//  issue #128) - which is exactly why the ADC reads ~0 on USB while the modem's
+//  AT+CBC keeps answering (with the charger rail, not the cell).
 // -----------------------------------------------------------------------------
-constexpr bool kBatteryLogEnabled = true;
 
-// Plaintext, like the boot log - it holds diagnostics, not position data (the
-// fix TIME is logged; the coordinates deliberately are not). A file whose header
-// does not match the current column list is left alone and the logger steps to
-// battery2.csv ... battery9.csv, so a format change never corrupts old captures.
-constexpr char kSdBatteryLogPath[] = "/sdcard/battery.csv";
+// The pack sense pin. This is the SAME pin as kBatteryChargeSensePin above -
+// see the warning in this block's banner.
+constexpr int kBatteryVbatSensePin = 35;  // ADC1_CH7, pack voltage (divided)
 
-// Safety cap on the data rows (the header does not count). At ~120 bytes a row
-// the default is about 2.4 MB, which is weeks of captures at a 30 s interval.
-// 0 means "no cap".
-constexpr uint32_t kSdMaxBatteryLogRows = 20000;
-
-// The two sense pins. kBatteryVbatSensePin is the SAME pin as
-// kBatteryChargeSensePin above - see the warning in this block's banner.
-constexpr int kBatteryVbatSensePin  = 35;  // ADC1_CH7, pack voltage (divided)
-constexpr int kBatterySolarSensePin = 36;  // ADC1_CH0, charge input (solar/VIN)
-
-// On-board divider ratios: the measured voltage is multiplied back up by these.
-// The solar one is an ASSUMPTION that varies across board revisions - check it
-// against the raw count column before trusting the solar millivolts.
+// On-board divider ratio: the measured voltage is multiplied back up by this.
 constexpr float kBatteryDividerRatio = 2.0f;
-constexpr float kSolarDividerRatio   = 2.0f;
 
-// ADC conversions per measurement. They are averaged AND medianed, which is two
-// of the five voltage sources; 16 smooths the noise without a visible delay.
-constexpr uint32_t kBatteryAdcSamples = 16;
+// How often the pack is sampled.
+//
+// The cadence exists because of one problem. Under a SIM7000 transmit burst
+// (~2 A) or a WiFi publish, VBAT sags for a few tens of milliseconds.
+// Conversions taken back to back finish in MICROSECONDS, so a sag that coincides
+// with them drags EVERY sample down together - and neither an average nor a
+// median can reject what all the samples share. Spreading the conversions out
+// puts them on both sides of such a burst instead of inside one, which is what
+// turns the sag into a minority the outlier filter below can delete.
+//
+// BatteryWindowSampler spreads them as far as they go: one conversion every
+// half second on its own task, from the moment the ADC comes up until the report
+// is assembled. That covers the modem power-on, the MQTT connect and the whole
+// fix hunt - the moments the rail actually moves - and it costs NO awake time,
+// because it runs while the device is waiting for something else anyway. The
+// interval is quantised to the FreeRTOS tick (10 ms by default), so keep it a
+// multiple of 10.
+//
+// A long acquire is not a problem for it: once its reservoir is full
+// (BatteryWindowSampler::kMaxSamples, about two minutes at this cadence) it
+// keeps every second conversion instead, doubling again as needed, so a
+// three-minute hunt is still summarised across its whole span in fixed memory.
+constexpr uint32_t kBatteryWindowSampleMs = 500;
 
-// Above this on the charge-input pin, a charge source is considered present.
-constexpr uint32_t kSolarInputThresholdMv = 1000;
+// How far a sample may sit from the window median before it is thrown away,
+// counted in median absolute deviations. Measuring against the window's OWN
+// spread rather than a fixed millivolt threshold is what keeps this free of
+// per-board tuning: a quiet pack keeps a tight window, a noisy one widens it by
+// itself.
+//
+// 3 is the conventional choice - it keeps essentially all of a clean window and
+// still cuts a transmit droop, which lands far outside it. Lower it to 2 to
+// reject harder, but watch that the "too few survivors" fallback in
+// BatteryMethods is not then firing every cycle.
+constexpr uint32_t kBatteryOutlierMadFactor = 3;
 
 // Below this the ADC path is treated as having no battery in front of it, and
-// the four ADC sources are logged as absent rather than as a flat pack. This is
-// the USB case above: the pin reads ~0, not a low cell.
+// the reading is reported as absent rather than as a flat pack. This is the USB
+// case above: the pin reads ~0, not a low cell.
 constexpr uint32_t kBatteryNoReadingMv = 2000;
 
-// -----------------------------------------------------------------------------
-//  Which measurement becomes the PUBLISHED battery percent.
-//
-//  The block above measures the pack five ways and scores each three ways, which
-//  is how the best method was found; this is where that answer is put to work.
-//  The default publishes the capture's "p4_curve" column - the calibrated MEDIAN
-//  of the ADC burst, scored with the piecewise Li-ion curve - because that is the
-//  method that tracked the real pack best across the captures on the card.
-//
-//  The two indices are the BatterySource / BatteryModel enums in
-//  power/BatteryMethodsData.h. They are plain ints here so this file keeps
-//  depending on nothing from src/power/; main.cpp casts them where it builds the
-//  BatteryReporter. The comments name the matching battery.csv column, so a
-//  capture and a payload can be read side by side.
-//
-//  Set kBatteryReportFromMethods to `false` to go back to publishing
-//  BatteryMonitor's own AT+CBC figure - a one-line rollback if a capture ever
-//  says the ADC path has drifted.
-// -----------------------------------------------------------------------------
+// Set this to `false` to publish BatteryMonitor's own AT+CBC figure instead of
+// the measurement above - a one-line rollback if the ADC path ever drifts.
 constexpr bool kBatteryReportFromMethods = true;
-
-constexpr int kBatteryReportSourceIndex = 3;  // kSourceCalMedian -> "p4_*"
-constexpr int kBatteryReportModelIndex  = 1;  // kModelCurve      -> "*_curve"
 
 // -----------------------------------------------------------------------------
 //  Charger-disconnect report.
@@ -294,20 +298,16 @@ constexpr uint32_t kUnplugFixTimeoutSeconds = 60;
 // -----------------------------------------------------------------------------
 //  WiFi (station mode).
 //
-//  ⚠ SECRET: kWifiSsid / kWifiPassword are yours, so the dashboard cannot know
-//  them - they are the two blanks below.
+//  ⚠ SECRETS: fill kWifiSsid / kWifiPassword in your local Config.h only. Leave
+//  them blank here in the committed template.
 //
-//  kWifiEnabled is rendered as `false` for exactly that reason: enabling the
-//  station with no credentials would cost every boot (and every wake from deep
-//  sleep) a full kWifiConnectTimeoutMs of waiting for an association that cannot
-//  succeed. Fill the two values in and flip this to `true`. If you take this file
-//  from the dashboard with an SSID typed into the form, that is already done for
-//  you.
+//  Set kWifiEnabled to `false` to skip WiFi entirely; the connect code is then
+//  removed by the optimiser and the SSID/password below are ignored.
 // -----------------------------------------------------------------------------
-constexpr bool kWifiEnabled = false;
+constexpr bool kWifiEnabled = true;
 
-constexpr char kWifiSsid[]     = "";  // <-- your network name
-constexpr char kWifiPassword[] = "";  // <-- your network password
+constexpr char kWifiSsid[]     = "";  // <-- your network name (set in Config.h)
+constexpr char kWifiPassword[] = "";  // <-- your network password (set in Config.h)
 
 // How long to wait for an IP address before giving up a connection attempt, and
 // how many times to retry the association before reporting failure.
@@ -321,30 +321,27 @@ constexpr uint32_t kWifiReconnectIntervalMs = 30000;
 // -----------------------------------------------------------------------------
 //  MQTT broker.
 //
-//  The URI below is the broker this API is itself configured against, so the
-//  device and the ingest meet on the same one.
 //
-//  The scheme decides the transport AND whether the hop is TLS:
+//  The broker URI scheme decides the transport AND whether the hop is TLS:
 //      wss://host:port/path   encrypted MQTT-over-WebSocket  (recommended)
 //      ws://host:port/path    plain MQTT-over-WebSocket
 //      mqtts://host:port      encrypted MQTT-over-TCP
 //      mqtt://host:port       plain MQTT-over-TCP
 //
-//  ⚠ SECRET: kMqttPassword. The broker account is created by hand on the server
-//  (mosquitto_passwd) - the API does not manage MQTT credentials and must not
-//  pretend to know one it never issued.
+//  ⚠ SECRET: put kMqttPassword in your local Config.h only; leave it blank in
+//  this committed template.
 // -----------------------------------------------------------------------------
 constexpr bool kMqttEnabled = true;
 
-// Full broker URI.
-constexpr char kMqttBrokerUri[] = "{{BROKER_URI}}";
+// Full broker URI. Build it from your host, port and (for WebSocket) path.
+constexpr char kMqttBrokerUri[] = "url for mqtt broker";  // <-- set in Config.h, leave blank here
 
-// Broker login. Username is not secret; the password is.
-constexpr char kMqttUsername[] = "{{DEVICE_ID}}";
-constexpr char kMqttPassword[] = "";  // <-- set this yourself
+// Broker login. Username is not secret; the password is (keep it in Config.h).
+constexpr char kMqttUsername[] = "admin";
+constexpr char kMqttPassword[] = "";  // <-- set in Config.h, leave blank here
 
 // MQTT client id shown in the broker's logs.
-constexpr char kMqttClientId[] = "{{DEVICE_ID}}";
+constexpr char kMqttClientId[] = "GNSSXX";
 
 // How long publishConfirmed() waits for the broker's QoS-2 delivery ack before
 // treating a publish as failed. A fix (or a whole burst) is only removed from
@@ -356,8 +353,8 @@ constexpr uint32_t kMqttPublishAckTimeoutMs = 8000;
 //  Telemetry topic + device identity.
 //  The single place the publish path is defined (matches the desktop tools).
 // -----------------------------------------------------------------------------
-constexpr char kDeviceId[]       = "{{DEVICE_ID}}";
-constexpr char kTelemetryTopic[] = "{{TELEMETRY_TOPIC}}";
+constexpr char kDeviceId[]       = "GNSSXX";
+constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 
 // -----------------------------------------------------------------------------
 //  Remote settings (broker -> device).
@@ -386,19 +383,19 @@ constexpr char kTelemetryTopic[] = "{{TELEMETRY_TOPIC}}";
 //
 //  Every key is optional: the decoder merges what it finds into the settings
 //  already in force, so a document carrying only "interval_s" changes only that.
+//  That is what keeps this device compatible with an older, two-key publisher.
 //
-//  The dashboard publishes this message RETAINED, which is what makes a
-//  deep-sleeping device work: it is only online for a few seconds per cycle and
-//  would essentially never catch a live publish, so it relies on the broker
-//  replaying the retained message the instant it subscribes.
+//  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET. When sleep_between is on the
+//  device is only online for a few seconds per cycle, so it will essentially
+//  never catch a live publish - it relies on the broker replaying the retained
+//  message the instant it subscribes. See the README.
 //
 //  Whatever arrives is validated, clamped to the bounds below, and cached on the
 //  SD card (kSdSettingsFilePath) so the last known-good configuration survives a
 //  reboot with no network. The defaults below are only used by a device that has
-//  never successfully received a config message - and they are rendered from this
-//  device's current settings, so they already match what the broker holds.
+//  never successfully received a config message.
 // -----------------------------------------------------------------------------
-constexpr char kConfigTopic[] = "{{CONFIG_TOPIC}}";
+constexpr char kConfigTopic[] = "devices/GNSSXX/config";
 
 // How long to wait, after starting the MQTT client, for the broker to replay the
 // retained config before getting on with the first position report. This window
@@ -406,6 +403,68 @@ constexpr char kConfigTopic[] = "{{CONFIG_TOPIC}}";
 // itself, so it is a good deal longer than the message alone would need. A
 // timeout is not fatal - we simply carry on with the cached settings.
 constexpr uint32_t kConfigFetchTimeoutMs = 8000;
+
+// -----------------------------------------------------------------------------
+//  Device-side profile scheduling.
+// -----------------------------------------------------------------------------
+//  The dashboard lets a device be given named PROFILES (a set of the seven
+//  settings above) and weekly RULES that switch between them - "Night" from
+//  22:00, "Weekend" all Saturday, and so on.
+//
+//  That used to be evaluated entirely on the server, which republished a new
+//  config document whenever the winning profile changed. It worked, but it meant
+//  a tracker only ever changed profile while the broker could reach it - and a
+//  car in an underground garage overnight is exactly the case a low-power
+//  profile exists for.
+//
+//  So the whole schedule is now published, retained, to the topic below as one
+//  JSON "bundle" (see ScheduleCodec for the format). The device caches it on the
+//  card, evaluates it against its own GNSS-seeded clock, and switches on its
+//  own. The server still evaluates the same rules, but only to CHECK the profile
+//  slot the device reports in every fix, and it corrects the device - through the
+//  ordinary config topic above - when the two genuinely disagree.
+//
+//  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET, for the same reason as the
+//  config topic: a sleeping device is almost never online for a live publish.
+//
+//  Set kScheduleEnabled to false to compile the whole thing out. The device then
+//  behaves exactly as it did before this existed - it runs whatever the config
+//  topic last told it - which is also what happens at runtime whenever the
+//  schedule is disabled, absent, or the clock is not trustworthy.
+// -----------------------------------------------------------------------------
+constexpr bool kScheduleEnabled = true;
+
+constexpr char kScheduleTopic[] = "devices/GNSSXX/schedule";
+
+// Caps on one bundle. These mirror ScheduleRules.MaxProfilesPerDevice and
+// MaxRulesPerDevice in the API - the server will not create more than this, and
+// a document that somehow carries more is rejected whole rather than truncated,
+// because half a schedule resolves to confidently wrong answers.
+//
+// Sizing: a profile is ~150 bytes of JSON and a rule ~55, so a full bundle is
+// under 4 KB. MqttClient reassembles a payload larger than its RX buffer, and
+// that buffer is sized to take a bundle in one piece.
+constexpr uint32_t kMaxScheduleProfiles = 12;
+constexpr uint32_t kMaxScheduleRules    = 32;
+
+// Cached copy of the last bundle received, in the clear beside settings.json and
+// for the same reason: profiles and windows are a cadence, not a position.
+//
+// ⚠ Needs long filenames (CONFIG_FATFS_LFN_HEAP in sdkconfig.defaults). With LFN
+// off the card mounts fine and every fopen() of this path fails with ENOENT.
+constexpr char kSdSchedulePath[] = "/sdcard/schedule.json";
+
+// How long the device may keep evaluating its schedule after the last GNSS fix
+// that set its clock, in seconds. Zero means "never expire".
+//
+// This board has no RTC crystal (sdkconfig selects CONFIG_RTC_CLK_SRC_INT_RC,
+// the internal RC oscillator) and no NTP, so a GNSS fix is the only thing that
+// can set the clock. ESP-IDF carries the time base across deep sleep, but the RC
+// oscillator is temperature-dependent and drifts - minutes per day is realistic.
+// Past this window the device stops evaluating windows and falls back to the
+// retained config document, letting the server take over. Failing closed is the
+// point: a schedule acted on with an hour-wrong clock is worse than no schedule.
+constexpr uint32_t kClockTrustSeconds = 86400;  // 24 h
 
 // -----------------------------------------------------------------------------
 //  Delivery acknowledgements.
@@ -419,10 +478,13 @@ constexpr uint32_t kConfigFetchTimeoutMs = 8000;
 //  below, and a fix leaves the card only once it is confirmed stored. Rejected
 //  fixes move to the retry file (see the SD section) instead of being dropped.
 //
-{{ACK_BLOCK_NOTE}}
-constexpr bool kAckEnabled = {{ACK_ENABLED}};
+//  Set kAckEnabled to false to restore the old behaviour exactly - useful if the
+//  broker ACL is not ready yet, since without a read grant on the ack topic the
+//  broker silently delivers nothing and every fix would wait out the timeout.
+// -----------------------------------------------------------------------------
+constexpr bool kAckEnabled = false;
 
-constexpr char kAckTopic[] = "{{ACK_TOPIC}}";
+constexpr char kAckTopic[] = "devices/GNSSXX/ack";
 
 // How long to wait for the API's verdict after the broker has acked the publish.
 // This covers the API's decrypt, validate and database write, so it is generous:
@@ -436,49 +498,54 @@ constexpr uint32_t kAckTimeoutMs = 10000;
 // hold the receiver's PUBLIC key, but an ack is sealed TO us, so here we hold the
 // private half and the server holds only the public one.
 //
-// ⚠ SECRET, and the one secret that is *this device's own*. It must never reach
-// the server, so the API never renders it - the line below is left empty on
-// purpose. The dashboard's "generate a new ack key pair" button mints the pair
-// in your browser and fills this in locally before you download the file; only
-// the public half is ever sent to the API.
+// Generate the pair yourself - it must never reach the server:
+//   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out GNSSXX_ack_private.pem
+//   openssl rsa -in GNSSXX_ack_private.pem -pubout -out GNSSXX_ack_public.pem
+//   dotnet run -- import-device-key --device GNSSXX --ack-public-pem GNSSXX_ack_public.pem
+//
+// Then paste the PRIVATE half here in your own Config.h. SECRET: never commit it
+// and never fill it in in this example file.
 constexpr char kDeviceAckPrivateKeyPem[] = "";
 
 // Defaults for a device with no cached settings and no broker message yet.
 // The remaining four defaults are the constants they replace at runtime, and
 // live with the subsystem they belong to: kFixAcquireTimeoutSeconds (timing),
 // kSdMaxQueuedFixes, kRetryIntervalHours and kRetryMaxAgeHours (microSD).
-constexpr uint32_t kDefaultSendIntervalSeconds = {{DEFAULT_INTERVAL_S}};
-constexpr bool     kDefaultSleepBetweenSends   = {{DEFAULT_SLEEP_BETWEEN}};
+constexpr uint32_t kDefaultSendIntervalSeconds = 60;
+constexpr bool     kDefaultSleepBetweenSends   = false;
 
 // Accepted range for every numeric setting. A broker message outside these
 // bounds is clamped rather than rejected, so a typo can never wedge the device
 // into a busy-loop (interval 0) or an effectively dead one. The API validates
-// against exactly these numbers and answers 400 instead - and these lines are
-// rendered FROM the API's own bounds, so the two sides cannot drift apart.
-constexpr uint32_t kMinSendIntervalSeconds = {{MIN_INTERVAL_S}};
-constexpr uint32_t kMaxSendIntervalSeconds = {{MAX_INTERVAL_S}};
+// against exactly these numbers and answers 400 instead - see the bounds table
+// in its README. If you change one here, change it there too.
+constexpr uint32_t kMinSendIntervalSeconds = 5;
+constexpr uint32_t kMaxSendIntervalSeconds = 86400;  // 24 h
 
 // A fix timeout below the poll step could never see a single reply; the upper
 // bound stops a bad config parking a sleeping device awake for hours.
-constexpr uint32_t kMinFixTimeoutSeconds = {{MIN_FIX_TIMEOUT_S}};
-constexpr uint32_t kMaxFixTimeoutSeconds = {{MAX_FIX_TIMEOUT_S}};
+constexpr uint32_t kMinFixTimeoutSeconds = 15;
+constexpr uint32_t kMaxFixTimeoutSeconds = 3600;  // 1 h
 
 // The floor keeps a short outage survivable; the ceiling bounds how much of the
 // card a runaway backlog may claim - at ~1 KB per sealed envelope this is about
 // 100 MB, which is months of queue at any sane reporting interval. It is a
 // policy bound, not a technical one: FixQueue carries a head offset, so popping
 // costs O(batch) however deep the file gets.
-constexpr uint32_t kMinQueueMaxFixes = {{MIN_QUEUE_MAX_FIXES}};
-constexpr uint32_t kMaxQueueMaxFixes = {{MAX_QUEUE_MAX_FIXES}};
+//
+// Note the API enforces the same ceiling in a database check constraint, so
+// changing it here alone is not enough - see DeviceConfigRules.MaxQueueMaxFixes.
+constexpr uint32_t kMinQueueMaxFixes = 100;
+constexpr uint32_t kMaxQueueMaxFixes = 100000;
 
 // Retry pacing bounds. The floor of one hour is deliberate: the reject reasons
 // that do clear are fixed by a human on the server, so retrying faster would
 // only burn power and airtime to be told the same thing.
-constexpr uint32_t kMinRetryIntervalHours = {{MIN_RETRY_INTERVAL_H}};
-constexpr uint32_t kMaxRetryIntervalHours = {{MAX_RETRY_INTERVAL_H}};
+constexpr uint32_t kMinRetryIntervalHours = 1;
+constexpr uint32_t kMaxRetryIntervalHours = 720;  // 30 days
 
 // No floor: 0 is the meaningful "never give up" value. The ceiling is a year.
-constexpr uint32_t kMaxRetryMaxAgeHours = {{MAX_RETRY_MAX_AGE_H}};
+constexpr uint32_t kMaxRetryMaxAgeHours = 8760;
 
 // How often an AWAKE device asks the broker to re-send the retained config.
 //
@@ -491,26 +558,35 @@ constexpr uint32_t kMaxRetryMaxAgeHours = {{MAX_RETRY_MAX_AGE_H}};
 // The floor of one minute is deliberate: each check is one SUBSCRIBE and one
 // wake-up, and a device that did it every few seconds would burn battery
 // chasing a message that push would have brought it anyway.
-constexpr uint32_t kDefaultConfigCheckSeconds = {{DEFAULT_CONFIG_CHECK_S}};
-constexpr uint32_t kMinConfigCheckSeconds     = {{MIN_CONFIG_CHECK_S}};
-constexpr uint32_t kMaxConfigCheckSeconds     = {{MAX_CONFIG_CHECK_S}};
+//
+// An hour is the default for the same reason. Because the awake interval wait is
+// cut into chunks of at most this value, the number sets how often the device
+// wakes and puts a SUBSCRIBE on the wire while it is otherwise idle - so a
+// shorter check costs battery and airtime on every device, every hour, for ever.
+// What it buys is only faster recovery from a half-open socket, because a real
+// change already arrives by push within a second and a reconnect replays the
+// retained document anyway. Catching a dead-but-open connection within the hour
+// is ample for that; a quarter of an hour was four times the cost for no
+// practical gain.
+constexpr uint32_t kDefaultConfigCheckSeconds = 3600;  // 1 hour
+constexpr uint32_t kMinConfigCheckSeconds     = 60;
+constexpr uint32_t kMaxConfigCheckSeconds     = 86400;  // 24 h
 
 // -----------------------------------------------------------------------------
 //  End-to-end encryption.
 //  The GNSS payload is encrypted (RSA-OAEP-SHA256 + AES-256-GCM) for the holder
-//  of the receiver PRIVATE key, so the broker only ever sees ciphertext.
+//  of the receiver PRIVATE key, so the broker only ever sees ciphertext. This
+//  device only needs the receiver PUBLIC key.
 //
-//  This device only needs the receiver PUBLIC key, which is below. Its matching
-//  private half was generated when this device was registered, is encrypted at
-//  rest under the API's master key, and has no code path out of the database -
-//  which is what stops the broker (and anyone who steals this tracker or its SD
-//  card) from reading positions.
-//
-//  Fingerprint (SHA-256 over the DER SubjectPublicKeyInfo):
-//      {{PUBLIC_KEY_FINGERPRINT}}
+//  Generate the key pair with desktop/create_certificates.py, then paste the
+//  contents of desktop/certs/receiver_public.pem below (in your Config.h). The
+//  public key is not a secret, but keep this template's copy as a placeholder.
 // -----------------------------------------------------------------------------
 constexpr char kReceiverPublicKeyPem[] =
-{{RECEIVER_PUBLIC_KEY_LITERAL}}
+    "-----BEGIN PUBLIC KEY-----\n"
+    "PASTE receiver_public.pem HERE (one C string line per PEM line, each\n"
+    "ending with \\n). See desktop/certs/receiver_public.pem.\n"
+    "-----END PUBLIC KEY-----\n";
 
 // -----------------------------------------------------------------------------
 //  microSD store-and-forward queue.
@@ -548,30 +624,53 @@ constexpr char kSdSettingsFilePath[] = "/sdcard/settings.json";
 // Safety cap on how many undelivered fixes the queue may hold. During a long
 // outage the oldest entries are dropped once this many have accumulated, so the
 // card can never fill up. Each envelope is ~1 KB, so the default is ~20 MB -
-// tiny next to any real card.
+// tiny next to any real card, and about two weeks of backlog at the default
+// reporting interval.
 //
-// This is a runtime setting (`queue_max_fixes`); the value here is this device's
-// CURRENT setting, rendered at download time.
-//
-// It is expressed as a count rather than a duration because a queued line is
-// bare ciphertext with no timestamp to age it by - one fix goes in per reporting
-// cycle, so the dashboard turns the count into "about N days at the current
-// interval" for the human.
-constexpr uint32_t kSdMaxQueuedFixes = {{DEFAULT_QUEUE_MAX_FIXES}};
+// This is a runtime setting (`queue_max_fixes`); the value here is only the
+// DEFAULT. It is expressed as a count rather than a duration because a queued
+// line is bare ciphertext with no timestamp to age it by - one fix goes in per
+// reporting cycle, so the dashboard turns the count into "about N days at the
+// current interval" for the human.
+constexpr uint32_t kSdMaxQueuedFixes = 20000;
 
 // How many queued envelopes go into a single burst message. A typical outage
 // fits in one burst; a very long backlog is drained in several back-to-back
 // bursts so the JSON array and the MQTT buffer never exceed the modest internal
 // RAM (this board has no PSRAM, and the TLS stack is already memory-hungry).
-constexpr uint32_t kSdMaxBurstFixes = 40;
+//
+// Size this by the arithmetic, not by taste. One envelope is ~1 KB - over half
+// of it is the base64 RSA-3072-wrapped AES key, which every envelope carries
+// separately - so a burst of N costs roughly N KB. That N KB is then held THREE
+// times over at the moment of publish:
+//
+//   1. the batch vector read off the card (kept alive so rejected fixes can be
+//      parked for retry after the API's verdict),
+//   2. the joined JSON array, which must be ONE contiguous allocation, and
+//   3. esp-mqtt's outbox copy - also contiguous - because we publish at QoS 2
+//      and the client must be able to re-send until PUBCOMP.
+//
+// On top of that sit the mbedTLS session buffers (~20 KB) and the WebSocket
+// buffer, all in the same internal DRAM. At 40 that came to ~117 KB of burst
+// plus TLS, and the outbox's contiguous ~39 KB request began failing outright
+// ("outbox_enqueue: Memory exhausted") once the heap was fragmented. 10 keeps
+// the peak near 30 KB with comfortable margin.
+//
+// Lowering this costs no throughput worth measuring: the drain loop already
+// fires bursts back-to-back within kBacklogFlushBudgetMs, and each burst is
+// dominated by the broker and API ack waits, not by its size.
+constexpr uint32_t kSdMaxBurstFixes = 10;
 
-// How long to wait before re-attempting a backlog flush that failed or only
-// partly drained. The backlog is flushed whenever the link is up - including on
-// cycles with no position fix - and the attempt is offered on every GNSS poll
-// (~kFixPollStepMs) while waiting for one. Without this pause a broker that
-// accepts publishes but never acks would burn the whole acquire window in
-// back-to-back kMqttPublishAckTimeoutMs timeouts. An MQTT reconnect clears the
-// wait immediately, so a genuine link-up always drains at once.
+// How long to wait before re-attempting a backlog flush that achieved NOTHING.
+// The backlog is flushed whenever the link is up - including on cycles with no
+// position fix - and the attempt is offered on every GNSS poll (~kFixPollStepMs)
+// while waiting for one. Without this pause a broker that accepts publishes but
+// never acks would burn the whole acquire window in back-to-back
+// kMqttPublishAckTimeoutMs timeouts. Note it applies only to an attempt that
+// moved no data at all: a flush that shipped anything (or merely ran out of the
+// budget below) is repeated on the very next poll, which is what lets a long
+// backlog drain in back-to-back bursts. An MQTT reconnect clears the wait
+// immediately, so a genuine link-up always drains at once.
 constexpr uint32_t kBacklogFlushRetryMs = 600000;  // 10 minutes
 
 // How long a single backlog flush may keep draining before it hands the CPU
@@ -593,17 +692,17 @@ constexpr uint32_t kBacklogFlushBudgetMs = 30000;  // 30 seconds
 // row is provisioned, and a decrypt failure clears when the key is fixed.
 constexpr char kSdRetryFilePath[] = "/sdcard/retry.jsonl";
 
-// How long to wait between attempts on a rejected fix. The reasons that do clear
-// are fixed by a human on the server, so retrying sooner would just burn power
-// and airtime to be told the same thing. Runtime setting (`retry_interval_h`);
-// this is only the DEFAULT.
-constexpr uint32_t kRetryIntervalHours = {{DEFAULT_RETRY_INTERVAL_H}};
+// How long to wait between attempts on a rejected fix. Once a day: the reasons
+// that do clear are fixed by a human on the server, so retrying sooner would just
+// burn power and airtime to be told the same thing. Runtime setting
+// (`retry_interval_h`); this is only the DEFAULT.
+constexpr uint32_t kRetryIntervalHours = 24;
 
 // Give up on a rejected fix that is still being refused after this long. This is
 // the only path that deliberately discards data, so it is logged at error level.
 // Zero disables the cap (retry forever - the file cap below still applies).
 // Runtime setting (`retry_max_age_h`); this is only the DEFAULT.
-constexpr uint32_t kRetryMaxAgeHours = {{DEFAULT_RETRY_MAX_AGE_H}};
+constexpr uint32_t kRetryMaxAgeHours = 168;  // 7 days
 
 // Safety cap on the retry file. Much smaller than the live queue: a healthy
 // system rejects nothing, so a large number here would only mask a real problem.

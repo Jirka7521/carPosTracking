@@ -58,6 +58,20 @@ std::string TelemetryPublisher::buildPayloadJson(
                             static_cast<double>(sample.settingsVersion));
   }
 
+  // Where the device's own schedule put it when this sample was taken. Both keys
+  // are omitted together when the schedule was not in force, which is what the
+  // API reads as "this device does not switch itself" - firmware without
+  // schedules, a device with none, or one whose clock has gone stale. Absent
+  // rather than -1 for the same reason settings_version is absent above: a
+  // sentinel the server has to know about is worse than a field that is not
+  // there, and the API's DTO makes both nullable.
+  if (sample.profileSlot >= 0 && sample.scheduleVersion != 0) {
+    cJSON_AddNumberToObject(root, "profile_slot",
+                            static_cast<double>(sample.profileSlot));
+    cJSON_AddNumberToObject(root, "sched_v",
+                            static_cast<double>(sample.scheduleVersion));
+  }
+
   std::string json;
   char* printed = cJSON_PrintUnformatted(root);
   if (printed != nullptr) {

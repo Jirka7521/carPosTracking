@@ -15,6 +15,7 @@
 //     not canShare).
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
 import type { CapabilityFlags } from './capabilityFlags'
 
 type CapabilityCheckboxesProps = {
@@ -28,6 +29,8 @@ type CapabilityCheckboxesProps = {
 }
 
 export function CapabilityCheckboxes({ flags, canEdit, onToggle }: CapabilityCheckboxesProps) {
+  const { t } = useTranslation('common')
+
   // Settings is locked (forced true) while Share is active.
   // If we allowed Settings to be unchecked while Share is on, the server
   // would just re-enable it — so we prevent the inconsistent state here.
@@ -38,7 +41,7 @@ export function CapabilityCheckboxes({ flags, canEdit, onToggle }: CapabilityChe
       {/* Read is always granted — shown as a non-interactive badge */}
       <label className="checkbox-field">
         <input type="checkbox" checked readOnly disabled />
-        <span>Read (always)</span>
+        <span>{t('permission.readAlways')}</span>
       </label>
 
       <label className="checkbox-field">
@@ -48,7 +51,7 @@ export function CapabilityCheckboxes({ flags, canEdit, onToggle }: CapabilityChe
           disabled={!canEdit}
           onChange={() => onToggle('canDelete')}
         />
-        <span>Delete</span>
+        <span>{t('permission.delete')}</span>
       </label>
 
       <label className="checkbox-field">
@@ -58,7 +61,7 @@ export function CapabilityCheckboxes({ flags, canEdit, onToggle }: CapabilityChe
           disabled={!canEdit}
           onChange={() => onToggle('canShare')}
         />
-        <span>Share</span>
+        <span>{t('permission.share')}</span>
       </label>
 
       <label className="checkbox-field">
@@ -70,9 +73,9 @@ export function CapabilityCheckboxes({ flags, canEdit, onToggle }: CapabilityChe
           onChange={() => onToggle('canModifySettings')}
         />
         <span>
-          Settings
+          {t('permission.settings')}
           {settingsLocked ? (
-            <span className="hint" style={{ marginLeft: 4 }}>(included with Share)</span>
+            <span className="hint" style={{ marginLeft: 4 }}>{t('permission.includedWithShare')}</span>
           ) : null}
         </span>
       </label>

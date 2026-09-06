@@ -34,6 +34,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
     private readonly CarPosDbContext _context;
     private readonly IDeviceAccessAuthorizer _authorizer;
     private readonly IDeviceConfigRevisionWriter _revisionWriter;
+    private readonly IScheduleBundlePublisher _bundlePublisher;
     private readonly ScheduleEvaluator _evaluator;
     private readonly ILogger<DeviceConfigScheduleService> _logger;
 
@@ -41,18 +42,21 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
     /// <param name="context">Scoped database context.</param>
     /// <param name="authorizer">Resolves the caller's grant on a device.</param>
     /// <param name="revisionWriter">Appends and publishes revisions; shares this context.</param>
+    /// <param name="bundlePublisher">Ships the changed schedule to the device; shares this context.</param>
     /// <param name="evaluator">The pure schedule arithmetic.</param>
     /// <param name="logger">Structured logger.</param>
     public DeviceConfigScheduleService(
         CarPosDbContext context,
         IDeviceAccessAuthorizer authorizer,
         IDeviceConfigRevisionWriter revisionWriter,
+        IScheduleBundlePublisher bundlePublisher,
         ScheduleEvaluator evaluator,
         ILogger<DeviceConfigScheduleService> logger)
     {
         _context = context;
         _authorizer = authorizer;
         _revisionWriter = revisionWriter;
+        _bundlePublisher = bundlePublisher;
         _evaluator = evaluator;
         _logger = logger;
     }
@@ -154,13 +158,19 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         Device device = gate.Value!;
         string name = request.Name.Trim();
 
-        int existingCount = await _context.DeviceConfigProfiles
-            .CountAsync(profile => profile.DeviceId == device.Id, cancellationToken);
-        if (existingCount >= ScheduleRules.MaxProfilesPerDevice)
+        List<int> usedSlots = await _context.DeviceConfigProfiles
+            .AsNoTracking()
+            .Where(profile => profile.DeviceId == device.Id)
+            .Select(profile => profile.ScheduleSlot)
+            .ToListAsync(cancellationToken);
+
+        if (usedSlots.Count >= ScheduleRules.MaxProfilesPerDevice)
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
                 $"This device already has the maximum of {ScheduleRules.MaxProfilesPerDevice} profiles.");
         }
+
+        int slot = LowestFreeSlot(usedSlots);
 
         if (await NameTakenAsync(device.Id, name, exceptProfileId: null, cancellationToken))
         {
@@ -173,6 +183,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         {
             DeviceId = device.Id,
             Name = name,
+            ScheduleSlot = slot,
             IntervalSeconds = request.IntervalSeconds,
             SleepBetween = request.SleepBetween,
             FixTimeoutSeconds = request.FixTimeoutSeconds,
@@ -188,8 +199,11 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         await _context.SaveChangesAsync(cancellationToken);
 
         // No re-apply: a brand-new profile is not referenced by any rule or by the
-        // fallback yet, so it cannot be the one in force.
-        return await BuildStateAsync(device, cancellationToken);
+        // fallback yet, so it cannot be the one in force. The bundle still goes out —
+        // the device has to be holding the profile before a rule can point at it, and
+        // shipping it now means the rule that follows is one publish, not a window in
+        // which the device knows the window but not what it selects.
+        return await PublishBundleAndBuildAsync(device, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -287,8 +301,10 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         _context.DeviceConfigProfiles.Remove(profile);
         await _context.SaveChangesAsync(cancellationToken);
 
-        // Nothing referenced it, so nothing that is in force can have changed.
-        return await BuildStateAsync(device, cancellationToken);
+        // Nothing referenced it, so nothing that is in force can have changed — but the
+        // device must be told to forget it, or it would keep a slot the server has
+        // freed and could hand back to a different profile tomorrow.
+        return await PublishBundleAndBuildAsync(device, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -450,8 +466,56 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Puts the profile the schedule currently selects into force, then builds the
-    /// state. Does nothing when the schedule is off or an override is live.
+    /// Ships the rebuilt schedule bundle to the device, then builds the state.
+    ///
+    /// <para>
+    /// Every mutation on this service ends here, which is what guarantees the device is
+    /// never left evaluating a schedule the dashboard has already moved on from. It is
+    /// deliberately separate from the re-apply below: creating or deleting an
+    /// unreferenced profile changes nothing that is in force, yet the device still has
+    /// to hear about it.
+    /// </para>
+    /// </summary>
+    /// <param name="device">The tracked device row, already saved.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The recomputed state.</returns>
+    private async Task<OperationResult<DeviceScheduleStateDto>> PublishBundleAndBuildAsync(
+        Device device,
+        CancellationToken cancellationToken)
+    {
+        await _bundlePublisher.PublishAsync(device, cancellationToken);
+        return await BuildStateAsync(device, cancellationToken);
+    }
+
+    /// <summary>
+    /// The lowest slot not already taken by one of this device's profiles.
+    /// </summary>
+    /// <param name="usedSlots">Slots currently in use; order does not matter.</param>
+    /// <returns>A free slot, always below <see cref="ScheduleRules.MaxProfilesPerDevice"/>.</returns>
+    private static int LowestFreeSlot(List<int> usedSlots)
+    {
+        // Reusing the lowest gap rather than always taking max+1 is what keeps slots
+        // inside the range the bundle can express: a device that has had profiles added
+        // and removed a hundred times must still fit in twelve slots.
+        HashSet<int> taken = new HashSet<int>(usedSlots);
+        for (int slot = ScheduleRules.MinScheduleSlot; slot <= ScheduleRules.MaxScheduleSlot; slot++)
+        {
+            if (!taken.Contains(slot))
+            {
+                return slot;
+            }
+        }
+
+        // Unreachable: the caller has already refused to go past the profile cap, and
+        // the cap and the slot range are the same number.
+        throw new InvalidOperationException(
+            "No free schedule slot despite the profile count being under the cap.");
+    }
+
+    /// <summary>
+    /// Puts the profile the schedule currently selects into force, publishes the
+    /// rebuilt bundle, then builds the state. The re-apply does nothing when the
+    /// schedule is off or an override is live.
     /// </summary>
     /// <param name="device">The tracked device row, with any pending edits staged.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
@@ -491,7 +555,10 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             }
         }
 
-        return await BuildStateAsync(device, cancellationToken);
+        // The bundle goes out after the re-apply, so it is built against the revision
+        // that is now in force — which matters when an override is live, because the
+        // override carries that revision's values.
+        return await PublishBundleAndBuildAsync(device, cancellationToken);
     }
 
     /// <summary>Assembles the whole schedule state for one device.</summary>
@@ -581,6 +648,31 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             ScheduleEvaluation evaluation =
                 _evaluator.Evaluate(snapshots, device.ConfigScheduleFallbackProfileId, now);
 
+            // What the device itself last said, and whether it agreed with the rules
+            // at the moment it said it. This is the same comparison ScheduleReconciler
+            // acts on, done here only to show it.
+            Guid? reportedProfileId = null;
+            bool? isDeviceInStep = null;
+
+            if (device.ReportedProfileSlot is not null && device.ReportedProfileAt is not null)
+            {
+                DeviceConfigProfile? reported = profiles.SingleOrDefault(
+                    profile => profile.ScheduleSlot == device.ReportedProfileSlot.Value);
+                reportedProfileId = reported?.Id;
+
+                ScheduleEvaluation asReported = _evaluator.Evaluate(
+                    snapshots,
+                    device.ConfigScheduleFallbackProfileId,
+                    device.ReportedProfileAt.Value);
+
+                // Left null rather than false when the schedule resolved to nothing at
+                // that instant: there was no expectation, so there is no disagreement.
+                if (asReported.ActiveProfileId is not null)
+                {
+                    isDeviceInStep = reportedProfileId == asReported.ActiveProfileId;
+                }
+            }
+
             status = new DeviceScheduleStatusDto(
                 evaluation.ActiveProfileId,
                 NameOf(nameByProfileId, evaluation.ActiveProfileId),
@@ -588,7 +680,13 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 evaluation.ActiveSince,
                 evaluation.NextChangeAt,
                 evaluation.NextProfileId,
-                NameOf(nameByProfileId, evaluation.NextProfileId));
+                NameOf(nameByProfileId, evaluation.NextProfileId),
+                reportedProfileId,
+                NameOf(nameByProfileId, reportedProfileId),
+                device.ReportedProfileAt,
+                device.ScheduleBundleVersion,
+                device.ReportedScheduleVersion,
+                isDeviceInStep);
 
             if (IsOverrideLive(device, now))
             {

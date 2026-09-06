@@ -1,0 +1,29 @@
+{
+  "password": {
+    "changed": "Heslo bylo změněno.",
+    "confirm": "Potvrzení nového hesla",
+    "current": "Současné heslo",
+    "currentRequired": "Zadejte své současné heslo.",
+    "doNotMatch": "Nové heslo a jeho potvrzení se neshodují.",
+    "hint_one": "Pro nastavení nového hesla musíte zadat své současné heslo. Nové heslo musí mít alespoň {{count}} znak.",
+    "hint_few": "Pro nastavení nového hesla musíte zadat své současné heslo. Nové heslo musí mít alespoň {{count}} znaky.",
+    "hint_many": "Pro nastavení nového hesla musíte zadat své současné heslo. Nové heslo musí mít alespoň {{count}} znaku.",
+    "hint_other": "Pro nastavení nového hesla musíte zadat své současné heslo. Nové heslo musí mít alespoň {{count}} znaků.",
+    "new": "Nové heslo",
+    "submit": "Změnit heslo",
+    "submitting": "Měním heslo…",
+    "title": "Změna hesla",
+    "tooShort_one": "Nové heslo musí mít alespoň {{count}} znak.",
+    "tooShort_few": "Nové heslo musí mít alespoň {{count}} znaky.",
+    "tooShort_many": "Nové heslo musí mít alespoň {{count}} znaku.",
+    "tooShort_other": "Nové heslo musí mít alespoň {{count}} znaků."
+  },
+  "personal": {
+    "emailReadOnly": "E-mailovou adresu nelze změnit.",
+    "nameRequired": "Jméno i příjmení jsou povinné.",
+    "saved": "Jméno bylo uloženo.",
+    "title": "Osobní údaje"
+  },
+  "subtitle": "Spravujte své osobní údaje a zabezpečení účtu.",
+  "title": "Profil"
+}

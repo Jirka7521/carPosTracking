@@ -21,9 +21,10 @@
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import type { DeviceConfigValuesDto } from '../services/apiTypes'
 import {
-  CONFIG_FIELD_LABELS,
+  CONFIG_FIELD_LABEL_KEYS,
   CONFIG_LIMITS,
   describeHours,
   describeSeconds,
@@ -69,6 +70,8 @@ export function ConfigValuesFields({
   renderPendingNote,
   idPrefix,
 }: ConfigValuesFieldsProps) {
+  const { t } = useTranslation(['settings'])
+
   function pendingNote(key: keyof DeviceConfigValuesDto): ReactNode {
     return renderPendingNote ? renderPendingNote(key) : null
   }
@@ -76,13 +79,13 @@ export function ConfigValuesFields({
   return (
     <>
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">Reporting</legend>
+        <legend className="config-group-title">{t('config.group.reporting')}</legend>
 
         <div className="config-grid">
           <DurationField
             key={`interval-${seedKey}`}
             id={`${idPrefix}-interval`}
-            label={CONFIG_FIELD_LABELS.intervalSeconds}
+            label={t(CONFIG_FIELD_LABEL_KEYS.intervalSeconds)}
             value={values.intervalSeconds}
             baseUnit="seconds"
             units={SECOND_UNITS}
@@ -93,7 +96,7 @@ export function ConfigValuesFields({
             // the point is to read back what you are entering, and it stays in
             // seconds whatever unit was picked, because seconds is what actually
             // goes on the wire.
-            hint={`every ${describeSeconds(values.intervalSeconds)}`}
+            hint={t('config.everyDuration', { duration: describeSeconds(values.intervalSeconds) })}
             pendingNote={pendingNote('intervalSeconds')}
             required
           />
@@ -101,7 +104,7 @@ export function ConfigValuesFields({
       </fieldset>
 
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">Power</legend>
+        <legend className="config-group-title">{t('config.group.power')}</legend>
 
         <label className="checkbox-field">
           <input
@@ -109,25 +112,20 @@ export function ConfigValuesFields({
             checked={values.sleepBetween}
             onChange={(event) => onChange('sleepBetween', event.target.checked)}
           />
-          <span>Deep-sleep between reports</span>
+          <span>{t(CONFIG_FIELD_LABEL_KEYS.sleepBetween)}</span>
         </label>
-        <p className="hint">
-          Powers the modem down and reboots the tracker on wake. A large battery
-          saving above roughly five minutes, but every cycle then pays for a cold
-          GNSS fix and a fresh TLS handshake — below that it can cost more than it
-          saves.
-        </p>
+        <p className="hint">{t('config.sleepBetweenHint')}</p>
         {pendingNote('sleepBetween')}
       </fieldset>
 
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">GNSS</legend>
+        <legend className="config-group-title">{t('config.group.gnss')}</legend>
 
         <div className="config-grid">
           <DurationField
             key={`fix-timeout-${seedKey}`}
             id={`${idPrefix}-fix-timeout`}
-            label="Give up on a lock after"
+            label={t('config.fixTimeoutLabel')}
             value={values.fixTimeoutSeconds}
             baseUnit="seconds"
             units={SECOND_UNITS}
@@ -139,20 +137,16 @@ export function ConfigValuesFields({
             required
           />
         </div>
-        <p className="hint">
-          A cold start under a poor sky view can legitimately take minutes. Too
-          short and a parked car never reports; too long and a sleeping tracker
-          burns the battery the sleep was meant to save.
-        </p>
+        <p className="hint">{t('config.fixTimeoutHint')}</p>
       </fieldset>
 
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">Undelivered fixes</legend>
+        <legend className="config-group-title">{t('config.group.queue')}</legend>
 
         <div className="config-grid">
           <div className="form-field">
             <label className="form-label" htmlFor={`${idPrefix}-queue-max`}>
-              Keep at most (fixes)
+              {t('config.queueMaxLabel')}
             </label>
             <input
               id={`${idPrefix}-queue-max`}
@@ -172,22 +166,17 @@ export function ConfigValuesFields({
             {pendingNote('queueMaxFixes')}
           </div>
         </div>
-        <p className="hint">
-          While the broker is unreachable each fix is encrypted and queued on the
-          SD card. Past this many, the oldest are dropped so the card can never
-          fill up. It is a count rather than a duration because a queued entry is
-          bare ciphertext with no timestamp to age it by.
-        </p>
+        <p className="hint">{t('config.queueMaxHint')}</p>
       </fieldset>
 
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">Rejected fixes</legend>
+        <legend className="config-group-title">{t('config.group.rejected')}</legend>
 
         <div className="config-grid">
           <DurationField
             key={`retry-interval-${seedKey}`}
             id={`${idPrefix}-retry-interval`}
-            label="Retry every"
+            label={t('config.retryIntervalLabel')}
             value={values.retryIntervalHours}
             baseUnit="hours"
             units={HOUR_UNITS}
@@ -205,7 +194,7 @@ export function ConfigValuesFields({
             // The "0 = never" stays in the label rather than moving into the
             // unit combobox: it is a sentinel, not a duration, and nothing about
             // the unit makes it readable.
-            label="Give up after (0 = never)"
+            label={t('config.retryMaxAgeLabel')}
             value={values.retryMaxAgeHours}
             baseUnit="hours"
             units={HOUR_UNITS}
@@ -214,37 +203,31 @@ export function ConfigValuesFields({
             onChange={(value) => onChange('retryMaxAgeHours', value)}
             hint={
               values.retryMaxAgeHours === 0
-                ? 'keep retrying forever'
+                ? t('config.retryForever')
                 : describeHours(values.retryMaxAgeHours)
             }
             pendingNote={pendingNote('retryMaxAgeHours')}
             required
           />
         </div>
-        <p className="hint">
-          Fixes this server refused are kept apart from the live queue and
-          re-offered slowly, because several reject reasons are server-side and
-          clear on their own. Giving up is the only path that deliberately
-          discards data.
-        </p>
+        <p className="hint">{t('config.rejectedHint')}</p>
       </fieldset>
 
       <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">Configuration updates</legend>
+        <legend className="config-group-title">{t('config.group.updates')}</legend>
 
+        {/* <Trans> rather than t(): the sentence carries a <strong> in the
+            middle of it, and splitting it into three keys would leave the
+            translator with fragments that cannot be reordered. */}
         <p className="hint">
-          Settings normally reach this tracker <strong>within a second</strong>: it
-          holds an open subscription, so the broker pushes a change the moment it
-          is saved, and a device that reconnects is handed the current settings
-          automatically. The value below is only the backstop — how often it asks
-          the broker to re-send them, in case a connection was quietly dead.
+          <Trans i18nKey="config.updatesHint" ns="settings" components={{ strong: <strong /> }} />
         </p>
 
         <div className="config-grid">
           <DurationField
             key={`config-check-${seedKey}`}
             id={`${idPrefix}-config-check`}
-            label="Re-check every"
+            label={t('config.configCheckLabel')}
             value={values.configCheckSeconds}
             baseUnit="seconds"
             units={SECOND_UNITS}
@@ -262,9 +245,7 @@ export function ConfigValuesFields({
             changes up sooner, and it is not. */}
         {values.sleepBetween ? (
           <div className="banner banner--info" role="status">
-            Deep sleep is on, so this setting does nothing. A sleeping tracker has
-            no connection to re-check — it reads its configuration afresh on every
-            wake, which already makes this redundant.
+            {t('config.configCheckSleepNote')}
           </div>
         ) : null}
       </fieldset>

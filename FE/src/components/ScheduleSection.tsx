@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   createConfigProfile,
   createScheduleRule,
@@ -41,7 +42,7 @@ import type {
   SaveConfigProfileRequestDto,
   SaveScheduleRuleRequestDto,
 } from '../services/apiTypes'
-import { CONFIG_FIELD_LABELS, formatConfigValue } from '../utils/deviceConfig'
+import { CONFIG_FIELD_LABEL_KEYS, formatConfigValue } from '../utils/deviceConfig'
 import { describeError } from '../utils/errors'
 import {
   describeDaysMask,
@@ -98,39 +99,31 @@ export function ScheduleSection({
   onScheduleChanged,
   refreshToken,
 }: ScheduleSectionProps) {
+  const { t } = useTranslation(['schedule', 'common'])
+
   return (
     <div className="settings-section">
       <div className="settings-section-header">
         <span className="settings-section-icon" aria-hidden="true">🗓</span>
-        <h3>Settings Schedule</h3>
+        <h3>{t('schedule:title')}</h3>
       </div>
 
       <div className="settings-section-body">
-        <p>
-          Switch this tracker between named profiles on a weekly timetable — reporting
-          less often at night, say, or sleeping through the weekend. The server
-          evaluates the schedule and pushes each change the same way saving settings
-          by hand does, so nothing has to be reflashed and the tracker does not need
-          to be online at the moment a window opens.
-        </p>
+        <p>{t('schedule:intro')}</p>
 
         {status === 'loading' && schedule === null ? (
           <div className="loading-state" style={{ minHeight: 80 }}>
             <div className="spinner" />
-            <span>Loading the schedule…</span>
+            <span>{t('schedule:loading')}</span>
           </div>
         ) : null}
 
         {status === 'error' && schedule === null ? (
           <div className="banner banner--error" role="alert">
             <p style={{ margin: '0 0 8px' }}>{error}</p>
-            <p className="hint" style={{ margin: '0 0 10px' }}>
-              If this keeps saying the schedule was not found, the server this
-              dashboard is talking to is older than the dashboard itself and does
-              not have schedules yet — it needs updating.
-            </p>
+            <p className="hint" style={{ margin: '0 0 10px' }}>{t('schedule:loadErrorHint')}</p>
             <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry}>
-              Try again
+              {t('common:actions.retry')}
             </button>
           </div>
         ) : null}
@@ -166,6 +159,10 @@ function ScheduleContent({
   onScheduleChanged,
   refreshToken,
 }: ScheduleContentProps) {
+  // `settings` is in the list because a profile card names configuration
+  // fields, whose label keys live in that namespace.
+  const { t } = useTranslation(['schedule', 'common', 'errors', 'settings'])
+
   const [busy, setBusy] = useState<string>('')
   const [message, setMessage] = useState<string>('')
   const [isError, setIsError] = useState<boolean>(false)
@@ -194,7 +191,7 @@ function ScheduleContent({
       setIsError(false)
       onDone?.()
     } catch (caught) {
-      setMessage(describeError(caught, 'That change could not be saved.'))
+      setMessage(describeError(caught, t('errors:scheduleChangeFailed')))
       setIsError(true)
     } finally {
       setBusy('')
@@ -209,8 +206,8 @@ function ScheduleContent({
         fallbackProfileId: schedule.fallbackProfileId,
       }),
       enabled
-        ? 'Schedule enabled — the profile in force has been applied.'
-        : 'Schedule turned off. The device keeps its current settings until you change them.',
+        ? t('schedule:message.enabled')
+        : t('schedule:message.disabled'),
     )
   }
 
@@ -221,12 +218,12 @@ function ScheduleContent({
         enabled: schedule.enabled,
         fallbackProfileId: fallbackProfileId === '' ? null : fallbackProfileId,
       }),
-      'Fallback profile updated.',
+      t('schedule:message.fallbackUpdated'),
     )
   }
 
   function handleResume(): void {
-    void run('resume', () => resumeDeviceSchedule(deviceId), 'Schedule resumed.')
+    void run('resume', () => resumeDeviceSchedule(deviceId), t('schedule:message.resumed'))
   }
 
   function handleProfileSubmit(profileId: string | null, payload: SaveConfigProfileRequestDto): void {
@@ -235,7 +232,7 @@ function ScheduleContent({
       () => (profileId === null
         ? createConfigProfile(deviceId, payload)
         : updateConfigProfile(deviceId, profileId, payload)),
-      profileId === null ? 'Profile created.' : 'Profile saved.',
+      profileId === null ? t('schedule:message.profileCreated') : t('schedule:message.profileSaved'),
       () => setEditingProfileId(null),
     )
   }
@@ -244,7 +241,7 @@ function ScheduleContent({
     // A profile is referenced by rules and possibly by the fallback, and the API
     // answers 409 rather than cascading — but the confirmation is still worth
     // having, because a profile nothing references is deleted without recourse.
-    if (!window.confirm(`Delete the "${profile.name}" profile?`)) {
+    if (!window.confirm(t('schedule:confirm.deleteProfile', { name: profile.name }))) {
       return
     }
     void run(
@@ -260,16 +257,20 @@ function ScheduleContent({
       () => (ruleId === null
         ? createScheduleRule(deviceId, payload)
         : updateScheduleRule(deviceId, ruleId, payload)),
-      ruleId === null ? 'Rule added.' : 'Rule saved.',
+      ruleId === null ? t('schedule:message.ruleAdded') : t('schedule:message.ruleSaved'),
       () => setEditingRuleId(null),
     )
   }
 
   function handleRuleDelete(rule: DeviceScheduleRuleDto): void {
-    if (!window.confirm(`Delete the ${describeRule(rule)} rule?`)) {
+    if (!window.confirm(t('schedule:confirm.deleteRule', { rule: describeRule(rule) }))) {
       return
     }
-    void run(`rule-${rule.id}`, () => deleteScheduleRule(deviceId, rule.id), 'Rule deleted.')
+    void run(
+      `rule-${rule.id}`,
+      () => deleteScheduleRule(deviceId, rule.id),
+      t('schedule:message.ruleDeleted'),
+    )
   }
 
   const canEnable: boolean = schedule.profiles.length > 0 && schedule.fallbackProfileId !== null
@@ -283,10 +284,10 @@ function ScheduleContent({
   // to be told. The answer is already in hand, so it is shown on the card.
   function describeDeleteBlock(profileId: string): string | null {
     if (schedule.fallbackProfileId === profileId) {
-      return 'fallback profile'
+      return t('schedule:profile.isFallback')
     }
     const count: number = schedule.rules.filter((rule) => rule.profileId === profileId).length
-    return count === 0 ? null : `used by ${count} rule${count === 1 ? '' : 's'}`
+    return count === 0 ? null : t('schedule:profile.usedByRules', { count })
   }
 
   return (
@@ -300,12 +301,12 @@ function ScheduleContent({
               disabled={busy !== '' || (!schedule.enabled && !canEnable)}
               onChange={(event) => handleToggleEnabled(event.target.checked)}
             />
-            <span>Run this device on a schedule</span>
+            <span>{t('schedule:enable')}</span>
           </label>
 
           <div className="form-field">
             <label className="form-label" htmlFor="schedule-fallback">
-              Fallback profile
+              {t('schedule:fallback.label')}
             </label>
             <select
               id="schedule-fallback"
@@ -314,22 +315,18 @@ function ScheduleContent({
               disabled={busy !== '' || schedule.profiles.length === 0}
               onChange={(event) => handleFallbackChange(event.target.value)}
             >
-              <option value="">— none —</option>
+              <option value="">{t('schedule:fallback.none')}</option>
               {schedule.profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>{profile.name}</option>
               ))}
             </select>
-            <span className="hint">
-              What the device runs at any hour no rule covers. Required before the
-              schedule can be turned on.
-            </span>
+            <span className="hint">{t('schedule:fallback.hint')}</span>
           </div>
         </div>
 
         {!canEnable && !schedule.enabled ? (
           <div className="banner banner--info" role="status">
-            Create at least one profile and choose it as the fallback, then you can turn
-            the schedule on.
+            {t('schedule:cannotEnableYet')}
           </div>
         ) : null}
 
@@ -371,8 +368,7 @@ function ScheduleContent({
         {!schedule.enabled && schedule.rules.length > 0 ? (
           <>
             <div className="banner banner--info" role="status">
-              The schedule is off, so nothing below is being applied. This is what it
-              would do.
+              {t('schedule:previewWhenOff')}
             </div>
             <ScheduleTimeline
               rules={schedule.rules}
@@ -389,14 +385,11 @@ function ScheduleContent({
 
         {/* -------- Profiles -------- */}
         <div className="schedule-block">
-          <h4 className="config-group-title">Profiles</h4>
-          <p className="hint">
-            A profile is a complete set of this device&rsquo;s settings under a name the
-            rules refer to.
-          </p>
+          <h4 className="config-group-title">{t('schedule:profile.heading')}</h4>
+          <p className="hint">{t('schedule:profile.intro')}</p>
 
           {schedule.profiles.length === 0 ? (
-            <p className="hint">No profiles yet.</p>
+            <p className="hint">{t('schedule:profile.empty')}</p>
           ) : (
             <div className="schedule-list">
               {schedule.profiles.map((profile) => (
@@ -416,17 +409,22 @@ function ScheduleContent({
                         <div className="schedule-card-head">
                           <span className="schedule-card-name">{profile.name}</span>
                           {profile.id === activeProfileId ? (
-                            <span className="config-sync-badge config-sync-badge--synced">in force</span>
+                            <span className="config-sync-badge config-sync-badge--synced">
+                              {t('schedule:profile.inForce')}
+                            </span>
                           ) : null}
                           {profile.id === schedule.fallbackProfileId ? (
-                            <span className="schedule-status-tag">fallback</span>
+                            <span className="schedule-status-tag">{t('schedule:status.fallback')}</span>
                           ) : null}
                         </div>
 
                         <p className="schedule-card-summary">
-                          {SUMMARY_KEYS
-                            .map((key) => `${CONFIG_FIELD_LABELS[key]}: ${formatConfigValue(key, profile.values)}`)
-                            .join(' · ')}
+                          {SUMMARY_KEYS.map((key) =>
+                            t('schedule:profile.summaryEntry', {
+                              field: t(CONFIG_FIELD_LABEL_KEYS[key]),
+                              value: formatConfigValue(key, profile.values),
+                            }),
+                          ).join(' · ')}
                         </p>
                       </div>
 
@@ -437,7 +435,7 @@ function ScheduleContent({
                             className="btn btn-primary btn-sm"
                             onClick={() => { setEditingProfileId(profile.id); setMessage('') }}
                           >
-                            Edit
+                            {t('common:actions.edit')}
                           </button>
                           <button
                             type="button"
@@ -448,7 +446,7 @@ function ScheduleContent({
                               || describeDeleteBlock(profile.id) !== null
                             }
                           >
-                            Delete
+                            {t('common:actions.delete')}
                           </button>
                         </div>
                         {/* Under the button, not in a tooltip: the way out —
@@ -482,22 +480,18 @@ function ScheduleContent({
               className="btn btn-secondary btn-sm"
               onClick={() => { setEditingProfileId('new'); setMessage('') }}
             >
-              Add profile
+              {t('schedule:profile.add')}
             </button>
           )}
         </div>
 
         {/* -------- Rules -------- */}
         <div className="schedule-block">
-          <h4 className="config-group-title">Rules</h4>
-          <p className="hint">
-            Listed in the order they are evaluated — lower priority number first. The
-            first rule whose window contains the moment wins; if none does, the
-            fallback applies.
-          </p>
+          <h4 className="config-group-title">{t('schedule:ruleList.heading')}</h4>
+          <p className="hint">{t('schedule:ruleList.intro')}</p>
 
           {schedule.rules.length === 0 ? (
-            <p className="hint">No rules yet — the fallback profile applies at all times.</p>
+            <p className="hint">{t('schedule:ruleList.empty')}</p>
           ) : (
             <div className="schedule-list">
               {schedule.rules.map((rule) => (
@@ -518,15 +512,20 @@ function ScheduleContent({
                           <span className="schedule-card-name">{describeRule(rule)}</span>
                           <span className="schedule-status-tag">→ {rule.profileName}</span>
                           {rule.id === schedule.status?.activeRuleId ? (
-                            <span className="config-sync-badge config-sync-badge--synced">matching now</span>
+                            <span className="config-sync-badge config-sync-badge--synced">
+                              {t('schedule:ruleList.matchingNow')}
+                            </span>
                           ) : null}
                           {!rule.isEnabled ? (
-                            <span className="config-sync-badge config-sync-badge--unknown">off</span>
+                            <span className="config-sync-badge config-sync-badge--unknown">
+                              {t('common:onOff.off')}
+                            </span>
                           ) : null}
                         </div>
 
                         <p className="schedule-card-summary">
-                          priority {rule.priority} · {describeDuration(rule.durationMinutes)}
+                          {t('schedule:ruleList.prioritySummary', { priority: rule.priority })}{' '}
+                          · {describeDuration(rule.durationMinutes)}
                         </p>
                       </div>
 
@@ -537,7 +536,7 @@ function ScheduleContent({
                             className="btn btn-primary btn-sm"
                             onClick={() => { setEditingRuleId(rule.id); setMessage('') }}
                           >
-                            Edit
+                            {t('common:actions.edit')}
                           </button>
                           {/* Unconditional, unlike a profile's: nothing
                               references a rule, so there is never a reason to
@@ -548,7 +547,7 @@ function ScheduleContent({
                             onClick={() => handleRuleDelete(rule)}
                             disabled={busy === `rule-${rule.id}`}
                           >
-                            Delete
+                            {t('common:actions.delete')}
                           </button>
                         </div>
                       </div>
@@ -576,9 +575,9 @@ function ScheduleContent({
               className="btn btn-secondary btn-sm"
               onClick={() => { setEditingRuleId('new'); setMessage('') }}
               disabled={schedule.profiles.length === 0}
-              title={schedule.profiles.length === 0 ? 'Create a profile first' : undefined}
+              title={schedule.profiles.length === 0 ? t('schedule:ruleList.needProfile') : undefined}
             >
-              Add rule
+              {t('schedule:ruleList.add')}
             </button>
           )}
         </div>

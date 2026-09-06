@@ -1,0 +1,148 @@
+{
+  "actions": {
+    "cancel": "Zrušit",
+    "copied": "Zkopírováno",
+    "delete": "Smazat",
+    "edit": "Upravit",
+    "remove": "Odebrat",
+    "retry": "Zkusit znovu",
+    "saveChanges": "Uložit změny",
+    "saving": "Ukládám…",
+    "signOut": "Odhlásit se"
+  },
+  "appSubtitle": "Přehled sledovaných vozidel",
+  "appTitle": "Sledování polohy vozidel",
+  "battery": {
+    "charging": "Nabíjí se",
+    "level": "Baterie {{value}} %",
+    "percent": "{{value}} %"
+  },
+  "csv": {
+    "comma": "Čárka",
+    "commaHint": "Standardní CSV",
+    "semicolon": "Středník",
+    "semicolonHint": "Excel v ČR / DE",
+    "tab": "Tabulátor",
+    "tabHint": "TSV"
+  },
+  "deviceState": {
+    "active": "Aktivní",
+    "inactive": "Neaktivní"
+  },
+  "duration": {
+    "days_one": "{{value}} den",
+    "days_few": "{{value}} dny",
+    "days_many": "{{value}} dne",
+    "days_other": "{{value}} dní",
+    "hours_one": "{{value}} hodina",
+    "hours_few": "{{value}} hodiny",
+    "hours_many": "{{value}} hodiny",
+    "hours_other": "{{value}} hodin",
+    "minutes_one": "{{value}} minuta",
+    "minutes_few": "{{value}} minuty",
+    "minutes_many": "{{value}} minuty",
+    "minutes_other": "{{value}} minut",
+    "seconds_one": "{{value}} sekunda",
+    "seconds_few": "{{value}} sekundy",
+    "seconds_many": "{{value}} sekundy",
+    "seconds_other": "{{value}} sekund"
+  },
+  "durationField": {
+    "unitFor": "Jednotka pro „{{label}}“"
+  },
+  "fields": {
+    "email": "E-mail",
+    "firstName": "Jméno",
+    "lastName": "Příjmení"
+  },
+  "language": {
+    "change": "Změnit jazyk",
+    "heading": "Jazyk"
+  },
+  "nav": {
+    "home": "Přejít na domovskou stránku",
+    "profile": "Upravit profil"
+  },
+  "onOff": {
+    "off": "vypnuto",
+    "on": "zapnuto"
+  },
+  "optional": "(nepovinné)",
+  "permission": {
+    "delete": "Mazání",
+    "deleteHint": "Deaktivovat zařízení (měkké smazání)",
+    "grantedTitle": "{{description}} — uděleno",
+    "includedWithShare": "(součást sdílení)",
+    "listLabel": "Vaše oprávnění k tomuto zařízení",
+    "missingTitle": "{{description}} — neuděleno",
+    "read": "Čtení",
+    "readAlways": "Čtení (vždy)",
+    "readHint": "Zobrazit zařízení a historii jeho poloh",
+    "settings": "Nastavení",
+    "settingsHint": "Měnit nastavení zařízení a zobrazit seznam přístupů",
+    "share": "Sdílení",
+    "shareHint": "Spravovat, kdo další má k tomuto zařízení přístup"
+  },
+  "range": {
+    "from": "Od",
+    "to": "Do"
+  },
+  "refresh": {
+    "auto": "Automatická aktualizace",
+    "countdown": "{{seconds}} s",
+    "now": "↻ Aktualizovat",
+    "nowEmphatic": "↻ Aktualizovat nyní",
+    "refreshing": "Aktualizuji…"
+  },
+  "relative": {
+    "daysAgo_one": "před {{count}} dnem",
+    "daysAgo_few": "před {{count}} dny",
+    "daysAgo_many": "před {{count}} dny",
+    "daysAgo_other": "před {{count}} dny",
+    "hoursAgo_one": "před {{count}} h",
+    "hoursAgo_few": "před {{count}} h",
+    "hoursAgo_many": "před {{count}} h",
+    "hoursAgo_other": "před {{count}} h",
+    "justNow": "právě teď",
+    "minutesAgo_one": "před {{count}} min",
+    "minutesAgo_few": "před {{count}} min",
+    "minutesAgo_many": "před {{count}} min",
+    "minutesAgo_other": "před {{count}} min",
+    "never": "nikdy nehlásilo",
+    "unknown": "neznámé"
+  },
+  "states": {
+    "loading": "Načítám…",
+    "none": "—"
+  },
+  "units": {
+    "abbrevHours": "{{value}} h",
+    "abbrevHoursMinutes": "{{hours}} h {{minutes}} min",
+    "abbrevMinutes": "{{value}} min",
+    "abbrevSeconds": "{{value}} s",
+    "days": "dny",
+    "hours": "hodiny",
+    "minutes": "minuty",
+    "seconds": "sekundy"
+  },
+  "weekday": {
+    "long": {
+      "fri": "Pátek",
+      "mon": "Pondělí",
+      "sat": "Sobota",
+      "sun": "Neděle",
+      "thu": "Čtvrtek",
+      "tue": "Úterý",
+      "wed": "Středa"
+    },
+    "short": {
+      "fri": "Pá",
+      "mon": "Po",
+      "sat": "So",
+      "sun": "Ne",
+      "thu": "Čt",
+      "tue": "Út",
+      "wed": "St"
+    }
+  }
+}

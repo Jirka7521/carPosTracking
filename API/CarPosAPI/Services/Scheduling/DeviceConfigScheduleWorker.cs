@@ -35,20 +35,31 @@ internal sealed class DeviceConfigScheduleWorker : BackgroundService
     /// <summary>
     /// How often the fleet is reconciled. See the class summary for why this is a plain
     /// interval rather than a computed sleep.
+    ///
+    /// <para>
+    /// Internal rather than private so
+    /// <see cref="Health.ScheduleWorkerHealthCheck"/> can derive its "this worker has
+    /// gone quiet" threshold from the interval itself instead of restating 30 and
+    /// silently disagreeing the day this changes.
+    /// </para>
     /// </summary>
-    private static readonly TimeSpan PassInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan PassInterval = TimeSpan.FromSeconds(30);
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ScheduleWorkerState _state;
     private readonly ILogger<DeviceConfigScheduleWorker> _logger;
 
     /// <summary>Creates the worker.</summary>
     /// <param name="scopeFactory">Opens a DI scope per pass.</param>
+    /// <param name="state">Records each pass's outcome for the health endpoint.</param>
     /// <param name="logger">Structured logger.</param>
     public DeviceConfigScheduleWorker(
         IServiceScopeFactory scopeFactory,
+        ScheduleWorkerState state,
         ILogger<DeviceConfigScheduleWorker> logger)
     {
         _scopeFactory = scopeFactory;
+        _state = state;
         _logger = logger;
     }
 
@@ -100,7 +111,14 @@ internal sealed class DeviceConfigScheduleWorker : BackgroundService
             IScheduleReconciler reconciler =
                 scope.ServiceProvider.GetRequiredService<IScheduleReconciler>();
 
-            int changed = await reconciler.ReconcileAsync(DateTime.UtcNow, cancellationToken);
+            DateTime utcNow = DateTime.UtcNow;
+
+            int changed = await reconciler.ReconcileAsync(utcNow, cancellationToken);
+
+            // The pass got all the way through — the one fact /health needs, since a
+            // worker that only ever logs its failures is indistinguishable from a
+            // healthy one that has nothing to say.
+            _state.RecordPassSucceeded(changed, utcNow);
 
             // Only when something happened. A pass that finds a correct fleet — which is
             // almost all of them — must be silent, or the log becomes a metronome and
@@ -119,7 +137,10 @@ internal sealed class DeviceConfigScheduleWorker : BackgroundService
         catch (Exception exception)
         {
             // Deliberately broad — see the class summary. A transient database or broker
-            // fault must cost one pass, not the process.
+            // fault must cost one pass, not the process. Recorded as well as logged: the
+            // streak is what turns "one bad pass" into a visible outage on /health.
+            _state.RecordPassFailed();
+
             _logger.LogWarning(
                 exception,
                 "Schedule pass failed; the fleet may be running stale settings until the next one");

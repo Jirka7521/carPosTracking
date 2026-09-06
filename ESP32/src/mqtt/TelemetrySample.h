@@ -35,4 +35,18 @@ struct TelemetrySample {
   // is the honest answer. The API only advances a device's applied version from
   // the newest fix in a batch, so an old backlog cannot walk it backwards.
   uint32_t settingsVersion = 0;
+
+  // Where in its own schedule the device was when this sample was taken: which
+  // profile slot was in force, and which revision of the schedule bundle chose
+  // it. Both are -1 / 0 when the schedule is not running the device - no bundle,
+  // schedule disabled, or a clock too stale to trust (see DeviceClock).
+  //
+  // This pair is what lets the server VERIFY rather than drive. It evaluates the
+  // same rules at this sample's fix time and compares; a device that agrees
+  // costs no writes at all, and only a genuine disagreement draws a correction.
+  // Captured per sample for the same reason as settingsVersion, and more so - a
+  // device switches profile far more often than its settings revision changes,
+  // so a backlog drained after a weekend carries several different slots.
+  int      profileSlot     = -1;
+  uint32_t scheduleVersion = 0;
 };

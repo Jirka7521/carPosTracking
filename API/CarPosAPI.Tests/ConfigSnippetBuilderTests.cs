@@ -1,4 +1,7 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using CarPosAPI.Dtos;
 using CarPosAPI.Services.Provisioning;
@@ -44,74 +47,67 @@ public sealed class ConfigSnippetBuilderTests
         ConfigCheckSeconds: 1800);
 
     /// <summary>
-    /// Every <c>config::k*</c> constant the firmware's <c>src/</c> tree references,
-    /// plus the two reserved ADXL interrupt pins it declares. This list is the drift
-    /// guard: when the firmware gains a constant and the embedded template does not,
-    /// <see cref="RendersACompleteCompilableFile"/> is what says so — the alternative
-    /// is finding out from a build error after the file has been pasted in.
+    /// Every constant <see cref="ConfigSnippetBuilder"/> rewrites, paired with the
+    /// value it must carry in a file rendered from <see cref="s_settings"/>.
+    ///
+    /// <para>
+    /// This is not a list of what the firmware declares — that list used to live here,
+    /// by hand, and it is precisely what failed: the firmware gained three
+    /// fix-averaging constants, nobody added them, and the guard stayed green while the
+    /// dashboard served a file that no longer compiled.
+    /// <see cref="StagedTemplateMatchesFirmwareSource"/> covers completeness now, for
+    /// free, by comparing the whole file.
+    /// </para>
+    ///
+    /// <para>
+    /// What is left for this list is the risk name-anchoring introduces in exchange: a
+    /// constant the builder <em>rewrites</em> is one whose name it hard-codes, so a
+    /// firmware rename would leave the placeholder value in place. That is the quiet
+    /// failure — a tracker that builds cleanly and publishes to <c>devices/GNSSXX</c>.
+    /// </para>
     /// </summary>
-    private static readonly string[] s_firmwareConstants =
+    private static readonly (string Constant, string Value)[] s_substitutedConstants =
     [
-        // Modem / UART
-        "kModemUartPort", "kModemTxPin", "kModemRxPin", "kModemBaudRate",
-        "kModemBaudCandidates", "kModemBaudCandidateCount", "kModemPwrKeyPin",
-        "kModemPwrKeyActiveLow",
+        // Identity and topics — the ones where a silent miss sends telemetry to the
+        // wrong place rather than failing to compile.
+        ("kDeviceId", "\"GNSS01\""),
+        ("kTelemetryTopic", "\"devices/GNSS01\""),
+        ("kConfigTopic", "\"devices/GNSS01/config\""),
+        ("kAckTopic", "\"devices/GNSS01/ack\""),
+        ("kMqttBrokerUri", $"\"{BrokerUri}\""),
+        ("kMqttUsername", "\"GNSS01\""),
+        ("kMqttClientId", "\"GNSS01\""),
 
-        // GNSS
-        "kEnableGps", "kEnableGlonass", "kEnableBeidou", "kEnableGalileo",
-        "kGnssDebug", "kSatelliteScanMs", "kFixAcquireTimeoutSeconds", "kFixPollStepMs",
+        // Secrets, forced blank whatever the firmware template happens to carry.
+        ("kWifiSsid", "\"\""),
+        ("kWifiPassword", "\"\""),
+        ("kMqttPassword", "\"\""),
+        ("kDeviceAckPrivateKeyPem", "\"\""),
+        ("kWifiEnabled", "false"),
 
-        // Accelerometer
-        "kAdxlEnabled", "kI2cSdaPin", "kI2cSclPin", "kI2cClockHz", "kAdxlI2cAddress",
-        "kAdxlInt1Pin", "kAdxlInt2Pin",
-        "kAccelPeakEnabled", "kAccelSampleIntervalMs",
+        // This device's live settings as the compile-time defaults.
+        ("kDefaultSendIntervalSeconds", "300"),
+        ("kDefaultSleepBetweenSends", "true"),
+        ("kFixAcquireTimeoutSeconds", "240"),
+        ("kSdMaxQueuedFixes", "5000"),
+        ("kRetryIntervalHours", "12"),
+        ("kRetryMaxAgeHours", "72"),
+        ("kDefaultConfigCheckSeconds", "1800"),
 
-        // Battery
-        "kBatteryEnabled", "kBatteryChargeSensePin", "kBatteryChargeAdcThreshold",
-        "kBatteryEmptyMv", "kBatteryFullMv",
-        "kBatteryReportFromMethods", "kBatteryReportSourceIndex",
-        "kBatteryReportModelIndex", "kUnplugFixTimeoutSeconds",
-
-        // Battery method log
-        "kBatteryLogEnabled", "kSdBatteryLogPath", "kSdMaxBatteryLogRows",
-        "kBatteryVbatSensePin", "kBatterySolarSensePin", "kBatteryDividerRatio",
-        "kSolarDividerRatio", "kBatteryAdcSamples", "kSolarInputThresholdMv",
-        "kBatteryNoReadingMv",
-
-        // WiFi
-        "kWifiEnabled", "kWifiSsid", "kWifiPassword", "kWifiConnectTimeoutMs",
-        "kWifiMaxRetries", "kWifiReconnectIntervalMs",
-
-        // MQTT + identity
-        "kMqttEnabled", "kMqttBrokerUri", "kMqttUsername", "kMqttPassword",
-        "kMqttClientId", "kMqttPublishAckTimeoutMs", "kDeviceId", "kTelemetryTopic",
-
-        // Remote settings + acks
-        "kConfigTopic", "kConfigFetchTimeoutMs", "kAckEnabled", "kAckTopic",
-        "kAckTimeoutMs", "kDeviceAckPrivateKeyPem",
-        "kDefaultSendIntervalSeconds", "kDefaultSleepBetweenSends",
-        "kMinSendIntervalSeconds", "kMaxSendIntervalSeconds",
-        "kMinFixTimeoutSeconds", "kMaxFixTimeoutSeconds",
-        "kMinQueueMaxFixes", "kMaxQueueMaxFixes",
-        "kMinRetryIntervalHours", "kMaxRetryIntervalHours", "kMaxRetryMaxAgeHours",
-        "kDefaultConfigCheckSeconds", "kMinConfigCheckSeconds", "kMaxConfigCheckSeconds",
-
-        // Crypto
-        "kReceiverPublicKeyPem",
-
-        // microSD
-        "kSdEnabled", "kSdSpiHost", "kSdPinMiso", "kSdPinMosi", "kSdPinSclk", "kSdPinCs",
-        "kSdMountPoint", "kSdQueueFilePath", "kSdSettingsFilePath", "kSdMaxQueuedFixes",
-        "kSdMaxBurstFixes", "kBacklogFlushRetryMs", "kBacklogFlushBudgetMs",
-        "kSdRetryFilePath",
-        "kRetryIntervalHours", "kRetryMaxAgeHours", "kSdMaxRetryEntries",
-
-        // Boot log
-        "kBootLogEnabled", "kSdBootLogPath", "kSdMaxBootLogLines",
-        "kBootLogPrintLines",
-
-        // Deep sleep
-        "kWakeGpioPin", "kWakeGpioLevel", "kMinDeepSleepMs",
+        // Bounds, read from the API's own rules rather than repeated as literals —
+        // what is being checked here is that the anchor matched at all, not that
+        // DeviceConfigRules holds a particular number.
+        ("kMinSendIntervalSeconds", $"{DeviceConfigRules.MinIntervalSeconds}"),
+        ("kMaxSendIntervalSeconds", $"{DeviceConfigRules.MaxIntervalSeconds}"),
+        ("kMinFixTimeoutSeconds", $"{DeviceConfigRules.MinFixTimeoutSeconds}"),
+        ("kMaxFixTimeoutSeconds", $"{DeviceConfigRules.MaxFixTimeoutSeconds}"),
+        ("kMinQueueMaxFixes", $"{DeviceConfigRules.MinQueueMaxFixes}"),
+        ("kMaxQueueMaxFixes", $"{DeviceConfigRules.MaxQueueMaxFixes}"),
+        ("kMinRetryIntervalHours", $"{DeviceConfigRules.MinRetryIntervalHours}"),
+        ("kMaxRetryIntervalHours", $"{DeviceConfigRules.MaxRetryIntervalHours}"),
+        ("kMaxRetryMaxAgeHours", $"{DeviceConfigRules.MaxRetryMaxAgeHours}"),
+        ("kMinConfigCheckSeconds", $"{DeviceConfigRules.MinConfigCheckSeconds}"),
+        ("kMaxConfigCheckSeconds", $"{DeviceConfigRules.MaxConfigCheckSeconds}"),
     ];
 
     /// <summary>Builds a file for a real generated key, as the service does.</summary>
@@ -171,19 +167,180 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Contains("namespace config {", snippet, StringComparison.Ordinal);
         Assert.EndsWith("}  // namespace config\n", snippet, StringComparison.Ordinal);
 
-        // Every constant the firmware reads must actually be *declared*, not merely
-        // mentioned in a comment — hence matching the declaration itself.
-        foreach (string constant in s_firmwareConstants)
+        // Every constant the FIRMWARE TEMPLATE declares must survive rendering. The
+        // list is derived from the template rather than typed out, so it cannot go
+        // stale — and combined with StagedTemplateMatchesFirmwareSource below, "the
+        // template declares it" and "the firmware declares it" are the same statement.
+        MatchCollection declared = Regex.Matches(
+            LoadStagedTemplate(),
+            @"^constexpr\s+[A-Za-z_]\w*\s+(k[A-Za-z0-9_]+)",
+            RegexOptions.Multiline);
+
+        Assert.NotEmpty(declared);
+
+        foreach (Match declaration in declared)
         {
+            string constant = declaration.Groups[1].Value;
+
             Assert.True(
                 Regex.IsMatch(snippet, $@"^constexpr\s+\S+\s+{constant}\b", RegexOptions.Multiline),
-                $"The rendered Config.h declares no '{constant}'. If the firmware gained it, add it to "
-                    + "Services/Provisioning/ConfigTemplate.h.txt; if the firmware dropped it, remove it here.");
+                $"The rendered Config.h declares no '{constant}', although the template does — a "
+                    + "substitution swallowed the declaration instead of rewriting its value.");
         }
 
-        // A token the builder forgot to substitute would ship a literal "{{FOO}}" into
-        // a C++ file — a compile error at best, a wrong topic at worst.
+        // The template no longer has {{TOKEN}} holes, so one appearing means a stale
+        // copy of the old hand-maintained file has been resurrected somehow.
         Assert.DoesNotContain("{{", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StagedTemplateMatchesFirmwareSource()
+    {
+        // Pins the invariant the whole design rests on: the template embedded in this
+        // assembly is a VERBATIM copy of ESP32/src/config/Config.example.h, not an
+        // edited one. It is staged by an MSBuild target because the API image is built
+        // with API/ as its Docker context and cannot see the firmware tree.
+        //
+        // Note what this does and does not catch. That same target re-stages the file
+        // before this test runs, so on a developer's machine it cannot fail for
+        // staleness — warning CARPOS001 in CarPosAPI.csproj is what shouts when the
+        // committed copy was behind, and committing the refreshed file is what fixes
+        // it. What this catches is the template being hand-edited back into a
+        // {{TOKEN}} file, or the staging target being removed or silently failing —
+        // either of which would put ConfigSnippetBuilder back where it started.
+        //
+        // Its predecessor was a hand-written list of firmware constant names, and it
+        // let three of them through. Comparing the whole file needs no maintenance at
+        // all and cannot miss one.
+        string? firmwareSource = FindFirmwareConfigExample();
+
+        if (firmwareSource is null)
+        {
+            // Absent inside the Docker build, where only API/ is copied into the
+            // context. Failing there would make the image unbuildable for a reason
+            // that has nothing to do with the image.
+            return;
+        }
+
+        // LF on both sides: the working copy may be checked out CRLF on Windows, and
+        // ConfigSnippetBuilder normalises what it loads for exactly that reason.
+        string expected = File.ReadAllText(firmwareSource).ReplaceLineEndings("\n");
+        string staged = LoadStagedTemplate();
+
+        Assert.True(
+            string.Equals(expected, staged, StringComparison.Ordinal),
+            "API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt is out of date with "
+                + "ESP32/src/config/Config.example.h. It is generated: run `dotnet build` in API/ to "
+                + "refresh it, then commit it alongside the firmware change. Never edit it by hand.");
+    }
+
+    [Fact]
+    public void FillsInEverySubstitutedConstant()
+    {
+        // The risk name-anchored substitution buys in exchange for the drift guard
+        // above: rewriting by name means the names are hard-coded here, so a firmware
+        // rename could leave the template's placeholder in place. ConfigConstantWriter
+        // throws rather than skipping, so this test is really asserting that the
+        // builder's list of names still matches the firmware's.
+        (string snippet, string _) = BuildSnippet(AckFingerprint);
+
+        foreach ((string constant, string value) in s_substitutedConstants)
+        {
+            Assert.True(
+                Regex.IsMatch(
+                    snippet,
+                    $@"^constexpr\s+\S+\s+{constant}(\[\])?\s*=\s*{Regex.Escape(value)}\s*;",
+                    RegexOptions.Multiline),
+                $"'{constant}' was not rendered as {value}. Either the firmware renamed or retyped it "
+                    + "and ConfigSnippetBuilder needs the same edit, or a substitution wrote the wrong "
+                    + "value — the first of those ships a tracker that talks to the template's "
+                    + "placeholder topic.");
+        }
+    }
+
+    [Fact]
+    public void DropsAStaleHintFromAConstantItFillsIn()
+    {
+        // The firmware template ends kMqttBrokerUri with "<-- set in Config.h, leave
+        // blank here" — advice for someone copying the file by hand, and the exact
+        // opposite of what to do with the URI the API just filled in. Left in place it
+        // reads as an instruction to delete a correct value.
+        (string snippet, string _) = BuildSnippet();
+
+        Assert.Contains($"constexpr char kMqttBrokerUri[] = \"{BrokerUri}\";\n", snippet, StringComparison.Ordinal);
+
+        // But the same hints on the constants that DO stay blank are still true, and
+        // are the operator's only in-file instruction to fill them in.
+        Assert.Contains("constexpr char kWifiSsid[]     = \"\";  // <--", snippet, StringComparison.Ordinal);
+        Assert.Contains("constexpr char kMqttPassword[] = \"\";  // <--", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DropsAGlossFromANumberItChanges()
+    {
+        // The firmware annotates its less readable numbers with human units, attached
+        // to the example's values. kDefaultConfigCheckSeconds ships as "3600;  // 1
+        // hour"; rendered for a device set to 1800 it would otherwise read
+        // "1800;  // 1 hour" — a file stating something false about itself, in a
+        // comment, where nothing downstream can ever catch it.
+        (string snippet, string _) = BuildSnippet();
+
+        Assert.Contains("constexpr uint32_t kDefaultConfigCheckSeconds = 1800;\n", snippet, StringComparison.Ordinal);
+
+        // A gloss on a number that came out unchanged is still true, and is the only
+        // thing telling a reader that 86400 seconds is a day.
+        Assert.Contains("kMaxConfigCheckSeconds     = 86400;  // 24 h", snippet, StringComparison.Ordinal);
+    }
+
+    /// <summary>Reads the template embedded in the API assembly, LF-normalised.</summary>
+    /// <returns>The staged template text.</returns>
+    private static string LoadStagedTemplate()
+    {
+        Assembly assembly = typeof(ConfigSnippetBuilder).Assembly;
+
+        using Stream? stream = assembly.GetManifestResourceStream(
+            "CarPosAPI.Services.Provisioning.ConfigTemplate.h.txt");
+
+        Assert.NotNull(stream);
+
+        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
+
+        return reader.ReadToEnd().ReplaceLineEndings("\n");
+    }
+
+    /// <summary>
+    /// Walks up from <b>this source file</b> looking for the firmware's committed
+    /// config template.
+    ///
+    /// <para>
+    /// Anchored on the source path rather than <c>AppContext.BaseDirectory</c> on
+    /// purpose: the binaries can be built anywhere (a <c>BaseOutputPath</c> outside the
+    /// repo is how you build this solution while the API is running and holding a lock
+    /// on <c>bin/</c>), and from there the walk finds nothing and the guard quietly
+    /// skips itself — which is the one thing a drift guard must never do. The compiler
+    /// bakes in the real source location, so this works from any output directory.
+    /// </para>
+    /// </summary>
+    /// <param name="thisFile">Filled in by the compiler; never pass it.</param>
+    /// <returns>The full path, or null when the firmware tree is not in this checkout.</returns>
+    private static string? FindFirmwareConfigExample([CallerFilePath] string thisFile = "")
+    {
+        DirectoryInfo? directory = new DirectoryInfo(Path.GetDirectoryName(thisFile) ?? AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            string candidate = Path.Combine(
+                directory.FullName, "ESP32", "src", "config", "Config.example.h");
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     [Fact]

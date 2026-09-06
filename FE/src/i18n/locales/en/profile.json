@@ -1,0 +1,25 @@
+{
+  "password": {
+    "changed": "Password changed successfully.",
+    "confirm": "Confirm new password",
+    "current": "Current password",
+    "currentRequired": "Enter your current password.",
+    "doNotMatch": "New password and confirmation do not match.",
+    "hint_one": "You must enter your current password to set a new one. The new password must be at least {{count}} character.",
+    "hint_other": "You must enter your current password to set a new one. The new password must be at least {{count}} characters.",
+    "new": "New password",
+    "submit": "Change password",
+    "submitting": "Changing…",
+    "title": "Change Password",
+    "tooShort_one": "New password must be at least {{count}} character.",
+    "tooShort_other": "New password must be at least {{count}} characters."
+  },
+  "personal": {
+    "emailReadOnly": "Email address cannot be changed.",
+    "nameRequired": "First name and last name are required.",
+    "saved": "Name updated successfully.",
+    "title": "Personal Information"
+  },
+  "subtitle": "Manage your personal information and account security.",
+  "title": "Profile"
+}

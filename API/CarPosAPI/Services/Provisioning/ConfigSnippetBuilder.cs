@@ -16,19 +16,28 @@ namespace CarPosAPI.Services.Provisioning;
 /// It renders a whole file rather than a block of lines because a block still had
 /// to be merged by hand into a copy of <c>Config.example.h</c>, which is exactly
 /// the step that goes wrong: a missed constant produces firmware that compiles and
-/// then talks to the wrong topic. The file comes from
-/// <c>ConfigTemplate.h.txt</c>, an embedded copy of the firmware's
-/// <c>Config.example.h</c> with <c>{{TOKEN}}</c> holes cut in it.
+/// then talks to the wrong topic.
 /// </para>
 ///
 /// <para>
-/// <b>That template is a copy, and copies drift.</b> It cannot be read from
-/// <c>ESP32/</c> at runtime: <c>Container/App/docker-compose.yml</c> builds this
-/// image with <c>../../API</c> as its context, so the firmware tree does not exist
-/// where this code runs. The guard is
-/// <c>ConfigSnippetBuilderTests.RendersACompleteCompilableFile</c>, which fails the
-/// build when the firmware gains a constant this template does not have — keep it
-/// honest rather than deleting it.
+/// <b>The template is a verbatim copy of the firmware's own
+/// <c>Config.example.h</c></b>, staged into <c>ConfigTemplate.h.txt</c> by an
+/// MSBuild target and embedded — it cannot be read from <c>ESP32/</c> at runtime
+/// because <c>Container/App/docker-compose.yml</c> builds this image with
+/// <c>../../API</c> as its context, so the firmware tree does not exist where this
+/// code runs. Editing <c>Config.example.h</c> is therefore the only edit needed to
+/// change what the dashboard hands out.
+/// </para>
+///
+/// <para>
+/// That copy used to be hand-maintained, with <c>{{TOKEN}}</c> holes cut into it,
+/// and it drifted: the firmware gained three fix-averaging constants, the copy did
+/// not, and the dashboard served a file that no longer compiled. So this class no
+/// longer substitutes into holes — it rewrites constants <b>by name</b> through
+/// <see cref="ConfigConstantWriter"/>, which means a constant nobody names here
+/// passes straight through with its example value and a new firmware constant needs
+/// no edit at all. <c>ConfigSnippetBuilderTests.StagedTemplateMatchesFirmwareSource</c>
+/// fails the build if the staged copy and the firmware source ever disagree.
 /// </para>
 ///
 /// <para>
@@ -131,61 +140,153 @@ internal sealed class ConfigSnippetBuilder
     {
         ArgumentNullException.ThrowIfNull(settings);
 
+        ConfigConstantWriter writer = new ConfigConstantWriter(s_template);
+
+        // The firmware file introduces itself as the committed example and tells the
+        // reader to copy it to Config.h and fill in the WiFi credentials. This IS their
+        // Config.h, so that paragraph is an instruction to redo work already done.
+        writer.RemoveHeaderBlockMentioning("Config.example.h");
+
+        // --- This device's identity, topics and broker -------------------------
+        writer.SetString("kDeviceId", deviceId);
+        writer.SetString("kTelemetryTopic", TelemetryTopicFor(deviceId));
+        writer.SetString("kConfigTopic", ConfigTopicFor(deviceId));
+        writer.SetString("kAckTopic", AckTopicFor(deviceId));
+        writer.SetString("kMqttBrokerUri", brokerUri);
+
+        // The broker account is per device and named after it, and the client id is
+        // what the operator sees in Mosquitto's log — both are the device id, and the
+        // firmware template ships "admin"/"GNSSXX" placeholders for them.
+        writer.SetString("kMqttUsername", deviceId);
+        writer.SetString("kMqttClientId", deviceId);
+
+        // --- Secrets: forced blank, never filled ------------------------------
+        // The firmware template already leaves these empty, but stating it here means
+        // a value accidentally committed to Config.example.h could still never travel
+        // out through this endpoint. See the class summary for why each one is not
+        // the server's to know. The dashboard fills them in the operator's browser.
+        writer.SetString("kWifiSsid", string.Empty);
+        writer.SetString("kWifiPassword", string.Empty);
+        writer.SetString("kMqttPassword", string.Empty);
+        writer.SetString("kDeviceAckPrivateKeyPem", string.Empty);
+
+        // Without credentials the station would fail to associate on every wake and
+        // burn the power budget doing it. The browser flips this back on the moment
+        // an SSID is typed; the firmware template ships it true.
+        writer.SetBool("kWifiEnabled", false);
+
+        // --- Delivery acknowledgements ----------------------------------------
+        writer.InsertCommentAbove("kAckEnabled", BuildAckNote(deviceId, ackPublicKeyFingerprint));
+
+        // Acks are only meaningful once the API holds a key to seal them with.
+        // Rendering `true` regardless — as this used to — produces firmware that waits
+        // out the ack timeout on every single fix, with nothing in the logs to say why.
+        writer.SetBool("kAckEnabled", ackPublicKeyFingerprint is not null);
+
+        // --- Receiver public key ----------------------------------------------
+        writer.InsertCommentAbove("kReceiverPublicKeyPem", BuildKeyFingerprintNote(publicKeyFingerprint));
+        writer.SetMultiLineLiteral("kReceiverPublicKeyPem", BuildPemLiteral(publicKeyPem));
+
+        // --- Defaults: what this device is running now -------------------------
+        writer.SetNumber("kDefaultSendIntervalSeconds", Number(settings.IntervalSeconds));
+        writer.SetBool("kDefaultSleepBetweenSends", settings.SleepBetween);
+        writer.SetNumber("kFixAcquireTimeoutSeconds", Number(settings.FixTimeoutSeconds));
+        writer.SetNumber("kSdMaxQueuedFixes", Number(settings.QueueMaxFixes));
+        writer.SetNumber("kRetryIntervalHours", Number(settings.RetryIntervalHours));
+        writer.SetNumber("kRetryMaxAgeHours", Number(settings.RetryMaxAgeHours));
+        writer.SetNumber("kDefaultConfigCheckSeconds", Number(settings.ConfigCheckSeconds));
+
+        // --- Bounds: rendered from the API's own rules -------------------------
+        // This removes the hand-sync the firmware's comment asks for ("if you change
+        // one here, change it there too") for the file the dashboard hands out.
+        writer.SetNumber("kMinSendIntervalSeconds", Number(DeviceConfigRules.MinIntervalSeconds));
+        writer.SetNumber("kMaxSendIntervalSeconds", Number(DeviceConfigRules.MaxIntervalSeconds));
+        writer.SetNumber("kMinFixTimeoutSeconds", Number(DeviceConfigRules.MinFixTimeoutSeconds));
+        writer.SetNumber("kMaxFixTimeoutSeconds", Number(DeviceConfigRules.MaxFixTimeoutSeconds));
+        writer.SetNumber("kMinQueueMaxFixes", Number(DeviceConfigRules.MinQueueMaxFixes));
+        writer.SetNumber("kMaxQueueMaxFixes", Number(DeviceConfigRules.MaxQueueMaxFixes));
+        writer.SetNumber("kMinRetryIntervalHours", Number(DeviceConfigRules.MinRetryIntervalHours));
+        writer.SetNumber("kMaxRetryIntervalHours", Number(DeviceConfigRules.MaxRetryIntervalHours));
+        writer.SetNumber("kMaxRetryMaxAgeHours", Number(DeviceConfigRules.MaxRetryMaxAgeHours));
+        writer.SetNumber("kMinConfigCheckSeconds", Number(DeviceConfigRules.MinConfigCheckSeconds));
+        writer.SetNumber("kMaxConfigCheckSeconds", Number(DeviceConfigRules.MaxConfigCheckSeconds));
+
+        // Last, so it sits above the template's own header rather than inside it: the
+        // firmware file opens by explaining it is the committed example, which is no
+        // longer true of what the operator is holding.
+        writer.PrependBanner(BuildBanner(deviceId, generatedAtUtc));
+
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// Builds the header that turns the firmware's committed example into "this
+    /// device's file": what it is, when it was rendered, and — the part operators
+    /// actually need — which four values are still blank and why the server could not
+    /// have filled them in. Comments are legal before <c>#pragma once</c>, so this
+    /// prepends rather than replacing the template's own banner.
+    /// </summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="generatedAtUtc">Render time (UTC).</param>
+    /// <returns>The banner, <c>\n</c>-separated, with no trailing newline.</returns>
+    private static string BuildBanner(string deviceId, DateTime generatedAtUtc)
+    {
         string timestamp = generatedAtUtc.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
-        // One dictionary rather than a chain of Replace calls so the token list reads
-        // as a table against the template, and so a token added to one side without
-        // the other shows up as an obviously missing row.
-        Dictionary<string, string> tokens = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["GENERATED_AT"] = timestamp,
-            ["DEVICE_ID"] = deviceId,
-            ["TELEMETRY_TOPIC"] = TelemetryTopicFor(deviceId),
-            ["CONFIG_TOPIC"] = ConfigTopicFor(deviceId),
-            ["ACK_TOPIC"] = AckTopicFor(deviceId),
-            ["BROKER_URI"] = brokerUri,
-            ["PUBLIC_KEY_FINGERPRINT"] = publicKeyFingerprint,
-            ["RECEIVER_PUBLIC_KEY_LITERAL"] = BuildPemLiteral(publicKeyPem),
-            ["ACK_BLOCK_NOTE"] = BuildAckNote(deviceId, ackPublicKeyFingerprint),
+        StringBuilder banner = new StringBuilder();
 
-            // Acks are only meaningful once the API holds a key to seal them with.
-            // Rendering `true` regardless — as this used to — produces firmware that
-            // waits out the ack timeout on every single fix, with nothing in the logs
-            // to say why.
-            ["ACK_ENABLED"] = ackPublicKeyFingerprint is null ? "false" : "true",
+        banner.Append("// =============================================================================\n");
+        banner.Append(CultureInfo.InvariantCulture, $"//  Config.h  -  generated for carPosTracking device \"{deviceId}\"\n");
+        banner.Append(CultureInfo.InvariantCulture, $"//               rendered {timestamp} by the dashboard.\n");
+        banner.Append("// -----------------------------------------------------------------------------\n");
+        banner.Append("//  This is a COMPLETE, ready-to-build config file. Save it as\n");
+        banner.Append("//      ESP32/src/config/Config.h\n");
+        banner.Append("//  and run `pio run`. Nothing else needs merging in.\n");
+        banner.Append("//\n");
+        banner.Append("//  Everything specific to this device - its id, MQTT topics, broker URI and the\n");
+        banner.Append("//  receiver public key it encrypts to - is already filled in below.\n");
+        banner.Append("//\n");
+        banner.Append("//  WHAT IS STILL BLANK (and why):\n");
+        banner.Append("//      kWifiSsid / kWifiPassword     your network. Set them and flip\n");
+        banner.Append("//                                    kWifiEnabled to true.\n");
+        banner.Append("//      kMqttPassword                 the broker account is created by hand on\n");
+        banner.Append("//                                    the server with mosquitto_passwd - the API\n");
+        banner.Append("//                                    does not issue MQTT credentials, so it\n");
+        banner.Append("//                                    cannot fill in one it never minted.\n");
+        banner.Append("//      kDeviceAckPrivateKeyPem       this device's own private key. It must\n");
+        banner.Append("//                                    never reach the server, so the dashboard\n");
+        banner.Append("//                                    generates it in your browser and weaves it\n");
+        banner.Append("//                                    in there - it was never sent to the API.\n");
+        banner.Append("//\n");
+        banner.Append("//  Config.h is git-ignored precisely because of those four values. Never commit\n");
+        banner.Append("//  it, and never paste them into Config.example.h.\n");
+        banner.Append("// =============================================================================");
 
-            // Defaults: what this device is running now.
-            ["DEFAULT_INTERVAL_S"] = Number(settings.IntervalSeconds),
-            ["DEFAULT_SLEEP_BETWEEN"] = settings.SleepBetween ? "true" : "false",
-            ["DEFAULT_FIX_TIMEOUT_S"] = Number(settings.FixTimeoutSeconds),
-            ["DEFAULT_QUEUE_MAX_FIXES"] = Number(settings.QueueMaxFixes),
-            ["DEFAULT_RETRY_INTERVAL_H"] = Number(settings.RetryIntervalHours),
-            ["DEFAULT_RETRY_MAX_AGE_H"] = Number(settings.RetryMaxAgeHours),
-            ["DEFAULT_CONFIG_CHECK_S"] = Number(settings.ConfigCheckSeconds),
+        return banner.ToString();
+    }
 
-            // Bounds: rendered from the API's own rules, which removes the hand-sync
-            // the firmware's comment used to ask for ("if you change one here, change
-            // it there too").
-            ["MIN_INTERVAL_S"] = Number(DeviceConfigRules.MinIntervalSeconds),
-            ["MAX_INTERVAL_S"] = Number(DeviceConfigRules.MaxIntervalSeconds),
-            ["MIN_FIX_TIMEOUT_S"] = Number(DeviceConfigRules.MinFixTimeoutSeconds),
-            ["MAX_FIX_TIMEOUT_S"] = Number(DeviceConfigRules.MaxFixTimeoutSeconds),
-            ["MIN_QUEUE_MAX_FIXES"] = Number(DeviceConfigRules.MinQueueMaxFixes),
-            ["MAX_QUEUE_MAX_FIXES"] = Number(DeviceConfigRules.MaxQueueMaxFixes),
-            ["MIN_RETRY_INTERVAL_H"] = Number(DeviceConfigRules.MinRetryIntervalHours),
-            ["MAX_RETRY_INTERVAL_H"] = Number(DeviceConfigRules.MaxRetryIntervalHours),
-            ["MAX_RETRY_MAX_AGE_H"] = Number(DeviceConfigRules.MaxRetryMaxAgeHours),
-            ["MIN_CONFIG_CHECK_S"] = Number(DeviceConfigRules.MinConfigCheckSeconds),
-            ["MAX_CONFIG_CHECK_S"] = Number(DeviceConfigRules.MaxConfigCheckSeconds),
-        };
+    /// <summary>
+    /// Builds the comment naming the receiver key this file was rendered against. The
+    /// fingerprint is the only way to tell, later, whether a tracker in the field is
+    /// encrypting to the key the API still holds — the PEM below it is 800 characters
+    /// of base64 that nobody compares by eye.
+    /// </summary>
+    /// <param name="publicKeyFingerprint">SPKI-SHA256 hex of the receiver public key.</param>
+    /// <returns>Comment lines, <c>\n</c>-separated, with no trailing newline.</returns>
+    private static string BuildKeyFingerprintNote(string publicKeyFingerprint)
+    {
+        StringBuilder note = new StringBuilder();
 
-        StringBuilder rendered = new StringBuilder(s_template);
-        foreach (KeyValuePair<string, string> token in tokens)
-        {
-            rendered.Replace("{{" + token.Key + "}}", token.Value);
-        }
+        note.Append("// The receiver PUBLIC key below is this device's own: its matching private half\n");
+        note.Append("// was generated when the device was registered, is encrypted at rest under the\n");
+        note.Append("// API's master key, and has no code path out of the database - which is what\n");
+        note.Append("// stops the broker (and anyone who steals this tracker or its SD card) from\n");
+        note.Append("// reading positions.\n");
+        note.Append("//\n");
+        note.Append("// Fingerprint (SHA-256 over the DER SubjectPublicKeyInfo):\n");
+        note.Append(CultureInfo.InvariantCulture, $"//     {publicKeyFingerprint}");
 
-        return rendered.ToString();
+        return note.ToString();
     }
 
     /// <summary>Formats an integer for a C++ literal, culture-independently.</summary>

@@ -38,6 +38,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
     private readonly IConfigPublisher _publisher;
     private readonly IDeviceConfigRevisionWriter _revisionWriter;
     private readonly IDeviceScheduleResolver _scheduleResolver;
+    private readonly IScheduleBundlePublisher _bundlePublisher;
+    private readonly ScheduleBundleBuilder _bundleBuilder;
     private readonly ILogger<DeviceConfigService> _logger;
 
     /// <summary>Creates the service.</summary>
@@ -46,6 +48,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
     /// <param name="publisher">Pushes a saved revision to the broker, retained.</param>
     /// <param name="revisionWriter">Appends revisions and publishes them; shares this context.</param>
     /// <param name="scheduleResolver">Works out when a schedule next switches, for overrides.</param>
+    /// <param name="bundlePublisher">Tells a scheduled device about a stamped override.</param>
+    /// <param name="bundleBuilder">Rebuilds the bundle for the manual re-send, without bumping its revision.</param>
     /// <param name="logger">Structured logger.</param>
     public DeviceConfigService(
         CarPosDbContext context,
@@ -53,6 +57,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         IConfigPublisher publisher,
         IDeviceConfigRevisionWriter revisionWriter,
         IDeviceScheduleResolver scheduleResolver,
+        IScheduleBundlePublisher bundlePublisher,
+        ScheduleBundleBuilder bundleBuilder,
         ILogger<DeviceConfigService> logger)
     {
         _context = context;
@@ -60,6 +66,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         _publisher = publisher;
         _revisionWriter = revisionWriter;
         _scheduleResolver = scheduleResolver;
+        _bundlePublisher = bundlePublisher;
+        _bundleBuilder = bundleBuilder;
         _logger = logger;
     }
 
@@ -187,6 +195,16 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                 deviceId);
         }
 
+        if (device.ConfigScheduleEnabled)
+        {
+            // An override was stamped above, and the device has to be told: it is
+            // evaluating its own schedule and would otherwise switch straight back at
+            // the next window boundary it computes. The bundle carries the override,
+            // which is what makes a by-hand save actually hold on the device for as
+            // long as the dashboard promised it would.
+            await _bundlePublisher.PublishAsync(device, cancellationToken);
+        }
+
         return await BuildStateAsync(device.Id, cancellationToken);
     }
 
@@ -285,6 +303,18 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             publication.DeviceId,
             publication.Document,
             cancellationToken);
+
+        // The schedule bundle rides along, because this is the button somebody presses
+        // when a device looks out of step and the bundle is the more likely of the two
+        // to be the thing that went missing. The revision is deliberately *not* bumped:
+        // this re-sends what the device should already have, and moving the number
+        // would make a device that was in step look stale until its next report.
+        DeviceScheduleBundleDto? bundle =
+            await _bundleBuilder.BuildAsync(_context, access.DeviceRowId, cancellationToken);
+        if (bundle is not null)
+        {
+            await _publisher.PublishScheduleAsync(publication.DeviceId, bundle, cancellationToken);
+        }
 
         // A false return is reported as success with a false value, not as an error:
         // "the broker is not reachable right now" is operational information the UI

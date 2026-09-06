@@ -7,6 +7,9 @@
     "types": ["vite/client", "google.maps"],
     "skipLibCheck": true,
 
+    /* Translation catalogs are plain .json imported straight into the bundle. */
+    "resolveJsonModule": true,
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

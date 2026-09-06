@@ -26,6 +26,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useTranslation } from 'react-i18next'
+import { formatNumber } from '../i18n/format'
 import type { ChartRow, SeriesDef, SeriesUnit } from '../utils/telemetry'
 import {
   UNIT_ORDER,
@@ -81,6 +83,8 @@ type TelemetryTooltipProps = {
 // Plain JSX throughout: no dangerouslySetInnerHTML, so nothing here can become
 // an injection point even if the data changes shape.
 function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
+  const { t } = useTranslation(['device', 'common'])
+
   const row: ChartRow | undefined = payload?.[0]?.payload
   if (!active || row === undefined) {
     return null
@@ -101,10 +105,12 @@ function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
                 style={{ background: definition.color }}
                 aria-hidden="true"
               />
-              <span>{definition.label}</span>
+              <span>{t(definition.labelKey)}</span>
               <span className="chart-tooltip-value">
                 {value === null
-                  ? (definition.key === 'batteryPct' && row.charging ? '⚡ Charging' : '—')
+                  ? definition.key === 'batteryPct' && row.charging
+                    ? `⚡ ${t('common:battery.charging')}`
+                    : t('common:states.none')
                   : formatSeriesValue(definition, value)}
               </span>
             </li>
@@ -116,6 +122,8 @@ function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
 }
 
 export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
+  const { t } = useTranslation(['device'])
+
   // Which axes to draw, and on which side. Derived from UNIT_ORDER rather than
   // from the order boxes were ticked, so the same selection always lays out the
   // same way. The trade-off: enabling a unit early in the order can flip a
@@ -171,7 +179,7 @@ export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
               domain={axis.domain}
               width={AXIS_WIDTH}
               tickLine={false}
-              tickFormatter={(value: number) => value.toFixed(axis.decimals)}
+              tickFormatter={(value: number) => formatNumber(value, axis.decimals)}
               tick={{ fill: axis.color, fontSize: 11 }}
               label={{
                 value:    axis.unit,
@@ -194,7 +202,7 @@ export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
               key={definition.key}
               yAxisId={definition.unit}
               dataKey={definition.key}
-              name={definition.label}
+              name={t(definition.labelKey)}
               // Straight segments. A monotone curve would invent motion between
               // two samples that may be minutes apart.
               type="linear"

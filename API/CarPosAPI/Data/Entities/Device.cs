@@ -116,6 +116,54 @@ public sealed class Device
     /// </summary>
     public DateTime? ConfigScheduleEvaluatedAt { get; set; }
 
+    /// <summary>
+    /// Revision of the schedule bundle published retained to
+    /// <c>devices/&lt;id&gt;/schedule</c>. Bumped on every change to this device's
+    /// profiles, rules, fallback, enabled flag or override.
+    ///
+    /// <para>
+    /// Its whole job is to let the reconciler tell two very different situations
+    /// apart: a device running the wrong profile because it has not received the
+    /// current bundle yet, and a device running the wrong profile while holding the
+    /// current bundle. The first needs a republish and no alarm; only the second is a
+    /// genuine disagreement worth correcting.
+    /// </para>
+    /// </summary>
+    public int ScheduleBundleVersion { get; set; } = Dtos.ScheduleRules.InitialBundleVersion;
+
+    /// <summary>
+    /// The profile slot the device last told us it is running, echoed back in its
+    /// position reports. Null when it has never reported one — firmware older than
+    /// device-side scheduling, or a device that has not reported since.
+    /// </summary>
+    public int? ReportedProfileSlot { get; set; }
+
+    /// <summary>
+    /// The bundle revision the device reported alongside
+    /// <see cref="ReportedProfileSlot"/>. Null for the same reasons.
+    ///
+    /// <para>
+    /// Null is the signal the reconciler uses to recognise firmware that does not do
+    /// its own switching, and to keep behaving for it exactly as it always has.
+    /// </para>
+    /// </summary>
+    public int? ReportedScheduleVersion { get; set; }
+
+    /// <summary>
+    /// The <b>fix time</b> of the report that carried the two values above — not the
+    /// time it arrived.
+    ///
+    /// <para>
+    /// The distinction is the whole reason the verify step works. A fix captured five
+    /// minutes before a 22:00 boundary should report the profile that was in force at
+    /// 22:00 minus five minutes, and a device draining a week-old backlog will hand
+    /// over reports from all over the week. Evaluating the schedule at the instant the
+    /// device actually sampled is what makes agreement exact, instead of needing a
+    /// grace window wide enough to swallow a reporting interval.
+    /// </para>
+    /// </summary>
+    public DateTime? ReportedProfileAt { get; set; }
+
     /// <summary>Soft-delete flag — rows are deactivated, never physically removed.</summary>
     public bool IsActive { get; set; } = true;
 

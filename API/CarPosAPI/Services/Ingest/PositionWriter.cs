@@ -123,6 +123,27 @@ internal sealed class PositionWriter : IPositionWriter
             }
         }
 
+        // The same scan for the schedule, kept separate rather than folded into the one
+        // above. The two fields are independent: firmware without device-side scheduling
+        // reports a revision and no slot, and a device whose clock has gone stale stops
+        // reporting a slot while still reporting its revision. Sharing one "newest fix"
+        // cursor between them would let an absent slot on the newest fix suppress the
+        // revision, or the reverse.
+        int? reportedSlot = null;
+        int? reportedBundleVersion = null;
+        DateTime newestScheduleFixTime = DateTime.MinValue;
+        foreach (ValidatedPosition position in unique.Values)
+        {
+            if (position.ProfileSlot is not null
+                && position.ScheduleVersion is not null
+                && position.FixTimeUtc > newestScheduleFixTime)
+            {
+                newestScheduleFixTime = position.FixTimeUtc;
+                reportedSlot = position.ProfileSlot;
+                reportedBundleVersion = position.ScheduleVersion;
+            }
+        }
+
         // The device is demonstrably alive even when every fix was a duplicate, so
         // last_seen_at always advances. Server-side UtcNow avoids clock skew.
         DateTime seenAt = DateTime.UtcNow;
@@ -145,6 +166,27 @@ internal sealed class PositionWriter : IPositionWriter
                     setters => setters
                         .SetProperty(device => device.ConfigAppliedVersion, _ => reportedVersion)
                         .SetProperty(device => device.ConfigAppliedAt, _ => seenAt),
+                    cancellationToken);
+        }
+
+        // A third statement, gated the same way and for the same reason — but on the
+        // fix time rather than on a version number.
+        //
+        // The reconciler judges a device by evaluating the schedule at the instant it
+        // sampled, so what is stored here is the FIX time, not the arrival time. That
+        // also makes "only move forward" mean the right thing: a backlog drain must not
+        // replace a fresh observation with a week-old one, and comparing bundle
+        // revisions would not catch that, since an old fix can carry the current bundle.
+        if (reportedSlot is not null)
+        {
+            await context.Devices
+                .Where(device => device.Id == deviceId
+                    && (device.ReportedProfileAt == null || device.ReportedProfileAt < newestScheduleFixTime))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(device => device.ReportedProfileSlot, _ => reportedSlot)
+                        .SetProperty(device => device.ReportedScheduleVersion, _ => reportedBundleVersion)
+                        .SetProperty(device => device.ReportedProfileAt, _ => newestScheduleFixTime),
                     cancellationToken);
         }
 

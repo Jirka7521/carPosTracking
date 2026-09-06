@@ -41,6 +41,27 @@ public sealed class DeviceConfigProfile
     /// </summary>
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Stable 0-based index identifying this profile to the firmware, unique per
+    /// device and never reused while the profile lives.
+    ///
+    /// <para>
+    /// The device knows profiles by slot, not by Guid, and echoes the slot it is
+    /// running back inside every position report — see
+    /// <see cref="Dtos.ScheduleBundleProfileDto.Slot"/> for why a Guid there would be
+    /// the wrong trade. Persisting the number rather than deriving it from, say, the
+    /// creation order is what makes that safe: a profile deleted between the bundle
+    /// being published and the device's next report cannot silently shift the meaning
+    /// of a slot some fix is still carrying.
+    /// </para>
+    ///
+    /// <para>
+    /// Assigned as the lowest free slot on create. <see cref="Dtos.ScheduleRules.MaxProfilesPerDevice"/>
+    /// is what guarantees one exists.
+    /// </para>
+    /// </summary>
+    public int ScheduleSlot { get; set; }
+
     /// <summary>Seconds between position reports.</summary>
     public int IntervalSeconds { get; set; }
 

@@ -157,10 +157,12 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //      assembled from three different moments and is not a reading that ever
 //      occurred. Anything deriving a magnitude from it (the dashboard does) will
 //      read high.
-//    * At kAccelSampleIntervalMs = 1000 you see one sample in a hundred - the
-//      ADXL345 free-runs at 100 Hz - so most short transients are missed
-//      entirely. 100 ms is the value actually worth using if you care about
-//      catching events; it costs one extra I2C read per 100 ms and nothing else.
+//    * At kAccelSampleIntervalMs = 500 you see one sample in fifty - the ADXL345
+//      free-runs at 100 Hz - so most short transients are still missed. 100 ms
+//      is the value actually worth using if you care about catching events; it
+//      costs one extra I2C read per 100 ms and nothing else. 500 matches the
+//      pack sampler's cadence (kBatteryWindowSampleMs) so the two onboard
+//      sensors are read at the same rate.
 //
 //  Note the sensor runs in its +/-2 g range, so a peak clips there. Braking
 //  (~0.8 g) and cornering (~0.5 g) are fine; a sharp pothole will saturate.
@@ -169,7 +171,7 @@ constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
 //  report carries a live reading exactly as before.
 // -----------------------------------------------------------------------------
 constexpr bool     kAccelPeakEnabled      = false;
-constexpr uint32_t kAccelSampleIntervalMs = 1000;
+constexpr uint32_t kAccelSampleIntervalMs = 500;
 
 // -----------------------------------------------------------------------------
 //  Battery monitor (single-cell Li-ion pack, incl. 1S parallel packs).
@@ -201,89 +203,79 @@ constexpr uint32_t kBatteryEmptyMv = 3300;  // ~0 %
 constexpr uint32_t kBatteryFullMv  = 4200;  // ~100 %
 
 // -----------------------------------------------------------------------------
-//  Battery method log (CSV on the microSD card; one column is published).
+//  Battery measurement (the published battery_pct).
 //
 //  BatteryMonitor above owns the charge DETECTION and the AT+CBC fallback. This
-//  block configures the measuring path: BatteryMethods measures the pack
-//  every way this board allows - five voltage sources, three state-of-charge
-//  models each, the modem's own percentage and the charge-input pin - and
-//  BatteryCsvLogger writes one row per reporting cycle to a plaintext CSV. Every
-//  row carries the uptime in milliseconds and the current GNSS UTC, so a capture
-//  can be lined up against the position backlog.
+//  block configures the measuring path: BatteryWindowSampler reads the pack
+//  through the on-board divider for the whole time the device is awake, and
+//  BatteryMethods trims that window of outliers, takes its median and scores it
+//  with a piecewise Li-ion curve. BatteryReporter then turns that into the
+//  payload's battery_pct.
 //
-//  It exists because the published percent is only as good as the curve behind
-//  it, and that curve cannot be calibrated without real captures showing how far
-//  apart the methods actually land.
+//  The method is not arbitrary. It was chosen by logging five voltage sources
+//  and three state-of-charge models side by side against a real pack; the
+//  calibrated MEDIAN scored with the curve tracked it best, and it is the only
+//  one the firmware still computes.
 //
 //  ⚠ GPIO35 means two different things in this firmware, and both are correct:
 //  BatteryMonitor reads it as a CHARGING flag (the charger pulls it to ~0), while
 //  this path reads it as VBAT through the on-board divider. On the T-SIM7000G
 //  that pin is cut off from the cell whenever USB power is connected (LilyGO
-//  issue #128) - which is exactly why sources 1-4 read ~0 on USB while the
-//  modem's AT+CBC keeps answering (with the charger rail, not the cell).
-//
-//  Set kBatteryLogEnabled to `false` and the whole path is compiled out; nothing
-//  else in the firmware depends on it.
+//  issue #128) - which is exactly why the ADC reads ~0 on USB while the modem's
+//  AT+CBC keeps answering (with the charger rail, not the cell).
 // -----------------------------------------------------------------------------
-constexpr bool kBatteryLogEnabled = true;
 
-// Plaintext, like the boot log - it holds diagnostics, not position data (the
-// fix TIME is logged; the coordinates deliberately are not). A file whose header
-// does not match the current column list is left alone and the logger steps to
-// battery2.csv ... battery9.csv, so a format change never corrupts old captures.
-constexpr char kSdBatteryLogPath[] = "/sdcard/battery.csv";
+// The pack sense pin. This is the SAME pin as kBatteryChargeSensePin above -
+// see the warning in this block's banner.
+constexpr int kBatteryVbatSensePin = 35;  // ADC1_CH7, pack voltage (divided)
 
-// Safety cap on the data rows (the header does not count). At ~120 bytes a row
-// the default is about 2.4 MB, which is weeks of captures at a 30 s interval.
-// 0 means "no cap".
-constexpr uint32_t kSdMaxBatteryLogRows = 20000;
-
-// The two sense pins. kBatteryVbatSensePin is the SAME pin as
-// kBatteryChargeSensePin above - see the warning in this block's banner.
-constexpr int kBatteryVbatSensePin  = 35;  // ADC1_CH7, pack voltage (divided)
-constexpr int kBatterySolarSensePin = 36;  // ADC1_CH0, charge input (solar/VIN)
-
-// On-board divider ratios: the measured voltage is multiplied back up by these.
-// The solar one is an ASSUMPTION that varies across board revisions - check it
-// against the raw count column before trusting the solar millivolts.
+// On-board divider ratio: the measured voltage is multiplied back up by this.
 constexpr float kBatteryDividerRatio = 2.0f;
-constexpr float kSolarDividerRatio   = 2.0f;
 
-// ADC conversions per measurement. They are averaged AND medianed, which is two
-// of the five voltage sources; 16 smooths the noise without a visible delay.
-constexpr uint32_t kBatteryAdcSamples = 16;
+// How often the pack is sampled.
+//
+// The cadence exists because of one problem. Under a SIM7000 transmit burst
+// (~2 A) or a WiFi publish, VBAT sags for a few tens of milliseconds.
+// Conversions taken back to back finish in MICROSECONDS, so a sag that coincides
+// with them drags EVERY sample down together - and neither an average nor a
+// median can reject what all the samples share. Spreading the conversions out
+// puts them on both sides of such a burst instead of inside one, which is what
+// turns the sag into a minority the outlier filter below can delete.
+//
+// BatteryWindowSampler spreads them as far as they go: one conversion every
+// half second on its own task, from the moment the ADC comes up until the report
+// is assembled. That covers the modem power-on, the MQTT connect and the whole
+// fix hunt - the moments the rail actually moves - and it costs NO awake time,
+// because it runs while the device is waiting for something else anyway. The
+// interval is quantised to the FreeRTOS tick (10 ms by default), so keep it a
+// multiple of 10.
+//
+// A long acquire is not a problem for it: once its reservoir is full
+// (BatteryWindowSampler::kMaxSamples, about two minutes at this cadence) it
+// keeps every second conversion instead, doubling again as needed, so a
+// three-minute hunt is still summarised across its whole span in fixed memory.
+constexpr uint32_t kBatteryWindowSampleMs = 500;
 
-// Above this on the charge-input pin, a charge source is considered present.
-constexpr uint32_t kSolarInputThresholdMv = 1000;
+// How far a sample may sit from the window median before it is thrown away,
+// counted in median absolute deviations. Measuring against the window's OWN
+// spread rather than a fixed millivolt threshold is what keeps this free of
+// per-board tuning: a quiet pack keeps a tight window, a noisy one widens it by
+// itself.
+//
+// 3 is the conventional choice - it keeps essentially all of a clean window and
+// still cuts a transmit droop, which lands far outside it. Lower it to 2 to
+// reject harder, but watch that the "too few survivors" fallback in
+// BatteryMethods is not then firing every cycle.
+constexpr uint32_t kBatteryOutlierMadFactor = 3;
 
 // Below this the ADC path is treated as having no battery in front of it, and
-// the four ADC sources are logged as absent rather than as a flat pack. This is
-// the USB case above: the pin reads ~0, not a low cell.
+// the reading is reported as absent rather than as a flat pack. This is the USB
+// case above: the pin reads ~0, not a low cell.
 constexpr uint32_t kBatteryNoReadingMv = 2000;
 
-// -----------------------------------------------------------------------------
-//  Which measurement becomes the PUBLISHED battery percent.
-//
-//  The block above measures the pack five ways and scores each three ways, which
-//  is how the best method was found; this is where that answer is put to work.
-//  The default publishes the capture's "p4_curve" column - the calibrated MEDIAN
-//  of the ADC burst, scored with the piecewise Li-ion curve - because that is the
-//  method that tracked the real pack best across the captures on the card.
-//
-//  The two indices are the BatterySource / BatteryModel enums in
-//  power/BatteryMethodsData.h. They are plain ints here so this file keeps
-//  depending on nothing from src/power/; main.cpp casts them where it builds the
-//  BatteryReporter. The comments name the matching battery.csv column, so a
-//  capture and a payload can be read side by side.
-//
-//  Set kBatteryReportFromMethods to `false` to go back to publishing
-//  BatteryMonitor's own AT+CBC figure - a one-line rollback if a capture ever
-//  says the ADC path has drifted.
-// -----------------------------------------------------------------------------
+// Set this to `false` to publish BatteryMonitor's own AT+CBC figure instead of
+// the measurement above - a one-line rollback if the ADC path ever drifts.
 constexpr bool kBatteryReportFromMethods = true;
-
-constexpr int kBatteryReportSourceIndex = 3;  // kSourceCalMedian -> "p4_*"
-constexpr int kBatteryReportModelIndex  = 1;  // kModelCurve      -> "*_curve"
 
 // -----------------------------------------------------------------------------
 //  Charger-disconnect report.
@@ -411,6 +403,68 @@ constexpr char kConfigTopic[] = "devices/GNSSXX/config";
 // itself, so it is a good deal longer than the message alone would need. A
 // timeout is not fatal - we simply carry on with the cached settings.
 constexpr uint32_t kConfigFetchTimeoutMs = 8000;
+
+// -----------------------------------------------------------------------------
+//  Device-side profile scheduling.
+// -----------------------------------------------------------------------------
+//  The dashboard lets a device be given named PROFILES (a set of the seven
+//  settings above) and weekly RULES that switch between them - "Night" from
+//  22:00, "Weekend" all Saturday, and so on.
+//
+//  That used to be evaluated entirely on the server, which republished a new
+//  config document whenever the winning profile changed. It worked, but it meant
+//  a tracker only ever changed profile while the broker could reach it - and a
+//  car in an underground garage overnight is exactly the case a low-power
+//  profile exists for.
+//
+//  So the whole schedule is now published, retained, to the topic below as one
+//  JSON "bundle" (see ScheduleCodec for the format). The device caches it on the
+//  card, evaluates it against its own GNSS-seeded clock, and switches on its
+//  own. The server still evaluates the same rules, but only to CHECK the profile
+//  slot the device reports in every fix, and it corrects the device - through the
+//  ordinary config topic above - when the two genuinely disagree.
+//
+//  ⚠ PUBLISH THIS MESSAGE WITH THE RETAIN FLAG SET, for the same reason as the
+//  config topic: a sleeping device is almost never online for a live publish.
+//
+//  Set kScheduleEnabled to false to compile the whole thing out. The device then
+//  behaves exactly as it did before this existed - it runs whatever the config
+//  topic last told it - which is also what happens at runtime whenever the
+//  schedule is disabled, absent, or the clock is not trustworthy.
+// -----------------------------------------------------------------------------
+constexpr bool kScheduleEnabled = true;
+
+constexpr char kScheduleTopic[] = "devices/GNSSXX/schedule";
+
+// Caps on one bundle. These mirror ScheduleRules.MaxProfilesPerDevice and
+// MaxRulesPerDevice in the API - the server will not create more than this, and
+// a document that somehow carries more is rejected whole rather than truncated,
+// because half a schedule resolves to confidently wrong answers.
+//
+// Sizing: a profile is ~150 bytes of JSON and a rule ~55, so a full bundle is
+// under 4 KB. MqttClient reassembles a payload larger than its RX buffer, and
+// that buffer is sized to take a bundle in one piece.
+constexpr uint32_t kMaxScheduleProfiles = 12;
+constexpr uint32_t kMaxScheduleRules    = 32;
+
+// Cached copy of the last bundle received, in the clear beside settings.json and
+// for the same reason: profiles and windows are a cadence, not a position.
+//
+// ⚠ Needs long filenames (CONFIG_FATFS_LFN_HEAP in sdkconfig.defaults). With LFN
+// off the card mounts fine and every fopen() of this path fails with ENOENT.
+constexpr char kSdSchedulePath[] = "/sdcard/schedule.json";
+
+// How long the device may keep evaluating its schedule after the last GNSS fix
+// that set its clock, in seconds. Zero means "never expire".
+//
+// This board has no RTC crystal (sdkconfig selects CONFIG_RTC_CLK_SRC_INT_RC,
+// the internal RC oscillator) and no NTP, so a GNSS fix is the only thing that
+// can set the clock. ESP-IDF carries the time base across deep sleep, but the RC
+// oscillator is temperature-dependent and drifts - minutes per day is realistic.
+// Past this window the device stops evaluating windows and falls back to the
+// retained config document, letting the server take over. Failing closed is the
+// point: a schedule acted on with an hour-wrong clock is worse than no schedule.
+constexpr uint32_t kClockTrustSeconds = 86400;  // 24 h
 
 // -----------------------------------------------------------------------------
 //  Delivery acknowledgements.

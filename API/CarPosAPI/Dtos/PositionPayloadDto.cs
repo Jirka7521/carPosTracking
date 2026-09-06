@@ -31,6 +31,17 @@ namespace CarPosAPI.Dtos;
 /// device row's <c>config_applied_version</c>, which is how the dashboard knows a
 /// published change has actually been picked up.
 /// </param>
+/// <param name="ProfileSlot">
+/// The schedule profile slot the device was running when it took this fix (optional —
+/// absent on firmware that predates device-side scheduling, on a device with no
+/// schedule, and on one whose clock has gone stale enough to stop evaluating).
+/// </param>
+/// <param name="ScheduleVersion">
+/// The schedule bundle revision the device held when it took this fix (optional, and
+/// absent in the same cases). Paired with <paramref name="ProfileSlot"/>: the slot
+/// alone cannot distinguish a device that disagrees with the schedule from one that
+/// simply has not received the current bundle yet.
+/// </param>
 public sealed record PositionPayloadDto(
     [property: JsonPropertyName("device")] string? Device,
     [property: JsonPropertyName("latitude_deg")] double? LatitudeDeg,
@@ -43,4 +54,6 @@ public sealed record PositionPayloadDto(
     [property: JsonPropertyName("accel_y_g")] double? AccelYG = null,
     [property: JsonPropertyName("accel_z_g")] double? AccelZG = null,
     [property: JsonPropertyName("temp_c")] double? TempC = null,
-    [property: JsonPropertyName("settings_version")] int? SettingsVersion = null);
+    [property: JsonPropertyName("settings_version")] int? SettingsVersion = null,
+    [property: JsonPropertyName("profile_slot")] int? ProfileSlot = null,
+    [property: JsonPropertyName("sched_v")] int? ScheduleVersion = null);

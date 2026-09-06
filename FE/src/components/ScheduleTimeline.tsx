@@ -23,9 +23,10 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { DeviceScheduleRuleDto } from '../services/apiTypes'
 import {
-  DAY_LABELS_LONG,
+  dayLabelShort,
   MINUTES_PER_DAY,
   buildWeekTimeline,
   formatMinuteOfDay,
@@ -62,6 +63,8 @@ export function ScheduleTimeline({
   profileOrder,
   refreshToken,
 }: ScheduleTimelineProps) {
+  const { t } = useTranslation('schedule')
+
   // "Now" is state, not a Date.now() read during render. Reading the clock while
   // rendering is impure — two renders in the same commit could disagree about
   // which day is today, and which block the marker sits in — so it is sampled
@@ -82,7 +85,7 @@ export function ScheduleTimeline({
   // Zero only between mount and that first effect. Anchoring the week to the
   // epoch would draw a meaningless strip for that one frame.
   if (nowMs === 0) {
-    return <p className="hint">Building the week…</p>
+    return <p className="hint">{t('timeline.building')}</p>
   }
 
   return (
@@ -111,6 +114,8 @@ function TimelineBody({
   profileOrder,
   nowMs,
 }: TimelineBodyProps) {
+  const { t } = useTranslation('schedule')
+
   // Recomputed on every render rather than memoised: it is a few hundred
   // comparisons over at most 32 rules, and a stale timeline is a worse bug than
   // a redundant loop.
@@ -150,7 +155,9 @@ function TimelineBody({
 
         return (
           <div className={`schedule-timeline-row${isToday ? ' is-today' : ''}`} key={dayIndex}>
-            <span className="schedule-timeline-day">{DAY_LABELS_LONG[dayIndex].slice(0, 3)}</span>
+            {/* The catalogue's own short form, not the long name truncated:
+                slicing three characters off a weekday is an English habit. */}
+            <span className="schedule-timeline-day">{dayLabelShort(dayIndex)}</span>
 
             <div className="schedule-timeline-track">
               {segments
@@ -170,7 +177,7 @@ function TimelineBody({
                   const toLabel: string = formatMinuteOfDay(
                     new Date(toMs).getHours() * 60 + new Date(toMs).getMinutes(),
                   )
-                  const name: string = segment.profileName ?? 'Not covered'
+                  const name: string = segment.profileName ?? t('timeline.notCovered')
 
                   return (
                     <div
@@ -185,7 +192,7 @@ function TimelineBody({
                       }}
                       // Carries the full label for the blocks too narrow to show
                       // one, so no block is ever colour-only.
-                      title={`${name} · ${fromLabel}–${toLabel}`}
+                      title={t('timeline.blockTitle', { name, from: fromLabel, to: toLabel })}
                     >
                       <span className="schedule-timeline-block-label">{name}</span>
                     </div>
@@ -196,8 +203,8 @@ function TimelineBody({
                 <div
                   className="schedule-timeline-now"
                   style={{ left: `${((nowMs - dayStartMs) / DAY_MS) * 100}%` }}
-                  title="Now"
-                  aria-label="Current time"
+                  title={t('timeline.now')}
+                  aria-label={t('timeline.currentTime')}
                 />
               ) : null}
             </div>
@@ -206,7 +213,9 @@ function TimelineBody({
       })}
 
       <p className="hint schedule-timeline-note">
-        Shown in your local time ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
+        {t('timeline.localTimeNote', {
+          zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        })}
       </p>
     </div>
   )

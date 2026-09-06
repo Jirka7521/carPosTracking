@@ -19,6 +19,8 @@
 // The pulse is disabled under prefers-reduced-motion (see App.css).
 // ---------------------------------------------------------------------------
 
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import type { DeviceConfigStateDto } from '../services/apiTypes'
 import { formatRelativeTime } from '../utils/dates'
 import { describeSeconds, resolveSyncState } from '../utils/deviceConfig'
@@ -36,6 +38,8 @@ export function ConfigSyncIndicator({
   isRepublishing,
   onRepublish,
 }: ConfigSyncIndicatorProps) {
+  const { t } = useTranslation('settings')
+
   const syncState: ConfigSyncState = resolveSyncState(state)
   const deviceReached: boolean = syncState === 'synced'
 
@@ -78,19 +82,19 @@ export function ConfigSyncIndicator({
         )}
 
         <text className="config-pipeline-label" x="30" y="44" textAnchor="middle">
-          Dashboard
+          {t('sync.node.dashboard')}
         </text>
         <text className="config-pipeline-label" x="160" y="44" textAnchor="middle">
-          Broker
+          {t('sync.node.broker')}
         </text>
         <text className="config-pipeline-label" x="290" y="44" textAnchor="middle">
-          Device
+          {t('sync.node.device')}
         </text>
       </svg>
 
       <div className="config-pipeline-status">
         <span className={`config-sync-badge config-sync-badge--${syncState}`}>
-          {syncState === 'synced' ? 'In sync' : syncState === 'pending' ? 'Pending' : 'Unknown'}
+          {t(`sync.badge.${syncState}`)}
         </span>
         <p className="config-pipeline-summary">{describeStatus(state, syncState)}</p>
         <p className="hint">{describeExplanation(state, syncState)}</p>
@@ -105,27 +109,38 @@ export function ConfigSyncIndicator({
         // This is for the case where it did not — a broker restarted without
         // persistence — which is invisible from here, so the button exists
         // rather than the UI trying to guess.
-        title="Publish the current settings to the broker again"
+        title={t('sync.republishHint')}
       >
-        {isRepublishing ? 'Sending…' : 'Re-send to device'}
+        {isRepublishing ? t('sync.republishing') : t('sync.republish')}
       </button>
     </div>
   )
 }
 
+// The three prose helpers below are module-level rather than inline, so they
+// take their strings from the i18next singleton. The component itself
+// subscribes with useTranslation(), which is what re-renders them on a
+// language change.
 function describeStatus(state: DeviceConfigStateDto, syncState: ConfigSyncState): string {
   if (syncState === 'synced') {
-    return `Device is running v${state.desired.version} · confirmed ${formatRelativeTime(state.appliedAt)}`
+    return i18n.t('settings:sync.status.synced', {
+      version: state.desired.version,
+      confirmed: formatRelativeTime(state.appliedAt),
+    })
   }
   if (syncState === 'pending') {
-    return `v${state.desired.version} published · device is running v${state.applied?.version} · last report ${formatRelativeTime(state.lastSeenAt)}`
+    return i18n.t('settings:sync.status.pending', {
+      version: state.desired.version,
+      appliedVersion: state.applied?.version,
+      lastReport: formatRelativeTime(state.lastSeenAt),
+    })
   }
-  return `v${state.desired.version} published · the device has not reported a version yet`
+  return i18n.t('settings:sync.status.unknown', { version: state.desired.version })
 }
 
 function describeExplanation(state: DeviceConfigStateDto, syncState: ConfigSyncState): string {
   if (syncState === 'synced') {
-    return 'The settings below are the ones the tracker is using.'
+    return i18n.t('settings:sync.explain.synced')
   }
 
   if (syncState === 'pending') {
@@ -133,20 +148,22 @@ function describeExplanation(state: DeviceConfigStateDto, syncState: ConfigSyncS
     // picks the change up on its next wake — so quote that wait rather than
     // letting the reader wonder whether something is stuck.
     const wait: string = state.applied?.values.sleepBetween
-      ? ` With deep sleep on it is only online briefly, so this can take up to one reporting interval (${describeSeconds(state.applied.values.intervalSeconds)}).`
+      ? ` ${i18n.t('settings:sync.explain.deepSleepWait', {
+          interval: describeSeconds(state.applied.values.intervalSeconds),
+        })}`
       : ''
-    return `The broker is holding this change; the device applies it on its next report.${wait}`
+    return `${i18n.t('settings:sync.explain.pending')}${wait}`
   }
 
-  return 'Nothing is wrong with the settings — this device has simply never confirmed which revision it is running. Firmware older than remote settings never will.'
+  return i18n.t('settings:sync.explain.unknown')
 }
 
 function describeDiagram(syncState: ConfigSyncState): string {
   if (syncState === 'synced') {
-    return 'Settings have reached the device: dashboard, broker and device all confirmed.'
+    return i18n.t('settings:sync.diagram.synced')
   }
   if (syncState === 'pending') {
-    return 'Settings are published to the broker and waiting for the device to pick them up.'
+    return i18n.t('settings:sync.diagram.pending')
   }
-  return 'Settings are published to the broker; the device has not confirmed a revision.'
+  return i18n.t('settings:sync.diagram.unknown')
 }

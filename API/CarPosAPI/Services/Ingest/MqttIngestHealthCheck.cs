@@ -27,14 +27,36 @@ internal sealed class MqttIngestHealthCheck : IHealthCheck
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        string description =
-            $"connected={_state.IsConnected}, messages={_state.MessagesReceived}, " +
-            $"inserted={_state.PositionsInserted}, duplicates={_state.PositionsDuplicate}, " +
-            $"rejected={_state.EnvelopesRejected}, lastMessageUtc={_state.LastMessageAtUtc:O}";
+        bool connected = _state.IsConnected;
+        DateTime? lastMessageAtUtc = _state.LastMessageAtUtc;
 
-        HealthCheckResult result = _state.IsConnected
-            ? HealthCheckResult.Healthy(description)
-            : HealthCheckResult.Degraded(description);
+        // Structured rather than the one interpolated string this used to build:
+        // the response writer emits this dictionary as JSON, so a caller can read
+        // one counter without parsing a sentence. The broker URI, username and
+        // client id are deliberately absent — this endpoint is unauthenticated.
+        Dictionary<string, object> data = new Dictionary<string, object>
+        {
+            ["connected"] = connected,
+            ["messagesReceived"] = _state.MessagesReceived,
+            ["positionsInserted"] = _state.PositionsInserted,
+            ["positionsDuplicate"] = _state.PositionsDuplicate,
+            ["envelopesRejected"] = _state.EnvelopesRejected,
+        };
+
+        // Absent rather than null before the first message ever arrives; after one,
+        // its age is the number that says whether a "connected" link is actually
+        // carrying anything.
+        if (lastMessageAtUtc.HasValue)
+        {
+            data["lastMessageAtUtc"] = lastMessageAtUtc.Value;
+            data["secondsSinceLastMessage"] =
+                Math.Round((DateTime.UtcNow - lastMessageAtUtc.Value).TotalSeconds, 1);
+        }
+
+        HealthCheckResult result = connected
+            ? HealthCheckResult.Healthy("broker connected", data)
+            : HealthCheckResult.Degraded("disconnected; the reconnect loop is running", data: data);
+
         return Task.FromResult(result);
     }
 }

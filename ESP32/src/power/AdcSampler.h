@@ -21,12 +21,23 @@
 //  without them still reads raw counts happily, hasCalibration() reports false
 //  and the caller falls back to naive maths. That is a measurable loss of
 //  accuracy (several percent), not a failure.
+//
+//  Threading: this unit is read from TWO tasks - BatteryWindowSampler's own
+//  sampling task takes the pack every half second, while the main loop reads the
+//  very same GPIO35 as a charge flag (BatteryMonitor) and, in debug builds,
+//  again for the sensor print. adc_oneshot_read() on one handle from two tasks
+//  at once is not something the IDF promises anything about, and the pin table
+//  addPin() writes is read by every conversion, so both are mutex-guarded here.
+//  This used to be single-threaded, which is why the guard is new rather than
+//  original.
 // =============================================================================
 
 #include <cstddef>
 
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_oneshot.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 class AdcSampler {
  public:
@@ -59,8 +70,13 @@ class AdcSampler {
   // is the caller's business, not ours. Needs hasCalibration().
   bool readMv(int gpio, int& mvOut) const;
 
-  // Convert a raw count the caller already has (e.g. the mean of a burst) to
+  // Convert a raw count the caller already has (e.g. the median of a window) to
   // millivolts. Needs hasCalibration().
+  //
+  // Deliberately NOT guarded: it touches neither the oneshot unit nor the pin
+  // table, only the calibration handle's own arithmetic. Leaving it lock-free is
+  // also what lets readMv() call it after readRaw() without nesting a take -
+  // ScopedLock's mutex is not recursive.
   bool rawToMv(int raw, int& mvOut) const;
 
  private:
@@ -83,4 +99,10 @@ class AdcSampler {
   adc_oneshot_unit_handle_t handle_;  // owned; nullptr until begin()
   adc_cali_handle_t         cali_;    // owned; nullptr when uncalibrated
   bool                      ready_;
+
+  // Guards the unit handle and the pin table above (see the banner). Created in
+  // begin(); a null handle means "could not allocate a mutex", which ScopedLock
+  // tolerates by running unsynchronised - the pre-existing behaviour, and a
+  // better answer than refusing to read the battery at all.
+  SemaphoreHandle_t lock_;
 };

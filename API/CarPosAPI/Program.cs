@@ -1,15 +1,18 @@
 // Program.cs — composition root only: configuration binding, DI registrations,
-// the import-device-key CLI branch and the HTTP pipeline. All behaviour lives in
-// the layer folders (Options/, Data/, Services/), per project guidelines.
+// the two CLI branches (schema-sync, import-device-key) and the HTTP pipeline. All
+// behaviour lives in the layer folders (Options/, Data/, Services/), per project
+// guidelines.
 
 using System.Text;
 using System.Threading.RateLimiting;
 using CarPosAPI.Data;
+using CarPosAPI.Data.SchemaSync;
 using CarPosAPI.Middleware;
 using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Devices;
+using CarPosAPI.Services.Health;
 using CarPosAPI.Services.Ingest;
 using CarPosAPI.Services.Positions;
 using CarPosAPI.Services.Provisioning;
@@ -17,11 +20,24 @@ using CarPosAPI.Services.Scheduling;
 using CarPosAPI.Services.Security;
 using CarPosAPI.Services.Sharing;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+
+// CLI mode: compare a database against the schema this source describes, and
+// optionally bring it into line. Runs BEFORE the builder — unlike
+// import-device-key below — for two reasons: it must not need the JWT key, master
+// key or broker credentials, whose ValidateOnStart would refuse to boot for a task
+// that touches none of them; and it takes its database from --connection so it can
+// be pointed anywhere, which a DI-supplied context could not be (appsettings.Local
+// .json is added last and would override any connection passed in).
+if (SchemaSyncCommand.IsRequested(args))
+{
+    return await SchemaSyncCommand.RunAsync(args);
+}
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -162,10 +178,19 @@ builder.Services.AddScoped<IAccessService, AccessService>();
 // living for the lifetime of the process.
 // ---------------------------------------------------------------------------
 builder.Services.AddSingleton<ScheduleEvaluator>();
+// Stateless like the evaluator, and shared for the same reason. It takes the DbContext
+// per call rather than by injection, which is what lets both the scoped bundle
+// publisher and the singleton MqttConfigPublisher use the one instance.
+builder.Services.AddSingleton<ScheduleBundleBuilder>();
+builder.Services.AddScoped<IScheduleBundlePublisher, ScheduleBundlePublisher>();
 builder.Services.AddScoped<IDeviceConfigRevisionWriter, DeviceConfigRevisionWriter>();
 builder.Services.AddScoped<IDeviceScheduleResolver, DeviceScheduleResolver>();
 builder.Services.AddScoped<IDeviceConfigScheduleService, DeviceConfigScheduleService>();
 builder.Services.AddScoped<IScheduleReconciler, ScheduleReconciler>();
+// Shared between the worker and its health check, exactly as MqttConnectionState is
+// above: the worker swallows its failures by design, so this is the only way one
+// becomes visible from outside the log.
+builder.Services.AddSingleton<ScheduleWorkerState>();
 builder.Services.AddHostedService<DeviceConfigScheduleWorker>();
 
 builder.Services
@@ -245,9 +270,21 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
+// ---------------------------------------------------------------------------
+// Health. One check per dependency, each reporting separately in the JSON body
+// written by HealthReportWriter. Only the database can answer Unhealthy (503):
+// everything else here is either self-healing or unfixable by a restart, and a
+// container that restarts on a broker blip is worse than one that reports it.
+// The migration check is a singleton because it memoises its answer.
+// ---------------------------------------------------------------------------
+builder.Services.AddSingleton<MigrationHealthCheck>();
+
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<CarPosDbContext>("database")
-    .AddCheck<MqttIngestHealthCheck>("mqtt");
+    .AddCheck<DatabaseHealthCheck>("database")
+    .AddCheck<MqttIngestHealthCheck>("mqtt")
+    .AddCheck<MigrationHealthCheck>("migrations")
+    .AddCheck<ScheduleWorkerHealthCheck>("scheduler")
+    .AddCheck<ProcessHealthCheck>("process");
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -321,9 +358,19 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Liveness endpoint (unauthenticated by design; contains no data, only status).
-// Not proxied to the public internet — see the frontend's nginx.conf.
-app.MapHealthChecks("/health");
+// Health endpoint (unauthenticated by design). The body is a JSON report with one
+// entry per dependency, written by HealthReportWriter — which copies only what this
+// codebase wrote, never an exception message, precisely because nothing authenticates
+// here. Not proxied to the public internet either; see the frontend's nginx.conf.
+//
+// The default ResultStatusCodes are left alone on purpose: Healthy and Degraded both
+// answer 200 and only Unhealthy answers 503, which is the contract the container
+// healthcheck reads.
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = HealthReportWriter.WriteAsync,
+    AllowCachingResponses = false,
+});
 
 await app.RunAsync();
 return 0;

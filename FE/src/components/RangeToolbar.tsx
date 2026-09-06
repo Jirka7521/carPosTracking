@@ -18,6 +18,7 @@
 // ============================================================
 
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import type { DateRange } from '../utils/dates'
 import { RefreshToolbar } from './RefreshToolbar'
@@ -31,6 +32,7 @@ type RangeToolbarProps = {
   idPrefix:      string
   // The tab's own controls-bar class
   className:     string
+  // Passed straight through to RefreshToolbar, which supplies the defaults.
   refreshLabel?: string
   loadingLabel?: string
   extra?:        ReactNode
@@ -43,10 +45,12 @@ function RangeToolbar({
   isLoading,
   idPrefix,
   className,
-  refreshLabel = '↻ Refresh',
-  loadingLabel = 'Loading…',
+  refreshLabel,
+  loadingLabel,
   extra,
 }: RangeToolbarProps) {
+  const { t } = useTranslation('common')
+
   const fromId: string = `${idPrefix}-from`
   const toId:   string = `${idPrefix}-to`
 
@@ -54,7 +58,7 @@ function RangeToolbar({
     <div className={className}>
       {/* "From" date picker */}
       <div className="form-field">
-        <label className="form-label" htmlFor={fromId}>From</label>
+        <label className="form-label" htmlFor={fromId}>{t('range.from')}</label>
         <input
           id={fromId}
           className="form-input"
@@ -68,7 +72,7 @@ function RangeToolbar({
       {/* "To" date picker. Defaults to 12 hours ahead so incoming fixes land
           inside the window; nothing but this input ever changes it. */}
       <div className="form-field">
-        <label className="form-label" htmlFor={toId}>To</label>
+        <label className="form-label" htmlFor={toId}>{t('range.to')}</label>
         <input
           id={toId}
           className="form-input"

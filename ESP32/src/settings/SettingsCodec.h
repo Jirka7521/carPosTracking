@@ -20,7 +20,13 @@
 //  Unlike the telemetry payload this document is plaintext - it carries no
 //  position data, so there is nothing to encrypt end-to-end.
 //
-//  Stateless, so the two methods are static: there is nothing to construct.
+//  The object-level pair below exists because the schedule bundle embeds this
+//  very document: each profile in it carries the same seven keys, so ScheduleCodec
+//  hands the already-parsed object straight here rather than keeping a second
+//  copy of the key names and the range checks. That is the whole reason a profile
+//  and a config document can never disagree about what "interval_s" means.
+//
+//  Stateless, so every method is static: there is nothing to construct.
 // =============================================================================
 
 #include <cstddef>
@@ -55,6 +61,18 @@ class SettingsCodec {
   // document: one bad field should not cost us the five good ones beside it.
   static bool decode(const char* json, std::size_t length,
                      DeviceSettings& settings);
+
+  // Add the seven value keys to an existing cJSON object, plus "version" when
+  // `includeVersion` is set and the version is non-zero. Used by encode() above
+  // and by ScheduleCodec for each profile in a bundle.
+  static void encodeInto(cJSON* object, const DeviceSettings& settings,
+                         bool includeVersion);
+
+  // Decode from an already-parsed object, with the same merge semantics and the
+  // same return contract as decode(). Split out so a caller that has already
+  // parsed a larger document does not have to re-print and re-parse a fragment
+  // of it just to reach this code.
+  static bool decodeObject(const cJSON* object, DeviceSettings& settings);
 
  private:
   // Read one non-negative integer field into `out`. Returns true when the key

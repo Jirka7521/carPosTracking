@@ -13,6 +13,8 @@
 // status-badge / permission-badge pill idiom already used across the app.
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
+
 // A single-cell Li-ion pack; below these thresholds the badge shifts colour so a
 // low battery reads at a glance without parsing the number.
 const LOW_THRESHOLD = 20
@@ -39,6 +41,8 @@ function levelModifier(pct: number): string {
 }
 
 export function BatteryBadge({ value, large = false }: BatteryBadgeProps) {
+  const { t } = useTranslation('common')
+
   // No reading → nothing to show. Callers can drop the badge in unconditionally.
   if (value === null || value === undefined) {
     return null
@@ -51,10 +55,10 @@ export function BatteryBadge({ value, large = false }: BatteryBadgeProps) {
     return (
       <span
         className={`battery-badge battery-badge--charging${sizeClass}`}
-        title="Charging"
+        title={t('battery.charging')}
       >
         <span aria-hidden="true">⚡</span>
-        <span>Charging</span>
+        <span>{t('battery.charging')}</span>
       </span>
     )
   }
@@ -62,10 +66,11 @@ export function BatteryBadge({ value, large = false }: BatteryBadgeProps) {
   return (
     <span
       className={`battery-badge ${levelModifier(value)}${sizeClass}`}
-      title={`Battery ${value}%`}
+      title={t('battery.level', { value })}
     >
       <span aria-hidden="true">🔋</span>
-      <span>{value}%</span>
+      {/* Not just `{value}%` — English writes "85%", Czech writes "85 %". */}
+      <span>{t('battery.percent', { value })}</span>
     </span>
   )
 }

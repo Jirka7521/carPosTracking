@@ -114,6 +114,11 @@
 /* Full-viewport gradient background */
 .auth-page {
   min-height: 100svh;
+  /* Anchors the language picker in the corner — the login and register pages
+     render their own shell, so they do not get the header's copy of it, and a
+     visitor who cannot read English has to be able to switch before they can
+     sign in at all. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -121,6 +126,30 @@
   /* Diagonal gradient from deep blue to medium blue */
   background: linear-gradient(155deg, var(--blue-900) 0%, var(--blue-800) 50%, var(--blue-700) 100%);
   padding: 24px;
+}
+
+/* The language picker on the auth pages. The trigger sits on the dark gradient
+   rather than on a white panel, so it is the one place its colours are
+   restated; the popover below it is white either way. */
+.auth-language {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.auth-language .export-trigger {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.auth-language .export-trigger:hover:not(:disabled),
+.auth-language .export-trigger[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.auth-language .export-trigger:focus-visible {
+  outline-color: #fff;
 }
 
 /* Branding block above the white card */
@@ -925,6 +954,26 @@
   color: var(--text-muted);
 }
 
+/* ---- Language picker ----
+ * Reuses the export menu's popover wholesale; only the two things that differ
+ * in a header are overridden. The panel is narrower because a language list is
+ * two words wide, and align-self is reset because the header is a row, not the
+ * column the toolbar is.
+ */
+.language-menu {
+  align-self: auto;
+}
+
+.language-menu .export-menu-panel {
+  min-width: 168px;
+}
+
+/* Two columns here, not three — a language has a tick and a name, and no
+   sample character to show beside it. */
+.language-menu .export-menu-item {
+  grid-template-columns: 16px 1fr;
+}
+
 /* Overflow wrapper so the table scrolls horizontally on small screens */
 .position-table-wrapper {
   overflow-x: auto;
@@ -1680,6 +1729,37 @@
   align-items: flex-start;
 }
 
+/*
+ * Banner body. The banner itself is a flex row, so a message written as prose
+ * with <strong>/<em> in it must be handed over as ONE child — otherwise every
+ * inline tag becomes its own flex item and inherits the 10px gap, which reads
+ * as a row of loose fragments rather than a sentence.
+ */
+.banner-icon {
+  font-size: 1rem;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.banner-title {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.banner-detail {
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 .banner--info {
   background: var(--blue-50);
   border-color: var(--blue-200);
@@ -2419,6 +2499,22 @@
   margin: 0;
   font-size: 14px;
   color: var(--text);
+}
+
+/* What the tracker itself reported. Normally a quiet grey line (it uses .hint),
+   because a device that agrees with its schedule is the ordinary case and must
+   not read as a warning. This variant is only for the one that does not — and it
+   is warning-coloured, not danger-coloured: the server has already sent the
+   correction, so it is a thing to know, not a thing to do. */
+.schedule-status-device {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.schedule-status-device.is-adrift {
+  color: var(--warning);
+  font-weight: 500;
 }
 
 .schedule-status-tag {

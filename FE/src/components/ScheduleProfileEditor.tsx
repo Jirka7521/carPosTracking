@@ -14,6 +14,7 @@
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   DeviceConfigProfileDto,
   DeviceConfigValuesDto,
@@ -56,6 +57,8 @@ export function ScheduleProfileEditor({
   // Seeded once; the panel keys this component by profile id, so switching
   // profiles remounts it rather than needing an effect that could overwrite
   // half-typed values.
+  const { t } = useTranslation(['schedule', 'common'])
+
   const [name, setName] = useState<string>(profile?.name ?? '')
   const [values, setValues] = useState<DeviceConfigValuesDto>(profile?.values ?? DEFAULT_VALUES)
   const [error, setError] = useState<string>('')
@@ -73,7 +76,7 @@ export function ScheduleProfileEditor({
 
     const trimmed: string = name.trim()
     if (trimmed.length === 0) {
-      setError('Give the profile a name — it is how the rules refer to it.')
+      setError(t('schedule:profile.nameRequired'))
       return
     }
 
@@ -92,14 +95,14 @@ export function ScheduleProfileEditor({
   return (
     <form className="schedule-profile-editor" onSubmit={handleSubmit}>
       <div className="form-field">
-        <label className="form-label" htmlFor="profile-name">Profile name</label>
+        <label className="form-label" htmlFor="profile-name">{t('schedule:profile.name')}</label>
         <input
           id="profile-name"
           className="form-input"
           type="text"
           value={name}
           onChange={(event) => { setName(event.target.value); setError('') }}
-          placeholder="Night"
+          placeholder={t('schedule:profile.namePlaceholder')}
           maxLength={40}
           required
         />
@@ -107,8 +110,7 @@ export function ScheduleProfileEditor({
 
       {isActive ? (
         <div className="banner banner--info" role="status">
-          This profile is in force right now, so saving changes what the tracker is
-          running immediately — not at the next switch.
+          {t('schedule:profile.inForceWarning')}
         </div>
       ) : null}
 
@@ -127,10 +129,14 @@ export function ScheduleProfileEditor({
 
       <div className="config-actions">
         <button type="submit" className="btn btn-primary btn-sm" disabled={isSaving}>
-          {isSaving ? 'Saving…' : profile === null ? 'Create profile' : 'Save profile'}
+          {isSaving
+            ? t('common:actions.saving')
+            : profile === null
+              ? t('schedule:profile.create')
+              : t('schedule:profile.save')}
         </button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={isSaving}>
-          Cancel
+          {t('common:actions.cancel')}
         </button>
       </div>
     </form>

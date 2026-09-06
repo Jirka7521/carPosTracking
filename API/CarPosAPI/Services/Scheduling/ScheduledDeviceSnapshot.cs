@@ -14,7 +14,15 @@ namespace CarPosAPI.Services.Scheduling;
 /// <param name="RowId">Internal device id, for joins and for the revision writer.</param>
 /// <param name="DeviceId">The MQTT identity, for log lines a human can act on.</param>
 /// <param name="FallbackProfileId">The profile for time no rule covers.</param>
+/// <param name="ScheduleBundleVersion">The bundle revision the server has published.</param>
+/// <param name="ReportedScheduleVersion">The bundle revision the device last reported holding, or null.</param>
+/// <param name="ReportedProfileSlot">The profile slot the device last reported running, or null.</param>
+/// <param name="ReportedProfileAt">The fix time of that report, or null.</param>
 internal sealed record ScheduledDeviceSnapshot(
     Guid RowId,
     string DeviceId,
-    Guid? FallbackProfileId);
+    Guid? FallbackProfileId,
+    int ScheduleBundleVersion,
+    int? ReportedScheduleVersion,
+    int? ReportedProfileSlot,
+    DateTime? ReportedProfileAt);

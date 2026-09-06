@@ -13,6 +13,7 @@
 // useAutoRefresh, so a page can drive several loads off one timer.
 // ============================================================
 
+import { useTranslation } from 'react-i18next'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 
 export type RefreshToolbarProps = {
@@ -21,6 +22,8 @@ export type RefreshToolbarProps = {
   // is in flight" means for them — which is not always the same flag that
   // blanks the page, see DevicePage.
   isLoading: boolean
+  // Already-translated text. Left undefined, the two standard labels below
+  // are used — a default of an English literal could not be one of them.
   refreshLabel?: string
   loadingLabel?: string
 }
@@ -28,9 +31,11 @@ export type RefreshToolbarProps = {
 export function RefreshToolbar({
   autoRefresh,
   isLoading,
-  refreshLabel = '↻ Refresh',
-  loadingLabel = 'Loading…',
+  refreshLabel,
+  loadingLabel,
 }: RefreshToolbarProps) {
+  const { t } = useTranslation('common')
+
   return (
     <>
       {/* Auto-refresh toggle: re-runs the same query, it does not move the range */}
@@ -41,10 +46,10 @@ export function RefreshToolbar({
           onChange={(e) => autoRefresh.setEnabled(e.target.checked)}
         />
         <span>
-          Auto-refresh
+          {t('refresh.auto')}
           {autoRefresh.enabled ? (
             <span className="refresh-pill" style={{ marginLeft: 8 }}>
-              ↻ {autoRefresh.countdown}s
+              ↻ {t('refresh.countdown', { seconds: autoRefresh.countdown })}
             </span>
           ) : null}
         </span>
@@ -61,10 +66,10 @@ export function RefreshToolbar({
         {isLoading ? (
           <>
             <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-            {loadingLabel}
+            {loadingLabel ?? t('states.loading')}
           </>
         ) : (
-          refreshLabel
+          refreshLabel ?? t('refresh.now')
         )}
       </button>
     </>

@@ -28,6 +28,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
+import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
@@ -84,18 +87,24 @@ function isApiOrder(sort: Sort): boolean {
 // absent: it numbers the current sort order, so it has nothing of its own to sort
 // by. Header row and comparator both read this, so a column can only ever be
 // added in one place.
-const COLUMNS: ReadonlyArray<{ key: SortKey; label: string }> = [
-  { key: 'timestamp',      label: 'Timestamp' },
-  { key: 'latitude',       label: 'Latitude' },
-  { key: 'longitude',      label: 'Longitude' },
-  { key: 'speedKmph',      label: 'Speed' },
-  { key: 'altitudeMeters', label: 'Altitude' },
-  { key: 'batteryPct',     label: 'Battery' },
-  { key: 'accelXG',        label: 'Accel X (g)' },
-  { key: 'accelYG',        label: 'Accel Y (g)' },
-  { key: 'accelZG',        label: 'Accel Z (g)' },
-  { key: 'temperatureC',   label: 'Temp' },
-]
+// `labelKey` rather than a label: the header row resolves it. `as const`
+// keeps the keys literal types so t() can check them against the catalogue.
+//
+// The keys themselves stay the API's own field names, which is also what the
+// CSV header row is built from — see CSV_HEADERS. Those are deliberately NOT
+// translated: the file is read back by a machine.
+const COLUMNS = [
+  { key: 'timestamp',      labelKey: 'device:positions.column.timestamp' },
+  { key: 'latitude',       labelKey: 'device:positions.column.latitude' },
+  { key: 'longitude',      labelKey: 'device:positions.column.longitude' },
+  { key: 'speedKmph',      labelKey: 'device:positions.column.speed' },
+  { key: 'altitudeMeters', labelKey: 'device:positions.column.altitude' },
+  { key: 'batteryPct',     labelKey: 'device:positions.column.battery' },
+  { key: 'accelXG',        labelKey: 'device:positions.column.accelX' },
+  { key: 'accelYG',        labelKey: 'device:positions.column.accelY' },
+  { key: 'accelZG',        labelKey: 'device:positions.column.accelZ' },
+  { key: 'temperatureC',   labelKey: 'device:positions.column.temperature' },
+] as const satisfies readonly { key: SortKey; labelKey: string }[]
 
 // The single number a row is ranked by, or null when it has none to rank —
 // null rows always sink to the bottom, whichever direction is active (see below).
@@ -136,7 +145,7 @@ function comparePositions(sort: Sort): (a: PositionDto, b: PositionDto) => numbe
 // Format one accelerometer axis (in g) for the table, or an em dash when the
 // device sent no reading (accelerometer disabled or firmware predating it).
 function formatAccel(value: number | null): string {
-  return value === null ? '—' : value.toFixed(2)
+  return value === null ? i18n.t('common:states.none') : formatNumber(value, 2)
 }
 
 // Battery as the device reports it: 0 is the agreed "charging" SENTINEL (see
@@ -145,21 +154,23 @@ function formatAccel(value: number | null): string {
 // dense and as aligned as the numeric ones beside it.
 function formatBattery(value: number | null): string {
   if (value === null) {
-    return '—'
+    return i18n.t('common:states.none')
   }
-  return value === 0 ? 'Charging' : `${value}%`
+  return value === 0
+    ? i18n.t('common:battery.charging')
+    : i18n.t('common:battery.percent', { value })
 }
 
 // Format the modem die temperature (°C) for the table, or an em dash when the
 // device sent no reading (older firmware or the sensor unsupported).
 function formatTemperature(value: number | null): string {
-  return value === null ? '—' : `${value.toFixed(1)} °C`
+  return value === null ? i18n.t('common:states.none') : `${formatNumber(value, 1)} °C`
 }
 
 // Formats an API timestamp to a readable local date/time string.
 function formatTimestamp(value: string): string {
   const parsed = parseApiTimestamp(value)
-  return parsed === null ? value : parsed.toLocaleString(undefined, { hour12: false })
+  return parsed === null ? value : formatDateTime(parsed)
 }
 
 // ---- CSV export ----
@@ -225,6 +236,8 @@ function csvFileName(deviceId: string): string {
 }
 
 export function PositionListTab() {
+  const { t } = useTranslation(['device', 'common', 'errors'])
+
   // The auto-refresh here is the DEVICE PAGE's timer, not one of this tab's own. It
   // bumps a token to re-run the query below and never touches the date range —
   // and because the header's battery and last-fix hang off the same token,
@@ -422,13 +435,16 @@ export function PositionListTab() {
       // that started this walk — either way it is now out of date.
       const total: number = positionsRef.current.length
       setStatusMessage(
-        cursorRef.current === null
-          ? `${total.toLocaleString()} position${total === 1 ? '' : 's'} loaded — the whole range.`
-          : `${total.toLocaleString()} position${total === 1 ? '' : 's'} loaded so far.`,
+        t(
+          cursorRef.current === null
+            ? 'device:positions.loadedWholeRange'
+            : 'device:positions.loadedSoFar',
+          { count: total, value: formatInteger(total) },
+        ),
       )
     } catch (error) {
       if (generationRef.current === generation) {
-        setStatusMessage(describeError(error, 'Failed to load more positions.'))
+        setStatusMessage(describeError(error, t('errors:loadMorePositionsFailed')))
       }
     } finally {
       isLoadingMoreRef.current = false
@@ -472,7 +488,7 @@ export function PositionListTab() {
 
     try {
       if (cursorRef.current !== null) {
-        setStatusMessage('Loading the rest of the range for the export…')
+        setStatusMessage(t('device:positions.loadingForExport'))
         // Reports its own failures in the status line and leaves the cursor
         // untouched, so a blip mid-walk becomes a short export rather than a
         // thrown error — and the count below says how short.
@@ -492,7 +508,7 @@ export function PositionListTab() {
       const rows: PositionDto[] = [...positionsRef.current].sort(comparePositions(sortRef.current))
 
       if (rows.length === 0) {
-        setStatusMessage('Nothing to export — no positions in this time range.')
+        setStatusMessage(t('device:positions.nothingToExport'))
         return
       }
 
@@ -506,8 +522,14 @@ export function PositionListTab() {
 
       setStatusMessage(
         cursorRef.current === null
-          ? `Exported ${rows.length.toLocaleString()} position${rows.length === 1 ? '' : 's'}.`
-          : `Exported the newest ${rows.length.toLocaleString()} positions — the range holds more than the ${MAX_TABLE_ROWS.toLocaleString()}-row limit.`,
+          ? t('device:positions.exported', {
+              count: rows.length,
+              value: formatInteger(rows.length),
+            })
+          : t('device:positions.exportedCapped', {
+              value: formatInteger(rows.length),
+              limit: formatInteger(MAX_TABLE_ROWS),
+            }),
       )
     } finally {
       setIsExporting(false)
@@ -533,7 +555,7 @@ export function PositionListTab() {
     setPage(0)
 
     if (!isApiOrder(next) && cursorRef.current !== null) {
-      setStatusMessage('Loading the rest of the range so the sort covers all of it…')
+      setStatusMessage(t('device:positions.loadingForSort'))
       void loadMoreChunks(MAX_TABLE_ROWS)
     }
   }
@@ -599,8 +621,8 @@ export function PositionListTab() {
         const total = positionsRef.current.length
         setStatusMessage(
           total === 0
-            ? 'No positions found for this time range.'
-            : `${total.toLocaleString()} position${total === 1 ? '' : 's'} loaded.`,
+            ? t('device:positions.noneInRange')
+            : t('device:positions.loadedCount', { count: total, value: formatInteger(total) }),
         )
       } catch (error) {
         if (canceled) {
@@ -608,7 +630,7 @@ export function PositionListTab() {
         }
         // Keep the rows already on screen — a momentary network blip should
         // report itself in the status line, not empty the table.
-        setStatusMessage(describeError(error, 'Failed to load positions.'))
+        setStatusMessage(describeError(error, t('errors:loadPositionsFailed')))
       } finally {
         if (!canceled) {
           setIsLoading(false)
@@ -711,13 +733,13 @@ export function PositionListTab() {
               aria-expanded={isMenuOpen}
             >
               <span className="export-trigger-icon" aria-hidden="true">⤓</span>
-              {isExporting ? 'Exporting…' : 'Export CSV'}
+              {isExporting ? t('device:positions.exporting') : t('device:positions.exportCsv')}
             </button>
 
             {isMenuOpen ? (
               <div className="export-menu-panel" aria-labelledby="pos-export-heading">
                 <p className="export-menu-heading" id="pos-export-heading">
-                  Column separator
+                  {t('device:positions.columnSeparator')}
                 </p>
 
                 {CSV_DELIMITERS.map((option) => (
@@ -732,11 +754,11 @@ export function PositionListTab() {
                     <span className="export-menu-check" aria-hidden="true">
                       {option.value === csvDelimiter ? '✓' : ''}
                     </span>
-                    <span className="export-menu-label">{option.label}</span>
+                    <span className="export-menu-label">{t(option.labelKey)}</span>
                     <span className="export-menu-sample" aria-hidden="true">
                       {option.sample}
                     </span>
-                    <span className="export-menu-hint">{option.hint}</span>
+                    <span className="export-menu-hint">{t(option.hintKey)}</span>
                   </button>
                 ))}
               </div>
@@ -756,14 +778,14 @@ export function PositionListTab() {
       {isLoading && positions.length === 0 ? (
         <div className="loading-state">
           <div className="spinner" />
-          <span>Loading positions…</span>
+          <span>{t('device:positions.loading')}</span>
         </div>
       ) : positions.length === 0 ? (
         /* ---- Empty state ---- */
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true">📍</span>
-          <h3>No positions</h3>
-          <p>No GPS fixes were recorded in the selected time range.</p>
+          <h3>{t('device:positions.emptyTitle')}</h3>
+          <p>{t('device:positions.emptyBody')}</p>
         </div>
       ) : (
         /* ---- Position table ---- */
@@ -802,7 +824,7 @@ export function PositionListTab() {
                              column ranked over a partial range. */
                           disabled={isLoadingMore}
                         >
-                          {column.label}
+                          {t(column.labelKey)}
                           <span
                             className={`th-sort-icon${isActive ? ' th-sort-icon--active' : ''}`}
                             aria-hidden="true"
@@ -835,21 +857,23 @@ export function PositionListTab() {
                       <td>
                         {formatTimestamp(position.timestamp)}
                         {isLatest ? (
-                          <span className="latest-badge" aria-label="Latest position">
-                            Latest
+                          <span className="latest-badge" aria-label={t('device:positions.latestFull')}>
+                            {t('device:positions.latest')}
                           </span>
                         ) : null}
                       </td>
 
                       {/* Coordinates in monospace */}
-                      <td className="position-coord">{position.latitude.toFixed(6)}</td>
-                      <td className="position-coord">{position.longitude.toFixed(6)}</td>
+                      <td className="position-coord">{formatCoordinate(position.latitude)}</td>
+                      <td className="position-coord">{formatCoordinate(position.longitude)}</td>
 
                       {/* As reported by the receiver — not derived from the
                           track, so a stationary vehicle may still show a small
                           non-zero speed. */}
-                      <td className="position-coord">{position.speedKmph.toFixed(1)} km/h</td>
-                      <td className="position-coord">{Math.round(position.altitudeMeters)} m</td>
+                      <td className="position-coord">{formatNumber(position.speedKmph, 1)} km/h</td>
+                      <td className="position-coord">
+                        {formatInteger(Math.round(position.altitudeMeters))} m
+                      </td>
 
                       {/* "Charging" rather than 0% — see formatBattery. */}
                       <td className="position-coord">{formatBattery(position.batteryPct)}</td>
@@ -870,16 +894,22 @@ export function PositionListTab() {
           {/* ---- Pagination bar ---- */}
           <div className="pagination">
             <span>
-              Showing {(pageStart + 1).toLocaleString()}–{pageEnd.toLocaleString()} of{' '}
-              {positions.length.toLocaleString()} positions
+              {t('device:positions.showingRange', {
+                first: formatInteger(pageStart + 1),
+                last: formatInteger(pageEnd),
+                total: formatInteger(positions.length),
+              })}
               {hasMore ? (
-                <span style={{ color: 'var(--text-muted)' }}> loaded — more further back</span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}
+                  {t('device:positions.moreFurtherBack')}
+                </span>
               ) : null}
             </span>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
               <label htmlFor="page-size-select" style={{ color: 'var(--text-muted)' }}>
-                Rows per page:
+                {t('device:positions.rowsPerPage')}
               </label>
               <select
                 id="page-size-select"
@@ -903,15 +933,18 @@ export function PositionListTab() {
                 className="btn btn-secondary btn-sm"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={currentPage === 0}
-                aria-label="Previous page"
+                aria-label={t('device:positions.previousPage')}
               >
-                ← Prev
+                {t('device:positions.prev')}
               </button>
 
               {/* "40+" rather than "40": the page count is of what is loaded,
                   and there is a chunk behind it that has not been asked for. */}
               <span style={{ alignSelf: 'center', padding: '0 4px', fontSize: '0.875rem' }}>
-                Page {currentPage + 1} / {totalPages}{hasMore ? '+' : ''}
+                {t('device:positions.pageOf', {
+                  page: currentPage + 1,
+                  total: `${totalPages}${hasMore ? '+' : ''}`,
+                })}
               </span>
 
               <button
@@ -919,9 +952,9 @@ export function PositionListTab() {
                 className="btn btn-secondary btn-sm"
                 onClick={() => void handleNextPage()}
                 disabled={!canGoNext}
-                aria-label="Next page"
+                aria-label={t('device:positions.nextPage')}
               >
-                {isLoadingMore ? 'Loading…' : 'Next →'}
+                {isLoadingMore ? t('common:states.loading') : t('device:positions.next')}
               </button>
             </div>
           </div>

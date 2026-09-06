@@ -2,6 +2,7 @@
 
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_log.h"
+#include "util/ScopedLock.h"
 
 static const char* TAG = "AdcSampler";
 
@@ -20,7 +21,12 @@ static constexpr adc_unit_t kUnit = ADC_UNIT_1;
 static constexpr uint32_t kDefaultVrefMv = 1100;
 
 AdcSampler::AdcSampler()
-    : pins_{}, pinCount_(0), handle_(nullptr), cali_(nullptr), ready_(false) {}
+    : pins_{},
+      pinCount_(0),
+      handle_(nullptr),
+      cali_(nullptr),
+      ready_(false),
+      lock_(nullptr) {}
 
 AdcSampler::~AdcSampler() {
   if (cali_ != nullptr) {
@@ -31,12 +37,24 @@ AdcSampler::~AdcSampler() {
     adc_oneshot_del_unit(handle_);
     handle_ = nullptr;
   }
+  if (lock_ != nullptr) {
+    vSemaphoreDelete(lock_);
+    lock_ = nullptr;
+  }
   ready_ = false;
 }
 
 bool AdcSampler::begin() {
   if (ready_) {
     return true;  // idempotent: two owners of this object share one unit
+  }
+
+  // Before the unit exists, so no conversion can ever run unguarded. A failure
+  // here is logged and carried on from: ScopedLock treats a null handle as "no
+  // synchronisation", which is what this class did before it was shared.
+  lock_ = xSemaphoreCreateMutex();
+  if (lock_ == nullptr) {
+    ESP_LOGW(TAG, "no ADC lock - conversions will run unsynchronised");
   }
 
   adc_oneshot_unit_init_cfg_t initCfg = {};
@@ -90,6 +108,12 @@ bool AdcSampler::addPin(int gpio) {
     return false;
   }
 
+  // Held for the whole method: the table this appends to is what every
+  // conversion reads. In practice all the pins are claimed during bring-up,
+  // before the sampling task exists, but that ordering is a property of
+  // main.cpp rather than of this class - so it is not relied on here.
+  ScopedLock guard(lock_);
+
   adc_channel_t existing = ADC_CHANNEL_0;
   if (channelFor(gpio, existing)) {
     return true;  // already configured - adding a pin twice is harmless
@@ -136,6 +160,11 @@ bool AdcSampler::readRaw(int gpio, int& rawOut) const {
   if (!ready_) {
     return false;
   }
+
+  // One conversion at a time across the whole firmware - see the banner. Taking
+  // a mutex through its handle does not mutate the handle, so this stays const.
+  ScopedLock guard(lock_);
+
   adc_channel_t channel = ADC_CHANNEL_0;
   if (!channelFor(gpio, channel)) {
     return false;

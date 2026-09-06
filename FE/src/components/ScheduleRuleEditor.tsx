@@ -20,13 +20,14 @@
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   DeviceConfigProfileDto,
   DeviceScheduleRuleDto,
   SaveScheduleRuleRequestDto,
 } from '../services/apiTypes'
 import {
-  DAY_LABELS,
+  dayLabelShort,
   MASK_EVERY_DAY,
   MASK_WEEKDAYS,
   MASK_WEEKEND,
@@ -56,6 +57,8 @@ export function ScheduleRuleEditor({
   onSubmit,
   onCancel,
 }: ScheduleRuleEditorProps) {
+  const { t } = useTranslation(['schedule', 'common'])
+
   // Seeded once from the rule. The panel gives this component a `key` tied to
   // the rule id, so opening a different rule remounts it rather than needing an
   // effect that would fight whatever the reader has typed.
@@ -108,15 +111,15 @@ export function ScheduleRuleEditor({
     event.preventDefault()
 
     if (profileId === '') {
-      setError('Choose the profile this window should apply.')
+      setError(t('schedule:rule.errorNoProfile'))
       return
     }
     if (daysMask === 0) {
-      setError('Pick at least one day. To park a rule without losing it, untick "Enabled".')
+      setError(t('schedule:rule.errorNoDays'))
       return
     }
     if (startMinute === null || endMinute === null || durationMinutes === null || stored === null) {
-      setError('Enter both times as HH:MM.')
+      setError(t('schedule:rule.errorBadTime'))
       return
     }
 
@@ -133,17 +136,17 @@ export function ScheduleRuleEditor({
   return (
     <form className="schedule-rule-editor" onSubmit={handleSubmit}>
       <div className="form-field">
-        <span className="form-label">Days</span>
-        <div className="schedule-day-toggles" role="group" aria-label="Days of the week">
-          {DAY_LABELS.map((label, day) => (
+        <span className="form-label">{t('schedule:rule.days')}</span>
+        <div className="schedule-day-toggles" role="group" aria-label={t('schedule:rule.daysGroup')}>
+          {[0, 1, 2, 3, 4, 5, 6].map((day) => (
             <button
-              key={label}
+              key={day}
               type="button"
               className={`schedule-day-toggle${daysMask & (1 << day) ? ' is-on' : ''}`}
               onClick={() => toggleDay(day)}
               aria-pressed={(daysMask & (1 << day)) !== 0}
             >
-              {label}
+              {dayLabelShort(day)}
             </button>
           ))}
         </div>
@@ -151,20 +154,20 @@ export function ScheduleRuleEditor({
           {/* The three sets people actually mean, so the common case is one
               click rather than five. */}
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_WEEKDAYS)}>
-            Mon–Fri
+            {t('schedule:days.weekdays')}
           </button>
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_WEEKEND)}>
-            Weekends
+            {t('schedule:days.weekendPreset')}
           </button>
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDaysMask(MASK_EVERY_DAY)}>
-            Every day
+            {t('schedule:days.everyDay')}
           </button>
         </div>
       </div>
 
       <div className="config-grid">
         <div className="form-field">
-          <label className="form-label" htmlFor="rule-start">From</label>
+          <label className="form-label" htmlFor="rule-start">{t('schedule:rule.from')}</label>
           <input
             id="rule-start"
             className="form-input"
@@ -176,7 +179,7 @@ export function ScheduleRuleEditor({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="rule-end">To</label>
+          <label className="form-label" htmlFor="rule-end">{t('schedule:rule.to')}</label>
           <input
             id="rule-end"
             className="form-input"
@@ -188,14 +191,18 @@ export function ScheduleRuleEditor({
           <span className="hint">
             {durationMinutes === null
               ? ''
-              : `${describeDuration(durationMinutes)}${wrapsMidnight ? ' · ends the next day' : ''}`}
+              : wrapsMidnight
+                ? t('schedule:rule.durationWrapping', {
+                    duration: describeDuration(durationMinutes),
+                  })
+                : describeDuration(durationMinutes)}
           </span>
         </div>
       </div>
 
       <div className="config-grid">
         <div className="form-field">
-          <label className="form-label" htmlFor="rule-profile">Apply profile</label>
+          <label className="form-label" htmlFor="rule-profile">{t('schedule:rule.applyProfile')}</label>
           <select
             id="rule-profile"
             className="form-input"
@@ -203,7 +210,7 @@ export function ScheduleRuleEditor({
             onChange={(event) => { setProfileId(event.target.value); setError('') }}
             required
           >
-            {profiles.length === 0 ? <option value="">No profiles yet</option> : null}
+            {profiles.length === 0 ? <option value="">{t('schedule:rule.noProfiles')}</option> : null}
             {profiles.map((profile) => (
               <option key={profile.id} value={profile.id}>{profile.name}</option>
             ))}
@@ -211,7 +218,7 @@ export function ScheduleRuleEditor({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="rule-priority">Priority</label>
+          <label className="form-label" htmlFor="rule-priority">{t('schedule:rule.priority')}</label>
           <input
             id="rule-priority"
             className="form-input"
@@ -223,7 +230,7 @@ export function ScheduleRuleEditor({
             onChange={(event) => setPriority(Number(event.target.value))}
             required
           />
-          <span className="hint">Lower wins where windows overlap.</span>
+          <span className="hint">{t('schedule:rule.priorityHint')}</span>
         </div>
       </div>
 
@@ -233,7 +240,7 @@ export function ScheduleRuleEditor({
           checked={isEnabled}
           onChange={(event) => setIsEnabled(event.target.checked)}
         />
-        <span>Enabled</span>
+        <span>{t('schedule:rule.enabled')}</span>
       </label>
 
       {/* A plain restatement of the window in the reader's own terms. The
@@ -242,8 +249,12 @@ export function ScheduleRuleEditor({
           people get wrong when they tick boxes and then change the time. */}
       {stored !== null && durationMinutes !== null ? (
         <p className="hint schedule-utc-note">
-          {describeDaysMask(daysMask)}, {startTime}–{endTime}
-          {wrapsMidnight ? ' the next day' : ''} · {describeDuration(durationMinutes)}
+          {t(wrapsMidnight ? 'schedule:rule.summaryWrapping' : 'schedule:rule.summary', {
+            days: describeDaysMask(daysMask),
+            from: startTime,
+            to: endTime,
+            duration: describeDuration(durationMinutes),
+          })}
         </p>
       ) : null}
 
@@ -251,10 +262,14 @@ export function ScheduleRuleEditor({
 
       <div className="config-actions">
         <button type="submit" className="btn btn-primary btn-sm" disabled={isSaving}>
-          {isSaving ? 'Saving…' : rule === null ? 'Add rule' : 'Save rule'}
+          {isSaving
+            ? t('common:actions.saving')
+            : rule === null
+              ? t('schedule:rule.add')
+              : t('schedule:rule.save')}
         </button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={isSaving}>
-          Cancel
+          {t('common:actions.cancel')}
         </button>
       </div>
     </form>

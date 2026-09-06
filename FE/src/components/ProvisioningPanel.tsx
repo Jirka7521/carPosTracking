@@ -45,6 +45,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { importDeviceAckKey } from '../services/apiClient'
 import type { DeviceProvisioningDto } from '../services/apiTypes'
 import type { AckKeyPair } from '../utils/ackKeyPair'
@@ -69,6 +70,8 @@ type ProvisioningPanelProps = {
 const CONFIG_FILE_NAME = 'Config.h'
 
 export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: ProvisioningPanelProps) {
+  const { t } = useTranslation(['settings', 'common', 'errors'])
+
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   // ---- Secrets the operator supplies ----
@@ -136,7 +139,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
       setIsFileSaved(false)
       setActivatedFingerprint(null)
     } catch (error) {
-      setKeyError(describeError(error, 'Could not generate a key pair in this browser.'))
+      setKeyError(describeError(error, t('errors:generateKeyFailed')))
     } finally {
       setIsGenerating(false)
     }
@@ -155,7 +158,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
     } catch (error) {
       // The private key deliberately stays on screen so the operator can retry
       // — losing it here would mean regenerating and re-flashing for nothing.
-      setKeyError(describeError(error, 'Could not store the new key. The device still uses its previous one.'))
+      setKeyError(describeError(error, t('errors:storeAckKeyFailed')))
     } finally {
       setIsActivating(false)
     }
@@ -163,38 +166,34 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
 
   return (
     <div className="add-device-panel" style={{ marginTop: 16 }}>
-      <h3>{title ?? 'Firmware configuration'}</h3>
+      <h3>{title ?? t('settings:provisioning.title')}</h3>
       <p>
-        A complete <code>Config.h</code> for this device — save it as{' '}
-        <code>ESP32/src/config/Config.h</code> and run <code>pio run</code>.
-        Everything specific to this tracker is already in it; the only blanks are
-        the secrets below, which your browser fills in without sending them
-        anywhere.
+        <Trans i18nKey="provisioning.intro" ns="settings" components={{ code: <code /> }} />
       </p>
 
       <dl className="provisioning-facts">
-        <dt>Device ID</dt>
+        <dt>{t('settings:provisioning.deviceId')}</dt>
         <dd><code>{provisioning.deviceId}</code></dd>
 
-        <dt>Telemetry topic</dt>
+        <dt>{t('settings:provisioning.telemetryTopic')}</dt>
         <dd><code>{provisioning.telemetryTopic}</code></dd>
 
-        <dt>Config topic</dt>
+        <dt>{t('settings:provisioning.configTopic')}</dt>
         <dd><code>{provisioning.configTopic}</code></dd>
 
-        <dt>Ack topic</dt>
+        <dt>{t('settings:provisioning.ackTopic')}</dt>
         <dd><code>{provisioning.ackTopic}</code></dd>
 
-        <dt>Broker</dt>
+        <dt>{t('settings:provisioning.broker')}</dt>
         <dd><code>{provisioning.brokerUri}</code></dd>
 
-        <dt>Public key fingerprint</dt>
+        <dt>{t('settings:provisioning.publicKeyFingerprint')}</dt>
         {/* SHA-256 of the SPKI bytes. Comparing this against what the flashed
             firmware reports confirms the device carries the right key without
             either side handling key material. */}
         <dd><code style={{ wordBreak: 'break-all' }}>{provisioning.publicKeyFingerprint}</code></dd>
 
-        <dt>Ack key fingerprint</dt>
+        <dt>{t('settings:provisioning.ackKeyFingerprint')}</dt>
         {/* Null until an ack public key is stored. Saying so explicitly matters:
             firmware flashed with acks enabled against a device that has no ack key
             would retry every fix forever, and the cause would be invisible here. */}
@@ -202,7 +201,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
           {activatedFingerprint !== null ? (
             <code style={{ wordBreak: 'break-all' }}>{activatedFingerprint}</code>
           ) : provisioning.ackPublicKeyFingerprint === null ? (
-            <span className="hint">Not configured — delivery acks are off</span>
+            <span className="hint">{t('settings:provisioning.ackNotConfigured')}</span>
           ) : (
             <code style={{ wordBreak: 'break-all' }}>{provisioning.ackPublicKeyFingerprint}</code>
           )}
@@ -213,18 +212,14 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
        * Secrets — typed here, woven in here, never uploaded
        * ================================================================ */}
       <div className="config-secrets">
-        <h4>Your secrets</h4>
+        <h4>{t('settings:secrets.title')}</h4>
         <p className="hint">
-          These four values are the only blanks left in the file. They are
-          inserted <strong>in this browser</strong> — they are never sent to the
-          server, never stored, and are gone when you leave this page. Leave any
-          of them empty and the file still builds; the matching feature just
-          stays off.
+          <Trans i18nKey="secrets.intro" ns="settings" components={{ strong: <strong /> }} />
         </p>
 
         <div className="config-grid">
           <div className="form-field">
-            <label className="form-label" htmlFor="config-wifi-ssid">WiFi network (SSID)</label>
+            <label className="form-label" htmlFor="config-wifi-ssid">{t('settings:secrets.wifiSsid')}</label>
             <input
               id="config-wifi-ssid"
               className="form-input"
@@ -234,17 +229,15 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
               autoComplete="off"
               spellCheck={false}
             />
+            {/* Explaining the flip, because it is a change the file makes on
+                your behalf and a silent one would be surprising. */}
             <span className="hint">
-              {/* Explaining the flip, because it is a change the file makes on
-                  your behalf and a silent one would be surprising. */}
-              Filling this in also switches <code>kWifiEnabled</code> on. Left
-              empty, WiFi stays off so the tracker does not wait out a connect
-              timeout on every boot.
+              <Trans i18nKey="secrets.wifiSsidHint" ns="settings" components={{ code: <code /> }} />
             </span>
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="config-wifi-password">WiFi password</label>
+            <label className="form-label" htmlFor="config-wifi-password">{t('settings:secrets.wifiPassword')}</label>
             <input
               id="config-wifi-password"
               className="form-input"
@@ -256,7 +249,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="config-mqtt-password">MQTT broker password</label>
+            <label className="form-label" htmlFor="config-mqtt-password">{t('settings:secrets.mqttPassword')}</label>
             <input
               id="config-mqtt-password"
               className="form-input"
@@ -266,9 +259,12 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
               autoComplete="new-password"
             />
             <span className="hint">
-              The one you created for <code>{provisioning.deviceId}</code> with{' '}
-              <code>mosquitto_passwd</code>. The API does not issue broker
-              accounts, so it cannot fill this in for you.
+              <Trans
+                i18nKey="secrets.mqttPasswordHint"
+                ns="settings"
+                values={{ deviceId: provisioning.deviceId }}
+                components={{ code: <code /> }}
+              />
             </span>
           </div>
         </div>
@@ -279,7 +275,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
             checked={arePasswordsVisible}
             onChange={(event) => setArePasswordsVisible(event.target.checked)}
           />
-          <span>Show passwords</span>
+          <span>{t('settings:secrets.showPasswords')}</span>
         </label>
       </div>
 
@@ -287,22 +283,17 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
        * Ack key pair — generate, save, then activate. In that order.
        * ================================================================ */}
       <div className="config-secrets">
-        <h4>Delivery ack key</h4>
-        <p className="hint">
-          With acks on, the tracker only clears a fix from its SD card once this
-          API confirms the fix reached the database — a broker acknowledgement
-          alone proves only that the broker took the message. The API seals each
-          verdict to this device, so the device needs its own private key.
-        </p>
+        <h4>{t('settings:ackKey.title')}</h4>
+        <p className="hint">{t('settings:ackKey.intro')}</p>
 
         {keyPair === null ? (
           <>
             <p className="hint">
-              <strong>Generating a new pair replaces the key this device uses.</strong>{' '}
-              The tracker cannot read acks again until you flash it with the new{' '}
-              <code>Config.h</code>, and the private key is shown{' '}
-              <strong>once</strong> — it is never stored here or on the server, and
-              cannot be recovered afterwards.
+              <Trans
+                i18nKey="ackKey.warning"
+                ns="settings"
+                components={{ strong: <strong />, code: <code /> }}
+              />
             </p>
             <button
               type="button"
@@ -310,43 +301,32 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
               onClick={() => void handleGenerate()}
               disabled={isGenerating || !canGenerate}
             >
-              {isGenerating ? 'Generating…' : 'Generate a new ack key pair'}
+              {isGenerating ? t('settings:ackKey.generating') : t('settings:ackKey.generate')}
             </button>
             {!canGenerate ? (
               <p className="hint">
-                Key generation needs a secure context. Open the dashboard over
-                https (or on localhost), or mint the pair with{' '}
-                <code>openssl</code> — the commands are in the file below.
+                <Trans i18nKey="ackKey.insecureContext" ns="settings" components={{ code: <code /> }} />
               </p>
             ) : null}
           </>
         ) : activatedFingerprint !== null ? (
           <div className="banner banner--success" role="status">
-            The new key is active. The API now seals every delivery ack to it —
-            make sure the tracker is flashed with the <code>Config.h</code> you
-            just saved, or it will stop confirming deliveries.
+            <Trans i18nKey="ackKey.activated" ns="settings" components={{ code: <code /> }} />
           </div>
         ) : (
           <>
             <div className="banner banner--warning" role="status">
               <p>
-                <strong>Nothing has been saved yet.</strong> The private key
-                below exists only in this page. Two steps remain:
+                <Trans i18nKey="ackKey.unsavedTitle" ns="settings" components={{ strong: <strong /> }} />
               </p>
               <ol>
                 <li>
-                  {isFileSaved ? '✓ ' : ''}Download or copy the{' '}
-                  <code>Config.h</code> below — it now contains this private key.
+                  {isFileSaved ? '✓ ' : ''}
+                  <Trans i18nKey="ackKey.stepSave" ns="settings" components={{ code: <code /> }} />
                 </li>
-                <li>
-                  Then activate the key here, which tells the API to start using
-                  its public half.
-                </li>
+                <li>{t('settings:ackKey.stepActivate')}</li>
               </ol>
-              <p>
-                Leaving now costs nothing: the device keeps its current key and
-                the server is untouched.
-              </p>
+              <p>{t('settings:ackKey.leavingIsSafe')}</p>
             </div>
 
             <div className="provisioning-actions">
@@ -356,7 +336,7 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
                 onClick={() => void handleActivate()}
                 disabled={!isFileSaved || isActivating}
               >
-                {isActivating ? 'Activating…' : 'I have saved the file — activate this key'}
+                {isActivating ? t('settings:ackKey.activating') : t('settings:ackKey.activate')}
               </button>
               <button
                 type="button"
@@ -364,10 +344,10 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
                 onClick={() => void handleGenerate()}
                 disabled={isGenerating}
               >
-                Generate a different pair
+                {t('settings:ackKey.regenerate')}
               </button>
               {!isFileSaved ? (
-                <span className="hint">Save the file first.</span>
+                <span className="hint">{t('settings:ackKey.saveFirst')}</span>
               ) : null}
             </div>
           </>
@@ -383,29 +363,23 @@ export function ProvisioningPanel({ provisioning, title, onAckKeyActivated }: Pr
        * ================================================================ */}
       <div className="provisioning-actions">
         <button type="button" className="btn btn-primary btn-sm" onClick={handleDownload}>
-          Download Config.h
+          {t('settings:provisioning.download')}
         </button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleCopy()}>
-          {copyState === 'copied' ? '✓ Copied' : 'Copy to clipboard'}
+          {copyState === 'copied'
+            ? `✓ ${t('common:actions.copied')}`
+            : t('settings:provisioning.copy')}
         </button>
         {copyState === 'failed' ? (
-          <span className="hint" role="status">
-            Copying is not available here — download it, or select the text below.
-          </span>
+          <span className="hint" role="status">{t('settings:provisioning.copyFailed')}</span>
         ) : null}
       </div>
 
-      <pre className="provisioning-snippet" aria-label="Config.h contents">
+      <pre className="provisioning-snippet" aria-label={t('settings:provisioning.fileContents')}>
         {configFile}
       </pre>
 
-      <p className="hint">
-        Only public keys appear above. The receiver private key — the one that
-        decrypts positions — stays encrypted in the API database and never leaves
-        the server, so neither this device nor the broker can read back its own
-        positions. The ack private key is the mirror image: it is generated here,
-        belongs to the device, and is never sent to the server.
-      </p>
+      <p className="hint">{t('settings:provisioning.keyNote')}</p>
     </div>
   )
 }

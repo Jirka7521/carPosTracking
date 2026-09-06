@@ -16,8 +16,11 @@
 // the login page can bounce them back after a successful sign-in.
 // ============================================================
 
+import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { I18nextProvider, useTranslation } from 'react-i18next'
 import './App.css'
+import i18n from './i18n'
 import { AuthProvider } from './auth/AuthContext'
 import { useAuth } from './auth/useAuth'
 import { RequireAuth } from './auth/RequireAuth'
@@ -116,13 +119,38 @@ function AppRoutes() {
   )
 }
 
+// Keeps the two pieces of chrome that live OUTSIDE the React tree in step with
+// the chosen language: the document's lang attribute — which is what a screen
+// reader picks its voice from and what the browser offers to translate against
+// — and the browser tab's title. index.html ships lang="en" and an English
+// <title> as the pre-hydration default; this replaces both once i18next has
+// settled on a language.
+function useDocumentLanguage(): void {
+  const { t, i18n: instance } = useTranslation('common')
+  const language: string = instance.resolvedLanguage ?? instance.language
+
+  useEffect(() => {
+    document.documentElement.lang = language
+    document.title = t('appTitle')
+  }, [language, t])
+}
+
+function AppChrome() {
+  useDocumentLanguage()
+  return <AppRoutes />
+}
+
 function App() {
   return (
-    // AuthProvider stores the JWT token + user profile and exposes
-    // login / register / logout helpers to all descendant components.
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    // I18nextProvider is what useTranslation() reads the instance from. It sits
+    // outside AuthProvider because the auth layer's own messages need it too.
+    <I18nextProvider i18n={i18n}>
+      {/* AuthProvider stores the current user profile and exposes
+          login / register / logout helpers to all descendant components. */}
+      <AuthProvider>
+        <AppChrome />
+      </AuthProvider>
+    </I18nextProvider>
   )
 }
 

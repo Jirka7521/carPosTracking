@@ -275,6 +275,52 @@ Apply migrations manually **as `admin`** (never auto-migrate):
 dotnet ef database update --connection "Host=jimajer.cz;Port=5432;Database=carpos;Username=admin;Password=<admin password>;SSL Mode=VerifyFull;Root Certificate=<path to ca.crt>"
 ```
 
+### Seeing what would change first — the `schema-sync` CLI mode
+
+`dotnet ef database update` applies migrations blind: nothing shows what is about
+to change, and nothing warns that a step drops a column with rows behind it. The
+`schema-sync` mode answers that question before you commit to it.
+
+**The intended front door is Ctrl+Shift+M → option 2**
+([`scripts/Sync-DatabaseSchema.ps1`](../../scripts/Sync-DatabaseSchema.ps1)), which
+picks the database, drives the prompts and holds the confirmation gate. The mode is
+usable directly too:
+
+```powershell
+# What differs, as a numbered list. Exit 0 = in sync, 2 = differences, 1 = error.
+dotnet run -- schema-sync report --connection "<conn>" [--summary <path.json>]
+
+# Apply only the numbers you chose from that report.
+dotnet run -- schema-sync apply --connection "<conn>" --select 1,2,4 `
+    [--verify <path.json>] [--allow-data-loss]
+```
+
+It reads the target's **real** tables and columns out of the catalog and compares
+them with the compiled EF model, so it sees drift the migration history cannot —
+a column somebody added by hand, a type changed in place. Differences a pending
+migration covers are grouped under that migration and applied by EF's own migrator;
+the rest are repaired by generated DDL that is **printed before it runs**.
+
+Four things are worth knowing:
+
+- **`--allow-data-loss` is required** for anything that drops or retypes a populated
+  object, and `apply` refuses without it. A statement counts as destructive only when
+  the table it targets actually exists *and holds rows* — so a first-time deployment
+  is not plastered with warnings that cannot apply to it.
+- **`--verify` guards against a stale choice.** `apply` rebuilds the plan (so it never
+  acts on an out-of-date picture), which means the numbers could shift if the database
+  moved in between. Passing the summary you confirmed makes it refuse rather than apply
+  something you did not pick.
+- **Objects created by raw migration SQL are never offered for deletion.** The
+  `positions.location` generated column is absent from the EF model but very much part
+  of the source, so it is reported as a note instead of a stray to drop.
+- **It will not invent data.** Adding a `NOT NULL` column to a populated table is
+  reported and explained, not attempted — that needs a migration with a default or a
+  backfill.
+
+Migrations are still reviewed before they are applied, and the database is still
+never auto-migrated; this mode exists to make that review possible, not to replace it.
+
 ## REST API
 
 Every endpoint requires a session except `POST /api/auth/register`,
@@ -304,7 +350,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
-| `GET /health` | liveness (unauthenticated; database + MQTT state) |
+| `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
 Failures return **`ProblemDetails`** (`application/problem+json`), with `detail`
 written for the end user — never an exception message, SQL or a stack trace.
@@ -438,13 +484,30 @@ always safe to call — a device already in the field keeps working.
 > half, so none of the four ever travels through this API.
 
 **Where the template lives.** `Services/Provisioning/ConfigTemplate.h.txt`, an
-embedded resource. It is a *copy* of `ESP32/src/config/Config.example.h`, because
-the API image is built with `../../API` as its Docker context and the firmware
-tree does not exist where this code runs. **When the firmware gains or loses a
-constant, that template needs the same edit** —
-`ConfigSnippetBuilderTests.RendersACompleteCompilableFile` fails the build when it
-drifts, and the dashboard's `FE/src/utils/firmwareParameters.ts` lists the same
-constants for its reference table.
+embedded resource. It is a **verbatim, machine-written copy** of
+`ESP32/src/config/Config.example.h` — the `StageFirmwareConfigTemplate` target in
+`CarPosAPI.csproj` refreshes it on every build. It is embedded rather than read
+from `ESP32/` because the API image is built with `../../API` as its Docker
+context and the firmware tree does not exist where this code runs.
+
+**Never edit that file by hand, and never add a constant to it.** Nothing here
+needs to change when the firmware gains one: `ConfigSnippetBuilder` rewrites
+constants **by name** through `ConfigConstantWriter`, so a constant it does not
+name passes through carrying whatever value the firmware set. Only a *rename* of
+a constant the builder rewrites needs an edit here — and `ConfigConstantWriter`
+throws rather than skipping, so that failure is loud rather than a tracker
+publishing to the template's placeholder topic.
+
+It used to be a hand-maintained copy with `{{TOKEN}}` holes, guarded by a
+hand-written list of firmware constant names. Both drifted: the firmware gained
+three fix-averaging constants and the dashboard served a `Config.h` that no longer
+compiled. The guards now are `StagedTemplateMatchesFirmwareSource` (whole-file
+comparison, no maintenance) and build warning `CARPOS001`, which fires when the
+staged copy was behind — **commit the refreshed file with the firmware change**,
+because the Docker build cannot regenerate it.
+
+The dashboard's reference table is parsed out of the rendered file too
+(`FE/src/utils/parseFirmwareConfig.ts`), so it cannot fall behind either.
 
 > **The broker account is still a manual step.** The API does not manage MQTT
 > credentials or ACLs: create the account on the server (`mosquitto_passwd`) and
@@ -609,32 +672,53 @@ device needs the matching read:
 ```
 user dashboard
 topic write devices/+/config
+topic write devices/+/schedule
 
 user GNSS01
 topic read devices/GNSS01/config
+topic read devices/GNSS01/schedule
 ```
 
 Without the write rule the publish is refused; without the read rule Mosquitto
 ACKs the subscription and silently drops the document. Both are in
 [`../../Container/MQTTBroker/mosquitto/acl`](../../Container/MQTTBroker/mosquitto/acl).
 
+The `schedule` pair is newer than the `config` pair — see
+[the schedule ACL note](#️-the-broker-acl-must-grant-the-schedule-topic) for what
+a missing grant looks like from the dashboard.
+
 ## Settings schedules
 
 A device can switch between named **profiles** on a weekly timetable — reporting
 every minute on weekday mornings, sleeping through the night, something else at
-weekends. **The firmware knows nothing about this.** The scheduler produces
-exactly the same revisions and the same retained document a manual save does, so
-`ESP32/` needed no change and a tracker cannot tell the two apart.
+weekends.
 
-Three tables and four columns:
+**The device does the switching.** It used to be entirely server-side: the
+scheduler evaluated the rules and republished the ordinary configuration
+document, so `ESP32/` needed no change and a tracker could not tell a scheduled
+revision from a manual one. That worked, and it only worked *while the broker
+could reach the tracker* — which is the wrong property for a car parked in an
+underground garage overnight, the exact case a night profile exists for.
+
+So the whole schedule is now published to the device as a **bundle** and
+evaluated there. **This server still evaluates the same rules, but to verify
+rather than to drive**: it checks the profile the device reports and corrects it
+only on a genuine disagreement. See [The bundle](#the-bundle) and
+[Verify, not drive](#verify-not-drive) below.
+
+Three tables and the columns that drive them:
 
 | Table / column | Holds |
 |---|---|
 | `device_config_profiles` | a name plus the same seven values, under the same CHECK constraints |
+| `device_config_profiles.schedule_slot` | the 0-based index the **firmware** knows this profile by; unique per device, never reused while it lives |
 | `device_config_schedule_rules` | one weekly window: `days_mask_utc`, `start_minute_utc`, `duration_minutes`, `priority`, `is_enabled` |
 | `devices.config_schedule_enabled` / `..._fallback_profile_id` | whether rules drive this device, and what applies where none matches |
 | `devices.config_override_until` | while in the future, the scheduler leaves this device alone |
 | `devices.config_schedule_evaluated_at` | when the worker last completed a pass (diagnostic) |
+| `devices.schedule_bundle_version` | the bundle revision published; bumped on every schedule change |
+| `devices.reported_profile_slot` / `..._schedule_version` | what the device last said it was running, and under which bundle |
+| `devices.reported_profile_at` | the **fix time** of that report — not its arrival time |
 | `device_config_versions.source` / `source_profile_id` | `Manual` or `Schedule`, and which profile — so the history can say *why* |
 
 **Everything is UTC, and the API never converts a local time.** A rule is a start
@@ -659,6 +743,46 @@ at 06:00 have neither a gap nor an overlap. The highest-priority enabled rule wh
 window contains the instant wins; ties break on age, then id. If none matches, the
 fallback applies.
 
+> ⚠️ **This file now has a second implementation.**
+> `ESP32/src/settings/ScheduleEvaluator.cpp` is a port of it and must produce
+> identical answers — a divergence does not surface as a wrong answer but as this
+> server "correcting" a device that was, by its own lights, right. Any change to
+> the minute-of-week numbering, the half-open window, the priority tie-break or
+> the boundary walk must be made on both sides in the same commit. This joins
+> `DeviceConfigDocumentDto` ⇄ `SettingsCodec` as a parity obligation.
+
+### The bundle
+
+[`ScheduleBundleBuilder`](Services/Scheduling/ScheduleBundleBuilder.cs) turns a
+device's profiles, rules, fallback and override into a
+[`DeviceScheduleBundleDto`](Dtos/DeviceScheduleBundleDto.cs), published
+**retained, QoS 1, plaintext** to `devices/<id>/schedule` by
+[`MqttConfigPublisher`](Services/Ingest/MqttConfigPublisher.cs). It carries no
+position data, so there is nothing to encrypt end to end; the broker hop is TLS.
+
+`devices/<id>/config` is **unchanged** and still carries exactly the document it
+always did. It remains what an unscheduled device runs, the channel a correction
+travels on, and the reason firmware without this feature keeps working untouched.
+
+Two things about the shape are load-bearing:
+
+- **Profiles travel as `schedule_slot`, not as their Guid.** The slot is echoed
+  back inside *every* encrypted fix, and a 36-character identifier in that
+  position, for ever, would be a poor trade for what one byte says as well. It is
+  persisted rather than derived, so a profile deleted between a publish and the
+  device's next report cannot silently re-map a slot some fix is still carrying.
+- **`override` is omitted, not null**, when there is none — the firmware tests for
+  the key's presence, which is why the publisher serialises the bundle with
+  `WhenWritingNull`.
+
+[`IScheduleBundlePublisher`](Services/Scheduling/IScheduleBundlePublisher.cs) is
+the single entry point: it bumps `schedule_bundle_version` and republishes, and
+every mutation on `DeviceConfigScheduleService` ends there. The version is bumped
+unconditionally, even when the rebuilt bundle is identical — it is not a content
+hash, its job is to let a device say "I have seen everything up to revision N",
+and a change that did not move it would leave a device that missed it looking
+perfectly in step.
+
 ### The worker
 
 [`DeviceConfigScheduleWorker`](Services/Scheduling/DeviceConfigScheduleWorker.cs)
@@ -671,6 +795,35 @@ manual save and the scheduler go through
 there is one code path that appends a revision and publishes it — and its
 "unchanged values append nothing" rule is what makes a quiet pass cost two reads
 and no writes.
+
+### Verify, not drive
+
+[`ScheduleReconciler`](Services/Scheduling/ScheduleReconciler.cs) now decides, per
+device, whether the server needs to intervene at all. Four of the five branches do
+nothing:
+
+| The device… | The pass… | Why |
+|---|---|---|
+| reports **no** `sched_v` | drives it unconditionally, exactly as before | firmware that does not switch itself. This branch is the whole backward-compatibility story |
+| reports a **lower** `sched_v` than published | does nothing | a delivery in flight, not a fault. Nothing is republished: the bundle is already retained, the device re-subscribes on every wake, and a publish every 30 s until it next reports would be a storm |
+| last reported **> `StaleReportAfter`** ago (25 h) | does nothing | genuinely offline. It is switching itself from the bundle it holds, and a correction from a day-old observation is noise in the history |
+| reports the slot the rules called for **at that fix's time** | does nothing | agreement — the common path, and it costs no writes |
+| reports a **different** slot | writes a revision **and** stamps an override to the next boundary | a genuine disagreement |
+
+**The comparison is made at the reported fix's instant, not at "now".** A fix
+taken five minutes before a 22:00 boundary *should* report the profile that was in
+force then, and judging it against the present would make every switch look like a
+failure on a device with a long reporting interval. That is also why
+`reported_profile_at` stores the fix time rather than the arrival time, and why it
+only ever moves forward — a backlog drain must not replace a fresh observation with
+a week-old one.
+
+The correction is an override rather than only a new config document because the
+device is evaluating its own schedule and would otherwise switch straight back at
+the next boundary it computes. It self-expires at that boundary, so a correction
+costs one wrong stretch rather than pinning a tracker until somebody notices —
+which matters, because the likeliest cause of a disagreement is a drifted clock
+on a board with no crystal.
 
 ### Manual overrides
 
@@ -688,22 +841,92 @@ holds until the next scheduled switch, which then reasserts its profile.
   fallback) has nothing for an override to expire at, so such a save is refused
   with a message pointing at the profile.
 
-No new broker ACL is needed: scheduled changes go out on the same
-`devices/+/config` topic as manual ones.
+### ⚠️ The broker ACL must grant the schedule topic
+
+Corrections and manual saves still go out on `devices/+/config`, which is already
+granted. **The bundle does not** — it is a new topic, and it needs two grants:
+
+```
+# the account this API connects as (see Mqtt:Username) must be able to write it
+topic write devices/+/schedule
+
+# ...and each device must be able to READ its own, or Mosquitto ACKs the
+# subscription and silently drops every bundle:
+#   user GNSS01
+#   topic read devices/GNSS01/schedule
+```
+
+The device-side failure is quiet by design and easy to misread: the tracker
+subscribes successfully, never receives a bundle, keeps running whatever the
+config topic last told it, and looks completely healthy. The dashboard is where it
+shows up — the banner reports the device has never said which profile it is
+running. This is the same trap the ack topic has, and it has caught us before.
 
 ## Build, test, run
 
 ```powershell
 dotnet build                       # must be clean
-dotnet test ..\CarPosAPI.Tests     # crypto/codec/validator unit tests
+dotnet test ..\CarPosAPI.Tests     # crypto/codec/validator/health unit tests
 dotnet run                         # http://localhost:5135 (https://localhost:7032)
 dotnet format                      # before finishing a change
 ```
 
-`GET /health` (unauthenticated liveness) reports the database check and the
-MQTT link (Degraded while reconnecting) plus ingest counters. OpenAPI is mapped
-in Development only. Neither is proxied to the public internet — the frontend's
-nginx serves `/api/` and nothing else.
+### The health endpoint
+
+`GET /health` is unauthenticated and returns a **JSON report with one entry per
+dependency**, written by
+[`Services/Health/HealthReportWriter.cs`](Services/Health/HealthReportWriter.cs):
+
+```json
+{
+  "status": "Degraded",
+  "checkedAtUtc": "2026-09-01T10:12:33.421Z",
+  "totalDurationMs": 12.41,
+  "checks": {
+    "database":   { "status": "Healthy",  "durationMs": 11.2, "description": "connection ok",
+                    "data": { "latencyMs": 11.2, "provider": "Npgsql.EntityFrameworkCore.PostgreSQL" } },
+    "mqtt":       { "status": "Degraded", "durationMs": 0.01, "description": "disconnected; the reconnect loop is running",
+                    "data": { "connected": false, "messagesReceived": 1204, "positionsInserted": 1190,
+                              "positionsDuplicate": 12, "envelopesRejected": 2,
+                              "lastMessageAtUtc": "2026-09-01T10:04:02Z", "secondsSinceLastMessage": 511.0 } },
+    "migrations": { "status": "Healthy",  "durationMs": 0.9,  "description": "schema up to date",
+                    "data": { "appliedCount": 10, "pendingCount": 0, "pending": [] } },
+    "scheduler":  { "status": "Healthy",  "durationMs": 0.01, "description": "reconciling on schedule",
+                    "data": { "passesCompleted": 412, "passesFailed": 0, "consecutiveFailures": 0,
+                              "devicesChangedTotal": 7, "lastSuccessfulPassAtUtc": "2026-09-01T10:12:03Z",
+                              "secondsSinceLastPass": 30.4 } },
+    "process":    { "status": "Healthy",  "durationMs": 0.0,  "description": "running",
+                    "data": { "version": "1.0.0", "environment": "Production", "uptimeSeconds": 84213 } }
+  }
+}
+```
+
+| Check | Healthy | Degraded | Unhealthy |
+|---|---|---|---|
+| `database` | connection opened, with its latency | — | unreachable, or slower than the 5 s probe timeout |
+| `mqtt` | broker connected | disconnected — the reconnect loop is self-healing | never |
+| `migrations` | the database has every migration this build carries | some are pending, **or the state could not be read** | never |
+| `scheduler` | a pass succeeded within 4 intervals (2 min) | stale, or failing since the last success | never |
+| `process` | always — it reports the build, not a dependency | — | — |
+
+**Only the database can produce a 503.** `Healthy` and `Degraded` both answer
+**200**, which is the contract the container healthcheck reads: a broker blip or
+a stale schedule pass is worth reporting, not worth restarting the process over —
+and a restart fixes neither. The overall `status` is the worst of the entries.
+
+**Nothing here leaks.** Because the endpoint is unauthenticated, the writer
+deliberately drops `HealthReportEntry.Exception` — an Npgsql failure message
+names the host, the database and the role — and every `description` is text this
+codebase wrote. The real failure goes to the log instead. The broker URI,
+username and client id are never included either.
+
+The migrations check memoises its answer for **5 minutes**: pending migrations
+change only when someone runs `--schema-sync`, while the container probes every
+30 s. It degrades rather than fails when it cannot read `__EFMigrationsHistory`,
+so a least-privilege runtime role cannot take a healthy container down.
+
+OpenAPI is mapped in Development only. Neither it nor `/health` is proxied to the
+public internet — the frontend's nginx serves `/api/` and nothing else.
 
 To run the whole stack in containers (API + frontend + nginx), see
 [`../../Container/App/docker-compose.yml`](../../Container/App/docker-compose.yml).
@@ -743,6 +966,15 @@ mosquitto_passwd -b /mosquitto/config/passwords carpos-api '<password>'
 # subscription and silently drops every ack:
 #   user GNSS01
 #   topic read devices/GNSS01/ack
+#
+# The dashboard account additionally writes the config document and the schedule
+# bundle, and each device reads its own of both:
+#   user dashboard
+#   topic write devices/+/config
+#   topic write devices/+/schedule
+#   user GNSS01
+#   topic read devices/GNSS01/config
+#   topic read devices/GNSS01/schedule
 ```
 
 **Verify actual delivery, not just the SUBACK** — this broker once granted a
