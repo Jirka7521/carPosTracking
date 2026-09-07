@@ -29,6 +29,7 @@
     "active": "Active",
     "inactive": "Inactive"
   },
+  "documentTitle": "Car Position Tracker — non-commercial test project",
   "duration": {
     "days_one": "{{value}} day",
     "days_other": "{{value}} days",
@@ -47,12 +48,19 @@
     "firstName": "First name",
     "lastName": "Last name"
   },
+  "footer": {
+    "legal": "Legal notice",
+    "privacy": "Privacy",
+    "testProject": "Non-commercial test project — not a service. No warranty, no support."
+  },
   "language": {
     "change": "Change language",
     "heading": "Language"
   },
   "nav": {
     "home": "Go to home page",
+    "legal": "Read the legal notice",
+    "privacy": "Read the privacy policy",
     "profile": "Edit your profile"
   },
   "onOff": {

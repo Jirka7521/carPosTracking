@@ -8,14 +8,20 @@
 //   • After successful registration, immediately redirects to /home
 //     (the API logs the user in automatically upon registration)
 //   • Link back to /login for existing users
+//   • A required privacy-policy acknowledgement, which is the whole point of
+//     the extra round-trip below: the form fetches the version currently in
+//     force and echoes it back with the registration, so what gets recorded
+//     against the account is provably the text this person was shown.
 // ============================================================
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
+import { fetchPrivacyPolicy } from '../services/apiClient'
 import { LanguageMenu } from '../components/LanguageMenu'
+import { SiteFooter } from '../components/SiteFooter'
 import { assetUrl } from '../services/runtimeConfig'
 import { describeError } from '../utils/errors'
 
@@ -34,9 +40,31 @@ export function RegisterPage() {
   const [password, setPassword] = useState<string>('')
   const [passwordConfirm, setPasswordConfirm] = useState<string>('')
 
+  // Privacy-policy acknowledgement.
+  const [hasAcceptedPolicy, setHasAcceptedPolicy] = useState<boolean>(false)
+  const [policyVersion, setPolicyVersion] = useState<string>('')
+
   // Submission state
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+
+  // The version in force, fetched rather than hard-coded so this page and the
+  // consent the server records can never disagree about which policy was shown.
+  useEffect(() => {
+    let cancelled: boolean = false
+
+    fetchPrivacyPolicy()
+      .then((policy) => {
+        if (!cancelled) {
+          setPolicyVersion(policy.version)
+        }
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -53,11 +81,24 @@ export function RegisterPage() {
       return
     }
 
+    if (!hasAcceptedPolicy) {
+      setErrorMessage(t('auth:register.consent.required'))
+      return
+    }
+
+    // No version means the fetch above failed. Registering anyway would create an
+    // account whose consent record is empty, which the server rejects — better to
+    // say so here than to send a request that cannot succeed.
+    if (policyVersion.length === 0) {
+      setErrorMessage(t('auth:register.consent.stale'))
+      return
+    }
+
     setIsSubmitting(true)
     try {
       // register() calls POST /api/auth/register, stores the returned JWT,
       // and updates the auth context so the user is immediately logged in.
-      await register(email, password, firstName, lastName)
+      await register(email, password, firstName, lastName, policyVersion)
       navigate('/home', { replace: true })
     } catch (error) {
       setErrorMessage(describeError(error, t('errors:registrationFailed')))
@@ -169,6 +210,36 @@ export function RegisterPage() {
             />
           </div>
 
+          {/*
+            The acknowledgement. Its own block above the button because it is the
+            last thing read before signing up, and because what is being agreed
+            to — a personal project storing precise vehicle locations — is not
+            what somebody filling in a sign-up form assumes.
+          */}
+          <div className="consent-block">
+            <p className="consent-notice">{t('auth:register.consent.notice')}</p>
+
+            <label className="consent-check" htmlFor="register-consent">
+              <input
+                id="register-consent"
+                type="checkbox"
+                checked={hasAcceptedPolicy}
+                onChange={(e) => setHasAcceptedPolicy(e.target.checked)}
+              />
+              <span>
+                <Trans
+                  i18nKey="register.consent.label"
+                  ns="auth"
+                  components={{
+                    // Opens in a new tab so a half-filled form is not lost to
+                    // reading the thing the form is asking about.
+                    privacy: <Link to="/privacy" target="_blank" rel="noopener noreferrer" />,
+                  }}
+                />
+              </span>
+            </label>
+          </div>
+
           {/* Error message from validation or the API */}
           {errorMessage ? (
             <p className="form-message form-message--error" role="alert">
@@ -179,7 +250,9 @@ export function RegisterPage() {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={isSubmitting}
+            // Unchecked consent disables the button rather than only failing on
+            // submit: the requirement should be visible before it is hit.
+            disabled={isSubmitting || !hasAcceptedPolicy}
             style={{ marginTop: 4 }}
           >
             {isSubmitting ? t('auth:register.submitting') : t('auth:register.submit')}
@@ -194,6 +267,8 @@ export function RegisterPage() {
         {t('auth:register.haveAccount')}{' '}
         <Link to="/login">{t('auth:register.signIn')}</Link>
       </p>
+
+      <SiteFooter />
     </div>
   )
 }

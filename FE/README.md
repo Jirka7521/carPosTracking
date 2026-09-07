@@ -1,5 +1,15 @@
 # Frontend — React SPA
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../docs/PRIVACY.md).
+
 Single-page application built with **React 19**, **TypeScript**, and **Vite**, charting with **Recharts**. Displays GNSS positions on an interactive Google Maps view, plots telemetry over time, registers tracker devices, handles user authentication, and manages device sharing.
 
 Served in production by **nginx**, which also proxies `/api` to the backend container — see [Deployment](#deployment).
@@ -114,7 +124,7 @@ The choice is remembered in `localStorage` under `carpos.language`, the same `ca
 | [`src/i18n/format.ts`](src/i18n/format.ts) | the one place `Intl` is configured — dates and numbers |
 | `src/i18n/locales/<lang>/*.json` | the catalogues, one file per namespace |
 
-Eight namespaces, following the route areas so a screen's strings sit together: `common` (buttons, units, weekdays, relative times, permissions), `auth`, `home`, `device` (the shell and the map / positions / charts tabs), `settings` (device settings, config panels, firmware table), `schedule`, `profile`, `errors`.
+Nine namespaces, following the route areas so a screen's strings sit together: `common` (buttons, units, weekdays, relative times, permissions), `auth`, `home`, `device` (the shell and the map / positions / charts tabs), `settings` (device settings, config panels, firmware table), `schedule`, `profile`, `errors`, and `legal` (the privacy policy and the legal notice).
 
 **Catalogues are bundled, not fetched.** There is no `i18next-http-backend` on purpose: anything fetched at runtime would have to have `BASE_PATH` prepended or it 404s behind the `/carPosFE` prefix while working perfectly at the root — see [Referring to an asset](#referring-to-an-asset), which is the same trap. Two small languages cost a few kB gzipped, and i18next is ready synchronously, so there is no loading gate and no flash of untranslated text.
 
@@ -163,6 +173,8 @@ The .NET API returns its ProblemDetails `detail` text in English, and `describeE
 A number of tables map an enum to a label — `CONFIG_FIELD_LABEL_KEYS`, `SERIES[].labelKey`, `CSV_DELIMITERS`, the weekday names. They hold **translation keys, not text**, and the component resolves them, which is what keeps `utils/` free of any particular language.
 
 Because those call sites read `t(SOME_TABLE[key])`, a source scan cannot see them — and `removeUnusedKeys` defaults to true. Every such family is listed under `preservePatterns` in [`i18next.config.ts`](i18next.config.ts). **If you add another table like this, add its prefix there in the same commit**; `tsc` will not catch the loss, because deleting the English key deletes the type along with it.
+
+The extractor resolves rather more than that suggests — it follows a `.map()` over an `as const` array declared in the same file — but not a table reaching a component through a **prop**. The privacy policy was written that way first, and the result was not a silent deletion but a junk `…` key appearing in `legal.json` on every run. Hence [`PrivacyPage`](src/pages/PrivacyPage.tsx) and [`LegalNoticePage`](src/pages/LegalNoticePage.tsx) spell every `t('…')` key out as a literal. It is repetitive, and for two documents that are read as legal statements it is the right trade: both the extractor and `tsc -b` check every key, and neither page needs a `preservePatterns` entry.
 
 ---
 
@@ -262,15 +274,34 @@ FE/
 |------|--------|-------------|
 | `/` | any | Redirects to `/home` (authenticated) or `/login` (guest) |
 | `/login` | public | Sign in |
-| `/register` | public | Create account |
+| `/register` | public | Create account — requires acknowledging the privacy policy |
+| `/privacy` | public | Privacy policy. Reachable **signed in as well as out** — unlike `/login`, it does not bounce an authenticated user to `/home`, or the footer link would be dead for exactly the people whose data it is |
+| `/legal` | public | Legal notice: non-commercial test project, licence, no warranty |
 | `/home` | protected | List of accessible devices + register a new one |
-| `/profile` | protected | Edit first/last name and change password |
+| `/profile` | protected | Edit first/last name, change password, and the privacy controls: export your data, revoke map consent, delete your account |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, temperature, acceleration over time |
-| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, delete) |
+| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
+
+`/privacy` and `/legal` render their own shell
+([`components/LegalPageShell.tsx`](src/components/LegalPageShell.tsx)) rather than
+`AppLayout`, for the same reason the auth pages do: `AppLayout` lives behind
+`<RequireAuth>`, and somebody deciding whether to register has to be able to read
+what happens to their data first.
+
+### The map asks before it loads
+
+[`components/DeviceMap.tsx`](src/components/DeviceMap.tsx) does not contact
+`maps.googleapis.com` until the viewer agrees. Loading the Maps API tells Google
+the viewer's IP, browser and — through the viewport — roughly where the tracked
+vehicle is, so the tab shows a placeholder with "load once" and "always load"
+until somebody chooses. The standing answer lives in `localStorage` under
+`carpos.mapsConsent` ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)) and is
+revocable from `/profile`. It is per-browser on purpose: it is a preference of
+the person looking at the screen, not a property of the account.
 
 ---
 

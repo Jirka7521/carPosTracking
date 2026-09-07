@@ -24,6 +24,36 @@
     "saved": "Jméno bylo uloženo.",
     "title": "Osobní údaje"
   },
+  "privacy": {
+    "delete": {
+      "confirmLabel": "Pro potvrzení napište SMAZAT",
+      "confirmWord": "SMAZAT",
+      "failed": "Účet se nepodařilo smazat.",
+      "hint": "Trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které vidíte jen vy, se smaže i s celou historií polohy. Zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu.",
+      "passwordLabel": "Vaše heslo",
+      "submit": "Trvale smazat můj účet",
+      "submitting": "Mažu…",
+      "summary": "Účet byl smazán. Smazáno {{devices}} zařízení a {{positions}} poloh; {{retained}} zařízení sdílených s dalšími lidmi zůstalo zachováno.",
+      "title": "Smazat můj účet",
+      "warning": "Tuto akci nelze vzít zpět. Neexistuje obnova ani záloha, ze které by šlo data vrátit."
+    },
+    "export": {
+      "failed": "Export se nepodařilo připravit. Zkuste to prosím znovu.",
+      "hint": "Stáhne vše, co se o vás uchovává, jako soubor JSON: profil, zařízení, oprávnění, názvy, historii nastavení a úplnou historii polohy každého zařízení, které smíte číst. Nic se nezkracuje.",
+      "submit": "Exportovat moje data",
+      "submitting": "Připravuji export…",
+      "title": "Exportovat moje data"
+    },
+    "intro": "Tento projekt uchovává přesné údaje o poloze vozidel. Tyto ovládací prvky patří vám, fungují okamžitě a nikdo je nemusí schvalovat.",
+    "maps": {
+      "allowed": "Mapy se načítají automaticky. Google při každém načtení dostane vaši IP adresu, údaje o prohlížeči a zobrazenou oblast.",
+      "notAllowed": "Mapy se nenačtou, dokud to pokaždé nepovolíte.",
+      "revoke": "Ptát se pokaždé znovu",
+      "revoked": "Mapy se před načtením znovu zeptají.",
+      "title": "Načítání map"
+    },
+    "title": "Soukromí a vaše data"
+  },
   "subtitle": "Spravujte své osobní údaje a zabezpečení účtu.",
   "title": "Profil"
 }

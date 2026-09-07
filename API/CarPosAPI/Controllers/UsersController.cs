@@ -10,11 +10,12 @@ namespace CarPosAPI.Controllers;
 /// <summary>
 /// User lookups for the sharing UI, plus self-service profile and password edits.
 ///
-/// The search endpoint is the only place one account can learn about another, so
-/// it is deliberately narrow: it matches on email, caps its results, and refuses
-/// prefixes short enough to be used as a directory dump (see
-/// <see cref="IUserAccountService.SearchByEmailAsync"/>). It returns nothing an
-/// account holder would not print on a business card.
+/// The two read endpoints are the only place one account can learn about another,
+/// so both are deliberately narrow. The search matches an email address for
+/// <em>equality only</em> — you have to already know the address to ask — and the
+/// by-id lookup answers only for the caller themselves or somebody they share a
+/// device with. Both used to be wider, and between them they let any signed-in
+/// account enumerate every user's name and email address.
 ///
 /// The two mutating endpoints carry an id in the route because that is the shape
 /// the frontend was built against — but they refuse any id that is not the
@@ -36,11 +37,15 @@ public sealed class UsersController : ApiControllerBase
         _accounts = accounts;
     }
 
-    /// <summary>Finds users by email address, for the "share with…" picker.</summary>
-    /// <param name="email">The address to look for.</param>
-    /// <param name="exactMatch">True (the default) for equality; false for a capped prefix search.</param>
+    /// <summary>Finds the user with exactly this email address, for the "share with…" picker.</summary>
+    /// <param name="email">The full address to look for. Matched for equality only.</param>
+    /// <param name="exactMatch">
+    /// Accepted and ignored. It used to select a prefix search; that mode is gone,
+    /// and the parameter is kept only so an older client's query string still binds
+    /// rather than 400-ing.
+    /// </param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>200 with the matches — an empty list when there are none.</returns>
+    /// <returns>200 with the match — an empty list when there is none.</returns>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<UserProfileDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<UserProfileDto>>> SearchAsync(
@@ -48,27 +53,31 @@ public sealed class UsersController : ApiControllerBase
         [FromQuery] bool exactMatch,
         CancellationToken cancellationToken)
     {
+        _ = exactMatch;
+
         IReadOnlyList<UserProfileDto> matches =
-            await _accounts.SearchByEmailAsync(email, exactMatch, cancellationToken);
+            await _accounts.SearchByEmailAsync(email, cancellationToken);
 
         // "No such user" is 200-with-empty-list, not 404: the caller asked a
         // question ("who matches?") and got a complete answer.
         return Ok(matches);
     }
 
-    /// <summary>Loads one user's profile.</summary>
+    /// <summary>Loads one user's profile, if the caller is entitled to see it.</summary>
     /// <param name="userId">The user to load.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>200 with the profile, or 404.</returns>
+    /// <returns>200 with the profile, or 404 — including for an account the caller may not see.</returns>
     [HttpGet("{userId:int}")]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserProfileDto>> GetAsync(int userId, CancellationToken cancellationToken)
     {
-        // Any signed-in user may resolve any id, because the sharing list is a set
-        // of ids that has to be rendered as names. The profile carries nothing
-        // sensitive — see UserProfileDto.
-        OperationResult<UserProfileDto> result = await _accounts.GetProfileAsync(userId, cancellationToken);
+        // The sharing list is a set of ids that has to be rendered as names, which is
+        // the whole reason this endpoint exists — so it answers for people the caller
+        // already shares a device with, and for nobody else. It used to answer for
+        // any id at all, which made a plain integer scan a user-table dump.
+        OperationResult<UserProfileDto> result =
+            await _accounts.GetVisibleProfileAsync(RequireUserId(_currentUser), userId, cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }

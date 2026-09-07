@@ -2,6 +2,13 @@
   "name": "fe",
   "private": true,
   "version": "0.0.0",
+  "description": "Dashboard for carPosTracking — a non-commercial personal test project for GNSS vehicle tracking. Not a product or a service.",
+  "author": "Jiri Majer",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jirka7521/carPosTracking.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

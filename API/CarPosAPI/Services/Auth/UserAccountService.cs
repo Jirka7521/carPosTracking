@@ -1,8 +1,10 @@
 using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
+using CarPosAPI.Options;
 using CarPosAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace CarPosAPI.Services.Auth;
@@ -21,35 +23,30 @@ namespace CarPosAPI.Services.Auth;
 /// </summary>
 internal sealed class UserAccountService : IUserAccountService
 {
-    /// <summary>
-    /// Shortest prefix accepted by a non-exact email search, and the cap on how
-    /// many matches come back. Together they stop the sharing picker from being
-    /// used as a "list everyone" endpoint: one or two letters would match most of
-    /// the table.
-    /// </summary>
-    private const int MinimumPrefixSearchLength = 3;
-
-    /// <summary>Upper bound on rows returned by a prefix search.</summary>
-    private const int MaximumSearchResults = 20;
-
     /// <summary>The single message every failed sign-in gets, whatever went wrong.</summary>
     private const string InvalidCredentialsMessage = "Incorrect email or password.";
 
     private readonly CarPosDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly PrivacyOptions _privacy;
     private readonly ILogger<UserAccountService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="passwordHasher">Hashes and verifies passwords.</param>
+    /// <param name="privacy">Supplies the privacy-policy version registration must match.</param>
     /// <param name="logger">Structured logger — never receives passwords or hashes.</param>
     public UserAccountService(
         CarPosDbContext context,
         IPasswordHasher passwordHasher,
+        IOptions<PrivacyOptions> privacy,
         ILogger<UserAccountService> logger)
     {
+        ArgumentNullException.ThrowIfNull(privacy);
+
         _context = context;
         _passwordHasher = passwordHasher;
+        _privacy = privacy.Value;
         _logger = logger;
     }
 
@@ -62,12 +59,28 @@ internal sealed class UserAccountService : IUserAccountService
 
         string email = NormaliseEmail(request.Email);
 
+        // The acknowledgement is checked before anything is written. A form left
+        // open across a policy change echoes back the old version, and recording
+        // that as consent to the new text would make the stored record a lie —
+        // which is precisely the thing GDPR Art. 7(1) asks the controller to be
+        // able to produce.
+        if (!string.Equals(
+                request.AcceptedPrivacyPolicyVersion.Trim(),
+                _privacy.PolicyVersion,
+                StringComparison.Ordinal))
+        {
+            return OperationResult<User>.Invalid(
+                "The privacy policy has changed since this page was opened. Please reload and read it again before registering.");
+        }
+
         User user = new User
         {
             Email = email,
             PasswordHash = _passwordHasher.Hash(request.Password),
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
+            PrivacyPolicyVersion = _privacy.PolicyVersion,
+            PrivacyPolicyAcceptedAt = DateTime.UtcNow,
         };
 
         _context.Users.Add(user);
@@ -156,7 +169,6 @@ internal sealed class UserAccountService : IUserAccountService
     /// <inheritdoc />
     public async Task<IReadOnlyList<UserProfileDto>> SearchByEmailAsync(
         string email,
-        bool exactMatch,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(email);
@@ -168,33 +180,54 @@ internal sealed class UserAccountService : IUserAccountService
             return [];
         }
 
-        if (exactMatch)
-        {
-            // The overwhelmingly common case: the user typed a colleague's full
-            // address into the share box. Hits the unique index directly.
-            return await _context.Users
-                .AsNoTracking()
-                .Where(user => user.Email == needle)
-                .Select(user => new UserProfileDto(user.Id, user.Email, user.FirstName, user.LastName))
-                .ToListAsync(cancellationToken);
-        }
-
-        if (needle.Length < MinimumPrefixSearchLength)
-        {
-            // Refusing to answer is deliberate: "a" would match most of the table
-            // and turn this into a directory dump.
-            return [];
-        }
-
-        // StartsWith rather than Contains so the query can still use the index, and
-        // so a search for "@company.cz" cannot list an entire organisation.
+        // EXACT MATCH ONLY, deliberately. This used to also offer a capped
+        // three-character prefix search, which meant any signed-in account could
+        // walk the alphabet and harvest every user's email address and full name —
+        // the largest disclosure between accounts in the whole system, in exchange
+        // for a convenience the dashboard never used (it always passed a full
+        // address). Exact match reveals nothing the caller did not already know:
+        // they had to type the address to ask.
         return await _context.Users
             .AsNoTracking()
-            .Where(user => user.Email.StartsWith(needle))
-            .OrderBy(user => user.Email)
-            .Take(MaximumSearchResults)
+            .Where(user => user.Email == needle)
             .Select(user => new UserProfileDto(user.Id, user.Email, user.FirstName, user.LastName))
             .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<UserProfileDto>> GetVisibleProfileAsync(
+        int callerId,
+        int userId,
+        CancellationToken cancellationToken)
+    {
+        // Your own profile is always visible.
+        if (callerId == userId)
+        {
+            return await GetProfileAsync(userId, cancellationToken);
+        }
+
+        // Otherwise the two accounts must have a device in common. That is exactly
+        // the case the endpoint exists for — rendering the names on a device's
+        // sharing list — and nothing wider. Without this check a plain integer scan
+        // over /api/users/{id} dumps the whole user table, one row per request.
+        bool sharesADevice = await _context.Accesses
+            .AsNoTracking()
+            .Where(theirs => theirs.UserId == userId && theirs.IsActive)
+            .AnyAsync(
+                theirs => _context.Accesses.Any(mine =>
+                    mine.UserId == callerId
+                    && mine.IsActive
+                    && mine.DeviceId == theirs.DeviceId),
+                cancellationToken);
+
+        if (!sharesADevice)
+        {
+            // 404, not 403: a 403 would confirm the id belongs to a real account,
+            // which is the same enumeration hint the device endpoints refuse to give.
+            return OperationResult<UserProfileDto>.NotFound("No such user.");
+        }
+
+        return await GetProfileAsync(userId, cancellationToken);
     }
 
     /// <inheritdoc />

@@ -15,6 +15,7 @@ using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Health;
 using CarPosAPI.Services.Ingest;
 using CarPosAPI.Services.Positions;
+using CarPosAPI.Services.Privacy;
 using CarPosAPI.Services.Provisioning;
 using CarPosAPI.Services.Scheduling;
 using CarPosAPI.Services.Security;
@@ -96,6 +97,19 @@ builder.Services.AddOptions<HostingOptions>()
         "Hosting:PathBase must be empty or an absolute path with no trailing slash, e.g. \"/carPosAPI\".")
     .ValidateOnStart();
 
+// Who is answerable for the personal data this system holds. The contact check runs
+// only outside Development, for the same reason the JWT key check exists at all: a
+// developer running this on a laptop has no data subjects to answer to, but anything
+// reachable from the internet does, and a privacy policy naming nobody is worse than
+// no policy — it looks like an answer.
+builder.Services.AddOptions<PrivacyOptions>()
+    .BindConfiguration(PrivacyOptions.SectionName)
+    .ValidateDataAnnotations()
+    .Validate(
+        (PrivacyOptions options) => builder.Environment.IsDevelopment() || options.HasController(),
+        $"Privacy:ControllerContactEmail must be a real address before this is deployed — it is where data-subject requests go, and it is published in the privacy policy. It is still set to \"{PrivacyOptions.UnsetContactPlaceholder}\".")
+    .ValidateOnStart();
+
 // ---------------------------------------------------------------------------
 // Database. The connection string is a secret (user-secrets in dev, environment
 // variable in prod) and must exist — refuse to start without it. Runtime uses
@@ -165,6 +179,15 @@ builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+
+// The GDPR data-subject services. Scoped like everything else that writes through
+// the request's DbContext. The erasure service is the one place in the application
+// that physically deletes rows, which is why it lives behind its own interface
+// rather than as another method on the device or account services — it should be
+// obvious in the DI graph that this capability exists and where it is used.
+builder.Services.AddScoped<IPositionErasureService, PositionErasureService>();
+builder.Services.AddScoped<IDataExportService, DataExportService>();
+builder.Services.AddScoped<IAccountErasureService, AccountErasureService>();
 
 // ---------------------------------------------------------------------------
 // Settings schedules. The evaluator is pure arithmetic over a set of rules — no

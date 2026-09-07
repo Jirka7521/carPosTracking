@@ -2812,3 +2812,296 @@
   gap: 8px;
   margin-top: 16px;
 }
+
+/* ================================================================
+ * 10. SITE FOOTER
+ *     The standing "this is a non-commercial test project" line,
+ *     on every page — inside AppLayout, and repeated on the login,
+ *     registration and legal pages, which have their own shells.
+ * ================================================================ */
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 18px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-page);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* On the auth and legal pages the footer sits on a dark gradient, so it
+   borrows the page's own colours rather than the light panel ones. */
+.auth-page .site-footer,
+.legal-page .site-footer {
+  background: transparent;
+  border-top-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.75);
+  margin-top: 32px;
+  width: 100%;
+}
+
+.site-footer-notice {
+  font-weight: 600;
+}
+
+.site-footer-links {
+  display: flex;
+  gap: 14px;
+}
+
+.site-footer-links a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-footer-links a:hover {
+  color: var(--accent);
+}
+
+.auth-page .site-footer-links a:hover,
+.legal-page .site-footer-links a:hover {
+  color: #fff;
+}
+
+/* ================================================================
+ * 11. LEGAL PAGES (privacy policy, legal notice)
+ *     Public, so they carry their own shell rather than AppLayout's.
+ *     Long-form reading: a measured column, generous line height.
+ * ================================================================ */
+
+.legal-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  background: var(--bg-page);
+}
+
+.legal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 24px;
+  background: var(--blue-800);
+  color: #fff;
+}
+
+.legal-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
+}
+
+.legal-logo-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.legal-brand-name {
+  font-weight: 700;
+}
+
+.legal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legal-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 32px 24px;
+}
+
+.legal-article {
+  width: 100%;
+  /* A measured column. Long legal prose set the full width of a desktop
+     browser is prose nobody reads to the end of. */
+  max-width: 46rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-xs);
+}
+
+.legal-article h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: var(--text-h);
+}
+
+.legal-subtitle {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.legal-meta {
+  margin: 20px 0 8px;
+  padding: 14px 16px;
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+}
+
+.legal-version {
+  margin: 0 0 8px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.legal-meta dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.legal-meta dt {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.legal-meta dd {
+  margin: 0;
+}
+
+.legal-section {
+  margin-top: 28px;
+}
+
+.legal-section h2 {
+  font-size: 1.125rem;
+  color: var(--text-h);
+  margin: 0 0 8px;
+}
+
+.legal-section p {
+  margin: 0 0 12px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .legal-article {
+    padding: 20px;
+    border-radius: var(--radius);
+  }
+}
+
+/* ================================================================
+ * 12. PRIVACY CONTROLS
+ *     The GDPR blocks on the profile page, the position-history
+ *     erase block in a device's danger zone, the map consent gate,
+ *     and the registration acknowledgement.
+ * ================================================================ */
+
+.privacy-block {
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.privacy-block:last-child {
+  margin-bottom: 0;
+}
+
+/* Erasure is irreversible; it should not look like the button above it. */
+.privacy-block--danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.privacy-block h4 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+.privacy-block .hint {
+  margin: 0 0 12px;
+  line-height: 1.55;
+}
+
+.privacy-warning {
+  margin: 0 0 14px;
+  font-weight: 600;
+  color: var(--danger-dark);
+}
+
+/* ---- Map consent gate ---- */
+
+.map-consent {
+  gap: 10px;
+  max-width: 34rem;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.map-consent-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  color: var(--text-h);
+}
+
+.map-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.map-consent-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* ---- Registration acknowledgement ---- */
+
+.consent-block {
+  margin: 4px 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+}
+
+.consent-notice {
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.consent-check input {
+  /* Nudged down so the box lines up with the first line of text rather than
+     floating above it. */
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}

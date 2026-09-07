@@ -2,6 +2,7 @@ using CarPosAPI.Dtos;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Devices;
+using CarPosAPI.Services.Privacy;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,22 +24,41 @@ namespace CarPosAPI.Controllers;
 [Authorize]
 public sealed class MeController : ApiControllerBase
 {
+    /// <summary>
+    /// Filename stem of the export download. The user id and a UTC stamp are
+    /// appended, so two exports never land on top of each other in a downloads
+    /// folder.
+    /// </summary>
+    private const string ExportFileNameStem = "carpos-export";
+
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IUserAccountService _accounts;
     private readonly IDeviceService _devices;
+    private readonly IDataExportService _dataExport;
+    private readonly IAccountErasureService _erasure;
+    private readonly ISessionCookieWriter _sessionCookies;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="currentUser">Supplies the caller's id.</param>
     /// <param name="accounts">Loads the caller's profile.</param>
     /// <param name="devices">Lists devices and writes aliases.</param>
+    /// <param name="dataExport">Streams the GDPR Art. 15/20 export.</param>
+    /// <param name="erasure">Performs GDPR Art. 17 account erasure.</param>
+    /// <param name="sessionCookies">Expires the session once the account is gone.</param>
     public MeController(
         ICurrentUserAccessor currentUser,
         IUserAccountService accounts,
-        IDeviceService devices)
+        IDeviceService devices,
+        IDataExportService dataExport,
+        IAccountErasureService erasure,
+        ISessionCookieWriter sessionCookies)
     {
         _currentUser = currentUser;
         _accounts = accounts;
         _devices = devices;
+        _dataExport = dataExport;
+        _erasure = erasure;
+        _sessionCookies = sessionCookies;
     }
 
     /// <summary>Returns the signed-in user's profile.</summary>
@@ -53,9 +73,9 @@ public sealed class MeController : ApiControllerBase
 
         OperationResult<UserProfileDto> result = await _accounts.GetProfileAsync(userId, cancellationToken);
 
-        // A valid token for a user row that no longer exists. Not expected — users
-        // are never deleted — but answering 404 for "who am I?" is clearer than
-        // pretending the session is fine.
+        // A valid token for a user row that no longer exists. Ordinary after an
+        // account erasure on another device: the cookie outlives the row, and 404
+        // for "who am I?" is the honest answer.
         return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }
 
@@ -95,5 +115,73 @@ public sealed class MeController : ApiControllerBase
             await _devices.SetAliasAsync(userId, deviceId, request.Alias, cancellationToken);
 
         return result.IsSuccess ? NoContent() : Failure(result);
+    }
+
+    /// <summary>
+    /// Streams everything held about the caller as a JSON download — the right of
+    /// access (GDPR Art. 15) and data portability (Art. 20) in one endpoint.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with the export as a file download.</returns>
+    [HttpGet("export")]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task ExportAsync(CancellationToken cancellationToken)
+    {
+        int userId = RequireUserId(_currentUser);
+
+        // Written straight to the response body rather than returned as a result:
+        // a complete position history can be very large, and buffering it into an
+        // ActionResult would defeat the streaming the export service does.
+        string fileName = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{ExportFileNameStem}-{userId}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+
+        Response.ContentType = "application/json";
+        Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
+
+        await _dataExport.WriteExportAsync(userId, Response.Body, cancellationToken);
+    }
+
+    /// <summary>
+    /// Permanently erases the caller's account — the right to be forgotten
+    /// (GDPR Art. 17). Irreversible, and it really deletes rows.
+    /// </summary>
+    /// <param name="request">The caller's current password, as proof of identity.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with a summary of what was removed, or 400 when the password is wrong.</returns>
+    [HttpDelete]
+    [ProducesResponseType(typeof(AccountErasureResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AccountErasureResultDto>> DeleteAccountAsync(
+        [FromBody] DeleteAccountRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<AccountErasureSummary> result =
+            await _erasure.EraseAsync(userId, request.Password, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return Failure(result);
+        }
+
+        // The account is gone; the cookie must go with it, or the browser keeps
+        // presenting a token for a user row that no longer exists.
+        _sessionCookies.Clear(Response);
+
+        AccountErasureSummary summary = result.Value!;
+
+        return Ok(new AccountErasureResultDto(
+            summary.DevicesDeleted,
+            summary.DevicesRetained,
+            summary.PositionsDeleted,
+            summary.GrantsDeleted,
+            summary.GrantsAnonymised));
     }
 }

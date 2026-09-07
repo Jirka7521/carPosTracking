@@ -72,6 +72,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { formatDate } from '../i18n/format'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { DeviceConfigSection } from '../components/DeviceConfigSection'
+import { ErasePositionHistory } from '../components/ErasePositionHistory'
 import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
@@ -876,6 +877,15 @@ export function DeviceSettingsTab() {
             <p>
               <Trans i18nKey="danger.intro" ns="settings" components={{ strong: <strong /> }} />
             </p>
+
+            {/*
+              Erasing the history comes FIRST, above deleting the device, because
+              it is the one people actually want: deleting a device is a soft
+              delete that keeps every coordinate it ever reported. Somebody who
+              means "get rid of where this car has been" and presses the wrong one
+              gets the opposite of what they asked for.
+            */}
+            <ErasePositionHistory deviceId={device.deviceId} />
 
             {deleteError ? (
               <div className="banner banner--error" role="alert">{deleteError}</div>

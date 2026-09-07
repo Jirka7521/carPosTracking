@@ -1,5 +1,15 @@
 # CarPos deployment bundle (API + frontend)
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../../docs/PRIVACY.md).
+
 This folder is **self-contained**: it carries the built sources (`api-src/`,
 `fe-src/`), the combined `docker-compose.yml`, and a `.env` with the real
 secrets. It was produced on the dev machine by `scripts/Publish-Deployment.ps1`

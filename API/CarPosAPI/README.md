@@ -1,5 +1,15 @@
 # CarPosAPI
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../../docs/PRIVACY.md).
+
 The web backend of **carPosTracking**. Two things live in one process:
 
 1. **An MQTT ingest pipeline** — it subscribes to the broker, decrypts the
@@ -97,6 +107,15 @@ Delivery acks are configured under the same `Mqtt` section, all non-secret:
 session for any account, so a deployment without a real one refuses to start.
 Rotating it invalidates every active session, which is the intended effect.
 Generate one with `openssl rand -base64 48`.
+
+The `Privacy` section names who is answerable for the personal data this system
+holds, and which privacy-policy version is in force. None of it is secret:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
+| `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
+| `Privacy:PolicyVersion` | `2026-09-06` | Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever [`docs/PRIVACY.md`](../../docs/PRIVACY.md) changes materially. |
 
 The `AuthCookie` section controls how the session is carried. The defaults are
 the production values; the only one normally worth changing is
@@ -324,7 +343,8 @@ never auto-migrated; this mode exists to make that review possible, not to repla
 ## REST API
 
 Every endpoint requires a session except `POST /api/auth/register`,
-`POST /api/auth/login`, `POST /api/auth/logout` and `GET /health`.
+`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/privacy/policy` and
+`GET /health`.
 
 | Method & route | Purpose |
 |---|---|
@@ -333,7 +353,8 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
 | `GET /api/me/devices` | the caller's devices, each with `customName` + `permissions` |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
-| `GET /api/users?email=&exactMatch=`, `GET /api/users/{id}` | search / fetch users, for sharing |
+| `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
+| `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
 | `POST /api/devices` | register a device + provision its key pair (201) |
 | `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
@@ -349,6 +370,10 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
+| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions; needs `CanDelete`. Returns `{ deletedCount }` |
+| `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
+| `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply |
+| `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
@@ -398,6 +423,41 @@ Two invariants are enforced server-side and never taken from the client:
 A device you cannot see answers **404**, not 403 — a 403 would confirm it
 exists. The last account able to share a device cannot be revoked or demoted:
 since devices are only soft-deleted, that state would be permanent.
+
+The same reasoning now covers people. `GET /api/users/{id}` answers only for the
+caller themselves or somebody they share a device with, and `GET /api/users?email=`
+matches an address for **equality only**. Both used to be wider — a three-character
+prefix search and an unrestricted id lookup — which between them let any signed-in
+account walk the table and harvest every user's name and email address. The
+sharing UI never needed either: it always had the full address in hand.
+
+## Privacy and data-subject rights
+
+[`Services/Privacy/`](Services/Privacy/) implements the GDPR rights the dashboard
+exposes. Two things about it are worth knowing before changing anything there.
+
+**`GET /api/me/export` streams.** It writes JSON straight to the response body
+with `Utf8JsonWriter` over `AsAsyncEnumerable()` queries, and it deliberately
+ignores `PositionQueryService.MaxPositionsPerQuery`: that 1000-row cap protects
+the dashboard, and a truncated export is not portability. It must never emit a
+password hash or a device private key — the two entities that carry secrets,
+`User` and `Device`, are projected into `*ExportRow` records that have no field
+to leak, and `DataExportShapeTests` pins that down.
+
+**`DELETE /api/me` really deletes.** It is the one place in this codebase that
+breaks the "records are never physically removed" rule the rest of it follows,
+because a soft-delete flag on a row still holding an email address and a year of
+movements is not erasure by any reading of Art. 17. What survives is deliberately
+impersonal: a grant this account handed to somebody else stays (that other user
+still has access) with `granted_by` nulled, and configuration revisions stay with
+`created_by_user_id` nulled. A device nobody else could see is deleted outright,
+positions and all, and its retained `config`/`schedule` messages are cleared off
+the broker — a retained message outlives the row it came from.
+
+Positions are **never** deleted automatically. There is no retention job and no
+TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
+a location history. That choice, and why it is stated plainly rather than papered
+over, is in [`docs/PRIVACY.md`](../../docs/PRIVACY.md).
 
 ## Provisioning a device
 
@@ -1051,8 +1111,15 @@ remote device settings, and the container deployment in
 
 Still to do:
 
-1. **Position retention/pruning job** — `positions` grows without bound; every
-   read is capped today, but nothing deletes old rows yet.
+1. **Position retention/pruning job** — *deliberately not built, not forgotten.*
+   `positions` grows without bound because indefinite retention is the chosen
+   policy, stated plainly in [`docs/PRIVACY.md`](../../docs/PRIVACY.md) rather
+   than papered over: the point of the project is looking at history. What bounds
+   a history instead is the user — `DELETE /api/devices/{id}/positions`, or
+   erasing the account. If a timed job is ever wanted, it is one hosted service
+   over the same `ExecuteDeleteAsync` that
+   [`Services/Positions/PositionErasureService.cs`](Services/Positions/PositionErasureService.cs)
+   already uses.
 2. **Session revocation** — tokens carry a `jti` but there is no deny-list, so
    signing out on one device does not invalidate a session already issued to
    another. Changing `Jwt:SigningKey` is the only blunt instrument today.

@@ -35,6 +35,20 @@
     "truncated": "Tento rozsah obsahuje víc než {{limit}} poloh, což je nejdál, kam jedno načtení dosáhne, takže graf začíná v {{start}} místo v čase „Od“, který jste zvolili. Zúžením rozsahu uvidíte starší data."
   },
   "devices": "Zařízení",
+  "erasePositions": {
+    "confirmLabel": "Pro potvrzení napište SMAZAT",
+    "confirmWord": "SMAZAT",
+    "done_one": "Smazána {{count}} poloha.",
+    "done_few": "Smazány {{count}} polohy.",
+    "done_many": "Smazáno {{count}} polohy.",
+    "done_other": "Smazáno {{count}} poloh.",
+    "failed": "Historii poloh se nepodařilo smazat.",
+    "hint": "Trvale smaže všechny uložené polohy tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
+    "submit": "Smazat historii poloh",
+    "submitting": "Mažu…",
+    "title": "Smazat historii poloh",
+    "warning": "Tuto akci nelze vzít zpět."
+  },
   "loading": "Načítám zařízení…",
   "map": {
     "canvasLabel": "Mapa poloh zařízení",
@@ -67,6 +81,13 @@
     "noPositions": "Pro tento časový rozsah nebyly nalezeny žádné polohy.",
     "notConfigured": "Mapa není nastavena. <br/>Zapnete ji nastavením <code>CARPOS_GOOGLE_MAPS_API_KEY</code> na kontejneru frontendu.",
     "reachedCap": "Načteno nejnovějších {{value}} poloh — tento rozsah obsahuje víc, než dokáže jedno načtení stáhnout, takže trasa začíná později než v čase „Od“, který jste zvolili."
+  },
+  "mapsConsent": {
+    "always": "Načítat mapy vždy",
+    "body": "Načtením se vyžádají mapové dlaždice od Googlu, čímž se společnosti Google LLC prozradí vaše IP adresa, údaje o prohlížeči a ze zobrazené oblasti i přibližná poloha tohoto vozidla. Dokud se nerozhodnete, neodešle se nic.",
+    "hint": "Volbu můžete později změnit v Profilu, v sekci Soukromí.",
+    "once": "Načíst mapu jednou",
+    "title": "Mapa zatím není načtená"
   },
   "notFound": "Zařízení nebylo nalezeno.",
   "notFoundOrNoAccess": "Zařízení nebylo nalezeno, nebo k němu nemáte přístup.",

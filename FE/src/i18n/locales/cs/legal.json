@@ -1,0 +1,133 @@
+{
+  "back": "Zpět do aplikace",
+  "legalNotice": {
+    "sections": {
+      "licence": {
+        "p1": "Zdrojový kód je zveřejněn pod licencí PolyForm Noncommercial License 1.0.0. Smíte jej používat, studovat, upravovat a sdílet pro jakýkoli nekomerční účel. Komerční užití není povoleno.",
+        "p2": "Úplné znění licence je součástí zdrojového kódu.",
+        "title": "Licence"
+      },
+      "nature": {
+        "p1": "carPosTracking je osobní projekt, který vznikl proto, aby se jeho autor naučil postavit GNSS sledovač vozidla od začátku do konce. Není to firma, není to produkt a není to služba, která by se komukoli nabízela.",
+        "p2": "Nic zde se neprodává, nezpeněžuje ani neprovozuje pro cizí prospěch. Žádný podnikatelský záměr za tím nestojí a ani vzniknout nemá.",
+        "title": "Nekomerční testovací projekt"
+      },
+      "operator": {
+        "p1": "Toto nasazení provozuje soukromá osoba na vlastním hardwaru, dostupném z internetu přes tunel. Kontakt pro záležitosti ochrany osobních údajů najdete v zásadách ochrany osobních údajů.",
+        "title": "Kdo to provozuje"
+      },
+      "privacy": {
+        "p1": "Tento systém uchovává přesnou historii polohy vozidel, což jsou osobní údaje podle GDPR. Co se uchovává, proč, a jak to získat zpět nebo nechat smazat, popisují zásady ochrany osobních údajů.",
+        "title": "Osobní údaje"
+      },
+      "thirdParty": {
+        "p1": "Mapy vykresluje Google Maps JavaScript API, které se načte teprve poté, co k tomu dáte souhlas. Provoz se k serveru dostává přes Cloudflare. Obojí popisují zásady ochrany osobních údajů.",
+        "p2": "Zbytek je otevřený software používaný podle vlastních licencí.",
+        "title": "Součásti třetích stran"
+      },
+      "warranty": {
+        "p1": "Software i toto nasazení jsou poskytovány tak, jak jsou. Neexistuje žádná záruka, žádný příslib funkčnosti, žádná podpora a žádný slib, že to zítra ještě poběží.",
+        "p2": "Nespoléhejte se na to v ničem důležitém a nesvěřujte tomu data, o která si nemůžete dovolit přijít.",
+        "title": "Bez záruky a bez podpory"
+      }
+    },
+    "subtitle": "Co to je, kdo to provozuje a za jakých podmínek.",
+    "title": "Právní informace"
+  },
+  "privacy": {
+    "contactLabel": "Kontakt pro ochranu osobních údajů",
+    "contactUnset": "zatím nezveřejněno",
+    "controllerLabel": "Správce",
+    "sections": {
+      "accountData": {
+        "p1": "Protože jste si založili účet: vaše e-mailová adresa, která je zároveň přihlašovací identitou; jméno a příjmení, viditelné lidem, se kterými sdílíte zařízení; heslo, uložené výhradně jako solený otisk PBKDF2 a nikdy v čitelné podobě; kdy byl účet založen; a kterou verzi těchto zásad jste potvrdili a kdy.",
+        "title": "Údaje o účtu"
+      },
+      "changes": {
+        "p1": "Verze v záhlaví této stránky se mění spolu se zásadami. Nové účty potvrzují aktuální verzi při registraci a přijatá verze se u účtu zaznamená, takže je vždy dohledatelné, s jakým textem daný člověk souhlasil.",
+        "title": "Změny těchto zásad"
+      },
+      "children": {
+        "p1": "Projekt není určen dětem a vědomě se v něm nezpracovávají údaje dětí.",
+        "title": "Děti"
+      },
+      "complaints": {
+        "p1": "Pokud se domníváte, že s vašimi údaji bylo nakládáno protiprávně, můžete podat stížnost u dozorového úřadu. V České republice je to Úřad pro ochranu osobních údajů, Pplk. Sochora 27, 170 00 Praha 7, uoou.gov.cz. Stížnost můžete podat i u úřadu v zemi svého bydliště.",
+        "title": "Stížnosti"
+      },
+      "controller": {
+        "p1": "Správcem je soukromá osoba jednající v osobní kapacitě, uvedená v záhlaví této stránky spolu s adresou pro žádosti subjektů údajů. Pověřenec pro ochranu osobních údajů jmenován nebyl; projekt tohoto rozsahu ho mít nemusí.",
+        "title": "Kdo za to odpovídá"
+      },
+      "cookies": {
+        "p1": "Nejsou zde žádné reklamní ani analytické cookies, a proto ani žádná cookie lišta: není k čemu dávat souhlas nad rámec toho, co je nezbytné, a toho, co si zvolíte sami.",
+        "p2": "Dvě cookies: vaše přihlášení, které nepřečte žádný skript, a token proti CSRF. Tři místní předvolby uložené v prohlížeči: jazyk, oddělovač pro export CSV a to, zda jste povolili načtení mapy. Místní předvolby nikdy neopustí váš prohlížeč. Vymazáním dat webu se všechny odstraní.",
+        "title": "Cookies a úložiště prohlížeče"
+      },
+      "legalBasis": {
+        "p1": "Provoz vašeho účtu a zobrazování dat vašich zařízení stojí na plnění smlouvy, kterou jste uzavřeli registrací (čl. 6 odst. 1 písm. b). Ukládání a zobrazování historie polohy sledovače, který provozujete, stojí na vašem souhlasu (čl. 6 odst. 1 písm. a), uděleném potvrzením těchto zásad při registraci a rozhodnutím sledovač provozovat.",
+        "p2": "Bezpečnostní opatření, tedy hašování hesel, ochrana proti CSRF a omezení počtu přihlášení, stojí na oprávněném zájmu udržet cizí lidi mimo vaše data (čl. 6 odst. 1 písm. f). Souhlas lze kdykoli odvolat smazáním účtu, což data vymaže.",
+        "title": "Proč a na jakém právním základě"
+      },
+      "locationData": {
+        "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie, teplota a identifikátor zařízení.",
+        "p2": "Historie polohy popisuje, kde vozidlo, a tedy obvykle i člověk, bylo, kdy a jak se jelo. Podle toho se s ní zachází: souřadnice se nikdy nezapisují do žádného logu.",
+        "title": "Poloha a telemetrie vozidla"
+      },
+      "notCollected": {
+        "p1": "Žádná analytika. Žádná reklama. Žádné sledovací pixely. Žádné skripty třetích stran kromě mapy. Přehled si nežádá o polohu vašeho prohlížeče; toto oprávnění je hlavičkami webu zcela zablokováno. Nic se neprodává ani nesdílí pro marketing.",
+        "title": "Co se nesbírá"
+      },
+      "otherDrivers": {
+        "p1": "Pak se stáváte správcem jeho osobních údajů a je vaší odpovědností mu to sdělit a mít pro to právní základ. Tento projekt vám dává technické prostředky; nemůže vám dát právní krytí, a sledování člověka bez jeho vědomí je ve většině případů protiprávní.",
+        "title": "Když sledujete vozidlo, které řídí někdo jiný"
+      },
+      "recipients": {
+        "p1": "Lidé, se kterými sdílíte zařízení, vidí jeho polohy a telemetrii a k tomu vaše jméno a e-mailovou adresu. Udělili jste jim to vy a můžete to kdykoli odvolat v nastavení zařízení.",
+        "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu.",
+        "p3": "Cloudflare ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Žádní další příjemci neexistují. Nic se neprodává.",
+        "title": "Kdo další data vidí"
+      },
+      "retention": {
+        "p1": "Polohy a telemetrie se uchovávají neomezeně dlouho. Neexistuje žádné automatické mazání ani lhůta.",
+        "p2": "Je to vědomé rozhodnutí a je to jediný bod, ve kterém tento projekt sám o sobě nenaplňuje zásadu omezení uložení podle GDPR: celý smysl projektu je dívat se do historie, takže nic nevyprší samo. Místo aby se tvrdila lhůta, která neexistuje, je to zde řečeno na rovinu, a nástroje pro mazání níže jsou skutečné, okamžité a plně ve vašich rukou.",
+        "p3": "Údaje o účtu, udělená oprávnění a názvy zařízení trvají, dokud účet nesmažete nebo je neodvoláte. Historie revizí nastavení se uchovává neomezeně, ale vazba na to, kdo změnu provedl, se při smazání účtu odstraní. Kontejnerové logy a logy brokeru se přepisují při dosažení dané velikosti, takže vydrží dny až týdny.",
+        "title": "Jak dlouho se údaje uchovávají"
+      },
+      "rights": {
+        "p1": "Přístup a přenositelnost (čl. 15 a 20): Profil, pak Exportovat moje data, stáhne soubor JSON se vším, co se o vás uchovává: profil, zařízení, oprávnění, názvy, historii nastavení a úplnou, nezkrácenou historii polohy každého zařízení, které smíte číst.",
+        "p2": "Výmaz (čl. 17): Profil, pak Smazat můj účet, si vyžádá heslo a poté trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které jste viděli jen vy, se smaže i s celou historií polohy; zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu. Je to skutečné smazání, ne skrytý příznak. Chcete-li smazat jen historii polohy, použijte Zařízení, Nastavení, Smazat historii poloh.",
+        "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu (čl. 7 odst. 3) nezpětňuje zpracování, které již proběhlo v souladu s právem.",
+        "p4": "Žádosti zaslané na kontaktní adresu se vyřizují do jednoho měsíce.",
+        "title": "Vaše práva"
+      },
+      "security": {
+        "p1": "Údaje o poloze jsou šifrovány end-to-end od sledovače po backend. Soukromé klíče zařízení jsou šifrovány v úložišti. Hesla jsou solené otisky. Přihlašovací token je v cookie, kterou nepřečte žádný skript, a každá změna navíc nese CSRF token. Souřadnice se nikdy nelogují. Přihlašování je omezeno rychlostním limitem a každý požadavek se znovu ověřuje proti vašim oprávněním, místo aby se věřilo prohlížeči.",
+        "p2": "Žádný systém není dokonale bezpečný a tento je osobní projekt, který ve volném čase udržuje jeden člověk. Nesvěřujte mu prosím nic, o co si nemůžete dovolit přijít.",
+        "title": "Zabezpečení"
+      },
+      "sharingData": {
+        "p1": "Které účty smí vidět které zařízení a s jakými oprávněními; kdo oprávnění udělil; váš soukromý název zařízení; a intervaly vzorkování a týdenní rozvrhy nastavené pro zařízení, které prozrazují, kdy je vozidlo sledováno podrobně.",
+        "title": "Sdílení zařízení a nastavení"
+      },
+      "technicalData": {
+        "p1": "IP adresy vidí webový server, broker a poskytovatel tunelu při běžném vyřizování požadavku a používají se v paměti k omezení počtu pokusů o přihlášení. Aplikace samotná nikdy nezapisuje IP adresu do vlastního logu.",
+        "p2": "Logy připojení brokeru, tedy časy a identifikátory klientů, se uchovávají v kontejnerových logech s omezenou velikostí, kde se nejstarší záznamy zahazují.",
+        "title": "Technické údaje"
+      },
+      "testProject": {
+        "p1": "carPosTracking je nekomerční osobní testovací projekt. Není to firma, produkt ani služba nabízená komukoli. Neexistuje žádná záruka, žádná podpora a žádný slib, že toto nasazení zítra ještě poběží.",
+        "p2": "Přesto uchovává přesnou historii polohy vozidel, což jsou osobní údaje podle GDPR. Tato stránka přesně říká, co se uchovává, proč, kdo další to vidí a jak to získat zpět nebo nechat smazat. Pokud si přečtete jen dvě části, ať jsou to Jak dlouho se údaje uchovávají a Vaše práva.",
+        "title": "Přečtěte si nejprve toto"
+      },
+      "whatWeDo": {
+        "p1": "Malý bateriový sledovač ve vozidle zaměří polohu GPS, zašifruje ji a odešle přes MQTT. Backend ji dešifruje a uloží. Tento přehled ji vykreslí do mapy, zobrazí telemetrii v čase a umožní majiteli účtu sdílet zařízení s dalšími účty.",
+        "p2": "Údaje o poloze jsou šifrovány end-to-end: zapečetí je sledovač veřejným klíčem backendu a otevřít je lze až uvnitř backendu. Broker uprostřed, a kdokoli se k němu dostane, vidí jen šifrovaný text.",
+        "title": "Co tento systém dělá"
+      }
+    },
+    "subtitle": "Co o vás tento projekt uchovává, proč, a jak se toho zbavit.",
+    "title": "Zásady ochrany osobních údajů",
+    "versionLabel": "Verze zásad {{version}}"
+  }
+}

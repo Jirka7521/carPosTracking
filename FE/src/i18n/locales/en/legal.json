@@ -1,0 +1,133 @@
+{
+  "back": "Back to the app",
+  "legalNotice": {
+    "sections": {
+      "licence": {
+        "p1": "The source code is published under the PolyForm Noncommercial License 1.0.0. You may use, study, modify and share it for any non-commercial purpose. Commercial use is not permitted.",
+        "p2": "The full licence text ships with the source code.",
+        "title": "Licence"
+      },
+      "nature": {
+        "p1": "carPosTracking is a personal project, built to learn by making a GNSS vehicle tracker end to end. It is not a company, not a product, and not a service offered to anyone.",
+        "p2": "Nothing here is sold, monetised, advertised against, or operated for anybody's benefit but the author's own curiosity. There is no business behind it, and no intention to build one.",
+        "title": "A non-commercial test project"
+      },
+      "operator": {
+        "p1": "This deployment is operated by a private individual on their own hardware, reachable from the internet through a tunnel. Contact details for data-protection matters are in the privacy policy.",
+        "title": "Who runs it"
+      },
+      "privacy": {
+        "p1": "This system stores precise vehicle location histories, which are personal data under the GDPR. What is held, why, and how to get it back or have it deleted is set out in the privacy policy.",
+        "title": "Personal data"
+      },
+      "thirdParty": {
+        "p1": "The dashboard draws maps with the Google Maps JavaScript API, which is loaded only after you agree to it. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
+        "p2": "The rest is open-source software used under its own licences.",
+        "title": "Third-party components"
+      },
+      "warranty": {
+        "p1": "The software and this deployment are provided as is. There is no warranty of any kind, no guarantee that it works, no support, and no promise that it will still be running tomorrow.",
+        "p2": "Do not rely on it for anything that matters, and do not entrust it with data you could not stand to lose.",
+        "title": "No warranty, no support"
+      }
+    },
+    "subtitle": "What this is, who runs it, and on what terms.",
+    "title": "Legal notice"
+  },
+  "privacy": {
+    "contactLabel": "Data-protection contact",
+    "contactUnset": "not yet published",
+    "controllerLabel": "Controller",
+    "sections": {
+      "accountData": {
+        "p1": "Because you created an account: your email address, which is your login identity; your first and last name, shown to people you share a device with; your password, stored only as a salted PBKDF2 hash and never in the clear; when the account was created; and which version of this policy you acknowledged, and when.",
+        "title": "Account data"
+      },
+      "changes": {
+        "p1": "The version at the top of this page changes when the policy does. New accounts acknowledge the current version at registration, and the version accepted is recorded against the account, so it is always answerable which text a given person agreed to.",
+        "title": "Changes to this policy"
+      },
+      "children": {
+        "p1": "This is not directed at children and is not knowingly used to process a child's data.",
+        "title": "Children"
+      },
+      "complaints": {
+        "p1": "If you think your data has been handled unlawfully you may complain to a supervisory authority. In the Czech Republic that is the Office for Personal Data Protection (Urad pro ochranu osobnich udaju), Pplk. Sochora 27, 170 00 Praha 7, uoou.gov.cz. You may also complain to the authority where you live.",
+        "title": "Complaints"
+      },
+      "controller": {
+        "p1": "The controller is a private individual acting in a personal capacity, named at the top of this page along with the address for data-protection requests. No data protection officer has been appointed; a project at this scale is not required to have one.",
+        "title": "Who is responsible"
+      },
+      "cookies": {
+        "p1": "There are no advertising or analytics cookies, and so no cookie banner: there is nothing to consent to beyond what is strictly necessary and what you choose yourself.",
+        "p2": "Two cookies: your sign-in session, which no script can read, and a cross-site request forgery token. Three local preferences stored in your browser: your language, your CSV export separator, and whether you allowed the map to load. The local preferences never leave your browser. Clearing your site data removes all of them.",
+        "title": "Cookies and browser storage"
+      },
+      "legalBasis": {
+        "p1": "Running your account and showing your devices' data rests on performing the contract you entered into by signing up (Art. 6(1)(b)). Storing and displaying the position history of a tracker you operate rests on your consent (Art. 6(1)(a)), given by acknowledging this policy at registration and by choosing to run a device.",
+        "p2": "Security measures, meaning password hashing, CSRF protection and rate-limiting sign-ins, rest on the legitimate interest of keeping other people out of your data (Art. 6(1)(f)). Consent can be withdrawn at any time by deleting your account, which erases the data.",
+        "title": "Why, and on what legal basis"
+      },
+      "locationData": {
+        "p1": "For every fix a tracker reports: latitude and longitude, speed, acceleration on three axes, altitude, the GNSS fix time and the server receive time, battery percentage, temperature, and the device identifier.",
+        "p2": "A location history describes where a vehicle, and therefore usually a person, has been, when, and how they drove. It is treated as sensitive throughout: coordinates are never written to any log file.",
+        "title": "Location and vehicle telemetry"
+      },
+      "notCollected": {
+        "p1": "No analytics. No advertising. No tracking pixels. No third-party scripts other than the map. This dashboard does not ask for your browser's own location; that permission is blocked outright by the site's headers. Nothing is sold or shared for marketing, ever.",
+        "title": "What is not collected"
+      },
+      "otherDrivers": {
+        "p1": "Then you become a controller of their personal data, and it is your responsibility to tell them and to have a lawful basis for it. This project gives you the technical means; it cannot give you the legal cover, and tracking someone without their knowledge is unlawful in most circumstances.",
+        "title": "If you track a vehicle somebody else drives"
+      },
+      "recipients": {
+        "p1": "People you share a device with see that device's positions and telemetry, plus your name and email address. You granted that, and you can revoke it at any time in the device's settings.",
+        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile.",
+        "p3": "Cloudflare terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. There are no other recipients. Nothing is sold.",
+        "title": "Who else sees the data"
+      },
+      "retention": {
+        "p1": "Positions and telemetry are kept indefinitely. There is no automatic deletion and no retention limit.",
+        "p2": "That is a deliberate choice, and it is the one point where this project does not meet the GDPR's storage-limitation principle on its own: the whole point of it is looking at history, so nothing expires on a timer. Rather than claim a limit that does not exist, it is stated here plainly, and the deletion controls below are real, immediate, and under your sole control.",
+        "p3": "Account data, access grants and device nicknames last until you delete your account or revoke them. Configuration revision history is kept indefinitely, but the link to who made a change is erased when that account is deleted. Container and broker logs roll over at a fixed size, so they last days to weeks.",
+        "title": "How long data is kept"
+      },
+      "rights": {
+        "p1": "Access and portability (Art. 15 and 20): Profile, then Export my data, downloads a JSON file with everything held about you: profile, devices, permissions, nicknames, configuration history, and the complete, untruncated position history of every device you can read.",
+        "p2": "Erasure (Art. 17): Profile, then Delete my account, asks for your password and then permanently deletes your account, your access grants and your nicknames. Any device only you could see is deleted with its entire position history; devices shared with others survive, with your access removed. This is a real delete, not a hidden flag. To erase only a location history, use Device, then Settings, then Erase position history.",
+        "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing consent (Art. 7(3)) does not undo processing that already happened lawfully.",
+        "p4": "Requests sent to the contact address are answered within one month.",
+        "title": "Your rights"
+      },
+      "security": {
+        "p1": "Position payloads are encrypted end to end from the tracker to the backend. Device private keys are encrypted at rest. Passwords are salted hashes. The session token lives in a cookie no script can read, and every change additionally carries a CSRF token. Coordinates are never logged. Sign-in is rate-limited, and every request is re-authorised against your access grants rather than trusting the browser.",
+        "p2": "No system is perfectly secure, and this one is a personal project maintained by one person in their spare time. Please do not entrust it with anything you could not stand to lose.",
+        "title": "Security"
+      },
+      "sharingData": {
+        "p1": "Which accounts may see which device and with what permissions; who granted that permission; your private nickname for a device; and the sampling intervals and weekly schedules configured for a device, which reveal when a vehicle is tracked closely.",
+        "title": "Device sharing and configuration"
+      },
+      "technicalData": {
+        "p1": "IP addresses are seen by the web server, the message broker and the tunnel provider in the ordinary course of serving a request, and are used in memory to rate-limit sign-in attempts. The application itself never writes an IP address to its own log.",
+        "p2": "Broker connection logs, meaning timestamps and client identifiers, are kept in size-bounded container logs with the oldest discarded.",
+        "title": "Technical data"
+      },
+      "testProject": {
+        "p1": "carPosTracking is a non-commercial personal test project. It is not a company, not a product, and not a service offered to anyone. There is no warranty, no support, and no guarantee that this deployment will still be running tomorrow.",
+        "p2": "It nevertheless stores precise vehicle location histories, which are personal data under the GDPR. This page says exactly what is held, why, who else sees it, and how to get it back or get rid of it. If you read only two sections, read How long data is kept and Your rights.",
+        "title": "Read this first"
+      },
+      "whatWeDo": {
+        "p1": "A small battery-powered tracker in a vehicle takes a GPS fix, encrypts it, and publishes it over MQTT. A backend decrypts and stores it. This dashboard draws it on a map, plots the telemetry, and lets the account holder share a device with other accounts.",
+        "p2": "The position payload is encrypted end to end: sealed on the tracker with the backend's public key, and opened only inside the backend. The message broker in the middle, and anybody who can reach it, sees ciphertext and nothing else.",
+        "title": "What this system does"
+      }
+    },
+    "subtitle": "What this project holds about you, why, and how to get rid of it.",
+    "title": "Privacy policy",
+    "versionLabel": "Policy version {{version}}"
+  }
+}

@@ -65,7 +65,7 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("device_id");
 
-                    b.Property<int>("GrantedBy")
+                    b.Property<int?>("GrantedBy")
                         .HasColumnType("integer")
                         .HasColumnName("granted_by");
 
@@ -625,6 +625,18 @@ namespace CarPosAPI.Data.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("password_hash");
+
+                    b.Property<DateTime?>("PrivacyPolicyAcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("privacy_policy_accepted_at");
+
+                    b.Property<string>("PrivacyPolicyVersion")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("")
+                        .HasColumnName("privacy_policy_version");
 
                     b.HasKey("Id");
 

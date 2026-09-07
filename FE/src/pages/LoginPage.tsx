@@ -18,6 +18,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { LanguageMenu } from '../components/LanguageMenu'
+import { SiteFooter } from '../components/SiteFooter'
 import { assetUrl } from '../services/runtimeConfig'
 import { describeError } from '../utils/errors'
 
@@ -151,6 +152,11 @@ export function LoginPage() {
         {t('auth:login.noAccount')}{' '}
         <Link to="/register">{t('auth:login.createOne')}</Link>
       </p>
+
+      {/* This page has its own shell rather than AppLayout's, so the footer has
+          to be repeated here — and this is the page where it matters most, since
+          it is the first thing a new visitor sees. */}
+      <SiteFooter />
     </div>
   )
 }

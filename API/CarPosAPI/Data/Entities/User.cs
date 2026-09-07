@@ -33,4 +33,23 @@ public sealed class User
 
     /// <summary>Account creation timestamp (UTC). DB-generated default.</summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Version of the privacy policy this account acknowledged at registration.
+    ///
+    /// GDPR Art. 7(1) puts the burden of *demonstrating* consent on the controller,
+    /// and "the policy was on the page somewhere" demonstrates nothing. Storing the
+    /// version the user was actually shown, next to the moment they accepted it, is
+    /// what makes that answerable a year later.
+    ///
+    /// Empty on rows that predate the field; registration refuses to create a new
+    /// account without a version matching <c>PrivacyOptions.PolicyVersion</c>.
+    /// </summary>
+    public string PrivacyPolicyVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When <see cref="PrivacyPolicyVersion"/> was accepted (UTC). Null for accounts
+    /// created before acknowledgement was recorded.
+    /// </summary>
+    public DateTime? PrivacyPolicyAcceptedAt { get; set; }
 }

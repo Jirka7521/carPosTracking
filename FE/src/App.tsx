@@ -4,6 +4,8 @@
 // URL structure:
 //   /login            — sign in (public)
 //   /register         — create account (public)
+//   /privacy          — privacy policy (public, readable while signed in too)
+//   /legal            — legal notice / imprint (public, same)
 //   /home             — device list (protected)
 //   /device/:deviceId — device shell with four sub-tabs:
 //     /map            — live map with auto-refresh
@@ -28,6 +30,8 @@ import { AppLayout } from './components/AppLayout'
 import { SessionLoading } from './components/SessionLoading'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { LegalNoticePage } from './pages/LegalNoticePage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
 import { DevicePage } from './pages/DevicePage'
@@ -81,6 +85,17 @@ function AppRoutes() {
       />
 
       {/*
+       * Privacy policy and legal notice. Public like the two above, but WITHOUT
+       * the redirect: somebody who is already signed in still has to be able to
+       * read what happens to their data, and bouncing them to /home would make
+       * the footer links dead for exactly the people whose data it is. They also
+       * sit outside <RequireAuth> on purpose — a visitor deciding whether to
+       * register has to be able to read the policy before they have an account.
+       */}
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/legal" element={<LegalNoticePage />} />
+
+      {/*
        * Protected routes — all share the <AppLayout> shell which renders
        * the sticky top navigation bar and an <Outlet /> for page content.
        * <RequireAuth> redirects to /login if the token is absent.
@@ -125,13 +140,18 @@ function AppRoutes() {
 // — and the browser tab's title. index.html ships lang="en" and an English
 // <title> as the pre-hydration default; this replaces both once i18next has
 // settled on a language.
+//
+// The title is `documentTitle`, not `appTitle`: it carries the "non-commercial
+// test project" qualifier, so the browser tab and any bookmark say what this is
+// without anyone having to open it. index.html says the same thing before
+// hydration, and this must not quietly undo that.
 function useDocumentLanguage(): void {
   const { t, i18n: instance } = useTranslation('common')
   const language: string = instance.resolvedLanguage ?? instance.language
 
   useEffect(() => {
     document.documentElement.lang = language
-    document.title = t('appTitle')
+    document.title = t('documentTitle')
   }, [language, t])
 }
 

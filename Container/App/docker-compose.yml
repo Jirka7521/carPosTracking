@@ -7,6 +7,16 @@ services:
     image: carpos-api:latest
     container_name: carpos-api
     restart: unless-stopped
+    # Bounded logs. The default json-file driver never rotates, and these logs
+    # carry personal data: the broker records "client connected from <IP>" for
+    # every device and the reverse proxy logs client IPs. An unbounded log is an
+    # unbounded retention period for exactly the data nobody meant to keep. See
+    # docs/PRIVACY.md.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
 
@@ -93,6 +103,16 @@ services:
     image: carpos-fe:latest
     container_name: carpos-fe
     restart: unless-stopped
+    # Bounded logs. The default json-file driver never rotates, and these logs
+    # carry personal data: the broker records "client connected from <IP>" for
+    # every device and the reverse proxy logs client IPs. An unbounded log is an
+    # unbounded retention period for exactly the data nobody meant to keep. See
+    # docs/PRIVACY.md.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       api:
         # nginx refuses to start if it cannot resolve its proxy_pass upstream,

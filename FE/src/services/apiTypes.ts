@@ -94,7 +94,10 @@ export type AccessDto = {
   id: number
   userId: number
   deviceId: string
-  grantedBy: number
+  // Null once the account that created the grant has been erased: the grant
+  // survives so the other user keeps their access, but the link to whoever
+  // handed it out does not.
+  grantedBy: number | null
   dateRegistration: string
   canRead: boolean
   canDelete: boolean
@@ -422,4 +425,38 @@ export type ChangePasswordRequestDto = {
 // name. Sending an empty string removes the alias.
 export type DeviceAliasUpdateRequestDto = {
   alias: string
+}
+
+// ---------------------------------------------------------------------------
+// Privacy and data-subject rights (GDPR)
+// ---------------------------------------------------------------------------
+
+// GET /api/privacy/policy — public. The registration form reads the version so
+// it can echo back exactly the policy it displayed; the server refuses a
+// registration that acknowledges anything else.
+export interface PrivacyPolicyDto {
+  version: string
+  controllerName: string
+  controllerContactEmail: string
+}
+
+// DELETE /api/me — permanent account erasure. The password is proof of
+// identity: a stolen session cookie must not be enough to destroy an account.
+export interface DeleteAccountRequestDto {
+  password: string
+}
+
+// What the erasure actually removed. Shown to the user rather than swallowed,
+// because the scope is not obvious — a device somebody else still uses survives.
+export interface AccountErasureResultDto {
+  devicesDeleted: number
+  devicesRetained: number
+  positionsDeleted: number
+  grantsDeleted: number
+  grantsAnonymised: number
+}
+
+// DELETE /api/devices/{deviceId}/positions — erases a location history.
+export interface PositionErasureResultDto {
+  deletedCount: number
 }

@@ -29,6 +29,7 @@
     "active": "Aktivní",
     "inactive": "Neaktivní"
   },
+  "documentTitle": "Sledování polohy vozidel — nekomerční testovací projekt",
   "duration": {
     "days_one": "{{value}} den",
     "days_few": "{{value}} dny",
@@ -55,12 +56,19 @@
     "firstName": "Jméno",
     "lastName": "Příjmení"
   },
+  "footer": {
+    "legal": "Právní informace",
+    "privacy": "Soukromí",
+    "testProject": "Nekomerční testovací projekt — není to služba. Bez záruky a bez podpory."
+  },
   "language": {
     "change": "Změnit jazyk",
     "heading": "Jazyk"
   },
   "nav": {
     "home": "Přejít na domovskou stránku",
+    "legal": "Přečíst právní informace",
+    "privacy": "Přečíst zásady ochrany osobních údajů",
     "profile": "Upravit profil"
   },
   "onOff": {

@@ -26,6 +26,7 @@ import i18n from '../i18n'
 import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
 import type { PositionDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
+import { grantStandingMapsConsent, hasStandingMapsConsent } from '../utils/mapsConsent'
 
 type DeviceMapProps = {
   positions: PositionDto[]
@@ -413,6 +414,14 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
   const mapContainerRef           = useRef<HTMLDivElement | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // Has this viewer agreed to contact Google at all? Seeded from the stored
+  // standing consent; the "just this once" button flips it for this tab only.
+  //
+  // Everything below hangs off this flag: the loader effect returns early while
+  // it is false, so opening a device's map tab makes no request to
+  // maps.googleapis.com until somebody chooses. That is the whole gate.
+  const [hasConsented, setHasConsented] = useState<boolean>(() => hasStandingMapsConsent())
+
   const mapState = useMemo<MapState>(
     () => ({
       map:          null,
@@ -427,7 +436,7 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
   )
 
   useEffect(() => {
-    if (!apiKey) {
+    if (!apiKey || !hasConsented) {
       return
     }
 
@@ -465,7 +474,7 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
     return () => {
       canceled = true
     }
-  }, [apiKey, mapState, positions])
+  }, [apiKey, hasConsented, mapState, positions])
 
   // "Fit to positions" — the only thing that moves the viewport after the first
   // load. fitToken starts at 0, meaning the user has not asked yet. Positions
@@ -483,6 +492,40 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
         <p>
           <Trans i18nKey="map.notConfigured" ns="device" components={{ br: <br />, code: <code /> }} />
         </p>
+      </div>
+    )
+  }
+
+  // The gate. Nothing has been sent to Google at this point, and the text says
+  // exactly what pressing either button will send.
+  if (!hasConsented) {
+    return (
+      <div className="map-placeholder map-consent">
+        <span style={{ fontSize: '2rem' }} aria-hidden="true">🗺</span>
+        <h3 className="map-consent-title">{t('mapsConsent.title')}</h3>
+        <p>{t('mapsConsent.body')}</p>
+
+        <div className="map-consent-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setHasConsented(true)}
+          >
+            {t('mapsConsent.once')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              grantStandingMapsConsent()
+              setHasConsented(true)
+            }}
+          >
+            {t('mapsConsent.always')}
+          </button>
+        </div>
+
+        <p className="map-consent-hint">{t('mapsConsent.hint')}</p>
       </div>
     )
   }

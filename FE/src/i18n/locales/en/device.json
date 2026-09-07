@@ -31,6 +31,18 @@
     "truncated": "This range holds more than {{limit}} fixes, which is as far back as one load goes, so the chart starts at {{start}} rather than at the “From” you chose. Narrow the range to see earlier data."
   },
   "devices": "Devices",
+  "erasePositions": {
+    "confirmLabel": "Type ERASE to confirm",
+    "confirmWord": "ERASE",
+    "done_one": "{{count}} position erased.",
+    "done_other": "{{count}} positions erased.",
+    "failed": "The position history could not be erased.",
+    "hint": "Permanently deletes every stored position for this device. The device itself, its settings and its sharing stay exactly as they are. Position history is never deleted automatically, so this is the only thing that ever ends it.",
+    "submit": "Erase position history",
+    "submitting": "Erasing…",
+    "title": "Erase position history",
+    "warning": "This cannot be undone."
+  },
   "loading": "Loading device…",
   "map": {
     "canvasLabel": "Device position map",
@@ -59,6 +71,13 @@
     "noPositions": "No positions found for this time range.",
     "notConfigured": "Map not configured. <br/>Set <code>CARPOS_GOOGLE_MAPS_API_KEY</code> on the frontend container to enable it.",
     "reachedCap": "Loaded the newest {{value}} positions — this range holds more than one load can fetch, so the track starts later than the “From” you chose."
+  },
+  "mapsConsent": {
+    "always": "Always load maps",
+    "body": "Loading it asks Google for the map tiles, which tells Google LLC your IP address, your browser details, and — from the area shown — roughly where this vehicle is. Nothing is sent until you choose.",
+    "hint": "You can change this later under Profile, Privacy.",
+    "once": "Load the map once",
+    "title": "The map is not loaded yet"
   },
   "notFound": "Device not found.",
   "notFoundOrNoAccess": "Device not found, or you do not have access to it.",

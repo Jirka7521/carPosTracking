@@ -85,7 +85,12 @@ live in the `devices` table encrypted at rest under a master key
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, **sets the session cookies** |
 | `POST /api/auth/logout` | expires them (204) |
 | `GET /api/me` | current user's profile; also the FE's session probe |
-| `GET /api/users?…`, `GET /api/users/{id}` | search / fetch users (for sharing) |
+| `GET /api/users?email=` | fetch the user with **exactly** that address (for sharing); no prefix search |
+| `GET /api/users/{id}` | fetch a profile — self, or somebody sharing a device with the caller; otherwise 404 |
+| `GET /api/privacy/policy` | policy version + controller contact (**anonymous**) |
+| `GET /api/me/export` | stream everything held about the caller (GDPR Art. 15/20) |
+| `DELETE /api/me` | permanently erase the caller's account (GDPR Art. 17) |
+| `DELETE /api/devices/{deviceId}/positions` | permanently erase a device's position history |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update names; change password |
 | `GET /api/me/devices` | caller's devices, each with `customName` + `permissions` |
 | `POST /api/devices`, `DELETE /api/devices/{deviceId}` | create + provision (201); **soft**-delete (204) |
@@ -115,7 +120,21 @@ cookie in an `X-CSRF-Token` header, enforced by
   `additionalAccesses` entries reference users by **email**; unknown emails are
   **skipped silently**, and each produces one access grant.
 - **Deleting a device is a soft delete**: it is marked inactive and stamped with
-  a deactivation time. Records are never physically removed.
+  a deactivation time. Records are never physically removed — **except** by the
+  two GDPR erasure paths, which are the one deliberate exception to this rule:
+  `DELETE /api/me` (account erasure, Art. 17) and
+  `DELETE /api/devices/{id}/positions` (erasing a location history). A soft-delete
+  flag on a row still holding an email address and a year of movements is not
+  erasure by any reading of Art. 17. See `Services/Privacy/`.
+- **Positions are never deleted automatically.** There is no retention job and no
+  TTL, by decision rather than omission (`docs/PRIVACY.md` § retention). Do not
+  add one without asking — the privacy policy states indefinite retention as a
+  deliberate, disclosed choice, and quietly contradicting it in either direction
+  makes the published document wrong.
+- **The data export must never carry a secret.** `Services/Privacy/DataExportService`
+  projects `User` and `Device` into `*ExportRow` records precisely so a password
+  hash or a device private key has no field to travel in. `DataExportShapeTests`
+  fails the build if that changes.
 - Device `deviceId` is stored **exact-case** — MQTT topics are case-sensitive, so
   folding it would break `devices/<id>` matching. User `email` is **lower-cased**.
 - A device the caller cannot see answers **404, not 403**. A 403 would confirm

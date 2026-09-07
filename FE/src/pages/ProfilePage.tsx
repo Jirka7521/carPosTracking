@@ -13,6 +13,11 @@
 //      cookie alone cannot be used to lock the account owner out. The new
 //      password must be at least 12 characters, matching the registration rule.
 //
+//   3. Privacy and your data
+//      Export everything held about you, withdraw consent to load the map, and
+//      delete the account outright. These are the GDPR data-subject rights, and
+//      they are wired up rather than described — see docs/PRIVACY.md.
+//
 // The email address is shown read-only; changing it is not supported because
 // it would require a verification round-trip that is out of scope here.
 // ============================================================
@@ -21,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { PersonalInfoSection } from '../components/PersonalInfoSection'
 import { ChangePasswordSection } from '../components/ChangePasswordSection'
+import { PrivacySection } from '../components/PrivacySection'
 
 // ============================================================
 // Main component
@@ -58,9 +64,13 @@ export function ProfilePage() {
 
       {/* Section 2: Change Password */}
       <ChangePasswordSection userId={currentUser.id} />
+
+      {/* Section 3: Privacy and your data */}
+      <PrivacySection />
     </div>
   )
 }
 
 // PersonalInfoSection is defined in src/components/PersonalInfoSection.tsx
 // ChangePasswordSection is defined in src/components/ChangePasswordSection.tsx
+// PrivacySection is defined in src/components/PrivacySection.tsx
