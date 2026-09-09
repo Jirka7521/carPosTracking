@@ -2,9 +2,28 @@
   "back": "Zpět do aplikace",
   "legalNotice": {
     "sections": {
+      "acceptance": {
+        "p1": "Tyto podmínky přijímáte založením účtu a používáním tohoto nasazení. Pokud s nimi nesouhlasíte, účet si nezakládejte a nasazení nepoužívejte.",
+        "p2": "Jsou dohodou mezi vámi a osobou, která toto nasazení provozuje, a týkají se samotného nasazení. Zdrojový kód je samostatná věc, kterou upravuje licence níže.",
+        "title": "Přijetí těchto podmínek"
+      },
+      "changes": {
+        "p1": "Tyto podmínky se mohou měnit. Podstatné změny se oznámí v aplikaci a další používání nasazení po takovém oznámení znamená, že novou verzi přijímáte. U vašeho účtu je zaznamenána verze, kterou jste přijali při registraci.",
+        "p2": "Pokud změnu nepřijímáte, smažte si účet.",
+        "title": "Změny těchto podmínek"
+      },
+      "law": {
+        "p1": "Tyto podmínky se řídí českým právem a k rozhodování jsou příslušné soudy České republiky. Jste-li spotřebitel, nezbavuje vás to ochrany podle kogentních předpisů země vašeho bydliště.",
+        "title": "Rozhodné právo"
+      },
+      "liability": {
+        "p1": "V nejširším rozsahu, který právo připouští, provozovatel neodpovídá za jakoukoli škodu nebo újmu vzniklou ze softwaru nebo z tohoto nasazení. To zahrnuje mimo jiné: údaje o poloze, které se ztratí, jsou chybné, přijdou pozdě nebo nepřijdou vůbec; nedostupnost, poruchu nebo ukončení nasazení; sledovač, který přestane hlásit; a vozidlo, které se nenajde nebo nevrátí.",
+        "p2": "Jde o bezplatný nekomerční experiment poskytovaný bez jakékoli úplaty a tak je také třeba jej posuzovat. Nic v těchto podmínkách nevylučuje ani neomezuje odpovědnost, kterou vyloučit nebo omezit nelze, včetně odpovědnosti za újmu způsobenou úmyslně nebo z hrubé nedbalosti, a nic zde se nedotýká zákonných práv spotřebitele.",
+        "title": "Bez odpovědnosti za škodu"
+      },
       "licence": {
         "p1": "Zdrojový kód je zveřejněn pod licencí PolyForm Noncommercial License 1.0.0. Smíte jej používat, studovat, upravovat a sdílet pro jakýkoli nekomerční účel. Komerční užití není povoleno.",
-        "p2": "Úplné znění licence je součástí zdrojového kódu.",
+        "p2": "Úplné znění licence je součástí zdrojového kódu. Upravuje samotný kód; vaše používání tohoto nasazení upravují tyto podmínky.",
         "title": "Licence"
       },
       "nature": {
@@ -17,8 +36,13 @@
         "title": "Kdo to provozuje"
       },
       "privacy": {
-        "p1": "Tento systém uchovává přesnou historii polohy vozidel, což jsou osobní údaje podle GDPR. Co se uchovává, proč, a jak to získat zpět nebo nechat smazat, popisují zásady ochrany osobních údajů.",
+        "p1": "Tento systém uchovává přesnou historii polohy vozidel, což jsou osobní údaje podle GDPR. Co se uchovává, proč, kdo další to vidí a jak to získat zpět nebo nechat smazat, popisují zásady ochrany osobních údajů.",
         "title": "Osobní údaje"
+      },
+      "termination": {
+        "p1": "Provozovatel může kdykoli, bez oznámení a bez udání důvodu pozastavit nebo smazat kterýkoli účet, odebrat kterékoli zařízení nebo celé nasazení ukončit. Data se v takovém případě smažou a neexistuje závazek uchovat kopii ani ji předem vydat.",
+        "p2": "Odejít můžete kdykoli: Profil, pak Smazat můj účet, vymaže vše, co se o vás uchovává.",
+        "title": "Ukončení"
       },
       "thirdParty": {
         "p1": "Mapy vykresluje Google Maps JavaScript API, které se načte teprve poté, co k tomu dáte souhlas. Provoz se k serveru dostává přes Cloudflare. Obojí popisují zásady ochrany osobních údajů.",
@@ -29,10 +53,21 @@
         "p1": "Software i toto nasazení jsou poskytovány tak, jak jsou. Neexistuje žádná záruka, žádný příslib funkčnosti, žádná podpora a žádný slib, že to zítra ještě poběží.",
         "p2": "Nespoléhejte se na to v ničem důležitém a nesvěřujte tomu data, o která si nemůžete dovolit přijít.",
         "title": "Bez záruky a bez podpory"
+      },
+      "yourDevices": {
+        "p1": "Sledovač smíte provozovat jen ve vozidle, které jste oprávněni sledovat, a předtím musíte lidem, kteří jím jezdí, sdělit, že se jeho poloha zaznamenává. Sledování člověka bez jeho vědomí je ve většině případů protiprávní. To je nejdůležitější věc na této stránce a u každého sledovače, který přidáte, ji potvrzujete.",
+        "p2": "U údajů o poloze kohokoli dalšího, kdo tímto vozidlem jezdí, jste správcem vy a provozovatel je pro vás pouze ukládá. Provozovatel jedná podle vašich pokynů, zachovává mlčenlivost, chrání údaje opatřeními popsanými v zásadách ochrany osobních údajů a nevyužívá jiné další zpracovatele než ty, které jsou tam uvedeny.",
+        "p3": "Mazání těchto údajů máte ve svých rukou: nástroje pro výmaz v aplikaci odstraní celou historii polohy zařízení nebo celý váš účet, okamžitě a bez ptaní. Tyto nástroje jsou veškerá dostupná součinnost a dosáhnou na vše, co toto nasazení uchovává.",
+        "title": "Vaše sledovače a lidé, které sledují"
+      },
+      "yourResponsibility": {
+        "p1": "Odpovídáte za to, co s tímto systémem děláte. Uplatní-li někdo vůči provozovateli nárok kvůli tomu, jak jste systém použili, typicky kvůli sledování člověka bez jeho vědomí, je to váš nárok k vypořádání a uhradíte provozovateli náklady na jeho vyřízení v rozsahu, který právo připouští.",
+        "p2": "Nepoužívejte to k pronásledování, obtěžování ani ke sledování kohokoli bez jeho vědomí a nepoužívejte to k porušování zákona. Účet, který to dělá, bude smazán.",
+        "title": "Za co odpovídáte"
       }
     },
-    "subtitle": "Co to je, kdo to provozuje a za jakých podmínek.",
-    "title": "Právní informace"
+    "subtitle": "Co to je, kdo to provozuje a jaké podmínky přijímáte používáním.",
+    "title": "Podmínky užití"
   },
   "privacy": {
     "contactLabel": "Kontakt pro ochranu osobních údajů",
@@ -40,11 +75,11 @@
     "controllerLabel": "Správce",
     "sections": {
       "accountData": {
-        "p1": "Protože jste si založili účet: vaše e-mailová adresa, která je zároveň přihlašovací identitou; jméno a příjmení, viditelné lidem, se kterými sdílíte zařízení; heslo, uložené výhradně jako solený otisk PBKDF2 a nikdy v čitelné podobě; kdy byl účet založen; a kterou verzi těchto zásad jste potvrdili a kdy.",
+        "p1": "Protože jste si založili účet: vaše e-mailová adresa, která je zároveň přihlašovací identitou; jméno a příjmení, viditelné lidem, se kterými sdílíte zařízení; heslo, uložené výhradně jako solený otisk PBKDF2 a nikdy v čitelné podobě; kdy byl účet založen; a kterou verzi podmínek a těchto zásad jste přijali a kdy.",
         "title": "Údaje o účtu"
       },
       "changes": {
-        "p1": "Verze v záhlaví této stránky se mění spolu se zásadami. Nové účty potvrzují aktuální verzi při registraci a přijatá verze se u účtu zaznamená, takže je vždy dohledatelné, s jakým textem daný člověk souhlasil.",
+        "p1": "Verze v záhlaví této stránky se mění spolu se zásadami. Nové účty při registraci přijímají podmínky užití a potvrzují tyto zásady a přijatá verze se u účtu zaznamená, takže je vždy dohledatelné, s jakým textem daný člověk souhlasil. Podstatné změny se oznamují v aplikaci.",
         "title": "Změny těchto zásad"
       },
       "children": {
@@ -65,8 +100,9 @@
         "title": "Cookies a úložiště prohlížeče"
       },
       "legalBasis": {
-        "p1": "Provoz vašeho účtu a zobrazování dat vašich zařízení stojí na plnění smlouvy, kterou jste uzavřeli registrací (čl. 6 odst. 1 písm. b). Ukládání a zobrazování historie polohy sledovače, který provozujete, stojí na vašem souhlasu (čl. 6 odst. 1 písm. a), uděleném potvrzením těchto zásad při registraci a rozhodnutím sledovač provozovat.",
-        "p2": "Bezpečnostní opatření, tedy hašování hesel, ochrana proti CSRF a omezení počtu přihlášení, stojí na oprávněném zájmu udržet cizí lidi mimo vaše data (čl. 6 odst. 1 písm. f). Souhlas lze kdykoli odvolat smazáním účtu, což data vymaže.",
+        "p1": "Vše, co pro vás tento systém dělá, stojí na plnění smlouvy, kterou jste uzavřeli přijetím podmínek užití a založením účtu (čl. 6 odst. 1 písm. b): provoz vašeho účtu, přihlašování, ukládání a zobrazování historie polohy sledovače, který provozujete, a sdílení zařízení s lidmi, které si zvolíte.",
+        "p2": "Bezpečnostní opatření, tedy hašování hesel, ochrana proti CSRF a omezení počtu přihlášení, exportů a výmazů, stojí na oprávněném zájmu udržet cizí lidi mimo vaše data (čl. 6 odst. 1 písm. f).",
+        "p3": "Jediné, co stojí na souhlasu (čl. 6 odst. 1 písm. a), je načtení mapy Google, a proto se na něj přehled ptá zvlášť a vaši odpověď si pamatuje. Souhlas můžete kdykoli odvolat v profilu a stojí vás to jen mapu.",
         "title": "Proč a na jakém právním základě"
       },
       "locationData": {
@@ -79,35 +115,37 @@
         "title": "Co se nesbírá"
       },
       "otherDrivers": {
-        "p1": "Pak se stáváte správcem jeho osobních údajů a je vaší odpovědností mu to sdělit a mít pro to právní základ. Tento projekt vám dává technické prostředky; nemůže vám dát právní krytí, a sledování člověka bez jeho vědomí je ve většině případů protiprávní.",
+        "p1": "Pak se stáváte správcem jeho osobních údajů a je vaší odpovědností mu to sdělit a mít pro to právní základ. Tento projekt vám dává technické prostředky; nemůže vám dát právní krytí, a sledování člověka bez jeho vědomí je ve většině případů protiprávní. Totéž říkají podmínky užití a u každého přidaného sledovače to potvrzujete.",
+        "p2": "U údajů takového člověka je provozovatel tohoto nasazení pouze zpracovatelem: ukládá, co váš sledovač pošle, jedná podle vašich pokynů a nic vlastního nepřidává. Jejich smazání máte ve svých rukou, pomocí nástrojů uvedených níže ve Vašich právech.",
+        "p3": "Pokud vozidlo, kterým jezdíte, tento systém sleduje a vy zde nemáte účet, napište na kontakt pro ochranu osobních údajů uvedený v záhlaví této stránky. Vaše žádost bude předána majiteli účtu odpovědnému za daný sledovač a provozovatel pomůže, jak technicky bude moci.",
         "title": "Když sledujete vozidlo, které řídí někdo jiný"
       },
       "recipients": {
         "p1": "Lidé, se kterými sdílíte zařízení, vidí jeho polohy a telemetrii a k tomu vaše jméno a e-mailovou adresu. Udělili jste jim to vy a můžete to kdykoli odvolat v nastavení zařízení.",
-        "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu.",
-        "p3": "Cloudflare ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Žádní další příjemci neexistují. Nic se neprodává.",
+        "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu. Google sídlí ve Spojených státech a předání se opírá o jeho certifikaci podle rámce EU-US Data Privacy Framework.",
+        "p3": "Cloudflare, Inc. ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Rovněž sídlí ve Spojených státech a je rovněž certifikován podle rámce EU-US Data Privacy Framework. Žádní další příjemci neexistují. Nic se neprodává.",
         "title": "Kdo další data vidí"
       },
       "retention": {
         "p1": "Polohy a telemetrie se uchovávají neomezeně dlouho. Neexistuje žádné automatické mazání ani lhůta.",
-        "p2": "Je to vědomé rozhodnutí a je to jediný bod, ve kterém tento projekt sám o sobě nenaplňuje zásadu omezení uložení podle GDPR: celý smysl projektu je dívat se do historie, takže nic nevyprší samo. Místo aby se tvrdila lhůta, která neexistuje, je to zde řečeno na rovinu, a nástroje pro mazání níže jsou skutečné, okamžité a plně ve vašich rukou.",
+        "p2": "Je to vědomé rozhodnutí. Dívat se na to, kde vozidlo bylo, je celým smyslem systému, takže se historie uchovává přesně tak dlouho, dokud tomuto účelu slouží, tedy tak dlouho, jak si přejete. Nic nevyprší samo; místo toho jsou nástroje pro mazání níže skutečné, okamžité a plně ve vašich rukou. Celou historii polohy zařízení i celý svůj účet můžete vymazat kdykoli a bez ptaní.",
         "p3": "Údaje o účtu, udělená oprávnění a názvy zařízení trvají, dokud účet nesmažete nebo je neodvoláte. Historie revizí nastavení se uchovává neomezeně, ale vazba na to, kdo změnu provedl, se při smazání účtu odstraní. Kontejnerové logy a logy brokeru se přepisují při dosažení dané velikosti, takže vydrží dny až týdny.",
         "title": "Jak dlouho se údaje uchovávají"
       },
       "rights": {
         "p1": "Přístup a přenositelnost (čl. 15 a 20): Profil, pak Exportovat moje data, stáhne soubor JSON se vším, co se o vás uchovává: profil, zařízení, oprávnění, názvy, historii nastavení a úplnou, nezkrácenou historii polohy každého zařízení, které smíte číst.",
         "p2": "Výmaz (čl. 17): Profil, pak Smazat můj účet, si vyžádá heslo a poté trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které jste viděli jen vy, se smaže i s celou historií polohy; zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu. Je to skutečné smazání, ne skrytý příznak. Chcete-li smazat jen historii polohy, použijte Zařízení, Nastavení, Smazat historii poloh.",
-        "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu (čl. 7 odst. 3) nezpětňuje zpracování, které již proběhlo v souladu s právem.",
+        "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu s načítáním map Google (čl. 7 odst. 3) provedete v profilu a ničeho jiného se netýká.",
         "p4": "Žádosti zaslané na kontaktní adresu se vyřizují do jednoho měsíce.",
         "title": "Vaše práva"
       },
       "security": {
-        "p1": "Údaje o poloze jsou šifrovány end-to-end od sledovače po backend. Soukromé klíče zařízení jsou šifrovány v úložišti. Hesla jsou solené otisky. Přihlašovací token je v cookie, kterou nepřečte žádný skript, a každá změna navíc nese CSRF token. Souřadnice se nikdy nelogují. Přihlašování je omezeno rychlostním limitem a každý požadavek se znovu ověřuje proti vašim oprávněním, místo aby se věřilo prohlížeči.",
+        "p1": "Údaje o poloze jsou šifrovány end-to-end od sledovače po backend. Soukromé klíče zařízení jsou šifrovány v úložišti. Hesla jsou solené otisky. Přihlašovací token je v cookie, kterou nepřečte žádný skript, a každá změna navíc nese CSRF token. Souřadnice se nikdy nelogují. Přihlašování, export dat i mazání účtu jsou omezeny rychlostním limitem a každý požadavek se znovu ověřuje proti vašim oprávněním, místo aby se věřilo prohlížeči.",
         "p2": "Žádný systém není dokonale bezpečný a tento je osobní projekt, který ve volném čase udržuje jeden člověk. Nesvěřujte mu prosím nic, o co si nemůžete dovolit přijít.",
         "title": "Zabezpečení"
       },
       "sharingData": {
-        "p1": "Které účty smí vidět které zařízení a s jakými oprávněními; kdo oprávnění udělil; váš soukromý název zařízení; a intervaly vzorkování a týdenní rozvrhy nastavené pro zařízení, které prozrazují, kdy je vozidlo sledováno podrobně.",
+        "p1": "Které účty smí vidět které zařízení a s jakými oprávněními; kdo oprávnění udělil; váš soukromý název zařízení; kdy ten, kdo zařízení přidal, potvrdil, že je oprávněn vozidlo sledovat; a intervaly vzorkování a týdenní rozvrhy nastavené pro zařízení, které prozrazují, kdy je vozidlo sledováno podrobně.",
         "title": "Sdílení zařízení a nastavení"
       },
       "technicalData": {

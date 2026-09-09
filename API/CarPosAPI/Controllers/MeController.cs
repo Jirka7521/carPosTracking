@@ -2,8 +2,10 @@ using CarPosAPI.Dtos;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Devices;
+using CarPosAPI.Options;
 using CarPosAPI.Services.Privacy;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CarPosAPI.Controllers;
@@ -124,6 +126,9 @@ public sealed class MeController : ApiControllerBase
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>200 with the export as a file download.</returns>
     [HttpGet("export")]
+    // Needing a session is not a limit here: one account can ask for its entire
+    // position history as often as it likes, and each ask is an unbounded scan.
+    [EnableRateLimiting(RateLimitPolicies.PrivacyOperations)]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -152,6 +157,9 @@ public sealed class MeController : ApiControllerBase
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>200 with a summary of what was removed, or 400 when the password is wrong.</returns>
     [HttpDelete]
+    // Takes the current password, which makes it a password-guessing surface the
+    // sign-in limiter never sees.
+    [EnableRateLimiting(RateLimitPolicies.PrivacyOperations)]
     [ProducesResponseType(typeof(AccountErasureResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

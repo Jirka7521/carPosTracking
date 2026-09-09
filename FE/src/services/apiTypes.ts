@@ -113,6 +113,11 @@ export type DeviceCreateRequestDto = {
   deviceId: string
   displayName?: string
   additionalAccesses?: DeviceAccessGrantInput[]
+  // The operator confirming they may lawfully track this vehicle and will tell
+  // the people who drive it. Required, not optional: the server refuses the
+  // request with 400 unless it is true, and the acceptance time is stamped on
+  // the device row. Typed as required here so a caller cannot forget it.
+  trackingDeclarationAccepted: boolean
 }
 
 export type DeviceAccessGrantInput = {

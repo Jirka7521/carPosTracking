@@ -3,7 +3,7 @@
 //
 // It says three things, on every page, signed in or out: this is a
 // non-commercial test project rather than a service, here is the privacy
-// policy, and here is the legal notice. That is the whole component.
+// policy, and here are the terms of use. That is the whole component.
 //
 // It is mounted in three places rather than one because the app has two shells:
 // AppLayout wraps every authenticated page, and the login and registration

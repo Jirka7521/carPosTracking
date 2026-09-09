@@ -3,6 +3,8 @@
 // behaviour lives in the layer folders (Options/, Data/, Services/), per project
 // guidelines.
 
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using CarPosAPI.Data;
@@ -283,6 +285,24 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 // password needs, and far below what makes guessing worthwhile.
                 PermitLimit = 20,
                 Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
+    // The GDPR endpoints on /api/me. Authenticated, so partitioned by account id
+    // rather than by address — the account is what is being abused, and users behind
+    // one address must not be able to exhaust each other's budget.
+    options.AddPolicy(RateLimitPolicies.PrivacyOperations, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "unknown",
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                // An export is a full history dump and a deletion is final: nobody
+                // legitimately needs either more than a handful of times running.
+                // Loose enough that a retry after a failed download still works.
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(5),
                 QueueLimit = 0,
             }));
 });

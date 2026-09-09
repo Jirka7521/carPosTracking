@@ -170,6 +170,21 @@ public sealed class Device
     /// <summary>When the device was soft-deleted (UTC); null while active.</summary>
     public DateTime? DeactivatedAt { get; set; }
 
+    /// <summary>
+    /// When the person who registered this device confirmed they were entitled to
+    /// track the vehicle and would tell the people who drive it (UTC). Null for
+    /// devices created before the declaration existed.
+    /// <para>
+    /// This is evidence, not a feature flag: nothing reads it to decide behaviour.
+    /// It exists because a tracker usually ends up in a car somebody else also
+    /// drives, and that person is a data subject who never signed up here. The
+    /// declaration is what puts the duty to inform them on the account holder, and
+    /// a duty nobody can show was accepted is a duty that will be denied later.
+    /// The matching term is the <c>yourDevices</c> section of the terms of use.
+    /// </para>
+    /// </summary>
+    public DateTime? TrackingDeclarationAcceptedAt { get; set; }
+
     /// <summary>Creation timestamp (UTC). DB-generated default.</summary>
     public DateTime CreatedAt { get; set; }
 }

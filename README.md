@@ -11,7 +11,8 @@
 > any kind is not permitted.**
 >
 > It handles **precise vehicle location data**, which is personal data under the GDPR.
-> See **[docs/PRIVACY.md](docs/PRIVACY.md)** for what is collected and how to have it
+> See the in-app **privacy policy** (`/privacy`) and **terms of use** (`/legal`) for what is
+> collected and how to have it
 > deleted, and [docs/DATA-INVENTORY.md](docs/DATA-INVENTORY.md) for the field-by-field
 > detail.
 
@@ -87,11 +88,18 @@ seriously rather than to pretend the data is not sensitive:
   erase the rows rather than flag them.
 - **Position history can be wiped per device** from the device settings tab.
 - **Maps are not loaded until you say so** — the dashboard asks before contacting Google.
+- **Everyone who runs a tracker accepts terms** (`/legal`) that put the duty to tell the
+  car's other drivers on the person who put the box in it, and confirms it again per
+  device. Those terms are also where the no-warranty and no-liability position lives —
+  accepted, not merely published.
 - **Positions are kept indefinitely** unless you delete them. That is a deliberate choice
   for a project whose whole point is looking at history, and it is stated plainly in the
-  [privacy policy](docs/PRIVACY.md) rather than papered over.
+  privacy policy at `/privacy` rather than papered over.
 
-Documents: [PRIVACY](docs/PRIVACY.md) · [Record of processing](docs/RECORD-OF-PROCESSING.md) ·
+The policy and terms live in the app, at `/privacy` and `/legal` — there is deliberately
+no second copy in this repository to drift out of step.
+
+Documents: [Where the policy lives](docs/PRIVACY.md) · [Record of processing](docs/RECORD-OF-PROCESSING.md) ·
 [Data inventory](docs/DATA-INVENTORY.md)
 
 ## License

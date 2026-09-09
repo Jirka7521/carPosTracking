@@ -40,8 +40,8 @@ export function RegisterPage() {
   const [password, setPassword] = useState<string>('')
   const [passwordConfirm, setPasswordConfirm] = useState<string>('')
 
-  // Privacy-policy acknowledgement.
-  const [hasAcceptedPolicy, setHasAcceptedPolicy] = useState<boolean>(false)
+  // Acceptance of the terms of use plus acknowledgement of the privacy policy.
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState<boolean>(false)
   const [policyVersion, setPolicyVersion] = useState<string>('')
 
   // Submission state
@@ -81,24 +81,33 @@ export function RegisterPage() {
       return
     }
 
-    if (!hasAcceptedPolicy) {
+    if (!hasAcceptedTerms) {
       setErrorMessage(t('auth:register.consent.required'))
       return
     }
 
-    // No version means the fetch above failed. Registering anyway would create an
-    // account whose consent record is empty, which the server rejects — better to
-    // say so here than to send a request that cannot succeed.
-    if (policyVersion.length === 0) {
-      setErrorMessage(t('auth:register.consent.stale'))
-      return
+    // An empty version means the fetch on mount failed — a network blip, not a
+    // policy change. Retry once here rather than dead-ending the form: the old
+    // code sent the user off to reload with a message claiming the policy had
+    // changed, which is never true in this branch. A genuinely stale version is
+    // caught server-side and comes back through describeError below.
+    let acceptedVersion: string = policyVersion
+    if (acceptedVersion.length === 0) {
+      try {
+        const policy = await fetchPrivacyPolicy()
+        acceptedVersion = policy.version
+        setPolicyVersion(policy.version)
+      } catch {
+        setErrorMessage(t('auth:register.consent.unavailable'))
+        return
+      }
     }
 
     setIsSubmitting(true)
     try {
       // register() calls POST /api/auth/register, stores the returned JWT,
       // and updates the auth context so the user is immediately logged in.
-      await register(email, password, firstName, lastName, policyVersion)
+      await register(email, password, firstName, lastName, acceptedVersion)
       navigate('/home', { replace: true })
     } catch (error) {
       setErrorMessage(describeError(error, t('errors:registrationFailed')))
@@ -211,10 +220,16 @@ export function RegisterPage() {
           </div>
 
           {/*
-            The acknowledgement. Its own block above the button because it is the
-            last thing read before signing up, and because what is being agreed
-            to — a personal project storing precise vehicle locations — is not
-            what somebody filling in a sign-up form assumes.
+            The acceptance. Its own block above the button because it is the last
+            thing read before signing up, and because what is being agreed to — a
+            personal project storing precise vehicle locations — is not what
+            somebody filling in a sign-up form assumes.
+
+            This tick is the only place anything becomes binding. The PolyForm
+            licence in the repository reaches people who copy the source, not
+            people who register here, so without this the no-warranty and
+            no-liability sections of /legal would bind nobody. The version
+            accepted is echoed back to the server and stamped on the user row.
           */}
           <div className="consent-block">
             <p className="consent-notice">{t('auth:register.consent.notice')}</p>
@@ -223,16 +238,17 @@ export function RegisterPage() {
               <input
                 id="register-consent"
                 type="checkbox"
-                checked={hasAcceptedPolicy}
-                onChange={(e) => setHasAcceptedPolicy(e.target.checked)}
+                checked={hasAcceptedTerms}
+                onChange={(e) => setHasAcceptedTerms(e.target.checked)}
               />
               <span>
                 <Trans
                   i18nKey="register.consent.label"
                   ns="auth"
                   components={{
-                    // Opens in a new tab so a half-filled form is not lost to
-                    // reading the thing the form is asking about.
+                    // Both open in a new tab so a half-filled form is not lost
+                    // to reading the thing the form is asking about.
+                    terms: <Link to="/legal" target="_blank" rel="noopener noreferrer" />,
                     privacy: <Link to="/privacy" target="_blank" rel="noopener noreferrer" />,
                   }}
                 />
@@ -252,7 +268,7 @@ export function RegisterPage() {
             className="btn btn-primary"
             // Unchecked consent disables the button rather than only failing on
             // submit: the requirement should be visible before it is hit.
-            disabled={isSubmitting || !hasAcceptedPolicy}
+            disabled={isSubmitting || !hasAcceptedTerms}
             style={{ marginTop: 4 }}
           >
             {isSubmitting ? t('auth:register.submitting') : t('auth:register.submit')}

@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-09-06`. Companion to [PRIVACY.md](PRIVACY.md) and
+**carPosTracking**, version `2026-09-09`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -21,7 +21,7 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 | `password_hash` | **P** | PBKDF2-HMAC-SHA256, salted — **never exported, never logged** | deleted |
 | `first_name`, `last_name` | **P** | visible to users you share a device with | deleted |
 | `created_at` | p | | deleted |
-| `privacy_policy_version`, `privacy_policy_accepted_at` | p | the consent record | deleted |
+| `privacy_policy_version`, `privacy_policy_accepted_at` | p | which version of the terms of use **and** privacy policy this account accepted, and when (column names are historical) | deleted |
 
 ### `positions` — the sensitive table
 
@@ -36,7 +36,7 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 
 Bounded on read at 1000 rows per query (`PositionQueryService.MaxPositionsPerQuery`); the data
 export deliberately bypasses that cap so portability is complete. **Never auto-deleted** — see
-[PRIVACY.md §6](PRIVACY.md#6-how-long-data-is-kept). Erasable via
+the retention section of the policy at `/privacy`. Erasable via
 `DELETE /api/devices/{deviceId}/positions` or by deleting the account.
 
 ### `devices`
@@ -49,6 +49,7 @@ export deliberately bypasses that cap so portability is complete. **Never auto-d
 | `private_key_ciphertext` | · | **secret** — AES-256-GCM sealed; never selected into a DTO, never exported, never logged |
 | `public_key_pem`, `ack_public_key_pem` | · | public halves |
 | `config_*`, `reported_*`, `schedule_bundle_version` | p | how closely and when the vehicle is tracked |
+| `tracking_declaration_accepted_at` | p | when whoever registered the device confirmed they were entitled to track the vehicle and would tell its drivers; evidence only, nothing reads it |
 | `is_active`, `deactivated_at`, `created_at` | · | |
 
 Deleted outright when the erased account was its only remaining accessor; otherwise untouched.

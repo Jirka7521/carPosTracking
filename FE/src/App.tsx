@@ -31,7 +31,7 @@ import { SessionLoading } from './components/SessionLoading'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { PrivacyPage } from './pages/PrivacyPage'
-import { LegalNoticePage } from './pages/LegalNoticePage'
+import { TermsPage } from './pages/TermsPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
 import { DevicePage } from './pages/DevicePage'
@@ -85,7 +85,7 @@ function AppRoutes() {
       />
 
       {/*
-       * Privacy policy and legal notice. Public like the two above, but WITHOUT
+       * Privacy policy and terms of use. Public like the two above, but WITHOUT
        * the redirect: somebody who is already signed in still has to be able to
        * read what happens to their data, and bouncing them to /home would make
        * the footer links dead for exactly the people whose data it is. They also
@@ -93,7 +93,7 @@ function AppRoutes() {
        * register has to be able to read the policy before they have an account.
        */}
       <Route path="/privacy" element={<PrivacyPage />} />
-      <Route path="/legal" element={<LegalNoticePage />} />
+      <Route path="/legal" element={<TermsPage />} />
 
       {/*
        * Protected routes — all share the <AppLayout> shell which renders

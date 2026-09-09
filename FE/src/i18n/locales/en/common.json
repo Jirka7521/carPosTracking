@@ -49,7 +49,7 @@
     "lastName": "Last name"
   },
   "footer": {
-    "legal": "Legal notice",
+    "legal": "Terms of use",
     "privacy": "Privacy",
     "testProject": "Non-commercial test project — not a service. No warranty, no support."
   },
@@ -59,7 +59,7 @@
   },
   "nav": {
     "home": "Go to home page",
-    "legal": "Read the legal notice",
+    "legal": "Read the terms of use",
     "privacy": "Read the privacy policy",
     "profile": "Edit your profile"
   },

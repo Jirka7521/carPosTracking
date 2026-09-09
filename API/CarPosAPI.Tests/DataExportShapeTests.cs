@@ -87,7 +87,8 @@ public sealed class DataExportShapeTests
             "Test car",
             true,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-            null);
+            null,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         string json = string.Concat(
             JsonSerializer.Serialize(user),

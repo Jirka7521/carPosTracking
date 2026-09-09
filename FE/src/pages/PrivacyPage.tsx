@@ -100,11 +100,18 @@ export function PrivacyPage() {
         <h2>{t('privacy.sections.legalBasis.title')}</h2>
         <p>{t('privacy.sections.legalBasis.p1')}</p>
         <p>{t('privacy.sections.legalBasis.p2')}</p>
+        <p>{t('privacy.sections.legalBasis.p3')}</p>
       </section>
 
       <section className="legal-section">
         <h2>{t('privacy.sections.otherDrivers.title')}</h2>
         <p>{t('privacy.sections.otherDrivers.p1')}</p>
+        <p>{t('privacy.sections.otherDrivers.p2')}</p>
+        {/* Addressed to the driver, not the account holder: they are named as a
+            data subject in the Art. 30 record and, without this, have no route to
+            exercise a single right — every control on this page is inside an
+            account they do not have. */}
+        <p>{t('privacy.sections.otherDrivers.p3')}</p>
       </section>
 
       <section className="legal-section">

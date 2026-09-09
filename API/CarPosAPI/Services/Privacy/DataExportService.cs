@@ -366,7 +366,8 @@ internal sealed class DataExportService : IDataExportService
                     device.DisplayName,
                     device.IsActive,
                     device.CreatedAt,
-                    device.LastSeenAt))
+                    device.LastSeenAt,
+                    device.TrackingDeclarationAcceptedAt))
             .OrderBy(device => device.DeviceId)
             .ToListAsync(cancellationToken);
 
@@ -382,6 +383,10 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteBoolean("isActive", device.IsActive);
             writer.WriteString("registeredAtUtc", device.CreatedAt);
             WriteNullableDateTime(writer, "lastSeenAtUtc", device.LastSeenAt);
+            WriteNullableDateTime(
+                writer,
+                "trackingDeclarationAcceptedAtUtc",
+                device.TrackingDeclarationAcceptedAt);
 
             total += await WritePositionsAsync(writer, device.RowId, cancellationToken);
 

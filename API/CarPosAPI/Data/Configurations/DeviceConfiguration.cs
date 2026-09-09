@@ -105,6 +105,9 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.DeactivatedAt)
             .HasColumnName("deactivated_at");
 
+        builder.Property(device => device.TrackingDeclarationAcceptedAt)
+            .HasColumnName("tracking_declaration_accepted_at");
+
         builder.Property(device => device.CreatedAt)
             .HasColumnName("created_at")
             .HasDefaultValueSql("now()");

@@ -123,8 +123,19 @@ internal sealed class AccountErasureService : IAccountErasureService
 
     /// <summary>
     /// Finds the devices that would become invisible to everybody once this account
-    /// is gone — the ones this user has an active grant on, and nobody else does.
+    /// is gone — the ones this user is the last party to, and nobody else can reach.
     /// Those are the devices whose history is erased with the account.
+    /// <para>
+    /// The user&apos;s own grants are matched <em>regardless</em> of
+    /// <see cref="Data.Entities.Access.IsActive"/>, and that asymmetry against the
+    /// <c>other</c> clause below is the point. A device whose only remaining grant is
+    /// this user&apos;s <em>revoked</em> one is reachable by nobody at all; treating it as
+    /// not-mine left the row and its entire position history in the database forever,
+    /// while the erasure went on to delete the revoked grant and with it the last
+    /// trace of whose device it had been. Data nobody can reach and nobody deletes is
+    /// precisely what Art. 17 is about, so a revoked grant still counts as a reason to
+    /// clean the device up.
+    /// </para>
     /// </summary>
     /// <param name="userId">The account being erased.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
@@ -135,7 +146,7 @@ internal sealed class AccountErasureService : IAccountErasureService
     {
         return await _context.Accesses
             .AsNoTracking()
-            .Where(mine => mine.UserId == userId && mine.IsActive)
+            .Where(mine => mine.UserId == userId)
             .Select(mine => mine.DeviceId)
             .Distinct()
             .Where(deviceRowId => !_context.Accesses.Any(other =>

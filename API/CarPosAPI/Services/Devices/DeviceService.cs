@@ -93,6 +93,18 @@ internal sealed class DeviceService : IDeviceService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Refused before the transaction opens, and before an RSA key pair is burnt
+        // on a device that must not exist. A tracker usually ends up in a car other
+        // people also drive, and those people are data subjects who never signed up
+        // here — the declaration is what puts the duty to tell them on the account
+        // holder, so a device may not come into being without one.
+        if (!request.TrackingDeclarationAccepted)
+        {
+            return OperationResult<DeviceCreatedDto>.Invalid(
+                "You must confirm that you are entitled to track this vehicle and will " +
+                "tell the people who drive it before a device can be registered.");
+        }
+
         // The device row and the grants that make it reachable are one unit of
         // work. Committing the device alone would leave a tracker nobody can see,
         // list or delete — and whose id can never be reused, because provisioning

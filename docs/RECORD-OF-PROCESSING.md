@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-09-06`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-09-09`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle
@@ -42,12 +42,13 @@
 |---|---|
 | **Purpose** | Record and display where a tracker-equipped vehicle has been, and how it was driven |
 | **Data subjects** | Users who operate a tracker, and any other person driving or travelling in a tracked vehicle |
+| **Controller split** | For the account holder’s own data the operator is controller. For **other drivers and passengers** the *account holder* is the controller and the operator is a **processor** acting on their instructions; the Art. 28 terms are the `yourDevices` section of the terms of use, accepted at registration and re-confirmed per device (`devices.tracking_declaration_accepted_at`). Drivers without an account are told in the privacy policy to write to the controller contact, and the request is passed to the responsible account holder. |
 | **Categories of data** | Latitude, longitude, speed, three-axis acceleration, altitude, GNSS fix time, receive time, battery percentage, temperature, device identifier — **precise geolocation and behavioural data** |
 | **Special categories (Art. 9)** | None intended. A location history can incidentally reveal e.g. visits to a place of worship or a clinic; the system does not seek or derive such inferences. |
-| **Legal basis** | Art. 6(1)(a) consent — the user chooses to run a tracker and acknowledges the privacy policy at registration |
+| **Legal basis** | Art. 6(1)(b) contract — storing and displaying a location history is the service the account holder accepted the terms of use to obtain. **Not** consent: consent bundled into a policy acknowledgement is not freely given or specific (Recital 43), and a basis that collapses under scrutiny would make the whole processing unlawful. |
 | **Recipients** | Users granted access to that device. Google LLC receives IP, browser data and — through the map viewport — the approximate area, **only after the viewer consents to loading the map.** Cloudflare as TLS terminator. |
 | **Third-country transfers** | Google LLC and Cloudflare, Inc. (USA) — EU–US Data Privacy Framework |
-| **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`) or by account deletion. Documented and justified in [PRIVACY.md §6](PRIVACY.md#6-how-long-data-is-kept). |
+| **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`) or by account deletion. Retention is bounded by purpose rather than by a timer: reviewing history is the purpose, so it is kept while the account holder wants it, and the erasure controls are immediate and unconditional. Stated in the policy at `/privacy`. |
 | **Security measures** | End-to-end encryption device→backend (RSA-3072-OAEP-SHA256 + AES-256-GCM per message); device private keys encrypted at rest under a master key; coordinates never logged; per-request re-authorisation against the caller's access grant; invisible devices answer 404 not 403 |
 
 ### C. Device sharing and access control

@@ -8,7 +8,7 @@
 > **commercial use is not permitted**.
 >
 > The system handles precise vehicle location data, which is personal data under the GDPR.
-> See the [privacy policy](../../docs/PRIVACY.md).
+> See the privacy policy at `/privacy` and the terms of use at `/legal`.
 
 The web backend of **carPosTracking**. Two things live in one process:
 
@@ -115,7 +115,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-09-06` | Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever [`docs/PRIVACY.md`](../../docs/PRIVACY.md) changes materially. |
+| `Privacy:PolicyVersion` | `2026-09-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `AuthCookie` section controls how the session is carried. The defaults are
 the production values; the only one normally worth changing is
@@ -356,7 +356,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
-| `POST /api/devices` | register a device + provision its key pair (201) |
+| `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row |
 | `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
 | `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
@@ -372,8 +372,8 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions; needs `CanDelete`. Returns `{ deletedCount }` |
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
-| `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply |
-| `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went |
+| `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
+| `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
@@ -403,7 +403,13 @@ The check only applies when a session cookie is present — without one there is
 no ambient authority to abuse, and requiring a token would break sign-in itself.
 
 `POST /api/auth/*` is rate-limited per client address (20/minute); it is the
-only place an attacker gets unlimited free guesses.
+only place an *unauthenticated* attacker gets free guesses.
+
+`GET /api/me/export` and `DELETE /api/me` are rate-limited per **account**
+(5 requests / 5 minutes, partitioned on the `sub` claim). Holding a session is not
+a limit for either: the export dumps an entire uncapped position history on every
+call, and erasure takes the current password, which makes it a guessing surface
+the sign-in limiter never sees.
 
 ### Authorisation
 
@@ -457,7 +463,7 @@ the broker — a retained message outlives the row it came from.
 Positions are **never** deleted automatically. There is no retention job and no
 TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
 a location history. That choice, and why it is stated plainly rather than papered
-over, is in [`docs/PRIVACY.md`](../../docs/PRIVACY.md).
+over, is in the policy served at `/privacy` (see [`docs/PRIVACY.md`](../../docs/PRIVACY.md)).
 
 ## Provisioning a device
 
@@ -1113,7 +1119,7 @@ Still to do:
 
 1. **Position retention/pruning job** — *deliberately not built, not forgotten.*
    `positions` grows without bound because indefinite retention is the chosen
-   policy, stated plainly in [`docs/PRIVACY.md`](../../docs/PRIVACY.md) rather
+   policy, stated plainly in the policy served at `/privacy` rather
    than papered over: the point of the project is looking at history. What bounds
    a history instead is the user — `DELETE /api/devices/{id}/positions`, or
    erasing the account. If a timed job is ever wanted, it is one hosted service

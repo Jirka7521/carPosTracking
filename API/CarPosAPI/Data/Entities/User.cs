@@ -35,12 +35,20 @@ public sealed class User
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
-    /// Version of the privacy policy this account acknowledged at registration.
+    /// Version of the terms of use and privacy policy this account accepted at
+    /// registration. One acceptance, one version, both documents.
     ///
-    /// GDPR Art. 7(1) puts the burden of *demonstrating* consent on the controller,
-    /// and "the policy was on the page somewhere" demonstrates nothing. Storing the
-    /// version the user was actually shown, next to the moment they accepted it, is
-    /// what makes that answerable a year later.
+    /// This is what makes the terms binding rather than merely published. The
+    /// PolyForm licence in the repository reaches people who copy the source, not
+    /// people who register here, so without a recorded acceptance the no-warranty and
+    /// no-liability sections would bind nobody — and the Art. 6(1)(b) contract the
+    /// processing relies on would have nothing to point at. Storing the version the
+    /// user was actually shown, next to the moment they accepted it, is what makes
+    /// that answerable a year later.
+    ///
+    /// The column name is historical: it predates the terms being folded into the
+    /// same acceptance, and renaming it would churn the entity, the configuration,
+    /// the export, two migrations and the model snapshot for nothing.
     ///
     /// Empty on rows that predate the field; registration refuses to create a new
     /// account without a version matching <c>PrivacyOptions.PolicyVersion</c>.

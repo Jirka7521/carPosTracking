@@ -93,7 +93,7 @@ live in the `devices` table encrypted at rest under a master key
 | `DELETE /api/devices/{deviceId}/positions` | permanently erase a device's position history |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update names; change password |
 | `GET /api/me/devices` | caller's devices, each with `customName` + `permissions` |
-| `POST /api/devices`, `DELETE /api/devices/{deviceId}` | create + provision (201); **soft**-delete (204) |
+| `POST /api/devices`, `DELETE /api/devices/{deviceId}` | create + provision (201, requires `trackingDeclarationAccepted: true`); **soft**-delete (204) |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the firmware config block |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's personal device name |
 | `GET /api/positions?deviceId=&from=&to=` | positions, `fix_time DESC`, **max 1000** |
@@ -127,7 +127,7 @@ cookie in an `X-CSRF-Token` header, enforced by
   flag on a row still holding an email address and a year of movements is not
   erasure by any reading of Art. 17. See `Services/Privacy/`.
 - **Positions are never deleted automatically.** There is no retention job and no
-  TTL, by decision rather than omission (`docs/PRIVACY.md` § retention). Do not
+  TTL, by decision rather than omission (the retention section of `/privacy`). Do not
   add one without asking — the privacy policy states indefinite retention as a
   deliberate, disclosed choice, and quietly contradicting it in either direction
   makes the published document wrong.

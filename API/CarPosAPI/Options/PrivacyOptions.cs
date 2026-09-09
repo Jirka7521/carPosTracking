@@ -14,10 +14,18 @@ namespace CarPosAPI.Options;
 /// posture the JWT signing key takes, and for a comparable reason: shipping either
 /// one unset is a defect that only shows up when it is too late to matter.
 ///
-/// <see cref="PolicyVersion"/> is the string a new account acknowledges at
-/// registration and that gets stamped on <see cref="Data.Entities.User"/>. Bump it
-/// whenever docs/PRIVACY.md changes materially, so the record says which text each
-/// user actually agreed to.
+/// <see cref="PolicyVersion"/> is the string a new account accepts at registration
+/// and that gets stamped on <see cref="Data.Entities.User"/>. It versions the terms
+/// of use and the privacy policy together — one acceptance covers both, so one
+/// version answers which text a given user agreed to. Bump it whenever either
+/// changes materially.
+///
+/// Bumping it does not re-prompt anybody: there is no consent gate, and the accepted
+/// version is not on the profile DTO. That is deliberate rather than missing. The
+/// core processing runs on Art. 6(1)(b) contract, not consent, so no re-consent is
+/// owed; the terms say material changes are announced and continued use is
+/// acceptance. Do not describe this field as anything more than what it is: a record
+/// of the text in force when each account was created.
 /// </summary>
 public sealed class PrivacyOptions
 {
@@ -49,13 +57,15 @@ public sealed class PrivacyOptions
     public string ControllerContactEmail { get; set; } = UnsetContactPlaceholder;
 
     /// <summary>
-    /// Version of the privacy policy currently in force — a date string, matching
-    /// the header of docs/PRIVACY.md. Recorded against every account that accepts
-    /// it, so it is always answerable which text a given user agreed to.
+    /// Version of the terms of use and privacy policy currently in force — a date
+    /// string. The text itself lives in FE/src/i18n/locales/{en,cs}/legal.json, which
+    /// is the only copy; docs/PRIVACY.md is a pointer, not a second source. Recorded
+    /// against every account that accepts it, so it is always answerable which text a
+    /// given user agreed to.
     /// </summary>
     [Required]
     [StringLength(32, MinimumLength = 1)]
-    public string PolicyVersion { get; set; } = "2026-09-06";
+    public string PolicyVersion { get; set; } = "2026-09-09";
 
     /// <summary>
     /// True when a real contact address has been configured. False while the

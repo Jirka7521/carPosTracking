@@ -57,7 +57,7 @@
     "lastName": "Příjmení"
   },
   "footer": {
-    "legal": "Právní informace",
+    "legal": "Podmínky užití",
     "privacy": "Soukromí",
     "testProject": "Nekomerční testovací projekt — není to služba. Bez záruky a bez podpory."
   },
@@ -67,7 +67,7 @@
   },
   "nav": {
     "home": "Přejít na domovskou stránku",
-    "legal": "Přečíst právní informace",
+    "legal": "Přečíst podmínky užití",
     "privacy": "Přečíst zásady ochrany osobních údajů",
     "profile": "Upravit profil"
   },

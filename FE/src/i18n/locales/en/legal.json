@@ -2,9 +2,28 @@
   "back": "Back to the app",
   "legalNotice": {
     "sections": {
+      "acceptance": {
+        "p1": "You accept these terms by creating an account and by using this deployment. If you do not agree with them, do not create an account and do not use it.",
+        "p2": "They are an agreement between you and the person who runs this deployment, and they cover the deployment itself. The source code is a separate matter, covered by the licence below.",
+        "title": "Accepting these terms"
+      },
+      "changes": {
+        "p1": "These terms may change. Material changes are announced in the app, and continuing to use the deployment after that means you accept the new version. The version recorded against your account is the one you accepted when you registered.",
+        "p2": "If you do not accept a change, delete your account.",
+        "title": "Changes to these terms"
+      },
+      "law": {
+        "p1": "Czech law governs these terms, and the courts of the Czech Republic have jurisdiction. If you are a consumer, this does not deprive you of the protection of the mandatory rules of the country where you live.",
+        "title": "Governing law"
+      },
+      "liability": {
+        "p1": "To the maximum extent permitted by law, the operator is not liable to you for any loss or damage arising from the software or this deployment. That includes, and is not limited to: position data that is lost, wrong, delayed or never arrives; the deployment being unavailable, broken or shut down; a tracker that stops reporting; and a vehicle that is not found or not recovered.",
+        "p2": "This is a free, non-commercial experiment offered without payment of any kind, and it should be judged as one. Nothing in these terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for harm caused intentionally or by gross negligence, and nothing here affects the statutory rights of a consumer.",
+        "title": "No liability"
+      },
       "licence": {
         "p1": "The source code is published under the PolyForm Noncommercial License 1.0.0. You may use, study, modify and share it for any non-commercial purpose. Commercial use is not permitted.",
-        "p2": "The full licence text ships with the source code.",
+        "p2": "The full licence text ships with the source code. It governs the code itself; your use of this deployment is governed by these terms.",
         "title": "Licence"
       },
       "nature": {
@@ -17,8 +36,13 @@
         "title": "Who runs it"
       },
       "privacy": {
-        "p1": "This system stores precise vehicle location histories, which are personal data under the GDPR. What is held, why, and how to get it back or have it deleted is set out in the privacy policy.",
+        "p1": "This system stores precise vehicle location histories, which are personal data under the GDPR. What is held, why, who else sees it, and how to get it back or have it deleted is set out in the privacy policy.",
         "title": "Personal data"
+      },
+      "termination": {
+        "p1": "The operator may suspend or delete any account, remove any device, or shut the whole deployment down at any time, without notice and without giving a reason. Data is deleted when that happens, and there is no undertaking to keep a copy or to hand one over first.",
+        "p2": "You can leave whenever you like: Profile, then Delete my account, erases everything held about you.",
+        "title": "Ending it"
       },
       "thirdParty": {
         "p1": "The dashboard draws maps with the Google Maps JavaScript API, which is loaded only after you agree to it. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
@@ -29,10 +53,21 @@
         "p1": "The software and this deployment are provided as is. There is no warranty of any kind, no guarantee that it works, no support, and no promise that it will still be running tomorrow.",
         "p2": "Do not rely on it for anything that matters, and do not entrust it with data you could not stand to lose.",
         "title": "No warranty, no support"
+      },
+      "yourDevices": {
+        "p1": "You may only run a tracker in a vehicle you are entitled to track, and before you do, you must tell the people who drive it that its position is being recorded. Tracking somebody without their knowledge is unlawful in most circumstances. This is the most important thing on this page, and you confirm it for every tracker you add.",
+        "p2": "For the location data of anyone else who drives that vehicle, you are the data controller and the operator is only storing it for you. The operator acts on your instructions, keeps the data confidential, protects it with the measures described in the privacy policy, and uses no sub-processors other than those named there.",
+        "p3": "Deleting that data is in your hands: the erasure controls in the app remove a device's whole location history, or your entire account, immediately and without asking anyone. Those controls are the whole of the assistance available, and they reach everything this deployment holds.",
+        "title": "Your trackers, and the people they follow"
+      },
+      "yourResponsibility": {
+        "p1": "You are responsible for what you do with this. If someone brings a claim against the operator because of how you used it, most obviously by tracking a person without telling them, that claim is yours to answer, and you will cover the operator's costs of dealing with it as far as the law allows.",
+        "p2": "Do not use this to stalk, harass or monitor anybody without their knowledge, and do not use it to break the law. An account doing so will be deleted.",
+        "title": "What you are responsible for"
       }
     },
-    "subtitle": "What this is, who runs it, and on what terms.",
-    "title": "Legal notice"
+    "subtitle": "What this is, who runs it, and the terms you accept by using it.",
+    "title": "Terms of use"
   },
   "privacy": {
     "contactLabel": "Data-protection contact",
@@ -40,11 +75,11 @@
     "controllerLabel": "Controller",
     "sections": {
       "accountData": {
-        "p1": "Because you created an account: your email address, which is your login identity; your first and last name, shown to people you share a device with; your password, stored only as a salted PBKDF2 hash and never in the clear; when the account was created; and which version of this policy you acknowledged, and when.",
+        "p1": "Because you created an account: your email address, which is your login identity; your first and last name, shown to people you share a device with; your password, stored only as a salted PBKDF2 hash and never in the clear; when the account was created; and which version of the terms and this policy you accepted, and when.",
         "title": "Account data"
       },
       "changes": {
-        "p1": "The version at the top of this page changes when the policy does. New accounts acknowledge the current version at registration, and the version accepted is recorded against the account, so it is always answerable which text a given person agreed to.",
+        "p1": "The version at the top of this page changes when the policy does. New accounts accept the terms of use and acknowledge this policy at registration, and the version accepted is recorded against the account, so it is always answerable which text a given person agreed to. Material changes are announced in the app.",
         "title": "Changes to this policy"
       },
       "children": {
@@ -65,8 +100,9 @@
         "title": "Cookies and browser storage"
       },
       "legalBasis": {
-        "p1": "Running your account and showing your devices' data rests on performing the contract you entered into by signing up (Art. 6(1)(b)). Storing and displaying the position history of a tracker you operate rests on your consent (Art. 6(1)(a)), given by acknowledging this policy at registration and by choosing to run a device.",
-        "p2": "Security measures, meaning password hashing, CSRF protection and rate-limiting sign-ins, rest on the legitimate interest of keeping other people out of your data (Art. 6(1)(f)). Consent can be withdrawn at any time by deleting your account, which erases the data.",
+        "p1": "Everything this system does for you rests on performing the contract you entered into by accepting the terms of use and creating an account (Art. 6(1)(b)): running your account, signing you in, storing and displaying the position history of a tracker you operate, and sharing a device with the people you choose.",
+        "p2": "Security measures, meaning password hashing, CSRF protection and rate-limiting sign-ins, exports and erasures, rest on the legitimate interest of keeping other people out of your data (Art. 6(1)(f)).",
+        "p3": "The one thing that runs on consent (Art. 6(1)(a)) is loading the Google map, which is why the dashboard asks for it separately and remembers your answer. You can withdraw that in your profile at any time, and it costs you only the map.",
         "title": "Why, and on what legal basis"
       },
       "locationData": {
@@ -79,35 +115,37 @@
         "title": "What is not collected"
       },
       "otherDrivers": {
-        "p1": "Then you become a controller of their personal data, and it is your responsibility to tell them and to have a lawful basis for it. This project gives you the technical means; it cannot give you the legal cover, and tracking someone without their knowledge is unlawful in most circumstances.",
+        "p1": "Then you become the controller of their personal data, and it is your responsibility to tell them and to have a lawful basis for it. This project gives you the technical means; it cannot give you the legal cover, and tracking someone without their knowledge is unlawful in most circumstances. The terms of use say the same, and you confirm it for every tracker you add.",
+        "p2": "For that person's data the operator of this deployment is only a processor: it stores what your tracker sends, acts on your instructions, and adds nothing of its own. Deleting it is in your hands, with the controls under Your rights below.",
+        "p3": "If a vehicle you drive is tracked by this system and you do not have an account here, write to the data-protection contact at the top of this page. Your request will be passed to the account holder responsible for that tracker, and the operator will help as far as it technically can.",
         "title": "If you track a vehicle somebody else drives"
       },
       "recipients": {
         "p1": "People you share a device with see that device's positions and telemetry, plus your name and email address. You granted that, and you can revoke it at any time in the device's settings.",
-        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile.",
-        "p3": "Cloudflare terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. There are no other recipients. Nothing is sold.",
+        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
+        "p3": "Cloudflare, Inc. terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. It is likewise in the United States and likewise certified under the EU-US Data Privacy Framework. There are no other recipients. Nothing is sold.",
         "title": "Who else sees the data"
       },
       "retention": {
         "p1": "Positions and telemetry are kept indefinitely. There is no automatic deletion and no retention limit.",
-        "p2": "That is a deliberate choice, and it is the one point where this project does not meet the GDPR's storage-limitation principle on its own: the whole point of it is looking at history, so nothing expires on a timer. Rather than claim a limit that does not exist, it is stated here plainly, and the deletion controls below are real, immediate, and under your sole control.",
+        "p2": "That is deliberate. Looking at where a vehicle has been is the entire purpose of the system, so the history is kept for exactly as long as it serves that purpose, which is for as long as you want it. Nothing expires on a timer; instead the deletion controls below are real, immediate and entirely under your control. You can erase a device's whole location history, or your whole account, at any moment and without asking anyone.",
         "p3": "Account data, access grants and device nicknames last until you delete your account or revoke them. Configuration revision history is kept indefinitely, but the link to who made a change is erased when that account is deleted. Container and broker logs roll over at a fixed size, so they last days to weeks.",
         "title": "How long data is kept"
       },
       "rights": {
         "p1": "Access and portability (Art. 15 and 20): Profile, then Export my data, downloads a JSON file with everything held about you: profile, devices, permissions, nicknames, configuration history, and the complete, untruncated position history of every device you can read.",
         "p2": "Erasure (Art. 17): Profile, then Delete my account, asks for your password and then permanently deletes your account, your access grants and your nicknames. Any device only you could see is deleted with its entire position history; devices shared with others survive, with your access removed. This is a real delete, not a hidden flag. To erase only a location history, use Device, then Settings, then Erase position history.",
-        "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing consent (Art. 7(3)) does not undo processing that already happened lawfully.",
+        "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing your consent to load Google maps (Art. 7(3)) is done in your profile and affects nothing else.",
         "p4": "Requests sent to the contact address are answered within one month.",
         "title": "Your rights"
       },
       "security": {
-        "p1": "Position payloads are encrypted end to end from the tracker to the backend. Device private keys are encrypted at rest. Passwords are salted hashes. The session token lives in a cookie no script can read, and every change additionally carries a CSRF token. Coordinates are never logged. Sign-in is rate-limited, and every request is re-authorised against your access grants rather than trusting the browser.",
+        "p1": "Position payloads are encrypted end to end from the tracker to the backend. Device private keys are encrypted at rest. Passwords are salted hashes. The session token lives in a cookie no script can read, and every change additionally carries a CSRF token. Coordinates are never logged. Signing in, exporting your data and erasing your account are rate-limited, and every request is re-authorised against your access grants rather than trusting the browser.",
         "p2": "No system is perfectly secure, and this one is a personal project maintained by one person in their spare time. Please do not entrust it with anything you could not stand to lose.",
         "title": "Security"
       },
       "sharingData": {
-        "p1": "Which accounts may see which device and with what permissions; who granted that permission; your private nickname for a device; and the sampling intervals and weekly schedules configured for a device, which reveal when a vehicle is tracked closely.",
+        "p1": "Which accounts may see which device and with what permissions; who granted that permission; your private nickname for a device; when the person who added a device confirmed they were entitled to track the vehicle; and the sampling intervals and weekly schedules configured for a device, which reveal when a vehicle is tracked closely.",
         "title": "Device sharing and configuration"
       },
       "technicalData": {
