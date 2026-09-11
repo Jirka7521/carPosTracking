@@ -93,7 +93,10 @@
   },
   "range": {
     "from": "Od",
-    "to": "Do"
+    "past24Hours": "Posledních 24 hodin",
+    "pastHour": "Poslední hodina",
+    "to": "Do",
+    "today": "Dnes"
   },
   "refresh": {
     "auto": "Automatická aktualizace",

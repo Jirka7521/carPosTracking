@@ -25,13 +25,33 @@ export type DateRange = {
   to:   string // datetime-local string
 }
 
-// The default range, computed once when a tab mounts and then left alone.
-export function getDefaultDateRange(): DateRange {
+// A window reaching `hours` back from now. The forward half is the same
+// RANGE_FUTURE_HOURS every window gets, for the reason above: a range that
+// ended at "now" would exclude every fix that arrives after the click.
+export function getPastHoursRange(hours: number): DateRange {
   const now: number = Date.now()
   return {
-    from: formatDateTimeLocal(new Date(now - RANGE_PAST_HOURS * 60 * 60 * 1000)),
+    from: formatDateTimeLocal(new Date(now - hours * 60 * 60 * 1000)),
     to:   formatDateTimeLocal(new Date(now + RANGE_FUTURE_HOURS * 60 * 60 * 1000)),
   }
+}
+
+// Today so far: local midnight up to now, plus the usual forward padding.
+// Built from the calendar fields rather than by subtracting hours, so it lands
+// on the reader's own midnight and stays right across a DST change.
+export function getTodayRange(): DateRange {
+  const now: Date = new Date()
+  const midnight: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return {
+    from: formatDateTimeLocal(midnight),
+    to:   formatDateTimeLocal(new Date(now.getTime() + RANGE_FUTURE_HOURS * 60 * 60 * 1000)),
+  }
+}
+
+// The default range, computed once when a tab mounts and then left alone. It is
+// exactly the "past N hours" window, so it is built by the same function.
+export function getDefaultDateRange(): DateRange {
+  return getPastHoursRange(RANGE_PAST_HOURS)
 }
 
 export function formatDateTimeLocal(value: Date): string {

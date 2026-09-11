@@ -76,7 +76,8 @@
 
 .header-faculty {
   font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.55);
+  /* 0.55 put this at 3.8:1 on --blue-800, under AA for text this small. */
+  color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -128,27 +129,49 @@
   padding: 24px;
 }
 
-/* The language picker on the auth pages. The trigger sits on the dark gradient
-   rather than on a white panel, so it is the one place its colours are
-   restated; the popover below it is white either way. */
+/* Position only. The colours the picker needs on this page are the dark-surface
+   ones below, which it now shares with the two headers. */
 .auth-language {
   position: absolute;
   top: 20px;
   right: 20px;
 }
 
-.auth-language .export-trigger {
+/* ---- .export-trigger on a dark surface ----
+ * .export-trigger's own colours (see the CSV export section) are muted grey on
+ * transparent, because it was written for the white positions toolbar. On the
+ * dark blue of the two headers and the auth gradient that grey lands at about
+ * 1.6:1 and the picker all but disappears — which is exactly what happened to
+ * the header and the legal pages, since only the auth pages ever restated it.
+ *
+ * So the restatement is scoped to the surface rather than to one page: any
+ * trigger inside a dark bar gets these, and the CSV button on its white toolbar
+ * keeps the light ones. The three selectors below must stay in step.
+ */
+.auth-language .export-trigger,
+.app-header .export-trigger,
+.legal-header .export-trigger {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Not the light .accent-bg chip the base rule uses — a near-white block punched
+   into a dark bar reads as a rendering fault. Translucent white instead, which
+   lifts the button off the blue without changing its colour scheme. */
 .auth-language .export-trigger:hover:not(:disabled),
-.auth-language .export-trigger[aria-expanded='true'] {
+.auth-language .export-trigger[aria-expanded='true'],
+.app-header .export-trigger:hover:not(:disabled),
+.app-header .export-trigger[aria-expanded='true'],
+.legal-header .export-trigger:hover:not(:disabled),
+.legal-header .export-trigger[aria-expanded='true'] {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.3);
   color: #fff;
 }
 
-.auth-language .export-trigger:focus-visible {
+/* --border-focus is --blue-700 on --blue-800: a focus ring you cannot see. */
+.auth-language .export-trigger:focus-visible,
+.app-header .export-trigger:focus-visible,
+.legal-header .export-trigger:focus-visible {
   outline-color: #fff;
 }
 
@@ -180,7 +203,9 @@
 
 .auth-brand-subtitle {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.6);
+  /* Measured against the lightest stop of the gradient, --blue-700, where this
+     text is at its weakest: 0.6 gave 3.1:1 there, 0.85 gives 4.7:1. */
+  color: rgba(255, 255, 255, 0.85);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -242,11 +267,15 @@
   margin: 8px 0;
 }
 
-/* "Don't have an account? Register" link below the card */
+/* "Don't have an account? Register" line below the card. It sits OUTSIDE the
+   white card, on the gradient, so only the <a> was ever readable — the question
+   in front of it was --text-muted grey on dark blue, at about 1.6:1. Same
+   mistake as the language picker above: a light-surface token on a dark
+   surface. */
 .auth-switch-link {
   text-align: center;
   font-size: 0.875rem;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.85);
   margin-top: 16px;
 }
 
@@ -811,6 +840,18 @@
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 18px;
+}
+
+/* ---- Range presets ----
+ * The "Past 1 hour" / "This day" shortcuts in RangeToolbar. All three controls
+ * bars are flex rows with align-items: flex-end, so this group needs no rule of
+ * its own to line its buttons up with the bottom edge of the date pickers.
+ * It wraps because the buttons should drop together, not one at a time.
+ */
+.range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 /* ---- CSV export control ----
@@ -1704,13 +1745,15 @@
   color: var(--success);
 }
 
+/* Muted, but still meant to be read — it names a capability the device does not
+   have. --gray-400 under opacity 0.75 came to about 2.4:1 on the grey chip; the
+   line-through already says "missing" without help from the contrast. */
 .permission-badge--missing {
   background: var(--gray-100);
   border-color: var(--gray-200);
-  color: var(--gray-400);
+  color: var(--gray-600);
   text-decoration: line-through;
   text-decoration-color: var(--gray-300);
-  opacity: 0.75;
 }
 
 /* ---- Notification banners ---- */
@@ -2834,15 +2877,23 @@
   text-align: center;
 }
 
-/* On the auth and legal pages the footer sits on a dark gradient, so it
-   borrows the page's own colours rather than the light panel ones. */
+/* Both shells want the footer pushed down and full width. That is all they
+   share: only the auth page is dark behind it. */
 .auth-page .site-footer,
 .legal-page .site-footer {
-  background: transparent;
-  border-top-color: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.75);
   margin-top: 32px;
   width: 100%;
+}
+
+/* The auth page alone puts the footer on the gradient, so it alone restates the
+   colours. This rule used to name .legal-page too — but .legal-page's own
+   background is --bg-page, near-white, so white-on-white made the footer
+   vanish there entirely. The legal page keeps the base light colours above. */
+.auth-page .site-footer {
+  background: transparent;
+  border-top-color: rgba(255, 255, 255, 0.18);
+  /* 0.75 was 3.9:1 on the gradient's lightest stop; 0.85 clears AA. */
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .site-footer-notice {
@@ -2864,8 +2915,10 @@
   color: var(--accent);
 }
 
-.auth-page .site-footer-links a:hover,
-.legal-page .site-footer-links a:hover {
+/* Auth only, for the same reason: on the legal page's light background a white
+   hover would make the link disappear under the cursor. There it keeps the
+   base --accent hover. */
+.auth-page .site-footer-links a:hover {
   color: #fff;
 }
 

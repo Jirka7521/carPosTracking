@@ -85,7 +85,10 @@
   },
   "range": {
     "from": "From",
-    "to": "To"
+    "past24Hours": "Past 24 hours",
+    "pastHour": "Past 1 hour",
+    "to": "To",
+    "today": "This day"
   },
   "refresh": {
     "auto": "Auto-refresh",
