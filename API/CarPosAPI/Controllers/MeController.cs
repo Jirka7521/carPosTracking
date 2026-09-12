@@ -190,6 +190,7 @@ public sealed class MeController : ApiControllerBase
             summary.DevicesRetained,
             summary.PositionsDeleted,
             summary.GrantsDeleted,
-            summary.GrantsAnonymised));
+            summary.GrantsAnonymised,
+            summary.ShareLinksDeleted));
     }
 }

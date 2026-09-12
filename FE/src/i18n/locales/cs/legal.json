@@ -121,7 +121,7 @@
         "title": "Když sledujete vozidlo, které řídí někdo jiný"
       },
       "recipients": {
-        "p1": "Lidé, se kterými sdílíte zařízení, vidí jeho polohy a telemetrii a k tomu vaše jméno a e-mailovou adresu. Udělili jste jim to vy a můžete to kdykoli odvolat v nastavení zařízení.",
+        "p1": "Lidé, se kterými zařízení sdílíte, vidí jeho polohy a telemetrii a také vaše jméno a e-mailovou adresu. Ten, komu pošlete dočasný odkaz, vidí jen to, co daný odkaz zpřístupňuje, a nic o vás. Obojí jste udělili vy a obojí můžete kdykoli zrušit v nastavení zařízení.",
         "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu. Google sídlí ve Spojených státech a předání se opírá o jeho certifikaci podle rámce EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Rovněž sídlí ve Spojených státech a je rovněž certifikován podle rámce EU-US Data Privacy Framework. Žádní další příjemci neexistují. Nic se neprodává.",
         "title": "Kdo další data vidí"
@@ -143,6 +143,12 @@
         "p1": "Údaje o poloze jsou šifrovány end-to-end od sledovače po backend. Soukromé klíče zařízení jsou šifrovány v úložišti. Hesla jsou solené otisky. Přihlašovací token je v cookie, kterou nepřečte žádný skript, a každá změna navíc nese CSRF token. Souřadnice se nikdy nelogují. Přihlašování, export dat i mazání účtu jsou omezeny rychlostním limitem a každý požadavek se znovu ověřuje proti vašim oprávněním, místo aby se věřilo prohlížeči.",
         "p2": "Žádný systém není dokonale bezpečný a tento je osobní projekt, který ve volném čase udržuje jeden člověk. Nesvěřujte mu prosím nic, o co si nemůžete dovolit přijít.",
         "title": "Zabezpečení"
+      },
+      "shareLinks": {
+        "title": "Dočasné odkazy pro sdílení",
+        "p1": "Můžete vytvořit odkaz, který ukáže jeden tracker někomu, kdo tu nemá účet, po dobu, kterou zvolíte. Odkaz chrání dvě oddělená tajemství: neuhodnutelná adresa a kód k ní vygenerovaný, který máte poslat jinou cestou. Vy rozhodujete, jestli příjemce uvidí jen aktuální polohu, nebo celou trasu za dané období, a jestli s ní půjde i rychlost, baterie a teplota. Identifikátor zařízení se nikdy nedozví, jen název, který zvolíte.",
+        "p2": "Ukládáme zařízení, na které odkaz míří, zvolený název, období, co odkaz zpřístupňuje, kdy byl vytvořen a zrušen, kolikrát byl otevřen a kdy naposledy. Obě tajemství jsou uložena pouze jako otisky a nikdo je nedokáže získat zpět, ani my. O člověku, který odkaz otevře, se neukládá vůbec nic — žádná IP adresa, žádné údaje o prohlížeči, žádný identifikátor.",
+        "p3": "Odkaz můžete kdykoli zrušit v nastavení zařízení a okamžitě přestane fungovat. Sám od sebe přestane fungovat také po skončení období. Záznam o tom, že odkaz existoval a byl zrušen, zůstává, aby bylo dohledatelné, komu byl přístup dán; pokud smažete svůj účet, smažou se s ním i odkazy, které jste vytvořili."
       },
       "sharingData": {
         "p1": "Které účty smí vidět které zařízení a s jakými oprávněními; kdo oprávnění udělil; váš soukromý název zařízení; kdy ten, kdo zařízení přidal, potvrdil, že je oprávněn vozidlo sledovat; a intervaly vzorkování a týdenní rozvrhy nastavené pro zařízení, které prozrazují, kdy je vozidlo sledováno podrobně.",

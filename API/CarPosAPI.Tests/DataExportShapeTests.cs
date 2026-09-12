@@ -11,9 +11,10 @@ namespace CarPosAPI.Tests;
 /// device's sealed private key to whoever asked.
 ///
 /// The defence in the service is that nothing reaches the JSON writer except the
-/// dedicated <c>*ExportRow</c> records — the <see cref="User"/> and
-/// <see cref="Device"/> entities, the only two types in the system carrying
-/// secrets, are never written directly. These tests pin that shape down: if
+/// dedicated <c>*ExportRow</c> records — the <see cref="User"/>,
+/// <see cref="Device"/> and <see cref="ShareLink"/> entities, the only three types
+/// in the system carrying secrets, are never written directly. These tests pin that
+/// shape down: if
 /// somebody later "simplifies" <see cref="UserExportRow"/> by adding a field, or
 /// widens it to the entity, this fails before the export does.
 ///
@@ -37,6 +38,13 @@ public sealed class DataExportShapeTests
         "signingkey",
         "masterkey",
         "token",
+        // The three columns that guard a share link. A link is opened by presenting
+        // a verifier and a passphrase, so exporting either half — even hashed — hands
+        // the reader of an export material they should never hold, and exporting the
+        // selector identifies a live link to anyone who obtains the file.
+        "selector",
+        "verifier",
+        "passphrase",
     ];
 
     /// <summary>Every projection record the exporter writes rows from.</summary>
@@ -46,6 +54,7 @@ public sealed class DataExportShapeTests
         typeof(DeviceExportRow),
         typeof(GrantExportRow),
         typeof(DeviceAliasExportRow),
+        typeof(ShareLinkExportRow),
     ];
 
     [Theory]
@@ -90,9 +99,23 @@ public sealed class DataExportShapeTests
             null,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
+        ShareLinkExportRow shareLink = new ShareLinkExportRow(
+            "GNSS01",
+            "Test car",
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+            "latestOnly",
+            false,
+            false,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            null,
+            0,
+            null);
+
         string json = string.Concat(
             JsonSerializer.Serialize(user),
-            JsonSerializer.Serialize(device));
+            JsonSerializer.Serialize(device),
+            JsonSerializer.Serialize(shareLink));
 
         foreach (string fragment in ForbiddenFragments)
         {
@@ -108,5 +131,7 @@ public sealed class DataExportShapeTests
         // Until then it is the reason the records above exist at all.
         Assert.NotNull(typeof(User).GetProperty(nameof(User.PasswordHash)));
         Assert.NotNull(typeof(Device).GetProperty(nameof(Device.PrivateKeyCiphertext)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.VerifierHash)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.PassphraseHash)));
     }
 }

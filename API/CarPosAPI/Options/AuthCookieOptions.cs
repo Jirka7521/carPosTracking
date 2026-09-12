@@ -49,4 +49,16 @@ public sealed class AuthCookieOptions
     /// without it the session travels in the clear on any accidental HTTP request.
     /// </summary>
     public bool SecureCookies { get; set; } = true;
+
+    /// <summary>
+    /// Name of the httpOnly cookie holding an anonymous visitor's share token.
+    ///
+    /// Separate from <see cref="SessionCookieName"/> so the two credentials cannot
+    /// be confused for one another at any layer: different cookie, different
+    /// authentication scheme, different issuer and audience. A browser that holds
+    /// both — an account holder previewing a link they made — sends both, and each
+    /// endpoint reads only the one it named.
+    /// </summary>
+    [Required]
+    public string ShareCookieName { get; set; } = "carpos_share";
 }

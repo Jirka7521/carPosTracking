@@ -84,6 +84,9 @@ builder.Services.AddOptions<JwtOptions>()
     .Validate(
         static (JwtOptions options) => options.HasStrongSigningKey(),
         $"Jwt:SigningKey must be at least {JwtOptions.MinimumSigningKeyBytes} bytes. There is no default and no fallback — a deployment without a real key would issue forgeable sessions.")
+    .Validate(
+        static (JwtOptions options) => options.HasDistinctShareIdentity(),
+        "Jwt:ShareIssuer and Jwt:ShareAudience must both differ from Jwt:Issuer and Jwt:Audience. Share tokens are signed with the same key as sessions, so those two values are the entire separation between an anonymous visitor and an account holder.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<AuthCookieOptions>()
@@ -97,6 +100,13 @@ builder.Services.AddOptions<HostingOptions>()
     .Validate(
         static (HostingOptions options) => options.HasValidPathBase(),
         "Hosting:PathBase must be empty or an absolute path with no trailing slash, e.g. \"/carPosAPI\".")
+    .ValidateOnStart();
+
+// Ceilings on temporary share links. No secret here — these are policy limits, and
+// they live in configuration so a deployment can tighten them without a rebuild.
+builder.Services.AddOptions<SharingOptions>()
+    .BindConfiguration(SharingOptions.SectionName)
+    .ValidateDataAnnotations()
     .ValidateOnStart();
 
 // Who is answerable for the personal data this system holds. The contact check runs
@@ -170,6 +180,14 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<IUserAccountService, UserAccountService>();
 
+// The share-link credential, kept parallel to the session one at every level: its
+// own issuer, its own cookie writer, its own accessor. The parallel is the point —
+// nothing here is a variant of the session machinery that could be widened into it
+// by an edit that looked harmless.
+builder.Services.AddSingleton<IShareTokenIssuer, ShareTokenIssuer>();
+builder.Services.AddSingleton<IShareCookieWriter, ShareCookieWriter>();
+builder.Services.AddScoped<IShareContextAccessor, ShareContextAccessor>();
+
 // ---------------------------------------------------------------------------
 // Authorisation and the resource services. Every one of these is scoped: they
 // hold the request's DbContext, and the authorizer re-reads the caller's grant
@@ -181,6 +199,19 @@ builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+
+// Temporary share links. The two stateless helpers are shared; the three services
+// are scoped like every other database-touching one.
+//
+// ShareViewService is registered beside PositionQueryService and is emphatically
+// not a variant of it: it takes a share id where the other takes a user id, and
+// keeping them as separate types is what makes it impossible for one to be handed
+// the other's notion of who is asking.
+builder.Services.AddSingleton<IShareTokenFactory, ShareTokenFactory>();
+builder.Services.AddSingleton<IPassphraseGenerator, PassphraseGenerator>();
+builder.Services.AddScoped<IShareLinkService, ShareLinkService>();
+builder.Services.AddScoped<IShareRedemptionService, ShareRedemptionService>();
+builder.Services.AddScoped<IShareViewService, ShareViewService>();
 
 // The GDPR data-subject services. Scoped like everything else that writes through
 // the request's DbContext. The erasure service is the one place in the application
@@ -260,6 +291,58 @@ builder.Services
                 return Task.CompletedTask;
             },
         };
+    })
+    // ---------------------------------------------------------------------------
+    // The share scheme, registered *alongside* the default one rather than instead
+    // of it. That arrangement is the wall between an anonymous share visitor and an
+    // account holder, and it holds in both directions without anyone remembering to
+    // check anything:
+    //
+    //   * a plain [Authorize] binds to the default scheme, so every existing
+    //     endpoint rejects share tokens — including endpoints written later;
+    //   * this scheme validates a different issuer and audience, so a session token
+    //     presented here fails validation outright.
+    //
+    // The two are signed with the same key, which is what makes the issuer and
+    // audience load-bearing rather than decorative — see JwtOptions.ShareIssuer, and
+    // the startup check that refuses to let them be configured alike.
+    // ---------------------------------------------------------------------------
+    .AddJwtBearer(ShareAuthenticationDefaults.Scheme, (JwtBearerOptions options) =>
+    {
+        // Same reasoning as above: keep the raw claim names, since ShareContextAccessor
+        // looks for "share" and the inbound mapping would rename what it finds.
+        options.MapInboundClaims = false;
+
+        JwtOptions jwtOptions = builder.Configuration
+            .GetSection(JwtOptions.SectionName)
+            .Get<JwtOptions>() ?? new JwtOptions();
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.ShareIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.ShareAudience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
+            ClockSkew = TimeSpan.Zero,
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = (MessageReceivedContext context) =>
+            {
+                AuthCookieOptions cookieOptions = context.HttpContext.RequestServices
+                    .GetRequiredService<IOptions<AuthCookieOptions>>().Value;
+
+                // Its own cookie, so a browser holding both credentials at once — an
+                // account holder checking a link they created — presents each only
+                // where it is asked for.
+                context.Token = context.Request.Cookies[cookieOptions.ShareCookieName];
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -303,6 +386,28 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 // Loose enough that a retry after a failed download still works.
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(5),
+                QueueLimit = 0,
+            }));
+
+    // Redeeming a share link. The second unauthenticated front door, and the one
+    // with no account behind it to lock or notify.
+    //
+    // This is the outer of two limits. The per-link cooldown in ShareCooldownPolicy
+    // makes guessing the code of one share progressively hopeless; this caps how
+    // fast one address can work through many of them, which is the shape a hunt for
+    // valid links would take. Partitioned by address because a visitor has no
+    // identity here to partition by.
+    options.AddPolicy(RateLimitPolicies.ShareRedemption, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                // Generous for a person typing one code and refreshing a map, mean for
+                // anything working through a list. The map itself polls this
+                // controller's read action on a thirty-second timer, so the ceiling
+                // has to leave room for that as well as for the redeem.
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
 });

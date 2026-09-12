@@ -12,9 +12,11 @@ namespace CarPosAPI.Dtos;
 /// <param name="PositionsDeleted">Position rows erased with those devices.</param>
 /// <param name="GrantsDeleted">The account's own access grants, removed.</param>
 /// <param name="GrantsAnonymised">Other people's grants whose "granted by" reference was cleared.</param>
+/// <param name="ShareLinksDeleted">Temporary share links this account had created, destroyed with it.</param>
 public sealed record AccountErasureResultDto(
     int DevicesDeleted,
     int DevicesRetained,
     long PositionsDeleted,
     int GrantsDeleted,
-    int GrantsAnonymised);
+    int GrantsAnonymised,
+    int ShareLinksDeleted);

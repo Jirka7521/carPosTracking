@@ -62,6 +62,18 @@
 | **Recipients** | The two users involved |
 | **Retention** | Until revoked or the account is deleted. On account deletion the grant rows are deleted and the "granted by" reference on any surviving grant is nulled, so the operational record survives without the personal link. |
 
+### C2. Temporary share links
+
+| | |
+|---|---|
+| **Purpose** | Let a user show one tracker's position to somebody who has no account, for a window that user chooses, and withdraw it at any time |
+| **Data subjects** | Registered users (the creator); the persons whose movements the vehicle records; **recipients are not data subjects of this activity — see below** |
+| **Categories of data** | Device reference, a creator-chosen label, the validity window, what the link exposes (current position only, or the track; optionally speed, battery and temperature), revocation time, and three usage counters: times opened, last opened, consecutive wrong codes. Two authentication secrets are held only as hashes and are not recoverable. |
+| **Legal basis** | Art. 6(1)(b) contract — the user asked for the disclosure and controls its scope and duration |
+| **Recipients** | Whoever the creating user chooses to send the link and its code to. **This system does not learn, and does not record, who that is** — no IP address, no user agent, no identifier of any kind is stored for a share visitor. The counters above are the entire record that a link was used. |
+| **Retention** | The row survives revocation and expiry so that "this was shared, and withdrawn at this time" stays answerable. On account deletion the creator's links are **deleted outright** rather than anonymised: unlike a grant handed to another account, nobody would remain who could revoke one. |
+| **Safeguards** | Two independent secrets, neither recoverable from the database: a 256-bit link verifier stored as a SHA-256 digest and a generated code stored as a PBKDF2 hash, sent by separate channels. A growing cooldown after wrong codes, and an IP rate limit outside it. Every read re-checks the window and the revocation flag, so withdrawal takes effect immediately. A "current position only" share discloses no route at all, and the API refuses any time range for it so the track cannot be reconstructed a fix at a time. The recipient never learns the device's identifier, only the creator's label. |
+
 ### D. Device configuration and tracking schedules
 
 | | |
@@ -79,7 +91,7 @@
 | **Purpose** | Keep the deployment running and diagnosable; resist brute-force sign-in |
 | **Data subjects** | Anyone connecting to the deployment |
 | **Categories of data** | IP addresses (broker and reverse-proxy access logs), MQTT client identifiers, connection times, user ids and device ids in application logs, request method and path on failures |
-| **Not logged** | Coordinates, email addresses, passwords, tokens, keys, request bodies |
+| **Not logged** | Coordinates, email addresses, passwords, tokens, keys, request bodies. Share-link URLs are **redacted** in the frontend's access log, since the URL is itself a credential; the Cloudflare tunnel in front of it logs URIs outside this deployment's control, which is a known residual exposure. |
 | **Legal basis** | Art. 6(1)(f) legitimate interests — security and availability |
 | **Retention** | Bounded container logs: 10 MB per file, 3 files per service, oldest discarded |
 

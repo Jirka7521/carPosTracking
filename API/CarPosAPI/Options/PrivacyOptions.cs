@@ -65,7 +65,7 @@ public sealed class PrivacyOptions
     /// </summary>
     [Required]
     [StringLength(32, MinimumLength = 1)]
-    public string PolicyVersion { get; set; } = "2026-09-09";
+    public string PolicyVersion { get; set; } = "2026-09-12";
 
     /// <summary>
     /// True when a real contact address has been configured. False while the

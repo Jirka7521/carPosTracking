@@ -299,8 +299,15 @@ try {
     $items = @($report.Items)
 
     # --- Select + confirm -------------------------------------------------
-    $selected = Read-Selection -Items $items
-    if ($null -eq $selected -or $selected.Count -eq 0) {
+    # Wrapped in @() for the same reason $report.Items is above, and it bites in
+    # the same place: PowerShell unwraps a one-element array on RETURN from a
+    # function, so selecting a single change handed back a bare PSCustomObject —
+    # which has no .Count in 5.1, and the script died with "The property 'Count'
+    # cannot be found on this object" instead of applying it. The Where-Object
+    # keeps the "None" path working: Read-Selection returns $null there, and
+    # @($null) would otherwise be a one-element array holding nothing.
+    $selected = @(Read-Selection -Items $items | Where-Object { $null -ne $_ })
+    if ($selected.Count -eq 0) {
         Write-Host ''
         Write-Host 'Nothing selected - the database was not changed.' -ForegroundColor Yellow
         exit 0

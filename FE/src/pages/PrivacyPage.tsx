@@ -86,6 +86,13 @@ export function PrivacyPage() {
       </section>
 
       <section className="legal-section">
+        <h2>{t('privacy.sections.shareLinks.title')}</h2>
+        <p>{t('privacy.sections.shareLinks.p1')}</p>
+        <p>{t('privacy.sections.shareLinks.p2')}</p>
+        <p>{t('privacy.sections.shareLinks.p3')}</p>
+      </section>
+
+      <section className="legal-section">
         <h2>{t('privacy.sections.technicalData.title')}</h2>
         <p>{t('privacy.sections.technicalData.p1')}</p>
         <p>{t('privacy.sections.technicalData.p2')}</p>

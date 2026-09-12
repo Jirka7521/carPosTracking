@@ -24,12 +24,32 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
-import type { PositionDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
 import { grantStandingMapsConsent, hasStandingMapsConsent } from '../utils/mapsConsent'
 
+// What this map needs from a fix, which is less than a PositionDto carries.
+//
+// The narrower type exists so the public share page can use this component
+// without either fabricating fields it is not allowed to know or duplicating
+// five hundred lines of Google Maps plumbing. A share deliberately withholds
+// altitude and the accelerometer — they answer nothing a person asking "where is
+// it" is asking — so those are optional here and their rows are simply omitted.
+// PositionDto satisfies this shape as it stands.
+export type MapPosition = {
+  timestamp: string
+  latitude: number
+  longitude: number
+  speedKmph: number | null
+  batteryPct: number | null
+  temperatureC: number | null
+  altitudeMeters?: number | null
+  accelXG?: number | null
+  accelYG?: number | null
+  accelZG?: number | null
+}
+
 type DeviceMapProps = {
-  positions: PositionDto[]
+  positions: MapPosition[]
   apiKey: string
   // Bumped by the parent to re-frame the map on all positions. Starts at 0,
   // meaning "never asked" — the initial framing is handled internally.
@@ -71,7 +91,7 @@ function formatTimestamp(value: string): string {
 // page's Content-Security-Policy would otherwise have to permit. And nothing is
 // concatenated into markup, so there is no innerHTML sink here at all — the
 // values are numbers and dates today, but the next field added might not be.
-function buildInfoContent(position: PositionDto): HTMLElement {
+function buildInfoContent(position: MapPosition): HTMLElement {
   const container = document.createElement('div')
   container.className = 'map-info'
 
@@ -94,8 +114,14 @@ function buildInfoContent(position: PositionDto): HTMLElement {
 
   appendRow(i18n.t('device:map.info.latitude'), formatCoordinate(position.latitude))
   appendRow(i18n.t('device:map.info.longitude'), formatCoordinate(position.longitude))
-  appendRow(i18n.t('device:map.info.speed'), `${formatNumber(position.speedKmph, 1)} km/h`)
-  appendRow(i18n.t('device:map.info.altitude'), `${formatInteger(Math.round(position.altitudeMeters))} m`)
+  // Speed and altitude are always present on a device fix and may both be absent
+  // on a shared one, where the creator decides what a visitor is told.
+  if (position.speedKmph !== null && position.speedKmph !== undefined) {
+    appendRow(i18n.t('device:map.info.speed'), `${formatNumber(position.speedKmph, 1)} km/h`)
+  }
+  if (position.altitudeMeters !== null && position.altitudeMeters !== undefined) {
+    appendRow(i18n.t('device:map.info.altitude'), `${formatInteger(Math.round(position.altitudeMeters))} m`)
+  }
 
   // Battery (0 = charging) and the raw ADXL345 sample — only when the device
   // sent them for this fix, so older fixes show no empty rows.
@@ -107,9 +133,13 @@ function buildInfoContent(position: PositionDto): HTMLElement {
         : i18n.t('common:battery.percent', { value: position.batteryPct }),
     )
   }
-  if (position.accelXG !== null || position.accelYG !== null || position.accelZG !== null) {
-    const axis = (value: number | null): string =>
-      value === null ? i18n.t('common:states.none') : formatNumber(value, 2)
+  if (
+    (position.accelXG ?? null) !== null
+    || (position.accelYG ?? null) !== null
+    || (position.accelZG ?? null) !== null
+  ) {
+    const axis = (value: number | null | undefined): string =>
+      value === null || value === undefined ? i18n.t('common:states.none') : formatNumber(value, 2)
     appendRow(
       i18n.t('device:map.info.accel'),
       `${axis(position.accelXG)}, ${axis(position.accelYG)}, ${axis(position.accelZG)}`,
@@ -246,7 +276,7 @@ function createPinSymbol(g: typeof google, color: string, scale: number): google
 // fixes apart and is stable across reloads — which is the whole point: a marker
 // whose key is still present in the new data is REUSED rather than destroyed and
 // rebuilt, so an open info window survives a refresh.
-function positionKey(position: PositionDto): string {
+function positionKey(position: MapPosition): string {
   return `${position.timestamp}|${position.latitude}|${position.longitude}`
 }
 
@@ -280,7 +310,7 @@ function fitToDrawnPositions(state: MapState): void {
 // This used to clear every overlay and call fitBounds on each load, which threw
 // away the user's pan and zoom (and closed whatever info window they had open)
 // every time the auto-refresh ticked. Now only what actually changed is touched.
-function updateMapOverlays(state: MapState, positions: PositionDto[]): void {
+function updateMapOverlays(state: MapState, positions: MapPosition[]): void {
   const g = (window as unknown as { google?: typeof google }).google
   if (!g?.maps || !state.map) {
     return

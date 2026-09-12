@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
+using CarPosAPI.Dtos;
 using CarPosAPI.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -14,11 +15,11 @@ namespace CarPosAPI.Services.Privacy;
 /// <b>The rule that matters here is what must never appear.</b> A data export is
 /// the one endpoint whose job is to hand over everything, which makes it the one
 /// endpoint where a careless projection ships a password hash or a device's sealed
-/// private key to whoever asked. The two entities that carry secrets, <c>User</c> and
-/// <c>Device</c>, are therefore never written directly: both go through a dedicated
-/// export record that has no field to leak. The rest (positions, configuration
-/// revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the records
-/// down against the serialised bytes. Keep both when this shape changes.
+/// private key to whoever asked. The three entities that carry secrets, <c>User</c>,
+/// <c>Device</c> and <c>ShareLink</c>, are therefore never written directly: each goes
+/// through a dedicated export record that has no field to leak. The rest (positions,
+/// configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
+/// records down against the serialised bytes. Keep both when this shape changes.
 ///
 /// Scoped: it holds the request's <see cref="CarPosDbContext"/>.
 /// </summary>
@@ -74,6 +75,7 @@ internal sealed class DataExportService : IDataExportService
         await WriteProfileAsync(writer, userId, cancellationToken);
         await WriteAliasesAsync(writer, userId, cancellationToken);
         await WriteGrantsAsync(writer, userId, cancellationToken);
+        await WriteShareLinksAsync(writer, userId, cancellationToken);
         await WriteAuthoredConfigurationAsync(writer, userId, cancellationToken);
 
         long positionCount = await WriteDevicesAndPositionsAsync(writer, userId, cancellationToken);
@@ -257,6 +259,86 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteBoolean("canDelete", grant.CanDelete);
             writer.WriteBoolean("canShare", grant.CanShare);
             writer.WriteBoolean("canModifySettings", grant.CanModifySettings);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    /// <summary>
+    /// Writes the temporary share links this account created.
+    ///
+    /// They belong in an Art. 15 export because they are a record of disclosure:
+    /// this account made somebody's movements visible to a person outside the
+    /// system, for a stated window, and that is exactly the kind of fact a data
+    /// subject is entitled to see. What is <em>not</em> here is who opened them —
+    /// this system stores no address, agent or identity for a share visitor, so the
+    /// counters below are the whole of what was ever recorded.
+    /// </summary>
+    /// <param name="writer">The open JSON writer.</param>
+    /// <param name="userId">The account being exported.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    private async Task WriteShareLinksAsync(Utf8JsonWriter writer, int userId, CancellationToken cancellationToken)
+    {
+        // Joined to devices so the export names the MQTT identity rather than an
+        // internal Guid, exactly as the grant and nickname projections do. The three
+        // secret columns are not selected.
+        List<ShareLinkExportRow> links = await _context.ShareLinks
+            .AsNoTracking()
+            .Where(link => link.CreatedByUserId == userId)
+            .Join(
+                _context.Devices.AsNoTracking(),
+                link => link.DeviceId,
+                device => device.Id,
+                (link, device) => new ShareLinkExportRow(
+                    device.DeviceId,
+                    link.Label,
+                    link.ValidFrom,
+                    link.ValidUntil,
+                    link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
+                    link.IncludeSpeed,
+                    link.IncludeTelemetry,
+                    link.CreatedAt,
+                    link.RevokedAt,
+                    link.SuccessfulRedeems,
+                    link.LastAccessedAt))
+            .OrderByDescending(link => link.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        writer.WriteStartArray("shareLinksCreated");
+
+        foreach (ShareLinkExportRow link in links)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("deviceId", link.DeviceId);
+            writer.WriteString("label", link.Label);
+            writer.WriteString("validFromUtc", link.ValidFrom);
+            writer.WriteString("validUntilUtc", link.ValidUntil);
+            writer.WriteString("scope", link.Scope);
+            writer.WriteBoolean("includeSpeed", link.IncludeSpeed);
+            writer.WriteBoolean("includeTelemetry", link.IncludeTelemetry);
+            writer.WriteString("createdAtUtc", link.CreatedAt);
+
+            if (link.RevokedAt.HasValue)
+            {
+                writer.WriteString("revokedAtUtc", link.RevokedAt.Value);
+            }
+            else
+            {
+                writer.WriteNull("revokedAtUtc");
+            }
+
+            writer.WriteNumber("timesOpened", link.SuccessfulRedeems);
+
+            if (link.LastAccessedAt.HasValue)
+            {
+                writer.WriteString("lastOpenedAtUtc", link.LastAccessedAt.Value);
+            }
+            else
+            {
+                writer.WriteNull("lastOpenedAtUtc");
+            }
+
             writer.WriteEndObject();
         }
 

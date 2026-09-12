@@ -21,6 +21,7 @@ import schedule from './locales/en/schedule.json'
 import profile from './locales/en/profile.json'
 import errors from './locales/en/errors.json'
 import legal from './locales/en/legal.json'
+import share from './locales/en/share.json'
 
 export const enResources = {
   common,
@@ -32,6 +33,7 @@ export const enResources = {
   profile,
   errors,
   legal,
+  share,
 } as const
 
 // The namespace names, derived from the catalogue rather than repeated.

@@ -40,6 +40,12 @@ import type {
   PrivacyPolicyDto,
   SaveConfigProfileRequestDto,
   SaveScheduleRuleRequestDto,
+  ShareLinkCreateRequestDto,
+  ShareLinkCreatedDto,
+  ShareLinkDto,
+  ShareLinkUpdateRequestDto,
+  ShareSessionDto,
+  SharedViewDto,
   UpdateDeviceScheduleRequestDto,
   UserProfileDto,
   UserUpdateRequestDto,
@@ -205,6 +211,11 @@ function extractErrorMessage(status: number, body: unknown): string {
 async function request<T>(method: string, path: string, options: {
   body?: unknown
   query?: Record<string, string | number | boolean | undefined>
+  // Share endpoints set this. A 401 there means "this share link needs its code
+  // again", which has nothing to do with the account session — and firing the
+  // global event for it would sign out an owner who was merely previewing a link
+  // they had just created.
+  suppressSessionExpired?: boolean
 } = {}): Promise<T> {
   const isMutation: boolean = method !== 'GET' && method !== 'HEAD'
 
@@ -230,7 +241,7 @@ async function request<T>(method: string, path: string, options: {
   const body: unknown = await readBody(response)
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && options.suppressSessionExpired !== true) {
       // Tell the app once, centrally, rather than making every caller recognise
       // an expired session for itself.
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
@@ -625,4 +636,91 @@ function fileNameFromContentDisposition(header: string | null): string {
   const match = /filename="?([^";]+)"?/i.exec(header)
 
   return match?.[1] ?? fallback
+}
+
+// ----- Temporary share links: the creator's side -----
+
+// Lists every share link on a device, live and dead. Requires CanShare. The
+// response never carries a link's secrets — there is no endpoint that can
+// produce them for an existing link, by construction rather than by policy.
+export async function fetchShareLinks(deviceId: string): Promise<ShareLinkDto[]> {
+  return request<ShareLinkDto[]>('GET', '/shares', {
+    query: { deviceId },
+  })
+}
+
+// Mints a share link. The response is the only time the link and its code exist
+// outside the creator's screen, so a caller that discards it has discarded the
+// share.
+export async function createShareLink(
+  payload: ShareLinkCreateRequestDto,
+): Promise<ShareLinkCreatedDto> {
+  return request<ShareLinkCreatedDto>('POST', '/shares', { body: payload })
+}
+
+// Revokes a share link. Takes effect on the visitor's very next request: the
+// server re-reads the row rather than trusting the token it issued.
+export async function revokeShareLink(shareId: string): Promise<void> {
+  await request<void>('DELETE', `/shares/${segment(shareId)}`)
+}
+
+// ----- Temporary share links: the visitor's side -----
+//
+// All three suppress the session-expired event. A 401 here means "this share
+// needs its code again" and has nothing to do with an account session; firing
+// the global event would sign out an owner previewing their own link.
+
+// Opens a share link with its code. The token goes in the body, never the URL:
+// it is already in the address of the page the visitor loaded, where the
+// deployment's access log redacts it, and an API path has no such rule.
+export async function redeemShareLink(
+  token: string,
+  passphrase: string,
+): Promise<ShareSessionDto> {
+  return request<ShareSessionDto>('POST', '/shares/redeem', {
+    body: { token, passphrase },
+    suppressSessionExpired: true,
+  })
+}
+
+// Reads the share and its fixes. Both bounds are clamped to the share's window
+// server-side, and ignored entirely for a latest-only share.
+export async function fetchSharedView(
+  from?: string,
+  to?: string,
+): Promise<SharedViewDto> {
+  return request<SharedViewDto>('GET', '/shares/view', {
+    query: { from, to },
+    suppressSessionExpired: true,
+  })
+}
+
+// Clears the share cookie. Deliberately tolerant: "let go of whatever I am
+// holding" must work even when what is held is expired or malformed, which is
+// exactly when somebody wants it to.
+export async function leaveShare(): Promise<void> {
+  await request<void>('POST', '/shares/leave', { suppressSessionExpired: true })
+}
+
+// Changes an existing link's window, label, scope and telemetry flags. The link
+// and its code are untouched, so whoever already holds them keeps working
+// access — which is why widening the window is a real disclosure decision and
+// not a settings tweak. A revoked link answers 409; revocation stays revoked.
+export async function updateShareLink(
+  shareId: string,
+  payload: ShareLinkUpdateRequestDto,
+): Promise<ShareLinkDto> {
+  return request<ShareLinkDto>('PUT', `/shares/${segment(shareId)}`, { body: payload })
+}
+
+// Mints a fresh link and code for an existing share, keeping its window, scope,
+// label and redeem history.
+//
+// This is the only answer to "show me the link again": the verifier is stored as
+// a SHA-256 digest and the code as a PBKDF2 hash, so the originals do not exist
+// anywhere to be shown. The trade is that the PREVIOUS link and code stop working
+// immediately — anyone already using the share loses access until they are sent
+// the new pair.
+export async function reissueShareLink(shareId: string): Promise<ShareLinkCreatedDto> {
+  return request<ShareLinkCreatedDto>('POST', `/shares/${segment(shareId)}/reissue`)
 }

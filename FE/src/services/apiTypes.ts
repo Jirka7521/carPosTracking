@@ -459,9 +459,134 @@ export interface AccountErasureResultDto {
   positionsDeleted: number
   grantsDeleted: number
   grantsAnonymised: number
+  // Temporary share links this account had created, destroyed with it. Unlike a
+  // grant handed to another person, a share link is not left standing: nobody
+  // would remain who could revoke one.
+  shareLinksDeleted: number
 }
 
 // DELETE /api/devices/{deviceId}/positions — erases a location history.
 export interface PositionErasureResultDto {
   deletedCount: number
+}
+
+// ---------------------------------------------------------------------------
+// Temporary share links
+//
+// Two audiences share this section and it is worth keeping them straight. The
+// *creator* types are the management UI's, and carry no secret: the link and its
+// code exist only in the single ShareLinkCreatedDto returned when one is minted.
+// The *visitor* types are what an anonymous share page receives, and are
+// deliberately thin — no device id, no owner, no account.
+// ---------------------------------------------------------------------------
+
+// How much history a link exposes. `latestOnly` is one pin, refreshing; the
+// server ignores any requested time range for it, so the track cannot be walked
+// backwards a fix at a time.
+export type ShareScope = 'latestOnly' | 'fullTrack'
+
+// A link's lifecycle state, derived server-side from its timestamps and counters
+// so "is this live" has one answer, produced by the clock that enforces it.
+export type ShareLinkStatus =
+  | 'active'
+  | 'scheduled'
+  | 'expired'
+  | 'revoked'
+  | 'coolingDown'
+
+// GET /api/shares?deviceId= — one share link as its creator sees it.
+export interface ShareLinkDto {
+  id: string
+  deviceId: string
+  // What the visitor sees the tracker called, and the creator's own note.
+  label: string
+  validFrom: string
+  validUntil: string
+  scope: ShareScope
+  includeSpeed: boolean
+  includeTelemetry: boolean
+  status: ShareLinkStatus
+  createdAt: string
+  revokedAt: string | null
+  successfulRedeems: number
+  lastAccessedAt: string | null
+  // Consecutive wrong codes since the last success. Surfaced because it is the
+  // only signal a creator gets that somebody is working on their link — nothing
+  // about the visitor is stored.
+  failedAttempts: number
+  lockedUntil: string | null
+}
+
+// POST /api/shares.
+export interface ShareLinkCreateRequestDto {
+  deviceId: string
+  label?: string
+  validFrom: string
+  validUntil: string
+  scope: ShareScope
+  includeSpeed: boolean
+  includeTelemetry: boolean
+}
+
+// The 201 body, and the only time the two secrets exist outside the creator's
+// screen. Neither is stored in recoverable form: losing this response means
+// reissuing the link, which is the intended behaviour rather than a gap.
+//
+// `token` is not a URL. The page composes one from the origin and base path it
+// is already running under, which keeps a "public base URL" setting — one more
+// thing to get wrong behind the deployment's path prefix — out of existence.
+export interface ShareLinkCreatedDto {
+  share: ShareLinkDto
+  token: string
+  passphrase: string
+}
+
+// POST /api/shares/redeem. The token travels in the body, never the URL.
+export interface ShareRedeemRequestDto {
+  token: string
+  passphrase: string
+}
+
+// What a visitor is told about the share they opened — and the boundary of what
+// they are ever told. No device id, no owner, no account.
+export interface ShareSessionDto {
+  label: string
+  validFrom: string
+  validUntil: string
+  scope: ShareScope
+  includeSpeed: boolean
+  includeTelemetry: boolean
+}
+
+// One fix as a visitor sees it. Compare PositionDto: no id, no deviceId, no
+// receivedAt, no altitude, no accelerometer. The three optional fields are null
+// unless the creator opted in.
+export interface SharedPositionDto {
+  timestamp: string
+  latitude: number
+  longitude: number
+  speedKmph: number | null
+  batteryPct: number | null
+  temperatureC: number | null
+}
+
+// GET /api/shares/view — the share and its fixes in one response, so a reload
+// (where the cookie survives but the page has forgotten everything) is a single
+// request that either works or does not.
+export interface SharedViewDto {
+  share: ShareSessionDto
+  positions: SharedPositionDto[]
+}
+
+// PUT /api/shares/{shareId} — a full replacement of the editable fields, not a
+// patch. No device (a link stays on the tracker it was minted for) and no
+// secrets: the link and code are unrecoverable by design, so "change the code"
+// is a new link rather than an edit.
+export interface ShareLinkUpdateRequestDto {
+  label?: string
+  validFrom: string
+  validUntil: string
+  scope: ShareScope
+  includeSpeed: boolean
+  includeTelemetry: boolean
 }

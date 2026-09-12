@@ -111,12 +111,14 @@ internal sealed class AccountErasureService : IAccountErasureService
 
         _logger.LogInformation(
             "Erased account {UserId}: {DevicesDeleted} device(s) and {PositionsDeleted} position(s) deleted, "
-            + "{DevicesRetained} device(s) retained for other users, {GrantsAnonymised} grant(s) anonymised",
+            + "{DevicesRetained} device(s) retained for other users, {GrantsAnonymised} grant(s) anonymised, "
+            + "{ShareLinksDeleted} share link(s) destroyed",
             userId,
             summary.DevicesDeleted,
             summary.PositionsDeleted,
             summary.DevicesRetained,
-            summary.GrantsAnonymised);
+            summary.GrantsAnonymised,
+            summary.ShareLinksDeleted);
 
         return OperationResult<AccountErasureSummary>.Success(summary);
     }
@@ -178,6 +180,21 @@ internal sealed class AccountErasureService : IAccountErasureService
         await using IDbContextTransaction transaction =
             await _context.Database.BeginTransactionAsync(cancellationToken);
 
+        // 0. Share links this account created, deleted outright — the one sharing
+        //    record that is NOT anonymised and left standing.
+        //
+        //    A grant handed to another person survives because that person still has
+        //    access and still needs it. A share link is the opposite case on both
+        //    counts: it is a live credential in the hands of somebody who never had
+        //    an account, and once its creator is gone nobody is left who could
+        //    withdraw it. Nulling created_by_user_id would satisfy Art. 17's letter
+        //    and leave a stranger able to watch a vehicle indefinitely with no one
+        //    accountable for it. So they go, and they stop working immediately,
+        //    because the view path re-reads this row on every request.
+        int shareLinksDeleted = await _context.ShareLinks
+            .Where(link => link.CreatedByUserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+
         // 1. This account's own nicknames and grants. Both are purely personal —
         //    nobody else has any interest in them.
         await _context.DeviceAliases
@@ -227,7 +244,8 @@ internal sealed class AccountErasureService : IAccountErasureService
             retainedDevices,
             positionsDeleted,
             grantsDeleted,
-            grantsAnonymised);
+            grantsAnonymised,
+            shareLinksDeleted);
     }
 
     /// <summary>
@@ -250,6 +268,14 @@ internal sealed class AccountErasureService : IAccountErasureService
         {
             return (0, 0);
         }
+
+        // Share links on these devices, including any created by somebody else back
+        // when they could still see the device. share_links.device_id is Restrict, so
+        // they must go first regardless — and a link onto a device that is about to
+        // cease to exist has nothing left to show anyone.
+        await _context.ShareLinks
+            .Where(link => deviceRowIds.Contains(link.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
 
         long positionsDeleted = await _context.Positions
             .Where(position => deviceRowIds.Contains(position.DeviceId))

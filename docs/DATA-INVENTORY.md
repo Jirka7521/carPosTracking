@@ -62,6 +62,28 @@ Deleted outright when the erased account was its only remaining accessor; otherw
 On account deletion the user's own rows are deleted; `granted_by` on *surviving* rows is set to
 `NULL`, keeping the operational record without the personal link.
 
+### `share_links`
+
+`device_id` p, `created_by_user_id` **P**, `label` **P** (free text, chosen by the creator and
+shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_speed` ·,
+`include_telemetry` ·, `revoked_at` p, `created_at` p, and three usage counters —
+`successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
+
+Three columns are **secrets, never personal data to export**: `selector` (the lookup half of
+the link, stored in the clear because it authorises nothing), `verifier_hash` (SHA-256 of the
+half that does authorise) and `passphrase_hash` (Identity PBKDF2 over the visitor's code).
+Neither the link nor the code can be reconstructed from this table.
+
+**Nothing about the recipient is stored.** No IP, no user agent, no identifier of any kind —
+the three counters above are the entire record that a link was used. That is deliberate: a
+share visitor is a third party who agreed to nothing, and logging them would be collecting
+personal data with no basis in order to answer a question the counters already answer.
+
+On account deletion the creator's links are **deleted outright**, not anonymised. A grant
+handed to another account survives erasure because that person still needs it; a share link is
+the opposite case on both counts — a live credential held by somebody with no account, which
+nobody would remain to revoke.
+
 ### `device_aliases`
 
 `user_id` **P**, `device_id` p, `alias` **P** (free text, frequently a person's name),
@@ -118,13 +140,17 @@ publishes an empty retained payload on both topics to clear them.
 | **Never in the API log** | coordinates, email addresses, passwords, tokens, keys, request bodies, IP addresses | — |
 | Mosquitto | `New client connected from <IP> as <client-id>` — an IP↔device correlation | bounded container log: 10 MB × 3 |
 | Broker nginx `access_log` | client IPs, combined format | bounded container log: 10 MB × 3 |
+| Frontend nginx `access_log` | client IPs; **`/share/...` URIs are redacted to `/share/[redacted]`** by the `carpos` log format, because a share URL is itself a credential | bounded container log: 10 MB × 3 |
+| Cloudflare tunnel | request URIs, **including share-link secrets** — outside this repo's control. Known and accepted residual exposure | per Cloudflare |
 | ESP32 serial console | **prints coordinates in the clear** (`ESP32/src/gnss/GnssModule.cpp`) | volatile; requires physical UART access |
 
 ---
 
 ## 5. Browser
 
-`carpos_session` (`HttpOnly`, unreadable by script), `carpos_csrf`, and three localStorage
+`carpos_session` (`HttpOnly`, unreadable by script), `carpos_csrf`, `carpos_share` (`HttpOnly`;
+only on a browser that has opened a share link, and only for that link's remaining window),
+and three localStorage
 preferences: `carpos.language`, `carpos.csvDelimiter`, `carpos.mapsConsent`. None of the
 localStorage values is ever sent to the server.
 
@@ -133,11 +159,11 @@ localStorage values is ever sent to the server.
 ## 6. What the data export contains
 
 `GET /api/me/export` streams a JSON document with: the profile, every access grant held and
-granted, device nicknames, metadata for every readable device, authored configuration
-profiles/rules/revisions, and **the complete position history of every readable device** —
-uncapped.
+granted, device nicknames, the temporary share links this account created, metadata for every
+readable device, authored configuration profiles/rules/revisions, and **the complete position
+history of every readable device** — uncapped.
 
-It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material or the
-device-key master key. `DataExportShapeTests` pins that shape down against the serialised
+It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
+device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised
 output of every projection record, which is the test to keep passing when this shape
 changes.

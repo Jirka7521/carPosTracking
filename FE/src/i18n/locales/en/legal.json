@@ -121,7 +121,7 @@
         "title": "If you track a vehicle somebody else drives"
       },
       "recipients": {
-        "p1": "People you share a device with see that device's positions and telemetry, plus your name and email address. You granted that, and you can revoke it at any time in the device's settings.",
+        "p1": "People you share a device with see that device’s positions and telemetry, plus your name and email address. Somebody you send a temporary share link to sees only what that link exposes, and nothing about you. You granted both, and you can revoke either at any time in the device’s settings.",
         "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. It is likewise in the United States and likewise certified under the EU-US Data Privacy Framework. There are no other recipients. Nothing is sold.",
         "title": "Who else sees the data"
@@ -143,6 +143,12 @@
         "p1": "Position payloads are encrypted end to end from the tracker to the backend. Device private keys are encrypted at rest. Passwords are salted hashes. The session token lives in a cookie no script can read, and every change additionally carries a CSRF token. Coordinates are never logged. Signing in, exporting your data and erasing your account are rate-limited, and every request is re-authorised against your access grants rather than trusting the browser.",
         "p2": "No system is perfectly secure, and this one is a personal project maintained by one person in their spare time. Please do not entrust it with anything you could not stand to lose.",
         "title": "Security"
+      },
+      "shareLinks": {
+        "title": "Temporary share links",
+        "p1": "You can create a link that shows one tracker to somebody who has no account here, for a period you choose. The link is guarded by two separate secrets: an unguessable address and a code generated for it, which you are meant to send by a different route. You decide whether the recipient sees only the current position or the whole track for that period, and whether speed, battery and temperature travel with it. They never learn the device identifier, only a name you choose.",
+        "p2": "We store the device the link points at, the name you chose, the period, what it exposes, when it was created and withdrawn, how many times it was opened and when it was last opened. The two secrets are stored only as hashes and cannot be recovered by anyone, including us. Nothing at all is stored about the person who opens the link — no IP address, no browser details, no identifier.",
+        "p3": "You can revoke a link at any time in the device settings, and it stops working immediately. It also stops on its own when the period ends. The record that a link existed and was withdrawn is kept so the history of who was given access stays answerable; if you delete your account, the links you created are deleted with it."
       },
       "sharingData": {
         "p1": "Which accounts may see which device and with what permissions; who granted that permission; your private nickname for a device; when the person who added a device confirmed they were entitled to track the vehicle; and the sampling intervals and weekly schedules configured for a device, which reveal when a vehicle is tracked closely.",

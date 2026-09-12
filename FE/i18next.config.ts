@@ -56,6 +56,7 @@ export default defineConfig({
       'permission.*',          // PermissionBadges  CAPABILITIES
       'charts.series.*',       // utils/telemetry.ts  SERIES labelKey
       'positions.column.*',    // PositionListTab  COLUMNS labelKey
+      'status.*',              // ShareLinkList, template literal over ShareLinkStatus
     ],
   },
 

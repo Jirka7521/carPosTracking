@@ -28,4 +28,19 @@ public static class RateLimitPolicies
     /// </para>
     /// </summary>
     public const string PrivacyOperations = "privacy";
+
+    /// <summary>
+    /// Applied to <c>/api/shares</c>'s anonymous actions. Redeeming a link is the
+    /// second place in this API where an attacker gets free attempts, and unlike
+    /// sign-in there is no account behind it to lock or notify.
+    /// <para>
+    /// It is the outer of two limits and they guard different things. The per-link
+    /// cooldown makes repeated guessing against <em>one</em> share progressively
+    /// useless; this one caps how fast a single address can work through
+    /// <em>many</em>, which is the shape an attempt to find valid links would take.
+    /// Partitioned by address, like sign-in, because a visitor has no identity here
+    /// to partition by.
+    /// </para>
+    /// </summary>
+    public const string ShareRedemption = "share";
 }

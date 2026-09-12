@@ -170,7 +170,7 @@ The .NET API returns its ProblemDetails `detail` text in English, and `describeE
 
 ### Label tables and dynamic keys
 
-A number of tables map an enum to a label — `CONFIG_FIELD_LABEL_KEYS`, `SERIES[].labelKey`, `CSV_DELIMITERS`, the weekday names. They hold **translation keys, not text**, and the component resolves them, which is what keeps `utils/` free of any particular language.
+A number of tables map an enum to a label — `CONFIG_FIELD_LABEL_KEYS`, `SERIES[].labelKey`, `CSV_DELIMITERS`, the weekday names, the share-link statuses. They hold **translation keys, not text**, and the component resolves them, which is what keeps `utils/` free of any particular language.
 
 Because those call sites read `t(SOME_TABLE[key])`, a source scan cannot see them — and `removeUnusedKeys` defaults to true. Every such family is listed under `preservePatterns` in [`i18next.config.ts`](i18next.config.ts). **If you add another table like this, add its prefix there in the same commit**; `tsc` will not catch the loss, because deleting the English key deletes the type along with it.
 
@@ -277,6 +277,8 @@ FE/
 | `/register` | public | Create account — requires acknowledging the privacy policy |
 | `/privacy` | public | Privacy policy. Reachable **signed in as well as out** — unlike `/login`, it does not bounce an authenticated user to `/home`, or the footer link would be dead for exactly the people whose data it is |
 | `/legal` | public | Legal notice: non-commercial test project, licence, no warranty |
+| `/share/:token` | public | A temporary share link. `:token` is the link secret; the page reads it once and then rewrites the address to `/share` |
+| `/share` | public | The same page after the token has left the address bar, and where a reload lands |
 | `/home` | protected | List of accessible devices + register a new one |
 | `/profile` | protected | Edit first/last name, change password, and the privacy controls: export your data, revoke map consent, delete your account |
 | `/device/:deviceId/map` | protected | Live map for a device |
@@ -291,6 +293,61 @@ FE/
 `AppLayout`, for the same reason the auth pages do: `AppLayout` lives behind
 `<RequireAuth>`, and somebody deciding whether to register has to be able to read
 what happens to their data first.
+
+### Temporary share links
+
+A device's settings tab can mint a link that shows that tracker to somebody with
+no account, for a window its creator picks
+([`components/ShareLinkManager.tsx`](src/components/ShareLinkManager.tsx)). The
+visitor's page is [`pages/SharePage.tsx`](src/pages/SharePage.tsx). Three things
+about it are load-bearing rather than stylistic:
+
+- **The code screen reveals nothing.** No tracker name, no owner, not even
+  confirmation that the link resolves to anything. A leaked URL on its own must
+  not establish that somebody has a tracker, so everything the share knows about
+  itself arrives only after the code is accepted.
+- **The token leaves the address bar on mount.** `history.replaceState` swaps
+  `/share/<token>` for `/share` once the page has read it, so the secret is not
+  left in a screenshot or the visible history entry. Nothing is stored in its
+  place — a reload rides the HttpOnly share cookie, and when that is gone the
+  page says to reopen the original link. Putting the token in `sessionStorage`
+  would park a live credential where an XSS could read it, to buy a convenience
+  the cookie already provides.
+- **The bounds are the server's.** The range shown comes from the share's own
+  window, and the API clamps to it again whatever is asked for. For a
+  "current position only" share the API ignores the range entirely — honouring an
+  upper bound while returning one row would let a visitor walk the window
+  backwards a fix at a time and rebuild the whole track.
+
+A link's settings can be changed after it is sent — the same form serves create
+and edit, so a disclosure control cannot drift between two copies of it. Editing
+**keeps the link and code**, which is why the edit form leads with a warning
+rather than trailing one: the recipient keeps working access, and moving the start
+of the window earlier hands them history they could not see a moment ago. Expired
+links stay editable so a window can be extended; **revoked links do not**, and the
+API refuses them too.
+
+**The link and code cannot be shown again** — they are stored only as hashes, so
+there is nothing to show. "New link and code" reissues them on the same share,
+keeping its window, scope and history; the confirmation says plainly that the
+previous pair stops working, because that breaks whoever is using the share right
+now. The reveal panel carries different wording for a reissue than for a fresh
+link, and the two travel as one piece of state so they cannot drift apart.
+
+Row buttons reuse the schedule cards' `.schedule-card-actions` /
+`.schedule-card-buttons` and `common:actions.*` labels, so the two panels read as
+one system. Only the alignment is overridden: a schedule card is horizontal and
+ends with its buttons, a share row stacks its content and the buttons follow.
+
+The visitor's calls pass `suppressSessionExpired` through
+[`services/apiClient.ts`](src/services/apiClient.ts): a 401 from a share endpoint
+means "this link needs its code again", and firing the global session-expired
+event for it would sign out an owner who was merely previewing their own link.
+
+[`nginx.conf`](nginx.conf) redacts `/share/...` from the access log — the URL is
+the credential. The Cloudflare tunnel in front of it logs URIs where no rule of
+ours applies; that residual exposure is known and is the price of carrying the
+token in the path rather than the fragment.
 
 ### The map asks before it loads
 

@@ -115,13 +115,41 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-09-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-09-12` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+
+The `Sharing` section caps temporary share links. Neither key is secret:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Sharing:MaxWindowDays` | `30` | Longest window one link may cover, measured from its own start rather than from now. The failure mode this guards against is not a broken link but a forgotten one — a share created "just for now" with an end date years out is a permanent public tracker nobody remembers making. |
+| `Sharing:MaxLiveLinksPerDevice` | `10` | How many *live* links one device may carry. Expired and revoked links do not count, so this never blocks re-sharing. |
+
+The `Jwt` section carries three further keys for share tokens. `Jwt:ShareIssuer`
+and `Jwt:ShareAudience` **must differ from `Jwt:Issuer` and `Jwt:Audience`**, and
+the API refuses to start if they do not. Share tokens are signed with the same
+`Jwt:SigningKey` as sessions, so those two values are the entire separation
+between an anonymous visitor and an account holder — set them alike and every
+share link silently becomes a login. `Jwt:ShareLifetimeHours` (default `12`) caps
+a share session; the link's own window caps it further, whichever is shorter.
+
+| Key | Default |
+|---|---|
+| `Jwt:ShareIssuer` | `carpos-share-api` |
+| `Jwt:ShareAudience` | `carpos-share` |
+| `Jwt:ShareLifetimeHours` | `12` |
 
 The `AuthCookie` section controls how the session is carried. The defaults are
 the production values; the only one normally worth changing is
 `AuthCookie:SecureCookies`, which [`appsettings.Development.json`](appsettings.Development.json)
 sets to `false` — over plain HTTP a `Secure` cookie is never sent back, so
 sign-in would appear to succeed and every following request would 401.
+
+It also names `AuthCookie:ShareCookieName` (default `carpos_share`), the
+`HttpOnly` cookie an anonymous share visitor holds. It is separate from the
+session cookie so the two credentials cannot be confused at any layer: different
+cookie, different authentication scheme, different issuer and audience. A browser
+holding both — somebody checking a link they created themselves — sends both, and
+each endpoint reads only the one it asked for.
 
 Leaving them empty is deliberate — startup validation rejects blank secrets, so
 a missing local file fails fast with a clear message instead of a confusing
@@ -375,10 +403,93 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
 | `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
+| `GET /api/shares?deviceId=` | temporary share links on a device, live and dead; needs `CanShare`. **Never returns a link's secrets** |
+| `POST /api/shares` | mint a share link (201). **The only response that ever carries the link and its code** — neither is recoverable afterwards |
+| `PUT /api/shares/{shareId}` | change a link's window, label, scope and telemetry flags. **The link and code are untouched**, so whoever holds them keeps access. 409 on a revoked link |
+| `POST /api/shares/{shareId}/reissue` | mint a **new** link and code for an existing share, keeping its window, scope, label and redeem history. The previous pair stops working at once. 409 on a revoked link |
+| `DELETE /api/shares/{shareId}` | revoke a share link (204). Takes effect on the visitor's next request |
+| `POST /api/shares/redeem` | **unauthenticated**: open a link with its code. Token in the **body**, never the URL. Sets the `carpos_share` cookie |
+| `GET /api/shares/view?from=&to=` | the shared positions. Share-token scheme only; range clamped to the window |
+| `POST /api/shares/leave` | **unauthenticated**: clear the share cookie (204) |
 | `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
 Failures return **`ProblemDetails`** (`application/problem+json`), with `detail`
 written for the end user — never an exception message, SQL or a stack trace.
+
+### Temporary share links
+
+The one unauthenticated route to anybody's position data. Five properties hold it
+together; each is enforced server-side, and none of them depends on the frontend
+behaving:
+
+1. **Two independent secrets, neither recoverable from the database.** The URL
+   carries `selector.verifier` (16 and 32 random bytes). The selector is stored in
+   the clear because it is only a lookup key; the verifier survives as a SHA-256
+   digest, and the human-typed code as a PBKDF2 hash. A database dump yields no
+   working link. SHA-256 for the verifier is deliberate — it is 256 bits of CSPRNG
+   output, so there is no dictionary for stretching to slow down.
+2. **The share session grants nothing on its own.** Every request re-reads the
+   `share_links` row and re-checks window, revocation and cooldown, exactly as
+   `DeviceAccessAuthorizer` does for accounts. Revoking is therefore instant.
+3. **A share token can never be a session.** Separate scheme, separate cookie,
+   separate issuer and audience, and **no `sub` claim**, so `CurrentUserAccessor`
+   can never resolve a user from one. `ShareSchemeIsolationTests` proves both
+   directions of rejection.
+4. **A leaked URL alone proves nothing.** An unknown selector, a wrong verifier and
+   a malformed token return one identical 404, and the miss path computes a dummy
+   PBKDF2 so the timing does not separate them either. Past that point the caller
+   demonstrably holds the link, so the messages become honest ("expired",
+   "revoked", "wrong code", "wait five minutes") — that reveals nothing to anyone
+   who does not already have the link, and its absence would turn every ordinary
+   expiry into a phone call.
+5. **The visitor sees the minimum.** A separate query service, a separate DTO, and
+   server-side clamping to the window. The `deviceId` — the case-sensitive MQTT
+   topic name — never reaches a visitor; they get a label the creator chose.
+
+Two limits guard the code, and they do different jobs. `ShareCooldownPolicy` makes
+repeated guessing against **one** link progressively useless (four free attempts,
+then 1 / 5 / 15 / 60 minutes, holding at an hour, reset on success); the `share`
+rate-limit policy caps how fast one address can work through **many**.
+
+A `latestOnly` share **ignores any requested time range**. Honouring an upper bound
+while returning one row would let a visitor walk the window backwards a fix at a
+time and reconstruct the whole track — the thing that scope exists to withhold.
+
+**Editing a link keeps its secrets**, which is the whole point of editing rather
+than reissuing: the recipient's link and code go on working. Two consequences
+follow, and both are deliberate. Widening the window is a real disclosure —
+moving `validFrom` earlier retroactively shows a recipient history they could not
+see a moment ago, so the UI says so before the fields rather than letting it
+happen as a side effect of renaming something. And an edit is held to exactly the
+same window ceiling as a creation, or `Sharing:MaxWindowDays` would be avoidable
+by minting a short link and stretching it.
+
+**There is no "show me the link again", and there cannot be.** The verifier is
+stored as a SHA-256 digest and the code as a PBKDF2 hash, so once the creation
+response is closed the originals exist nowhere — not in the database, not in a
+log. Re-displaying them is not a permission this API withholds; it is arithmetic
+it cannot do, and that is exactly what makes a database dump worthless. The
+answer is `POST /api/shares/{id}/reissue`, which mints a fresh pair on the same
+row and keeps the window, scope, label and redeem history. It also clears the
+cooldown, which is the one place clearing it is right: the counter had accrued
+against a code that no longer exists, and carrying it over would lock somebody out
+of a code they had not yet typed once. The cost is stated in the UI before the
+button does anything — **the previous link and code stop working immediately**, so
+whoever is using the share loses it until they are sent the new pair.
+
+**Revocation is the one irreversible act.** An expired link may be edited — its
+window ran out by the clock, the recipient still holds it, and extending is the
+same act as sending a fresh one without communicating a new code. A revoked link
+answers 409 for ever: revoking is what somebody does when a link has reached the
+wrong person, and an edit that quietly reopened it would make `DELETE` a promise
+this API does not keep. The rule lives in `ShareLinkStatusResolver.IsEditable` and
+gates reissuing as well as editing — both are ways back, so both are closed.
+
+**`[AllowAnonymous]` now appears outside register/login/health**, on
+`POST /api/shares/redeem` and `POST /api/shares/leave`. It is declared per action
+rather than on `ShareAccessController`, because a controller-level one would
+override the share-scheme `[Authorize]` on `GET /api/shares/view` and leave the
+read path open to anyone. The analyser catches that (ASP0026); do not silence it.
 
 ### Sessions
 
