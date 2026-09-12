@@ -9,13 +9,21 @@
 //     establish that somebody has a tracker, so everything the share knows about
 //     itself arrives only after the code is accepted.
 //
-//   * The token leaves the address bar on mount. It stays in the URL long enough
-//     to be read once, then history.replaceState swaps it for a bare /share, so
-//     it is not sitting in a screenshot or in the visible history entry. Nothing
-//     is stored in its place: a reload rides the HttpOnly share cookie instead,
-//     and when that is gone the page says to reopen the original link. Keeping
-//     the token in sessionStorage would put a live credential somewhere an XSS
-//     could read it, to buy a convenience the cookie already provides.
+//   * The token stays in the address bar, and a refresh reopens the same share.
+//     Two things make that work together: the URL keeps the token, and the first
+//     thing this page does on ANY mount is ask whether the HttpOnly share cookie
+//     already opens a share. So F5 normally reopens silently, and when the cookie
+//     has lapsed the token is still there to enter the code against.
+//
+//     An earlier version swapped the token out with history.replaceState for
+//     screenshot hygiene. It cost more than it bought: after a refresh the URL was
+//     a bare /share with nothing to fall back on, so a lapsed cookie stranded the
+//     visitor on "open the original link again" — for a secret that is in their
+//     message history anyway, and in the deployment's logs.
+//
+//     Nothing is stored client-side in its place. sessionStorage would put a live
+//     credential where an XSS on this page could read it, and the URL already
+//     holds it.
 //
 //   * The bounds come from the server. The share's own window is what the range
 //     controls are limited to, and the server clamps to it again regardless —
@@ -67,20 +75,19 @@ export function SharePage() {
   // Set when the page was opened without a token and the cookie did not work
   // either — the only honest advice then is "open the original link again".
   const [needsOriginalLink, setNeedsOriginalLink] = useState<boolean>(false)
-  // Anything that wants the share read bumps this. Zero means "do not read" —
-  // the state a page holding a token sits in until the code is entered, and the
-  // one it returns to after the visitor closes the share.
+  // Anything that wants the share read bumps this. Zero means "do not read" — the
+  // state the page returns to after the visitor closes the share, so a still-ticking
+  // auto-refresh cannot quietly reopen it.
   //
-  // A counter rather than deriving the trigger from `stage`: a successful read
-  // sets the stage to open, so a stage-driven effect would immediately fetch a
-  // second time on every reload.
-  // Starts at 1 unconditionally, so the very first thing this page does — token in
-  // the address or not — is ask whether the share cookie still opens a share.
+  // A counter rather than deriving the trigger from `stage`: a successful read sets
+  // the stage to open, so a stage-driven effect would fetch a second time on every
+  // load.
   //
-  // It used to start at 0 when a token was present, on the reasoning that a
-  // visitor arriving by link should prove the code. That reasoning was wrong about
-  // refreshes: pressing F5 is arriving by link as far as the URL is concerned, so
-  // it re-prompted for a code the browser was already entitled to skip.
+  // It starts at 1 whether or not a token is in the address, which is what makes a
+  // refresh reopen silently. It used to start at 0 when a token was present, on the
+  // reasoning that somebody arriving by link should prove the code — but F5 is
+  // arriving by link as far as the URL can tell, so that re-prompted for a code the
+  // browser had already earned the right to skip.
   const [loadToken, setLoadToken] = useState<number>(1)
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)

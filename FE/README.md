@@ -306,13 +306,19 @@ about it are load-bearing rather than stylistic:
   confirmation that the link resolves to anything. A leaked URL on its own must
   not establish that somebody has a tracker, so everything the share knows about
   itself arrives only after the code is accepted.
-- **The token leaves the address bar on mount.** `history.replaceState` swaps
-  `/share/<token>` for `/share` once the page has read it, so the secret is not
-  left in a screenshot or the visible history entry. Nothing is stored in its
-  place — a reload rides the HttpOnly share cookie, and when that is gone the
-  page says to reopen the original link. Putting the token in `sessionStorage`
-  would park a live credential where an XSS could read it, to buy a convenience
-  the cookie already provides.
+- **A refresh reopens the same share.** Two things make that work together: the
+  token stays in the address bar, and the first thing the page does on *any* mount
+  is ask whether the HttpOnly share cookie already opens a share. So F5 normally
+  reopens silently, and when the cookie has lapsed the token is still there to
+  enter the code against.
+
+  An earlier version swapped the token out with `history.replaceState` for
+  screenshot hygiene, and started the load only after a code was entered. Together
+  those made a refresh strictly worse: the URL became a bare `/share` with nothing
+  to fall back on, and even a valid cookie re-prompted for the code. Both are gone.
+  Nothing is stored client-side in the token's place — `sessionStorage` would park
+  a live credential where an XSS on this page could read it, and the URL already
+  holds it.
 - **The bounds are the server's.** The range shown comes from the share's own
   window, and the API clamps to it again whatever is asked for. For a
   "current position only" share the API ignores the range entirely — honouring an
