@@ -327,11 +327,12 @@ of the window earlier hands them history they could not see a moment ago. Expire
 links stay editable so a window can be extended; **revoked links do not**, and the
 API refuses them too.
 
-**The link and code cannot be shown again** — they are stored only as hashes, so
-there is nothing to show. "New link and code" reissues them on the same share,
-keeping its window, scope and history; the confirmation says plainly that the
-previous pair stops working, because that breaks whoever is using the share right
-now. The reveal panel carries different wording for a reissue than for a fresh
+**The link and code can be shown again** — each row has a "Show link and code"
+toggle, collapsed by default because these are live credentials and a list showing
+several at once is one nobody can screen-share. "New link and code" is the
+separate action for replacing a link rather than re-reading it; its confirmation
+says plainly that the previous pair stops working, because that breaks whoever is
+using the share right now. The reveal panel carries different wording for a reissue than for a fresh
 link, and the two travel as one piece of state so they cannot drift apart.
 
 Row buttons reuse the schedule cards' `.schedule-card-actions` /

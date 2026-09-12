@@ -8,23 +8,19 @@ namespace CarPosAPI.Services.Sharing;
 /// Mints and parses the <c>selector.verifier</c> secret that a share URL carries.
 ///
 /// <para>
-/// <b>Why two halves rather than one long random string.</b> A single secret
-/// forces a choice between two bad options: store it in the clear so it can be
-/// looked up by equality, or hash it and scan every row hashing candidates on
-/// every request. Splitting it settles both — the selector is an indexed
-/// identifier that grants nothing, and the verifier is never stored in a usable
-/// form, so a database dump yields no working link. It is the same construction
-/// used for "remember me" cookies, and for the same reason.
+/// <b>Why two halves.</b> The selector is indexed and the verifier is not, so
+/// finding a link is an equality probe on one short column rather than a scan.
+/// The split predates the storage decision below and survives it unchanged: it
+/// was always as much about the index as about secrecy.
 /// </para>
 ///
 /// <para>
-/// <b>Why SHA-256 and not PBKDF2 for the verifier.</b> Key stretching buys time
-/// against guessing, and guessing only exists where entropy is low enough to
-/// enumerate. The verifier is 256 bits straight from the OS CSPRNG: there is
-/// nothing to enumerate, so stretching would tax every redeem to defend against
-/// an attack that cannot be mounted. The passphrase is the low-entropy secret in
-/// this design, and that one does get PBKDF2 — see
-/// <see cref="Auth.IPasswordHasher"/>.
+/// <b>Both halves are stored in the clear</b> (2026-09-12), so a creator can look
+/// a link up again after the one-time reveal is gone. The trade and its cost are
+/// set out on <see cref="Data.Entities.ShareLink"/>. Comparison stays
+/// constant-time regardless: it is free, and an early-exit comparison would leak
+/// through timing how much of a guessed verifier was right, which is the one thing
+/// that could make guessing one feasible at all.
 /// </para>
 ///
 /// Stateless, so a singleton.
@@ -56,7 +52,7 @@ internal sealed class ShareTokenFactory : IShareTokenFactory
     /// the split is unambiguous and a token containing more than one of them is
     /// malformed by construction.
     /// </summary>
-    private const char Separator = '.';
+    internal const char Separator = '.';
 
     /// <inheritdoc />
     public ShareToken Create()
@@ -66,25 +62,9 @@ internal sealed class ShareTokenFactory : IShareTokenFactory
         // would have to be decoded back before comparing. That mismatch is exactly
         // the kind of bug that shows up as "the link works for me and not for them".
         string selector = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(SelectorBytes));
+        string verifier = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(VerifierBytes));
 
-        byte[] verifierBytes = RandomNumberGenerator.GetBytes(VerifierBytes);
-
-        try
-        {
-            string verifier = WebEncoders.Base64UrlEncode(verifierBytes);
-
-            return new ShareToken(
-                selector,
-                HashVerifier(verifier),
-                string.Concat(selector, Separator, verifier));
-        }
-        finally
-        {
-            // The encoded copy above is an immutable string we cannot scrub, but the
-            // buffer it came from we can — one fewer copy of a live credential
-            // sitting in a heap dump.
-            CryptographicOperations.ZeroMemory(verifierBytes);
-        }
+        return new ShareToken(selector, verifier, ShareToken.Compose(selector, verifier));
     }
 
     /// <inheritdoc />
@@ -124,43 +104,19 @@ internal sealed class ShareTokenFactory : IShareTokenFactory
     }
 
     /// <inheritdoc />
-    public string HashVerifier(string verifier)
+    public bool VerifierMatches(string storedVerifier, string presentedVerifier)
     {
-        ArgumentNullException.ThrowIfNull(verifier);
-
-        // Hashing the encoded text rather than the bytes behind it. Either works;
-        // this way Create() and the redeem path hash the same kind of value, and
-        // there is no decode step on the hot path to get subtly wrong.
-        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(verifier));
-
-        return Convert.ToBase64String(digest);
-    }
-
-    /// <inheritdoc />
-    public bool VerifierMatches(string storedHash, string presentedVerifier)
-    {
-        ArgumentNullException.ThrowIfNull(storedHash);
+        ArgumentNullException.ThrowIfNull(storedVerifier);
         ArgumentNullException.ThrowIfNull(presentedVerifier);
 
-        byte[] expected;
-        byte[] actual;
+        byte[] expected = Encoding.UTF8.GetBytes(storedVerifier);
+        byte[] actual = Encoding.UTF8.GetBytes(presentedVerifier);
 
-        try
-        {
-            expected = Convert.FromBase64String(storedHash);
-        }
-        catch (FormatException)
-        {
-            // A stored hash that is not base64 means a corrupted or hand-edited row.
-            // Failing closed is the only safe reading of it.
-            return false;
-        }
-
-        actual = SHA256.HashData(Encoding.UTF8.GetBytes(presentedVerifier));
-
-        // FixedTimeEquals rather than SequenceEqual: comparing secrets byte by byte
-        // with an early exit leaks, through timing, how much of a guess was right —
-        // which turns a 256-bit search into a 32-step one.
+        // FixedTimeEquals returns false for a length mismatch without comparing, so
+        // the lengths themselves are not hidden — they are fixed by construction and
+        // public knowledge anyway. What it does hide is WHICH byte differs, and that
+        // is the signal that would otherwise let an attacker walk a verifier out one
+        // character at a time instead of guessing all 256 bits at once.
         return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
 

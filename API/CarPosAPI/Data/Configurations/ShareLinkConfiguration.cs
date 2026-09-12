@@ -18,16 +18,15 @@ public sealed class ShareLinkConfiguration : IEntityTypeConfiguration<ShareLink>
     /// </summary>
     private const int SelectorLength = 22;
 
-    /// <summary>Base64 of a SHA-256 digest is 44 characters including its padding.</summary>
-    private const int VerifierHashLength = 44;
+    /// <summary>Base64Url of 32 bytes is 43 characters, unpadded.</summary>
+    private const int VerifierLength = 43;
 
     /// <summary>
-    /// Identity's PBKDF2 format is 84 characters today. The column is generously
-    /// sized rather than exact because the framework owns that format and has
-    /// changed it before — the same reasoning, and the same 256, as
-    /// <c>users.password_hash</c>.
+    /// Room for the generated code and then some. The generator produces 14
+    /// characters today (<c>XXXX-XXXX-XXXX</c>); the column is sized loosely so
+    /// lengthening it is a generator change alone rather than a migration too.
     /// </summary>
-    private const int PassphraseHashMaxLength = 256;
+    private const int PassphraseMaxLength = 64;
 
     /// <summary>Configures the share_links table.</summary>
     /// <param name="builder">Type builder supplied by EF Core.</param>
@@ -45,14 +44,14 @@ public sealed class ShareLinkConfiguration : IEntityTypeConfiguration<ShareLink>
             .HasMaxLength(SelectorLength)
             .IsRequired();
 
-        builder.Property(link => link.VerifierHash)
-            .HasColumnName("verifier_hash")
-            .HasMaxLength(VerifierHashLength)
+        builder.Property(link => link.Verifier)
+            .HasColumnName("verifier")
+            .HasMaxLength(VerifierLength)
             .IsRequired();
 
-        builder.Property(link => link.PassphraseHash)
-            .HasColumnName("passphrase_hash")
-            .HasMaxLength(PassphraseHashMaxLength)
+        builder.Property(link => link.Passphrase)
+            .HasColumnName("passphrase")
+            .HasMaxLength(PassphraseMaxLength)
             .IsRequired();
 
         builder.Property(link => link.DeviceId)

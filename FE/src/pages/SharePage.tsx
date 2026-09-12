@@ -31,7 +31,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { SharedPositionDto, ShareSessionDto } from '../services/apiTypes'
 import { fetchSharedView, leaveShare, redeemShareLink } from '../services/apiClient'
-import { BASE_PATH, assetUrl, hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
+import { assetUrl, hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
 import DeviceMap from '../components/DeviceMap'
 import { LanguageMenu } from '../components/LanguageMenu'
 import { SiteFooter } from '../components/SiteFooter'
@@ -74,28 +74,22 @@ export function SharePage() {
   // A counter rather than deriving the trigger from `stage`: a successful read
   // sets the stage to open, so a stage-driven effect would immediately fetch a
   // second time on every reload.
-  const [loadToken, setLoadToken] = useState<number>(() => (tokenFromRoute === undefined ? 1 : 0))
+  // Starts at 1 unconditionally, so the very first thing this page does — token in
+  // the address or not — is ask whether the share cookie still opens a share.
+  //
+  // It used to start at 0 when a token was present, on the reasoning that a
+  // visitor arriving by link should prove the code. That reasoning was wrong about
+  // refreshes: pressing F5 is arriving by link as far as the URL is concerned, so
+  // it re-prompted for a code the browser was already entitled to skip.
+  const [loadToken, setLoadToken] = useState<number>(1)
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
-
-  // Take the token out of the address bar as soon as it has been read.
-  //
-  // replaceState rather than a navigate: this must not add a history entry, and
-  // React Router must not remount the page underneath a request in flight.
-  useEffect(() => {
-    if (tokenFromRoute === undefined) {
-      return
-    }
-
-    const bare: string = `${BASE_PATH}/share`.replace('//', '/')
-    window.history.replaceState(null, '', bare)
-  }, [tokenFromRoute])
 
   // The single place the share is read. Three occasions reach it, and none of
   // them fetches for itself — each just bumps `loadToken`:
   //
-  //   * a reload, where the URL has no token but the share cookie may still be
-  //     good, so the counter starts at 1;
+  //   * the first paint, which asks whether the share cookie already opens a
+  //     share — this is what makes a refresh reopen silently;
   //   * a correct code, where handleSubmit bumps it;
   //   * every auto-refresh tick, which re-runs the same query without moving
   //     anything, exactly as the device page's tabs do.

@@ -115,7 +115,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-09-12` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-09-13` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -422,12 +422,20 @@ The one unauthenticated route to anybody's position data. Five properties hold i
 together; each is enforced server-side, and none of them depends on the frontend
 behaving:
 
-1. **Two independent secrets, neither recoverable from the database.** The URL
-   carries `selector.verifier` (16 and 32 random bytes). The selector is stored in
-   the clear because it is only a lookup key; the verifier survives as a SHA-256
-   digest, and the human-typed code as a PBKDF2 hash. A database dump yields no
-   working link. SHA-256 for the verifier is deliberate — it is 256 bits of CSPRNG
-   output, so there is no dictionary for stretching to slow down.
+1. **Two independent secrets, sent by separate channels.** The URL carries
+   `selector.verifier` (16 and 32 random bytes); the code is generated separately
+   from an unambiguous alphabet. **Both are stored in the clear** (decision of
+   2026-09-12), so a creator can retrieve a link after the one-time reveal —
+   `GET /api/shares` returns them, behind the session cookie and `CanShare` on the
+   device. The accepted cost: a dump is a snapshot, but a live link is ongoing
+   access, so an old backup that leaks yields working credentials to the *running*
+   system for any share still inside its window. Weighed against the position
+   history already being stored in the clear, and against the codes being
+   machine-generated rather than user-chosen, so no password-reuse risk arises.
+   Comparison stays constant-time for both halves — it is free, and it denies the
+   byte-at-a-time timing signal that is the only thing that would make guessing a
+   43-character verifier tractable. **Account passwords are unaffected and are
+   still PBKDF2.**
 2. **The share session grants nothing on its own.** Every request re-reads the
    `share_links` row and re-checks window, revocation and cooldown, exactly as
    `DeviceAccessAuthorizer` does for accounts. Revoking is therefore instant.
@@ -464,18 +472,22 @@ happen as a side effect of renaming something. And an edit is held to exactly th
 same window ceiling as a creation, or `Sharing:MaxWindowDays` would be avoidable
 by minting a short link and stretching it.
 
-**There is no "show me the link again", and there cannot be.** The verifier is
-stored as a SHA-256 digest and the code as a PBKDF2 hash, so once the creation
-response is closed the originals exist nowhere — not in the database, not in a
-log. Re-displaying them is not a permission this API withholds; it is arithmetic
-it cannot do, and that is exactly what makes a database dump worthless. The
-answer is `POST /api/shares/{id}/reissue`, which mints a fresh pair on the same
-row and keeps the window, scope, label and redeem history. It also clears the
-cooldown, which is the one place clearing it is right: the counter had accrued
-against a code that no longer exists, and carrying it over would lock somebody out
-of a code they had not yet typed once. The cost is stated in the UI before the
-button does anything — **the previous link and code stop working immediately**, so
-whoever is using the share loses it until they are sent the new pair.
+**"Show me the link again" is answered by `GET /api/shares`**, which returns each
+link's `token` and `passphrase` alongside its settings. That follows from the
+storage decision in point 1 and is the reason for it. The response is therefore
+credential-bearing: it needs the creator's session and `CanShare` on the device,
+and the UI keeps each row's secrets collapsed until asked, so a share list is not
+something that leaks by being on screen.
+
+`POST /api/shares/{id}/reissue` remains, for when a link should be replaced rather
+than re-read — it has leaked, or it should go to a different person. It mints a
+fresh pair on the same row, keeps the window, scope, label and redeem history, and
+clears the cooldown, which is the one place clearing it is right: the counter had
+accrued against a code that no longer exists, and carrying it over would lock
+somebody out of a code they had not yet typed once. The cost is stated in the UI
+before the button does anything — **the previous link and code stop working
+immediately**, so whoever is using the share loses it until they are sent the new
+pair.
 
 **Revocation is the one irreversible act.** An expired link may be edited — its
 window ran out by the clock, the recipient still holds it, and extending is the

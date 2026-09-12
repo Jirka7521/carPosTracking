@@ -91,4 +91,20 @@ internal sealed class PassphraseGenerator : IPassphraseGenerator
 
         return builder.ToString();
     }
+
+    /// <inheritdoc />
+    public bool Matches(string storedPassphrase, string normalisedPassphrase)
+    {
+        ArgumentNullException.ThrowIfNull(storedPassphrase);
+        ArgumentNullException.ThrowIfNull(normalisedPassphrase);
+
+        // The stored value keeps its hyphens so it can be shown back to the creator
+        // in the grouped form they were given, so it is normalised here rather than
+        // on the way into the database. Comparing the display forms directly would
+        // reject every visitor who typed the code without its hyphens.
+        byte[] expected = Encoding.UTF8.GetBytes(Normalise(storedPassphrase));
+        byte[] actual = Encoding.UTF8.GetBytes(normalisedPassphrase);
+
+        return CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
 }

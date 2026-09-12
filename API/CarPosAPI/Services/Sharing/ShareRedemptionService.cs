@@ -32,48 +32,26 @@ namespace CarPosAPI.Services.Sharing;
 /// </summary>
 internal sealed class ShareRedemptionService : IShareRedemptionService
 {
-    /// <summary>
-    /// Fed to the hasher on the miss path so that "no such link" costs the same
-    /// wall-clock time as "wrong code". Its value is irrelevant; only the work is.
-    /// </summary>
-    private const string DummyPassphrase = "TIMING-EQUALISATION-ONLY";
-
-    /// <summary>
-    /// A PBKDF2 hash to verify against when there is no real one, computed once per
-    /// process from the <em>injected</em> hasher — so if the hashing parameters ever
-    /// change, the decoy's cost changes with them and the two paths stay level.
-    ///
-    /// Two threads racing to set this both store a usable hash, so the race is
-    /// benign and not worth a lock on a field written once.
-    /// </summary>
-    private static string? s_dummyHash;
-
     private readonly CarPosDbContext _context;
     private readonly IShareTokenFactory _tokens;
     private readonly IPassphraseGenerator _passphrases;
-    private readonly IPasswordHasher _hasher;
     private readonly ILogger<ShareRedemptionService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="tokens">Parses and verifies the link secret.</param>
-    /// <param name="passphrases">Canonicalises the typed code.</param>
-    /// <param name="hasher">Verifies the code against its stored PBKDF2 hash.</param>
+    /// <param name="passphrases">Canonicalises and compares the typed code.</param>
     /// <param name="logger">Structured logger.</param>
     public ShareRedemptionService(
         CarPosDbContext context,
         IShareTokenFactory tokens,
         IPassphraseGenerator passphrases,
-        IPasswordHasher hasher,
         ILogger<ShareRedemptionService> logger)
     {
         _context = context;
         _tokens = tokens;
         _passphrases = passphrases;
-        _hasher = hasher;
         _logger = logger;
-
-        s_dummyHash ??= hasher.Hash(DummyPassphrase);
     }
 
     /// <inheritdoc />
@@ -96,7 +74,7 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
         ShareLink? link = await _context.ShareLinks
             .SingleOrDefaultAsync(candidate => candidate.Selector == selector, cancellationToken);
 
-        if (link is null || !_tokens.VerifierMatches(link.VerifierHash, verifier))
+        if (link is null || !_tokens.VerifierMatches(link.Verifier, verifier))
         {
             return NoSuchLink();
         }
@@ -129,19 +107,15 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
                 DescribeCooldown(link.LockedUntil.Value - nowUtc));
         }
 
+        // Both sides normalised, so a visitor who dropped the hyphens or typed in
+        // lower case has not got it wrong. Compared in constant time for the same
+        // reason as the verifier — a code is only twelve characters, which makes a
+        // character-at-a-time timing walk far more tractable than for the verifier.
         string normalised = _passphrases.Normalise(passphrase);
-        PasswordCheckResult check = _hasher.Check(link.PassphraseHash, normalised);
 
-        if (check == PasswordCheckResult.Failed)
+        if (!_passphrases.Matches(link.Passphrase, normalised))
         {
             return await RecordFailureAsync(link, nowUtc, cancellationToken);
-        }
-
-        if (check == PasswordCheckResult.ValidNeedsRehash)
-        {
-            // Same courtesy the sign-in path extends: the code was right, so quietly
-            // move it onto the current hashing parameters while we hold the plaintext.
-            link.PassphraseHash = _hasher.Hash(normalised);
         }
 
         link.FailedAttempts = 0;
@@ -215,15 +189,19 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
     /// The single refusal used for every failure that happens before the link is
     /// proved to exist.
     ///
-    /// It burns a PBKDF2 verification on the way out. Without that, "no such link"
-    /// would answer in a millisecond and "wrong code" in fifty, and the difference
-    /// would turn this endpoint into an oracle for which selectors are real.
+    /// <para>
+    /// It used to burn a decoy PBKDF2 verification here, because hashing made
+    /// "wrong code" tens of milliseconds slower than "no such link" and the gap was
+    /// an oracle for which selectors are real. With both secrets stored in the
+    /// clear, every comparison is a constant-time memcmp and there is no gap left
+    /// to paper over — so the decoy is gone rather than kept as cargo. What remains
+    /// is the indexed lookup itself, whose hit/miss timing is far below the noise
+    /// of a network round trip and is not something a decoy could have hidden.
+    /// </para>
     /// </summary>
     /// <returns>The opaque not-found result.</returns>
-    private OperationResult<ShareRedemption> NoSuchLink()
+    private static OperationResult<ShareRedemption> NoSuchLink()
     {
-        _hasher.Check(s_dummyHash!, DummyPassphrase);
-
         return OperationResult<ShareRedemption>.NotFound(
             "This link is not valid. Check that you opened the whole address you were sent.");
     }

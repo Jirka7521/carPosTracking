@@ -7,14 +7,16 @@ namespace CarPosAPI.Services.Sharing;
 ///
 /// <para>
 /// It exists so the management query can project in SQL and still have a named
-/// type to hand around — CLAUDE.md's rule against anonymous types, and the reason
-/// behind it. The useful side effect is that the three secret columns
-/// (<c>selector</c>, <c>verifier_hash</c>, <c>passphrase_hash</c>) have no field to
-/// travel in, so a listing cannot accidentally carry them even as far as memory.
+/// type to hand around -- CLAUDE.md's rule against anonymous types, and the reason
+/// behind it. It carries the selector and verifier because the creator is entitled
+/// to see the link again; the device row id and the internal Guid still stop here.
 /// </para>
 /// </summary>
 /// <param name="Id">The link's id.</param>
 /// <param name="Label">What the visitor sees the tracker called.</param>
+/// <param name="Selector">Lookup half of the link secret.</param>
+/// <param name="Verifier">Authorising half of the link secret.</param>
+/// <param name="Passphrase">The visitor's code, in its grouped display form.</param>
 /// <param name="ValidFrom">Start of the window (UTC).</param>
 /// <param name="ValidUntil">End of the window (UTC).</param>
 /// <param name="Scope">How much history the link exposes.</param>
@@ -29,6 +31,9 @@ namespace CarPosAPI.Services.Sharing;
 internal sealed record ShareLinkRow(
     Guid Id,
     string Label,
+    string Selector,
+    string Verifier,
+    string Passphrase,
     DateTime ValidFrom,
     DateTime ValidUntil,
     ShareScope Scope,
@@ -54,6 +59,9 @@ internal sealed record ShareLinkRow(
         return new ShareLinkRow(
             link.Id,
             link.Label,
+            link.Selector,
+            link.Verifier,
+            link.Passphrase,
             link.ValidFrom,
             link.ValidUntil,
             link.Scope,

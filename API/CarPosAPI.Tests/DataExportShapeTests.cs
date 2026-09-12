@@ -127,11 +127,16 @@ public sealed class DataExportShapeTests
     public void TheEntitiesTheseRecordsReplaceDoCarrySecrets()
     {
         // If this ever fails, the entities stopped holding secrets and the whole
-        // projection dance became unnecessary — worth knowing, and worth deleting.
+        // projection dance became unnecessary -- worth knowing, and worth deleting.
         // Until then it is the reason the records above exist at all.
+        //
+        // ShareLink holds its two secrets in the CLEAR since 2026-09-12, which makes
+        // keeping them out of the export more important rather than less: an export
+        // is a file that leaves the system, and a readable share link in one is a
+        // working credential in somebody's downloads folder.
         Assert.NotNull(typeof(User).GetProperty(nameof(User.PasswordHash)));
         Assert.NotNull(typeof(Device).GetProperty(nameof(Device.PrivateKeyCiphertext)));
-        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.VerifierHash)));
-        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.PassphraseHash)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.Verifier)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.Passphrase)));
     }
 }

@@ -61,6 +61,7 @@
     "confirmYes": "Yes, revoke",
     "failedAttempts_one": "{{count}} wrong code since the last success",
     "failedAttempts_other": "{{count}} wrong codes since the last success",
+    "hideSecrets": "Hide link and code",
     "neverOpened": "Never opened",
     "openedOnce": "Opened once, {{when}}",
     "openedTimes": "Opened {{count}} times, last {{when}}",
@@ -69,6 +70,7 @@
     "revoke": "Revoke",
     "revokedNotEditable": "A revoked link cannot be changed. Create a new one instead.",
     "revokeFailed": "Could not revoke the link.",
+    "showSecrets": "Show link and code",
     "window": "{{from}} — {{to}}"
   },
   "visitor": {

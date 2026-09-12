@@ -3446,3 +3446,14 @@
   align-items: flex-start;
   margin-top: 12px;
 }
+
+/* The per-row reveal of a link and its code. Collapsed by default and visually
+   set apart from the row's metadata, because these are live credentials rather
+   than another fact about the share. */
+.share-row-secrets {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}

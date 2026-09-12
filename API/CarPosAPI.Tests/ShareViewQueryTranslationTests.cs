@@ -112,10 +112,11 @@ public sealed class ShareViewQueryTranslationTests
 
         string sql = query.ToQueryString();
 
-        // The three secret columns must not be read on a path that runs on every
-        // refresh of a public page.
-        Assert.DoesNotContain("verifier_hash", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("passphrase_hash", sql, StringComparison.OrdinalIgnoreCase);
+        // The three credential columns must not be read on a path that runs on every
+        // refresh of a public page. They hold the link and code in the clear now, so
+        // a visitor-facing query touching them matters more than it used to, not less.
+        Assert.DoesNotContain("verifier", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("passphrase", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("selector", sql, StringComparison.OrdinalIgnoreCase);
     }
 

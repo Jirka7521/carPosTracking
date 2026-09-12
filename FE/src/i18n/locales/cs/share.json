@@ -62,6 +62,7 @@
     "failedAttempts_few": "{{count}} chybné kódy od posledního úspěchu",
     "failedAttempts_one": "{{count}} chybný kód od posledního úspěchu",
     "failedAttempts_other": "{{count}} chybných kódů od posledního úspěchu",
+    "hideSecrets": "Skrýt odkaz a kód",
     "neverOpened": "Nikdy neotevřen",
     "openedOnce": "Otevřen jednou, {{when}}",
     "openedTimes": "Otevřen {{count}}×, naposledy {{when}}",
@@ -70,6 +71,7 @@
     "revoke": "Zrušit",
     "revokedNotEditable": "Zrušený odkaz nelze změnit. Vytvořte místo něj nový.",
     "revokeFailed": "Odkaz se nepodařilo zrušit.",
+    "showSecrets": "Zobrazit odkaz a kód",
     "window": "{{from}} — {{to}}"
   },
   "visitor": {

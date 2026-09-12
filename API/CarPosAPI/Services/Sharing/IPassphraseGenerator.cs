@@ -26,4 +26,18 @@ internal interface IPassphraseGenerator
     /// <param name="passphrase">The code exactly as the visitor typed it.</param>
     /// <returns>The canonical form.</returns>
     string Normalise(string passphrase);
+
+    /// <summary>
+    /// Compares a normalised code against the stored one in constant time.
+    ///
+    /// Constant-time even though the value is stored in the clear: a code is only
+    /// twelve characters over a 31-symbol alphabet, so a comparison that exits at
+    /// the first wrong character would let an attacker walk it out position by
+    /// position — twelve times thirty-one guesses instead of thirty-one to the
+    /// twelfth. The cooldown makes that slow; this makes it useless.
+    /// </summary>
+    /// <param name="storedPassphrase">The code from the database, in its grouped display form.</param>
+    /// <param name="normalisedPassphrase">The visitor's code, already through <see cref="Normalise"/>.</param>
+    /// <returns>True when they match.</returns>
+    bool Matches(string storedPassphrase, string normalisedPassphrase);
 }

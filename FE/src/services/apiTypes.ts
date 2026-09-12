@@ -500,6 +500,12 @@ export interface ShareLinkDto {
   deviceId: string
   // What the visitor sees the tracker called, and the creator's own note.
   label: string
+  // The link secret and the code, readable because the server stores them in the
+  // clear (decision of 2026-09-12) so they can be looked up again after the
+  // one-time reveal has gone. This makes GET /api/shares a credential-bearing
+  // response; it stays behind the session cookie and CanShare on the device.
+  token: string
+  passphrase: string
   validFrom: string
   validUntil: string
   scope: ShareScope

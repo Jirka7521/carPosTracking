@@ -2,7 +2,6 @@ using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
-using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +29,6 @@ internal sealed class ShareLinkService : IShareLinkService
     private readonly IDeviceAccessAuthorizer _authorizer;
     private readonly IShareTokenFactory _tokens;
     private readonly IPassphraseGenerator _passphrases;
-    private readonly IPasswordHasher _hasher;
     private readonly SharingOptions _options;
     private readonly ILogger<ShareLinkService> _logger;
 
@@ -39,7 +37,6 @@ internal sealed class ShareLinkService : IShareLinkService
     /// <param name="authorizer">Resolves the caller's grant on a device.</param>
     /// <param name="tokens">Mints the link secret.</param>
     /// <param name="passphrases">Mints the visitor's code.</param>
-    /// <param name="hasher">Hashes that code, with the same PBKDF2 used for passwords.</param>
     /// <param name="options">Window and per-device ceilings.</param>
     /// <param name="logger">Structured logger.</param>
     public ShareLinkService(
@@ -47,7 +44,6 @@ internal sealed class ShareLinkService : IShareLinkService
         IDeviceAccessAuthorizer authorizer,
         IShareTokenFactory tokens,
         IPassphraseGenerator passphrases,
-        IPasswordHasher hasher,
         IOptions<SharingOptions> options,
         ILogger<ShareLinkService> logger)
     {
@@ -55,7 +51,6 @@ internal sealed class ShareLinkService : IShareLinkService
         _authorizer = authorizer;
         _tokens = tokens;
         _passphrases = passphrases;
-        _hasher = hasher;
         _options = options.Value;
         _logger = logger;
     }
@@ -81,9 +76,9 @@ internal sealed class ShareLinkService : IShareLinkService
 
         DateTime nowUtc = DateTime.UtcNow;
 
-        // Projected without the three secret columns, so they are never read off the
-        // page into memory at all — the same discipline the device queries apply to
-        // the private-key ciphertext.
+        // The projection now carries the link and code, because looking them up
+        // again is the point of storing them readable. It still stops short of the
+        // internal device Guid and anything else the wire has no use for.
         List<ShareLinkRow> rows = await _context.ShareLinks
             .AsNoTracking()
             .Where(link => link.DeviceId == caller.DeviceRowId)
@@ -91,6 +86,9 @@ internal sealed class ShareLinkService : IShareLinkService
             .Select(link => new ShareLinkRow(
                 link.Id,
                 link.Label,
+                link.Selector,
+                link.Verifier,
+                link.Passphrase,
                 link.ValidFrom,
                 link.ValidUntil,
                 link.Scope,
@@ -178,12 +176,12 @@ internal sealed class ShareLinkService : IShareLinkService
         {
             Id = Guid.NewGuid(),
             Selector = token.Selector,
-            VerifierHash = token.VerifierHash,
-            // Normalised before hashing so the comparison at redeem time — which
-            // normalises the visitor's typing the same way — compares like with like.
-            // Hashing the hyphenated form here would make every correctly typed code
-            // fail, and fail in the one place where failures look like an attack.
-            PassphraseHash = _hasher.Hash(_passphrases.Normalise(passphrase)),
+            Verifier = token.Verifier,
+            // Stored in its grouped display form, hyphens and all, so it can be
+            // shown back later exactly as the creator first received it.
+            // IPassphraseGenerator.Matches normalises both sides at comparison time,
+            // so a visitor who types it without the hyphens is still right.
+            Passphrase = passphrase,
             DeviceId = caller.DeviceRowId,
             CreatedByUserId = userId,
             Label = label,
@@ -272,7 +270,7 @@ internal sealed class ShareLinkService : IShareLinkService
         link.IncludeSpeed = request.IncludeSpeed;
         link.IncludeTelemetry = request.IncludeTelemetry;
 
-        // Deliberately untouched: Selector, VerifierHash and PassphraseHash, so the
+        // Deliberately untouched: Selector, Verifier and Passphrase, so the
         // link and code already in somebody's hands keep working; CreatedAt and the
         // redeem counters, which are history rather than settings; and
         // FailedAttempts/LockedUntil — silently clearing a cooldown as a side effect
@@ -327,8 +325,8 @@ internal sealed class ShareLinkService : IShareLinkService
         // lookup it depends on simply finds nothing. The old code stops mattering
         // with it.
         link.Selector = token.Selector;
-        link.VerifierHash = token.VerifierHash;
-        link.PassphraseHash = _hasher.Hash(_passphrases.Normalise(passphrase));
+        link.Verifier = token.Verifier;
+        link.Passphrase = passphrase;
 
         // Cleared, and this is the one place clearing them is right: the cooldown
         // accrued against a code that no longer exists. Carrying it over would lock
@@ -544,6 +542,8 @@ internal sealed class ShareLinkService : IShareLinkService
             row.Id,
             deviceId,
             row.Label,
+            ShareToken.Compose(row.Selector, row.Verifier),
+            row.Passphrase,
             row.ValidFrom,
             row.ValidUntil,
             row.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,

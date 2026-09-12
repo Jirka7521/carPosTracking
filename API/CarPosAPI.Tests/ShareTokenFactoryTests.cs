@@ -20,7 +20,8 @@ public sealed class ShareTokenFactoryTests
 
         Assert.True(_factory.TryParse(token.Token, out string selector, out string verifier));
         Assert.Equal(token.Selector, selector);
-        Assert.Equal(token.VerifierHash, _factory.HashVerifier(verifier));
+        Assert.Equal(token.Verifier, verifier);
+        Assert.Equal(token.Token, ShareToken.Compose(token.Selector, token.Verifier));
     }
 
     [Fact]
@@ -33,7 +34,7 @@ public sealed class ShareTokenFactoryTests
         // mirrored there fails at the database instead of at this assertion.
         Assert.Equal(22, token.Selector.Length);
         Assert.Equal(22 + 1 + 43, token.Token.Length);
-        Assert.Equal(44, token.VerifierHash.Length);
+        Assert.Equal(43, token.Verifier.Length);
         Assert.Equal('.', token.Token[22]);
     }
 
@@ -78,18 +79,19 @@ public sealed class ShareTokenFactoryTests
         Assert.True(_factory.TryParse(token.Token, out string _, out string verifier));
         Assert.True(_factory.TryParse(other.Token, out string _, out string otherVerifier));
 
-        Assert.True(_factory.VerifierMatches(token.VerifierHash, verifier));
-        Assert.False(_factory.VerifierMatches(token.VerifierHash, otherVerifier));
+        Assert.True(_factory.VerifierMatches(token.Verifier, verifier));
+        Assert.False(_factory.VerifierMatches(token.Verifier, otherVerifier));
     }
 
     [Fact]
-    public void ACorruptStoredHashFailsClosed()
+    public void ACorruptStoredVerifierFailsClosed()
     {
         // A hand-edited or truncated row must not throw its way out of the redeem
         // path, and must certainly not be treated as a match.
         ShareToken token = _factory.Create();
 
         Assert.True(_factory.TryParse(token.Token, out string _, out string verifier));
-        Assert.False(_factory.VerifierMatches("this is not base64 at all!!", verifier));
+        Assert.False(_factory.VerifierMatches("this is not a verifier at all!!", verifier));
+        Assert.False(_factory.VerifierMatches(string.Empty, verifier));
     }
 }

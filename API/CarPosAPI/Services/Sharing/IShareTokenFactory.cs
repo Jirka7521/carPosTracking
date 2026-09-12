@@ -23,16 +23,11 @@ internal interface IShareTokenFactory
     /// <returns>True when the token is well-formed. Says nothing about whether it exists.</returns>
     bool TryParse(string? token, out string selector, out string verifier);
 
-    /// <summary>Digests a verifier into its stored form.</summary>
-    /// <param name="verifier">The Base64Url verifier half.</param>
-    /// <returns>Base64 of the SHA-256 digest.</returns>
-    string HashVerifier(string verifier);
-
     /// <summary>
-    /// Compares a presented verifier against a stored digest in constant time.
+    /// Compares a presented verifier against the stored one in constant time.
     /// </summary>
-    /// <param name="storedHash">The digest from the database.</param>
+    /// <param name="storedVerifier">The verifier half from the database.</param>
     /// <param name="presentedVerifier">The verifier half the visitor supplied.</param>
     /// <returns>True when they match.</returns>
-    bool VerifierMatches(string storedHash, string presentedVerifier);
+    bool VerifierMatches(string storedVerifier, string presentedVerifier);
 }

@@ -69,10 +69,19 @@ shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_sp
 `include_telemetry` ·, `revoked_at` p, `created_at` p, and three usage counters —
 `successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
 
-Three columns are **secrets, never personal data to export**: `selector` (the lookup half of
-the link, stored in the clear because it authorises nothing), `verifier_hash` (SHA-256 of the
-half that does authorise) and `passphrase_hash` (Identity PBKDF2 over the visitor's code).
-Neither the link nor the code can be reconstructed from this table.
+Three columns are **credentials, never personal data to export**: `selector` and `verifier`
+(the two halves of the link, joined as `selector.verifier` in the URL) and `passphrase` (the
+visitor's code). **All three are stored in the clear** since 2026-09-12, so the creating user
+can retrieve a link after the one-time reveal.
+
+That is a deliberate trade. For: this table sits in a database that already holds the position
+history in the clear, so a dump is a serious disclosure either way, and the codes are
+machine-generated rather than user-chosen, so there is no password-reuse risk. Against, and
+accepted: a dump is a snapshot but a live link is ongoing access, so an old backup that leaks
+now yields working credentials to the running system for any share still inside its window,
+reachable anonymously without further database access. Bounded by `Sharing:MaxWindowDays`.
+Reading them back needs the creator's session and `CanShare`; they stay out of the Art. 15
+export, where they would leave the system in a downloadable file.
 
 **Nothing about the recipient is stored.** No IP, no user agent, no identifier of any kind —
 the three counters above are the entire record that a link was used. That is deliberate: a
