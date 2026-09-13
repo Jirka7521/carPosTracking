@@ -317,17 +317,9 @@ builder.Services
             .GetSection(JwtOptions.SectionName)
             .Get<JwtOptions>() ?? new JwtOptions();
 
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = jwtOptions.ShareIssuer,
-            ValidateAudience = true,
-            ValidAudience = jwtOptions.ShareAudience,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
-            ClockSkew = TimeSpan.Zero,
-        };
+        // Built in ShareTokenValidation so the tests can hold the real parameters to
+        // account rather than a restatement of them.
+        options.TokenValidationParameters = ShareTokenValidation.CreateParameters(jwtOptions);
 
         options.Events = new JwtBearerEvents
         {

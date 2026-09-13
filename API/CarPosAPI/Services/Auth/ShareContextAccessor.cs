@@ -39,9 +39,11 @@ internal sealed class ShareContextAccessor : IShareContextAccessor
                 return null;
             }
 
-            // AuthenticationType is the scheme name for an identity the handler built,
-            // so this is "the claim from the share token", not "a claim called share
-            // from anywhere".
+            // AuthenticationType is the scheme name only because the share handler's
+            // TokenValidationParameters set it to one in Program.cs — the token
+            // library's own default is "AuthenticationTypes.Federation" for every
+            // scheme alike. Given that, this is "the claim from the share token",
+            // not "a claim called share from anywhere".
             ClaimsIdentity? shareIdentity = principal.Identities.FirstOrDefault(
                 identity => identity.IsAuthenticated
                     && string.Equals(
