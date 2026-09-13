@@ -379,7 +379,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
-| `GET /api/me/devices` | the caller's devices, each with `customName` + `permissions` |
+| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions` and `accessCounts` |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
 | `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
@@ -560,6 +560,27 @@ prefix search and an unrestricted id lookup — which between them let any signe
 account walk the table and harvest every user's name and email address. The
 sharing UI never needed either: it always had the full address in hand.
 
+Every device in `GET /api/me/devices` also carries an `accessCounts` object —
+`{ people, activeLinks }` — which the dashboard renders as one pill beside the
+battery and status badges. It is deliberately **counts, not identities**, because
+it goes to everybody who can see the device, `CanRead`-only accounts included:
+learning that three people can see a car you can also see discloses nothing about
+them, whereas their names and addresses would. *Who* they are stays behind
+`CanShare`, at `GET /api/access` and `GET /api/shares`.
+
+`people` counts accounts with an **active** grant, one per account whatever its
+capabilities and including the caller, so it is never below 1. `activeLinks`
+counts share links that are **live at that instant** — not revoked, and inside
+their window — one per link however many times it has been opened. Revoked,
+expired and not-yet-started links are excluded, which is what makes it a
+"currently" figure; the rule matches
+[`Services/Sharing/ShareLinkStatusResolver.cs`](Services/Sharing/ShareLinkStatusResolver.cs)
+and has to be kept in step with it by hand, since a resolver that takes one row
+cannot also be a SQL predicate. Both figures are correlated subqueries inside the
+existing list projection, so the endpoint is still one round trip; a translation
+test fails the build if EF ever decides to count them in memory instead.
+
+
 ## Privacy and data-subject rights
 
 [`Services/Privacy/`](Services/Privacy/) implements the GDPR rights the dashboard
@@ -625,6 +646,7 @@ of `constexpr` lines for
     "deactivatedAt": null,
     "lastSeenAt": null,
     "lastBatteryPct": null,
+    "accessCounts": { "people": 1, "activeLinks": 0 },
     "permissions": { "canRead": true, "canDelete": true, "canShare": true, "canModifySettings": true }
   },
   "provisioning": {

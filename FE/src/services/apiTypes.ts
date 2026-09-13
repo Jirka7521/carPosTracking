@@ -35,6 +35,23 @@ export type DevicePermissionsDto = {
   canModifySettings: boolean
 }
 
+// How many parties can currently see one device, as shown by the AccessCountBadge
+// next to the battery and status pills.
+//
+// Counts, never identities: the API hands this to everybody who can see the
+// device, including read-only users, so it deliberately carries no names. Who
+// those people are is a separate question behind CanShare (GET /api/access and
+// GET /api/shares).
+export type DeviceAccessCountsDto = {
+  // Accounts with an active grant — one per account whatever its capabilities,
+  // and including the caller, so this is never below 1.
+  people: number
+  // Share links that are live right now: not revoked, and inside their window.
+  // One per link however many times it has been opened, and revoked, expired and
+  // not-yet-started links are excluded — it is a "currently", not a history.
+  activeLinks: number
+}
+
 export type DeviceDto = {
   // MQTT identity and primary key on the wire.
   deviceId: string
@@ -55,6 +72,9 @@ export type DeviceDto = {
   // UI shows it as charging rather than as a flat battery. Lets the device grid
   // display a battery level without loading positions.
   lastBatteryPct: number | null
+  // How many accounts and live share links can see this device right now. Always
+  // present, and people is always at least 1.
+  accessCounts: DeviceAccessCountsDto
   // What the authenticated caller can do on this device. The API computes this
   // from the caller's active Access row and the FE uses it to hide / disable
   // controls. Every mutation is still re-authorized server-side, so these flags

@@ -54,6 +54,12 @@ internal sealed class DeviceService : IDeviceService
         // The OrderBy sits *before* the projection deliberately: ordering by a
         // member of an already-constructed DTO is not reliably translatable, and
         // would either throw or silently fall back to sorting in memory.
+        //
+        // Read once, outside the query, so every device in one response is
+        // measured against the same instant: a share window that lapses midway
+        // through the projection must not make two cards disagree.
+        DateTime nowUtc = DateTime.UtcNow;
+
         return await _context.Accesses
             .AsNoTracking()
             .Where(access => access.UserId == userId && access.IsActive)
@@ -77,6 +83,27 @@ internal sealed class DeviceService : IDeviceService
                     .OrderByDescending(position => position.FixTime)
                     .Select(position => position.BatteryPct)
                     .FirstOrDefault(),
+                // Two aggregates, both correlated subqueries for the same reason
+                // the battery is one: the list stays a single round trip however
+                // many devices, grants or links exist. Counted in SQL, never by
+                // fetching rows back and counting them here.
+                new DeviceAccessCountsDto(
+                    // One per account holding a standing grant, the caller
+                    // included. Inactive (revoked) grants are excluded - the same
+                    // filter the Where above applies to the caller's own row.
+                    _context.Accesses
+                        .Count(other => other.DeviceId == access.DeviceId && other.IsActive),
+                    // One per link that is live at this instant, whatever its open
+                    // count: the link is the unit of access, not the visit. This is
+                    // ShareLinkStatusResolver's "active or cooling down" written so
+                    // EF can translate it - not revoked, and now inside the window.
+                    // It has to be kept in step with that class by hand, because a
+                    // resolver that takes one row cannot also be a SQL predicate.
+                    _context.ShareLinks
+                        .Count(link => link.DeviceId == access.DeviceId
+                            && link.RevokedAt == null
+                            && link.ValidFrom <= nowUtc
+                            && link.ValidUntil >= nowUtc)),
                 new DevicePermissionsDto(
                     access.CanRead,
                     access.CanDelete,
@@ -172,6 +199,11 @@ internal sealed class DeviceService : IDeviceService
             null,
             null,
             null,
+            // Known without asking the database: the creator's own grant plus
+            // however many of the requested additional ones actually resolved to
+            // a real account, and no share links, because a device that did not
+            // exist a moment ago cannot have been shared.
+            new DeviceAccessCountsDto(1 + sharedCount, 0),
             new DevicePermissionsDto(true, true, true, true));
 
         return OperationResult<DeviceCreatedDto>.Success(new DeviceCreatedDto(device, provisioning.Device));

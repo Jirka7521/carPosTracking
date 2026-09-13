@@ -1,4 +1,13 @@
 {
+  "access": {
+    "links_one": "{{count}} active link",
+    "links_other": "{{count}} active links",
+    "people_one": "{{count}} person",
+    "people_other": "{{count}} people",
+    "summaryWithLinks": "{{people}} and {{links}} have access",
+    "summary_one": "{{count}} person has access",
+    "summary_other": "{{count}} people have access"
+  },
   "actions": {
     "cancel": "Cancel",
     "copied": "Copied",

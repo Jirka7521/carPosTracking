@@ -36,6 +36,11 @@ namespace CarPosAPI.Dtos;
 /// "charging" sentinel, which the dashboard renders as charging. This lets the
 /// device grid show a battery level at a glance without loading its positions.
 /// </param>
+/// <param name="AccessCounts">
+/// How many accounts and live share links can currently see this device. Two
+/// counts, no identities — see <see cref="DeviceAccessCountsDto"/> for why
+/// that makes it safe to show to every reader of the device.
+/// </param>
 /// <param name="Permissions">The caller's capabilities — UX hints, see <see cref="DevicePermissionsDto"/>.</param>
 public sealed record DeviceDto(
     string DeviceId,
@@ -46,4 +51,5 @@ public sealed record DeviceDto(
     DateTime? DeactivatedAt,
     DateTime? LastSeenAt,
     int? LastBatteryPct,
+    DeviceAccessCountsDto AccessCounts,
     DevicePermissionsDto Permissions);

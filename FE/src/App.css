@@ -485,6 +485,78 @@
   padding: 5px 14px;
 }
 
+/*
+ * Access-count pill (see components/AccessCountBadge.tsx) — how many accounts
+ * and live share links can currently see the device.
+ *
+ * Same pill geometry as its two neighbours, but deliberately the calm one: the
+ * battery and status badges own the semantic colours (green / amber / red), and
+ * a count is not a warning. A neutral slate pill sits beside them without
+ * competing, and keeps the eye on the two badges that do signal a problem.
+ */
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.725rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/* One icon + number group. The gap here is tighter than the gap between the
+   groups, which is what makes each pictogram read as belonging to its own
+   number rather than floating between the two. */
+.access-badge-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Hairline between the two counts. */
+.access-badge-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 0.85em;
+  background: var(--gray-300);
+}
+
+/* Larger standalone readout for the device page header, matching
+   .battery-badge--lg so the two stay the same height side by side. */
+.access-badge--lg {
+  font-size: 0.85rem;
+  padding: 5px 14px;
+}
+
+/*
+ * Three pills plus a device name is more than a phone-width row can hold, and
+ * .device-card-uuid has `flex: 1` with `word-break: break-all`, so without this
+ * the name is the thing that gives — squeezed to two characters a line while the
+ * badges keep their full width. A floor under the name forces the cluster to
+ * wrap to its own line instead, which is the right thing to lose first.
+ */
+@media (max-width: 480px) {
+  .device-card-header {
+    flex-wrap: wrap;
+  }
+
+  .device-card-uuid {
+    min-width: 55%;
+  }
+
+  .device-card-badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
 /* Footer row: push the "Open →" link to the right */
 .device-card-footer {
   display: flex;
