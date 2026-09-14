@@ -29,9 +29,10 @@ public sealed class AccessConfiguration : IEntityTypeConfiguration<Access>
             .HasColumnName("device_id")
             .IsRequired();
 
+        // Nullable: an erased account is unlinked from grants it handed to other
+        // users, rather than those grants being deleted out from under them.
         builder.Property(access => access.GrantedBy)
-            .HasColumnName("granted_by")
-            .IsRequired();
+            .HasColumnName("granted_by");
 
         builder.Property(access => access.CanRead)
             .HasColumnName("can_read")

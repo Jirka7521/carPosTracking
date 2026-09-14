@@ -35,6 +35,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Per-user private nicknames for devices.</summary>
     public DbSet<DeviceAlias> DeviceAliases => Set<DeviceAlias>();
 
+    /// <summary>Temporary, account-less links onto a device's positions.</summary>
+    public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
+
     /// <summary>Immutable history of every device's remote settings, one row per revision.</summary>
     public DbSet<DeviceConfigVersion> DeviceConfigVersions => Set<DeviceConfigVersion>();
 

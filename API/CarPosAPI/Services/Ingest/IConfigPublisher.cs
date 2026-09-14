@@ -60,6 +60,21 @@ internal interface IConfigPublisher
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Clears both retained topics for one device by publishing an empty retained
+    /// payload to each — which is how MQTT says "forget what you were holding".
+    ///
+    /// This exists for erasure. A retained message outlives the row it came from: a
+    /// device deleted under GDPR Art. 17 would otherwise leave its settings and its
+    /// weekly tracking pattern sitting on the broker indefinitely, readable by anyone
+    /// who can subscribe as that device. Never throws, for the same reason as the
+    /// publishes above — the rows are already gone by the time this runs.
+    /// </summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="cancellationToken">Cancels the publishes.</param>
+    /// <returns>True when the broker accepted both clears.</returns>
+    Task<bool> ClearRetainedAsync(string deviceId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Re-publishes the current configuration <em>and</em> schedule bundle of every
     /// active device.
     ///

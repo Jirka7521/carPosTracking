@@ -2,6 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+
+    <!-- Project identity. carPosTracking is a personal, NON-COMMERCIAL test project;
+         the licence below is what says so in machine-readable form. -->
+    <Product>carPosTracking API tests</Product>
+    <Description>Unit tests for the carPosTracking backend - a non-commercial personal test project.</Description>
+    <Authors>Jiri Majer</Authors>
+    <Copyright>Copyright (c) 2026 Jiri Majer</Copyright>
+    <PackageLicenseExpression>LicenseRef-PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Jirka7521/carPosTracking</PackageProjectUrl>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

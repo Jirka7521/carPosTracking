@@ -79,12 +79,79 @@ internal sealed class MqttIngestService : BackgroundService
         _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
     }
 
-    /// <summary>Runs the connect/supervise/reconnect loop until shutdown.</summary>
+    /// <summary>
+    /// Supervises the session below, and is the reason an ingest fault can never
+    /// take the REST API with it.
+    ///
+    /// <see cref="RunSessionAsync"/> guards its own loop thoroughly, but not the
+    /// handful of statements around it: creating the client, attaching the handlers,
+    /// and the <c>finally</c> that detaches them. An exception from any of those
+    /// escapes a <see cref="BackgroundService"/>, and the host's default answer to
+    /// that is to stop — killing the HTTP surface because the broker misbehaved.
+    /// Program.cs sets <c>BackgroundServiceExceptionBehavior.Ignore</c> so that can
+    /// no longer happen, but "ignore" only means the API survives; the ingest would
+    /// still be silently dead until someone restarted the container.
+    ///
+    /// So this loop catches instead, and builds a whole new session — new client,
+    /// new handlers — after a bounded pause. The reconnect delay is capped by
+    /// configuration, so a permanently broken session retries once a minute forever
+    /// rather than spinning.
+    /// </summary>
     /// <param name="stoppingToken">Application shutdown token.</param>
     /// <returns>Completes when the host stops.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await RunSessionAsync(stoppingToken);
+
+                // A clean return means the inner loop saw the stopping token, which
+                // is shutdown and not something to restart from.
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                // Error, not Warning: everything the session expects to go wrong is
+                // already handled inside it, so reaching here means something this
+                // code did not anticipate. It should be in the log as a fault.
+                _state.SetConnected(false);
+
+                _logger.LogError(
+                    exception,
+                    "MQTT ingest session faulted outside its own guards; starting a new session in {DelaySeconds} s",
+                    _mqttOptions.ReconnectMaxDelaySeconds);
+
+                try
+                {
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(_mqttOptions.ReconnectMaxDelaySeconds),
+                        stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>Runs the connect/supervise/reconnect loop until shutdown.</summary>
+    /// <param name="stoppingToken">Application shutdown token.</param>
+    /// <returns>Completes when the host stops.</returns>
+    private async Task RunSessionAsync(CancellationToken stoppingToken)
+    {
         _stoppingToken = stoppingToken;
+
+        // A new session starts patient again. Without this reset a session that died
+        // after backing off to the ceiling would begin its replacement there too, so
+        // the first reconnect of a healthy new client would wait a full minute.
+        _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
 
         MqttClientFactory factory = new MqttClientFactory();
         using IMqttClient client = factory.CreateMqttClient();

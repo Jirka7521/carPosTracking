@@ -1,4 +1,13 @@
 {
+  "access": {
+    "links_one": "{{count}} active link",
+    "links_other": "{{count}} active links",
+    "people_one": "{{count}} person",
+    "people_other": "{{count}} people",
+    "summaryWithLinks": "{{people}} and {{links}} have access",
+    "summary_one": "{{count}} person has access",
+    "summary_other": "{{count}} people have access"
+  },
   "actions": {
     "cancel": "Cancel",
     "copied": "Copied",
@@ -29,6 +38,7 @@
     "active": "Active",
     "inactive": "Inactive"
   },
+  "documentTitle": "Car Position Tracker — non-commercial test project",
   "duration": {
     "days_one": "{{value}} day",
     "days_other": "{{value}} days",
@@ -47,12 +57,19 @@
     "firstName": "First name",
     "lastName": "Last name"
   },
+  "footer": {
+    "legal": "Terms of use",
+    "privacy": "Privacy",
+    "testProject": "Non-commercial test project — not a service. No warranty, no support."
+  },
   "language": {
     "change": "Change language",
     "heading": "Language"
   },
   "nav": {
     "home": "Go to home page",
+    "legal": "Read the terms of use",
+    "privacy": "Read the privacy policy",
     "profile": "Edit your profile"
   },
   "onOff": {
@@ -77,7 +94,10 @@
   },
   "range": {
     "from": "From",
-    "to": "To"
+    "past24Hours": "Past 24 hours",
+    "pastHour": "Past 1 hour",
+    "to": "To",
+    "today": "This day"
   },
   "refresh": {
     "auto": "Auto-refresh",

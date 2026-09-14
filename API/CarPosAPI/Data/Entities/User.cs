@@ -33,4 +33,31 @@ public sealed class User
 
     /// <summary>Account creation timestamp (UTC). DB-generated default.</summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Version of the terms of use and privacy policy this account accepted at
+    /// registration. One acceptance, one version, both documents.
+    ///
+    /// This is what makes the terms binding rather than merely published. The
+    /// PolyForm licence in the repository reaches people who copy the source, not
+    /// people who register here, so without a recorded acceptance the no-warranty and
+    /// no-liability sections would bind nobody — and the Art. 6(1)(b) contract the
+    /// processing relies on would have nothing to point at. Storing the version the
+    /// user was actually shown, next to the moment they accepted it, is what makes
+    /// that answerable a year later.
+    ///
+    /// The column name is historical: it predates the terms being folded into the
+    /// same acceptance, and renaming it would churn the entity, the configuration,
+    /// the export, two migrations and the model snapshot for nothing.
+    ///
+    /// Empty on rows that predate the field; registration refuses to create a new
+    /// account without a version matching <c>PrivacyOptions.PolicyVersion</c>.
+    /// </summary>
+    public string PrivacyPolicyVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When <see cref="PrivacyPolicyVersion"/> was accepted (UTC). Null for accounts
+    /// created before acknowledgement was recorded.
+    /// </summary>
+    public DateTime? PrivacyPolicyAcceptedAt { get; set; }
 }

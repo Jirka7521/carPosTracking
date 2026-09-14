@@ -1,5 +1,15 @@
 # Mosquitto MQTT broker + nginx (Cloudflare tunnel)
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../../docs/PRIVACY.md).
+
 The broker stack for carPosTracking, built for **arm64 Linux** (Raspberry Pi &
 friends) — both images are multi-arch and run natively there.
 

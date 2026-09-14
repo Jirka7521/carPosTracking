@@ -20,6 +20,36 @@
     "saved": "Name updated successfully.",
     "title": "Personal Information"
   },
+  "privacy": {
+    "delete": {
+      "confirmLabel": "Type DELETE to confirm",
+      "confirmWord": "DELETE",
+      "failed": "The account could not be deleted.",
+      "hint": "Permanently deletes your account, your permissions and your device nicknames. Any device only you can see is deleted along with its entire position history. Devices shared with other people stay, without your access.",
+      "passwordLabel": "Your password",
+      "submit": "Delete my account permanently",
+      "submitting": "Deleting…",
+      "summary": "Account deleted. {{devices}} device(s) and {{positions}} position(s) were erased; {{retained}} device(s) shared with other people were left in place.",
+      "title": "Delete my account",
+      "warning": "This cannot be undone. There is no recovery and no backup to restore from."
+    },
+    "export": {
+      "failed": "The export could not be prepared. Please try again.",
+      "hint": "Downloads everything held about you as a JSON file: your profile, devices, permissions, nicknames, configuration history, and the complete position history of every device you can read. Nothing is truncated.",
+      "submit": "Export my data",
+      "submitting": "Preparing your export…",
+      "title": "Export my data"
+    },
+    "intro": "This project stores precise vehicle location data. These controls are yours, they work immediately, and nobody has to approve them.",
+    "maps": {
+      "allowed": "Maps load automatically. Google receives your IP address, browser details and the map area whenever one loads.",
+      "notAllowed": "Maps are not loaded until you allow it each time.",
+      "revoke": "Ask me again every time",
+      "revoked": "Maps will ask before loading again.",
+      "title": "Map loading"
+    },
+    "title": "Privacy and your data"
+  },
   "subtitle": "Manage your personal information and account security.",
   "title": "Profile"
 }

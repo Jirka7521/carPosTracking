@@ -37,6 +37,7 @@ import { fetchMyDevices } from '../services/apiClient'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { BatteryBadge } from '../components/BatteryBadge'
+import { AccessCountBadge } from '../components/AccessCountBadge'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import { describeError } from '../utils/errors'
@@ -206,6 +207,10 @@ export function DevicePage() {
             ) : null}
           </div>
           <div className="device-card-badges">
+            {/* Who can see this vehicle — accounts with a grant plus any live
+                share link. The Settings tab is where either is managed. */}
+            <AccessCountBadge counts={device.accessCounts} large />
+
             {/* Battery from the device's most recent fix (⚡ while charging).
                 Renders nothing when the device has reported none. Kept current
                 by the refresh control beside it. */}

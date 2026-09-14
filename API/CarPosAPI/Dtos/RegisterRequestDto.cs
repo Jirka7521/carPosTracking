@@ -17,6 +17,10 @@ namespace CarPosAPI.Dtos;
 /// </param>
 /// <param name="FirstName">Given name shown in the UI.</param>
 /// <param name="LastName">Family name shown in the UI.</param>
+/// <param name="AcceptedPrivacyPolicyVersion">
+/// The privacy-policy version the user acknowledged. Must match the version the
+/// server currently serves from <c>GET /api/privacy/policy</c>.
+/// </param>
 public sealed record RegisterRequestDto(
     [Required]
     [EmailAddress]
@@ -37,4 +41,13 @@ public sealed record RegisterRequestDto(
 
     [Required]
     [StringLength(128, MinimumLength = 1)]
-    string LastName);
+    string LastName,
+
+    // The version string the registration form displayed, echoed back so the
+    // acceptance recorded against the account is the text the user actually saw.
+    // Required, and checked against the version currently in force: a stale form
+    // left open across a policy change must not silently record consent to the new
+    // wording.
+    [Required]
+    [StringLength(32, MinimumLength = 1)]
+    string AcceptedPrivacyPolicyVersion);

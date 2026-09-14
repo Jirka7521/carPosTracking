@@ -2,6 +2,10 @@
   "add": {
     "addPerson": "+ Přidat osobu",
     "close": "✕  Zrušit",
+    "declaration": {
+      "label": "Jsem oprávněn(a) toto vozidlo sledovat a lidem, kteří jím jezdí, sdělím, že se jeho poloha zaznamenává.",
+      "required": "Před registrací prosím potvrďte, že jste oprávněn(a) toto vozidlo sledovat."
+    },
     "deviceId": "ID zařízení",
     "deviceIdPlaceholder": "např. GNSS01",
     "displayName": "Zobrazovaný název",

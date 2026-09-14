@@ -1,13 +1,23 @@
 # Car Position Tracking — GNSS subsystem (ESP32 + SIM7000G)
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../docs/PRIVACY.md).
+
 Firmware for the **LilyGO TTGO T-SIM7000G** (ESP32-WROVER-B + SIMCom SIM7000G)
 that reads the GNSS position from the modem's *integrated* GNSS receiver using
 **all available constellations** (GPS, GLONASS, BeiDou, Galileo), returns
 **position, speed and time**, and **publishes each fix — end-to-end encrypted —
 to an MQTT broker** over a secure WebSocket (`wss://`).
 
-The [desktop companion](../DESKTOP/README.md) subscribes to the broker and
-decrypts the stream; the broker itself only ever sees ciphertext.
+The [backend's MQTT ingest pipeline](../API/CarPosAPI/README.md) subscribes to the
+broker and decrypts the stream; the broker itself only ever sees ciphertext.
 
 It is written in **C++** on top of **ESP-IDF** (built with **PlatformIO**) and
 is split into small, single-purpose classes so it is easy to read, extend and
@@ -465,8 +475,9 @@ while `mqtt.isConnected()`.
 ### Payload encryption — `PayloadCrypto`
 
 [`PayloadCrypto`](src/crypto/PayloadCrypto.h) applies hybrid **KEM-DEM**
-encryption that mirrors the desktop
-[`crypto_box.py`](../DESKTOP/crypto_box.py) byte-for-byte:
+encryption that mirrors the backend's
+[`PayloadCryptoService`](../API/CarPosAPI/Services/Ingest/PayloadCryptoService.cs)
+byte-for-byte:
 
 1. A fresh random **AES-256** key is generated for every message.
 2. The JSON payload is sealed with **AES-256-GCM** (12-byte nonce, 16-byte tag).
@@ -496,13 +507,19 @@ recover the AES key and read the position. The device only ever needs the
 
 ### Getting the receiver's public key
 
-The keypair is created and held by the [desktop companion](../DESKTOP/README.md).
-Each device has its own key, so compromising one never exposes the others:
+The keypair is created by the backend when the device is registered, and the private
+half never leaves it — it is stored encrypted at rest under the API's master key. Each
+device has its own key, so compromising one never exposes the others.
 
-```bash
-cd ../DESKTOP
-python app.py generate-certs GNSS01     # creates certs/GNSS01/{private,public}.pem
+Register the device in the dashboard (**Home → Add device**), then read the public key
+back out of the generated firmware config block:
+
 ```
+GET /api/devices/GNSS01/provisioning
+```
+
+The dashboard renders that block for you and offers it as a ready-made `Config.h`
+download — see [`ProvisioningPanel`](../FE/src/components/ProvisioningPanel.tsx).
 
 Copy the printed **public** key into this device's `Config.h`
 (`kReceiverPublicKeyPem`, one C-string line per PEM line, each ending with `\n`)
@@ -645,11 +662,10 @@ no fix at all, link up      ──► FixForwarder.flushBacklog() drains the car
   drains in full; only the retry file sits the cycle out, and a rejected fix that
   cannot be scheduled stays in the live queue instead of being dropped.
 
-> ⚠️ **Desktop change required (not included here).** Because the wire format is
-> now a JSON *array* of envelopes, the [desktop companion](../DESKTOP/README.md)
-> must be updated to iterate the array and decrypt each element (a single fix is
-> just an array of one). That change was intentionally left out of this commit —
-> update the subscriber before relying on live decoding.
+> ℹ️ **Wire format.** A message is a JSON *array* of envelopes (a single fix is just an
+> array of one). The subscriber side handles that in
+> [`EnvelopeCodec`](../API/CarPosAPI/Services/Ingest/EnvelopeCodec.cs), which iterates the
+> array and decrypts each element independently.
 
 To disable the card entirely, set `kSdEnabled = false`: the forwarder still
 publishes live fixes, it simply cannot store the ones it misses.

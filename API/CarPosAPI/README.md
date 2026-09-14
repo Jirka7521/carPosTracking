@@ -1,5 +1,15 @@
 # CarPosAPI
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the privacy policy at `/privacy` and the terms of use at `/legal`.
+
 The web backend of **carPosTracking**. Two things live in one process:
 
 1. **An MQTT ingest pipeline** — it subscribes to the broker, decrypts the
@@ -98,15 +108,77 @@ session for any account, so a deployment without a real one refuses to start.
 Rotating it invalidates every active session, which is the intended effect.
 Generate one with `openssl rand -base64 48`.
 
+The `Privacy` section names who is answerable for the personal data this system
+holds, and which privacy-policy version is in force. None of it is secret:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
+| `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
+| `Privacy:PolicyVersion` | `2026-09-13` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+
+The `Sharing` section caps temporary share links. Neither key is secret:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Sharing:MaxWindowDays` | `30` | Longest window one link may cover, measured from its own start rather than from now. The failure mode this guards against is not a broken link but a forgotten one — a share created "just for now" with an end date years out is a permanent public tracker nobody remembers making. |
+| `Sharing:MaxLiveLinksPerDevice` | `10` | How many *live* links one device may carry. Expired and revoked links do not count, so this never blocks re-sharing. |
+
+The `Jwt` section carries three further keys for share tokens. `Jwt:ShareIssuer`
+and `Jwt:ShareAudience` **must differ from `Jwt:Issuer` and `Jwt:Audience`**, and
+the API refuses to start if they do not. Share tokens are signed with the same
+`Jwt:SigningKey` as sessions, so those two values are the entire separation
+between an anonymous visitor and an account holder — set them alike and every
+share link silently becomes a login. `Jwt:ShareLifetimeHours` (default `12`) caps
+a share session; the link's own window caps it further, whichever is shorter.
+
+| Key | Default |
+|---|---|
+| `Jwt:ShareIssuer` | `carpos-share-api` |
+| `Jwt:ShareAudience` | `carpos-share` |
+| `Jwt:ShareLifetimeHours` | `12` |
+
 The `AuthCookie` section controls how the session is carried. The defaults are
 the production values; the only one normally worth changing is
 `AuthCookie:SecureCookies`, which [`appsettings.Development.json`](appsettings.Development.json)
 sets to `false` — over plain HTTP a `Secure` cookie is never sent back, so
 sign-in would appear to succeed and every following request would 401.
 
+It also names `AuthCookie:ShareCookieName` (default `carpos_share`), the
+`HttpOnly` cookie an anonymous share visitor holds. It is separate from the
+session cookie so the two credentials cannot be confused at any layer: different
+cookie, different authentication scheme, different issuer and audience. A browser
+holding both — somebody checking a link they created themselves — sends both, and
+each endpoint reads only the one it asked for.
+
 Leaving them empty is deliberate — startup validation rejects blank secrets, so
 a missing local file fails fast with a clear message instead of a confusing
 error on the first message.
+
+### Resilience and limits
+
+None of these are secret, and all have working defaults.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Kestrel:Limits:MaxRequestBodySize` | `262144` (256 KB) | Caps an inbound request body. Kestrel's own default is ~30 MB, and nothing here comes near either number: the largest legitimate request is a device registration carrying up to 32 share grants (~11 KB), and the next is a 4 KB public key. Position fixes do not arrive over HTTP at all — they come in over MQTT, capped separately by `IngestOptions`. Exceeding it answers **413**. |
+| `Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command` | `Warning` | EF logs every statement it executes at `Information`, which under the `Default` level fills the log with query text and buries what it exists to surface. [`appsettings.Development.json`](appsettings.Development.json) turns it back up, where reading the SQL is the point. |
+
+**Transient database faults are retried in-process** — three attempts inside five
+seconds, via Npgsql's `EnableRetryOnFailure`. A failover, a reset connection or a
+pool timeout is a few seconds of bad luck rather than a failed request, and only a
+fault that outlives the retries reaches the caller as a 500. Note the consequence
+for anyone adding code: EF refuses a hand-opened transaction outside an execution
+strategy, so a new `BeginTransactionAsync` must be wrapped in
+`Database.CreateExecutionStrategy().ExecuteAsync(...)`, and **its body must be
+safe to run twice** — see the comments in `DeviceService.CreateAsync` and
+`DeviceConfigRevisionWriter` for the two traps (a change tracker still holding the
+failed attempt's entities, and an in-memory counter already incremented by it).
+
+**Neither background worker can take the API down.** The MQTT ingest and the
+schedule worker each supervise their own loop and restart it after a bounded
+pause, and the host is configured not to stop when a background service throws. A
+worker that dies anyway shows up on `/health` rather than as an outage.
 
 ### `Hosting:PathBase` — published under a path prefix
 
@@ -324,18 +396,20 @@ never auto-migrated; this mode exists to make that review possible, not to repla
 ## REST API
 
 Every endpoint requires a session except `POST /api/auth/register`,
-`POST /api/auth/login`, `POST /api/auth/logout` and `GET /health`.
+`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/privacy/policy` and
+`GET /health`.
 
 | Method & route | Purpose |
 |---|---|
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
-| `GET /api/me/devices` | the caller's devices, each with `customName` + `permissions` |
+| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions` and `accessCounts` |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
-| `GET /api/users?email=&exactMatch=`, `GET /api/users/{id}` | search / fetch users, for sharing |
+| `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
+| `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
-| `POST /api/devices` | register a device + provision its key pair (201) |
+| `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row |
 | `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
 | `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
@@ -349,11 +423,141 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
+| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions; needs `CanDelete`. Returns `{ deletedCount }` |
+| `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
+| `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
+| `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
+| `GET /api/shares?deviceId=` | temporary share links on a device, live and dead; needs `CanShare`. **Never returns a link's secrets** |
+| `POST /api/shares` | mint a share link (201). **The only response that ever carries the link and its code** — neither is recoverable afterwards |
+| `PUT /api/shares/{shareId}` | change a link's window, label, scope and telemetry flags. **The link and code are untouched**, so whoever holds them keeps access. 409 on a revoked link |
+| `POST /api/shares/{shareId}/reissue` | mint a **new** link and code for an existing share, keeping its window, scope, label and redeem history. The previous pair stops working at once. 409 on a revoked link |
+| `DELETE /api/shares/{shareId}` | revoke a share link (204). Takes effect on the visitor's next request |
+| `POST /api/shares/redeem` | **unauthenticated**: open a link with its code. Token in the **body**, never the URL. Sets the `carpos_share` cookie |
+| `GET /api/shares/view?from=&to=` | the shared positions. Share-token scheme only; range clamped to the window |
+| `POST /api/shares/leave` | **unauthenticated**: clear the share cookie (204) |
 | `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
-Failures return **`ProblemDetails`** (`application/problem+json`), with `detail`
-written for the end user — never an exception message, SQL or a stack trace.
+### Errors
+
+**Every** failure returns **`ProblemDetails`** (`application/problem+json`) — one
+shape for the whole surface, including the statuses the framework would otherwise
+answer with an empty body (401, 403, a 404 from an unmatched route, 405, 429).
+
+| Field | Meaning |
+|---|---|
+| `status`, `title` | the status code and a short, generic summary |
+| `detail` | written for the end user. Never an exception message, SQL, or a stack trace |
+| `traceId` | correlation id for this one request — quote it when reporting a fault and it finds the matching log line |
+| `errors` | on a 400 from DataAnnotations only: field name → messages |
+
+A 500 always says the same thing (`"The server encountered an error. Please try
+again later."`) whatever actually failed. The exception behind it — message,
+stack trace, inner exceptions and all — goes to the log and nowhere else; a
+varying message would let a caller probe the server by reading the differences.
+The same applies to a request Kestrel refuses to read: it keeps its real status
+(413 for an oversized body, 431 for oversized headers, 400 otherwise) but the
+`detail` never names the limit that was hit.
+
+Status codes follow the service outcome, not the cause: **403** is a permission
+failure, **404** a missing row *or* one the caller may not see, **409** a
+duplicate. That a hidden device answers 404 rather than 403 is deliberate — a 403
+would confirm the id exists, which is what an enumeration attempt is after.
+
+The one case where a clean error cannot be returned is `GET /api/me/export`,
+which streams: if it faults partway through, a `200` and part of the body are
+already on the wire and cannot be recalled. The connection is **aborted** mid-body
+instead, so the client reports a failed transfer rather than saving a truncated
+file that looks complete. The exception is logged in full, as always. Callers
+should treat a short or interrupted export as a failure and retry it — the file is
+only complete if the transfer finished cleanly.
+
+### Temporary share links
+
+The one unauthenticated route to anybody's position data. Five properties hold it
+together; each is enforced server-side, and none of them depends on the frontend
+behaving:
+
+1. **Two independent secrets, sent by separate channels.** The URL carries
+   `selector.verifier` (16 and 32 random bytes); the code is generated separately
+   from an unambiguous alphabet. **Both are stored in the clear** (decision of
+   2026-09-12), so a creator can retrieve a link after the one-time reveal —
+   `GET /api/shares` returns them, behind the session cookie and `CanShare` on the
+   device. The accepted cost: a dump is a snapshot, but a live link is ongoing
+   access, so an old backup that leaks yields working credentials to the *running*
+   system for any share still inside its window. Weighed against the position
+   history already being stored in the clear, and against the codes being
+   machine-generated rather than user-chosen, so no password-reuse risk arises.
+   Comparison stays constant-time for both halves — it is free, and it denies the
+   byte-at-a-time timing signal that is the only thing that would make guessing a
+   43-character verifier tractable. **Account passwords are unaffected and are
+   still PBKDF2.**
+2. **The share session grants nothing on its own.** Every request re-reads the
+   `share_links` row and re-checks window, revocation and cooldown, exactly as
+   `DeviceAccessAuthorizer` does for accounts. Revoking is therefore instant.
+3. **A share token can never be a session.** Separate scheme, separate cookie,
+   separate issuer and audience, and **no `sub` claim**, so `CurrentUserAccessor`
+   can never resolve a user from one. `ShareSchemeIsolationTests` proves both
+   directions of rejection.
+4. **A leaked URL alone proves nothing.** An unknown selector, a wrong verifier and
+   a malformed token return one identical 404, and the miss path computes a dummy
+   PBKDF2 so the timing does not separate them either. Past that point the caller
+   demonstrably holds the link, so the messages become honest ("expired",
+   "revoked", "wrong code", "wait five minutes") — that reveals nothing to anyone
+   who does not already have the link, and its absence would turn every ordinary
+   expiry into a phone call.
+5. **The visitor sees the minimum.** A separate query service, a separate DTO, and
+   server-side clamping to the window. The `deviceId` — the case-sensitive MQTT
+   topic name — never reaches a visitor; they get a label the creator chose.
+
+Two limits guard the code, and they do different jobs. `ShareCooldownPolicy` makes
+repeated guessing against **one** link progressively useless (four free attempts,
+then 1 / 5 / 15 / 60 minutes, holding at an hour, reset on success); the `share`
+rate-limit policy caps how fast one address can work through **many**.
+
+A `latestOnly` share **ignores any requested time range**. Honouring an upper bound
+while returning one row would let a visitor walk the window backwards a fix at a
+time and reconstruct the whole track — the thing that scope exists to withhold.
+
+**Editing a link keeps its secrets**, which is the whole point of editing rather
+than reissuing: the recipient's link and code go on working. Two consequences
+follow, and both are deliberate. Widening the window is a real disclosure —
+moving `validFrom` earlier retroactively shows a recipient history they could not
+see a moment ago, so the UI says so before the fields rather than letting it
+happen as a side effect of renaming something. And an edit is held to exactly the
+same window ceiling as a creation, or `Sharing:MaxWindowDays` would be avoidable
+by minting a short link and stretching it.
+
+**"Show me the link again" is answered by `GET /api/shares`**, which returns each
+link's `token` and `passphrase` alongside its settings. That follows from the
+storage decision in point 1 and is the reason for it. The response is therefore
+credential-bearing: it needs the creator's session and `CanShare` on the device,
+and the UI keeps each row's secrets collapsed until asked, so a share list is not
+something that leaks by being on screen.
+
+`POST /api/shares/{id}/reissue` remains, for when a link should be replaced rather
+than re-read — it has leaked, or it should go to a different person. It mints a
+fresh pair on the same row, keeps the window, scope, label and redeem history, and
+clears the cooldown, which is the one place clearing it is right: the counter had
+accrued against a code that no longer exists, and carrying it over would lock
+somebody out of a code they had not yet typed once. The cost is stated in the UI
+before the button does anything — **the previous link and code stop working
+immediately**, so whoever is using the share loses it until they are sent the new
+pair.
+
+**Revocation is the one irreversible act.** An expired link may be edited — its
+window ran out by the clock, the recipient still holds it, and extending is the
+same act as sending a fresh one without communicating a new code. A revoked link
+answers 409 for ever: revoking is what somebody does when a link has reached the
+wrong person, and an edit that quietly reopened it would make `DELETE` a promise
+this API does not keep. The rule lives in `ShareLinkStatusResolver.IsEditable` and
+gates reissuing as well as editing — both are ways back, so both are closed.
+
+**`[AllowAnonymous]` now appears outside register/login/health**, on
+`POST /api/shares/redeem` and `POST /api/shares/leave`. It is declared per action
+rather than on `ShareAccessController`, because a controller-level one would
+override the share-scheme `[Authorize]` on `GET /api/shares/view` and leave the
+read path open to anyone. The analyser catches that (ASP0026); do not silence it.
 
 ### Sessions
 
@@ -378,7 +582,13 @@ The check only applies when a session cookie is present — without one there is
 no ambient authority to abuse, and requiring a token would break sign-in itself.
 
 `POST /api/auth/*` is rate-limited per client address (20/minute); it is the
-only place an attacker gets unlimited free guesses.
+only place an *unauthenticated* attacker gets free guesses.
+
+`GET /api/me/export` and `DELETE /api/me` are rate-limited per **account**
+(5 requests / 5 minutes, partitioned on the `sub` claim). Holding a session is not
+a limit for either: the export dumps an entire uncapped position history on every
+call, and erasure takes the current password, which makes it a guessing surface
+the sign-in limiter never sees.
 
 ### Authorisation
 
@@ -398,6 +608,62 @@ Two invariants are enforced server-side and never taken from the client:
 A device you cannot see answers **404**, not 403 — a 403 would confirm it
 exists. The last account able to share a device cannot be revoked or demoted:
 since devices are only soft-deleted, that state would be permanent.
+
+The same reasoning now covers people. `GET /api/users/{id}` answers only for the
+caller themselves or somebody they share a device with, and `GET /api/users?email=`
+matches an address for **equality only**. Both used to be wider — a three-character
+prefix search and an unrestricted id lookup — which between them let any signed-in
+account walk the table and harvest every user's name and email address. The
+sharing UI never needed either: it always had the full address in hand.
+
+Every device in `GET /api/me/devices` also carries an `accessCounts` object —
+`{ people, activeLinks }` — which the dashboard renders as one pill beside the
+battery and status badges. It is deliberately **counts, not identities**, because
+it goes to everybody who can see the device, `CanRead`-only accounts included:
+learning that three people can see a car you can also see discloses nothing about
+them, whereas their names and addresses would. *Who* they are stays behind
+`CanShare`, at `GET /api/access` and `GET /api/shares`.
+
+`people` counts accounts with an **active** grant, one per account whatever its
+capabilities and including the caller, so it is never below 1. `activeLinks`
+counts share links that are **live at that instant** — not revoked, and inside
+their window — one per link however many times it has been opened. Revoked,
+expired and not-yet-started links are excluded, which is what makes it a
+"currently" figure; the rule matches
+[`Services/Sharing/ShareLinkStatusResolver.cs`](Services/Sharing/ShareLinkStatusResolver.cs)
+and has to be kept in step with it by hand, since a resolver that takes one row
+cannot also be a SQL predicate. Both figures are correlated subqueries inside the
+existing list projection, so the endpoint is still one round trip; a translation
+test fails the build if EF ever decides to count them in memory instead.
+
+
+## Privacy and data-subject rights
+
+[`Services/Privacy/`](Services/Privacy/) implements the GDPR rights the dashboard
+exposes. Two things about it are worth knowing before changing anything there.
+
+**`GET /api/me/export` streams.** It writes JSON straight to the response body
+with `Utf8JsonWriter` over `AsAsyncEnumerable()` queries, and it deliberately
+ignores `PositionQueryService.MaxPositionsPerQuery`: that 1000-row cap protects
+the dashboard, and a truncated export is not portability. It must never emit a
+password hash or a device private key — the two entities that carry secrets,
+`User` and `Device`, are projected into `*ExportRow` records that have no field
+to leak, and `DataExportShapeTests` pins that down.
+
+**`DELETE /api/me` really deletes.** It is the one place in this codebase that
+breaks the "records are never physically removed" rule the rest of it follows,
+because a soft-delete flag on a row still holding an email address and a year of
+movements is not erasure by any reading of Art. 17. What survives is deliberately
+impersonal: a grant this account handed to somebody else stays (that other user
+still has access) with `granted_by` nulled, and configuration revisions stay with
+`created_by_user_id` nulled. A device nobody else could see is deleted outright,
+positions and all, and its retained `config`/`schedule` messages are cleared off
+the broker — a retained message outlives the row it came from.
+
+Positions are **never** deleted automatically. There is no retention job and no
+TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
+a location history. That choice, and why it is stated plainly rather than papered
+over, is in the policy served at `/privacy` (see [`docs/PRIVACY.md`](../../docs/PRIVACY.md)).
 
 ## Provisioning a device
 
@@ -436,6 +702,7 @@ of `constexpr` lines for
     "deactivatedAt": null,
     "lastSeenAt": null,
     "lastBatteryPct": null,
+    "accessCounts": { "people": 1, "activeLinks": 0 },
     "permissions": { "canRead": true, "canDelete": true, "canShare": true, "canModifySettings": true }
   },
   "provisioning": {
@@ -1051,8 +1318,15 @@ remote device settings, and the container deployment in
 
 Still to do:
 
-1. **Position retention/pruning job** — `positions` grows without bound; every
-   read is capped today, but nothing deletes old rows yet.
+1. **Position retention/pruning job** — *deliberately not built, not forgotten.*
+   `positions` grows without bound because indefinite retention is the chosen
+   policy, stated plainly in the policy served at `/privacy` rather
+   than papered over: the point of the project is looking at history. What bounds
+   a history instead is the user — `DELETE /api/devices/{id}/positions`, or
+   erasing the account. If a timed job is ever wanted, it is one hosted service
+   over the same `ExecuteDeleteAsync` that
+   [`Services/Positions/PositionErasureService.cs`](Services/Positions/PositionErasureService.cs)
+   already uses.
 2. **Session revocation** — tokens carry a `jti` but there is no deny-list, so
    signing out on one device does not invalidate a session already issued to
    another. Changing `Jwt:SigningKey` is the only blunt instrument today.

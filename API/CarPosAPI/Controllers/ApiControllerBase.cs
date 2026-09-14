@@ -38,6 +38,27 @@ public abstract class ApiControllerBase : ControllerBase
     }
 
     /// <summary>
+    /// The share the caller is acting on behalf of.
+    ///
+    /// The anonymous counterpart of <see cref="RequireUserId"/>, and it throws for
+    /// the same reason: an action behind the share scheme's <c>[Authorize]</c> has
+    /// a validated token, so a missing claim means the scheme is misconfigured.
+    /// Continuing would mean querying positions for an unknown share, which is the
+    /// one mistake this whole feature is built to make impossible.
+    /// </summary>
+    /// <param name="accessor">The share-context accessor from DI.</param>
+    /// <returns>The share link's id.</returns>
+    /// <exception cref="InvalidOperationException">The request carries no share claim.</exception>
+    protected static Guid RequireShareId(IShareContextAccessor accessor)
+    {
+        ArgumentNullException.ThrowIfNull(accessor);
+
+        return accessor.ShareId
+            ?? throw new InvalidOperationException(
+                "A share endpoint was reached without a share claim. Check the [Authorize] scheme and the share token configuration.");
+    }
+
+    /// <summary>
     /// Turns a failed service result into the matching <see cref="ProblemDetails"/>
     /// response.
     /// </summary>

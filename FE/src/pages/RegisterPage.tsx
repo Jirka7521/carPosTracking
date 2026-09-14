@@ -8,14 +8,20 @@
 //   • After successful registration, immediately redirects to /home
 //     (the API logs the user in automatically upon registration)
 //   • Link back to /login for existing users
+//   • A required privacy-policy acknowledgement, which is the whole point of
+//     the extra round-trip below: the form fetches the version currently in
+//     force and echoes it back with the registration, so what gets recorded
+//     against the account is provably the text this person was shown.
 // ============================================================
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
+import { fetchPrivacyPolicy } from '../services/apiClient'
 import { LanguageMenu } from '../components/LanguageMenu'
+import { SiteFooter } from '../components/SiteFooter'
 import { assetUrl } from '../services/runtimeConfig'
 import { describeError } from '../utils/errors'
 
@@ -34,9 +40,31 @@ export function RegisterPage() {
   const [password, setPassword] = useState<string>('')
   const [passwordConfirm, setPasswordConfirm] = useState<string>('')
 
+  // Acceptance of the terms of use plus acknowledgement of the privacy policy.
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState<boolean>(false)
+  const [policyVersion, setPolicyVersion] = useState<string>('')
+
   // Submission state
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+
+  // The version in force, fetched rather than hard-coded so this page and the
+  // consent the server records can never disagree about which policy was shown.
+  useEffect(() => {
+    let cancelled: boolean = false
+
+    fetchPrivacyPolicy()
+      .then((policy) => {
+        if (!cancelled) {
+          setPolicyVersion(policy.version)
+        }
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -53,11 +81,33 @@ export function RegisterPage() {
       return
     }
 
+    if (!hasAcceptedTerms) {
+      setErrorMessage(t('auth:register.consent.required'))
+      return
+    }
+
+    // An empty version means the fetch on mount failed — a network blip, not a
+    // policy change. Retry once here rather than dead-ending the form: the old
+    // code sent the user off to reload with a message claiming the policy had
+    // changed, which is never true in this branch. A genuinely stale version is
+    // caught server-side and comes back through describeError below.
+    let acceptedVersion: string = policyVersion
+    if (acceptedVersion.length === 0) {
+      try {
+        const policy = await fetchPrivacyPolicy()
+        acceptedVersion = policy.version
+        setPolicyVersion(policy.version)
+      } catch {
+        setErrorMessage(t('auth:register.consent.unavailable'))
+        return
+      }
+    }
+
     setIsSubmitting(true)
     try {
       // register() calls POST /api/auth/register, stores the returned JWT,
       // and updates the auth context so the user is immediately logged in.
-      await register(email, password, firstName, lastName)
+      await register(email, password, firstName, lastName, acceptedVersion)
       navigate('/home', { replace: true })
     } catch (error) {
       setErrorMessage(describeError(error, t('errors:registrationFailed')))
@@ -169,6 +219,43 @@ export function RegisterPage() {
             />
           </div>
 
+          {/*
+            The acceptance. Its own block above the button because it is the last
+            thing read before signing up, and because what is being agreed to — a
+            personal project storing precise vehicle locations — is not what
+            somebody filling in a sign-up form assumes.
+
+            This tick is the only place anything becomes binding. The PolyForm
+            licence in the repository reaches people who copy the source, not
+            people who register here, so without this the no-warranty and
+            no-liability sections of /legal would bind nobody. The version
+            accepted is echoed back to the server and stamped on the user row.
+          */}
+          <div className="consent-block">
+            <p className="consent-notice">{t('auth:register.consent.notice')}</p>
+
+            <label className="consent-check" htmlFor="register-consent">
+              <input
+                id="register-consent"
+                type="checkbox"
+                checked={hasAcceptedTerms}
+                onChange={(e) => setHasAcceptedTerms(e.target.checked)}
+              />
+              <span>
+                <Trans
+                  i18nKey="register.consent.label"
+                  ns="auth"
+                  components={{
+                    // Both open in a new tab so a half-filled form is not lost
+                    // to reading the thing the form is asking about.
+                    terms: <Link to="/legal" target="_blank" rel="noopener noreferrer" />,
+                    privacy: <Link to="/privacy" target="_blank" rel="noopener noreferrer" />,
+                  }}
+                />
+              </span>
+            </label>
+          </div>
+
           {/* Error message from validation or the API */}
           {errorMessage ? (
             <p className="form-message form-message--error" role="alert">
@@ -179,7 +266,9 @@ export function RegisterPage() {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={isSubmitting}
+            // Unchecked consent disables the button rather than only failing on
+            // submit: the requirement should be visible before it is hit.
+            disabled={isSubmitting || !hasAcceptedTerms}
             style={{ marginTop: 4 }}
           >
             {isSubmitting ? t('auth:register.submitting') : t('auth:register.submit')}
@@ -194,6 +283,8 @@ export function RegisterPage() {
         {t('auth:register.haveAccount')}{' '}
         <Link to="/login">{t('auth:register.signIn')}</Link>
       </p>
+
+      <SiteFooter />
     </div>
   )
 }

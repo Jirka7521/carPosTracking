@@ -34,11 +34,16 @@ public sealed class Access
     public Device? Device { get; set; }
 
     /// <summary>
-    /// Who created this grant. Kept for audit ("who let them in?"); it is
-    /// deliberately not a foreign key constraint target for deletion purposes —
-    /// users are never physically removed either.
+    /// Who created this grant, kept for audit ("who let them in?").
+    ///
+    /// <b>Nullable, and that is the point.</b> When an account is erased under GDPR
+    /// Art. 17 its own grants are deleted outright, but a grant it handed to somebody
+    /// else must survive — that other user still has access. Nulling this reference
+    /// keeps the operational record ("this grant exists") while removing the personal
+    /// link to a person who asked to be forgotten. See
+    /// <see cref="Services.Privacy.AccountErasureService"/>.
     /// </summary>
-    public int GrantedBy { get; set; }
+    public int? GrantedBy { get; set; }
 
     /// <summary>May list the device and read its positions. Always true while active.</summary>
     public bool CanRead { get; set; } = true;

@@ -35,19 +35,34 @@ public interface IUserAccountService
     Task<OperationResult<UserProfileDto>> GetProfileAsync(int userId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Finds users by email for the sharing picker.
+    /// Finds the user with exactly this email address, for the sharing picker.
     /// </summary>
-    /// <param name="email">The address (or prefix, when <paramref name="exactMatch"/> is false).</param>
-    /// <param name="exactMatch">
-    /// True for an equality lookup. A prefix search is offered as a convenience but
-    /// is deliberately capped and requires a minimum length, so this cannot be
-    /// walked to dump the user table.
-    /// </param>
+    /// <param name="email">The full address. Matched for equality, never as a prefix.</param>
     /// <param name="cancellationToken">Cancels the database work.</param>
-    /// <returns>Matching profiles, possibly empty. Never an error — "no match" is a valid answer.</returns>
+    /// <returns>
+    /// The single matching profile, or an empty list. Never an error — "no match" is
+    /// a valid answer, and one that does not confirm whether the address is
+    /// registered any more than it has to.
+    /// </returns>
     Task<IReadOnlyList<UserProfileDto>> SearchByEmailAsync(
         string email,
-        bool exactMatch,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads another user's profile, but only if the caller is entitled to see it:
+    /// themselves, or somebody they share a device with.
+    /// </summary>
+    /// <param name="callerId">The authenticated caller.</param>
+    /// <param name="userId">The profile being asked for.</param>
+    /// <param name="cancellationToken">Cancels the database work.</param>
+    /// <returns>
+    /// The profile, or <see cref="OperationOutcome.NotFound"/> — which is also the
+    /// answer for a real account the caller has no business seeing, so this endpoint
+    /// cannot be scanned to enumerate the user table.
+    /// </returns>
+    Task<OperationResult<UserProfileDto>> GetVisibleProfileAsync(
+        int callerId,
+        int userId,
         CancellationToken cancellationToken);
 
     /// <summary>Updates a user's own names.</summary>

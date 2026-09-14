@@ -2,6 +2,10 @@
   "add": {
     "addPerson": "+ Add person",
     "close": "✕  Cancel",
+    "declaration": {
+      "label": "I am entitled to track this vehicle, and I will tell the people who drive it that its position is being recorded.",
+      "required": "Please confirm you are entitled to track this vehicle before registering it."
+    },
     "deviceId": "Device ID",
     "deviceIdPlaceholder": "e.g. GNSS01",
     "displayName": "Display name",

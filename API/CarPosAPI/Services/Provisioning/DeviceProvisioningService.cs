@@ -107,6 +107,10 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
             PublicKeyPem = publicKeyPem,
             PrivateKeyCiphertext = protectedPrivateKey,
             IsActive = true,
+            // DeviceService.CreateAsync refuses the request unless the caller
+            // declared they may lawfully track this vehicle, so by here the
+            // declaration is a fact and only its time needs recording.
+            TrackingDeclarationAcceptedAt = DateTime.UtcNow,
         };
 
         context.Devices.Add(device);

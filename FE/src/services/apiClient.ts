@@ -19,6 +19,7 @@
 
 import type {
   AccessDto,
+  AccountErasureResultDto,
   AccessCreateRequestDto,
   AccessUpdateRequestDto,
   AckKeyImportedDto,
@@ -35,8 +36,16 @@ import type {
   DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
   PositionDto,
+  PositionErasureResultDto,
+  PrivacyPolicyDto,
   SaveConfigProfileRequestDto,
   SaveScheduleRuleRequestDto,
+  ShareLinkCreateRequestDto,
+  ShareLinkCreatedDto,
+  ShareLinkDto,
+  ShareLinkUpdateRequestDto,
+  ShareSessionDto,
+  SharedViewDto,
   UpdateDeviceScheduleRequestDto,
   UserProfileDto,
   UserUpdateRequestDto,
@@ -202,6 +211,11 @@ function extractErrorMessage(status: number, body: unknown): string {
 async function request<T>(method: string, path: string, options: {
   body?: unknown
   query?: Record<string, string | number | boolean | undefined>
+  // Share endpoints set this. A 401 there means "this share link needs its code
+  // again", which has nothing to do with the account session — and firing the
+  // global event for it would sign out an owner who was merely previewing a link
+  // they had just created.
+  suppressSessionExpired?: boolean
 } = {}): Promise<T> {
   const isMutation: boolean = method !== 'GET' && method !== 'HEAD'
 
@@ -227,7 +241,7 @@ async function request<T>(method: string, path: string, options: {
   const body: unknown = await readBody(response)
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && options.suppressSessionExpired !== true) {
       // Tell the app once, centrally, rather than making every caller recognise
       // an expired session for itself.
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
@@ -252,9 +266,13 @@ export async function registerUser(
   password: string,
   firstName: string,
   lastName: string,
+  // The privacy-policy version the form actually displayed. The server records
+  // it against the account and rejects anything but the current version, so the
+  // stored consent is always provably the text this person was shown.
+  acceptedPrivacyPolicyVersion: string,
 ): Promise<AuthResponseDto> {
   return request<AuthResponseDto>('POST', '/auth/register', {
-    body: { email, password, firstName, lastName },
+    body: { email, password, firstName, lastName, acceptedPrivacyPolicyVersion },
   })
 }
 
@@ -277,6 +295,9 @@ export async function fetchMyProfile(): Promise<UserProfileDto> {
 
 // ----- Users -----
 
+// Exact match only — the server no longer offers a prefix search, because it
+// let any signed-in account walk the alphabet and harvest the user table. Pass
+// the full address; anything else legitimately finds nobody.
 export async function fetchUsers(email: string, exactMatch: boolean = true): Promise<UserProfileDto[]> {
   return request<UserProfileDto[]>('GET', '/users', {
     query: { email, exactMatch },
@@ -532,4 +553,174 @@ export async function updateAccessGrant(
 
 export async function revokeAccessGrant(accessId: number): Promise<void> {
   await request<null>('DELETE', `/access/${segment(accessId)}`)
+}
+
+// ----- Privacy and data-subject rights (GDPR) -----
+
+// The policy version currently in force. Public: the registration form has to
+// show the acknowledgement before anybody has an account.
+export async function fetchPrivacyPolicy(): Promise<PrivacyPolicyDto> {
+  return request<PrivacyPolicyDto>('GET', '/privacy/policy')
+}
+
+// Downloads everything the system holds about the signed-in user (GDPR Art. 15
+// and 20).
+//
+// Deliberately NOT routed through request(): a complete position history can be
+// tens of megabytes, and request() parses the whole body into an object before
+// returning it. Here the response is handed to the browser as a blob and saved,
+// so the JSON is never materialised as a JavaScript value. Errors are still
+// translated into ApiError so callers behave the same as everywhere else.
+export async function exportMyData(): Promise<{ fileName: string; blob: Blob }> {
+  let response: Response
+  try {
+    response = await fetch(buildUrl('/me/export'), {
+      method: 'GET',
+      headers: buildHeaders(false, false),
+      credentials: 'same-origin',
+    })
+  } catch (networkError) {
+    const message: string = networkError instanceof Error ? networkError.message : 'Network error.'
+    throw new ApiError(0, `Could not reach the server: ${message}`, networkError)
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+    }
+    const errorBody: unknown = await readBody(response)
+    throw new ApiError(response.status, extractErrorMessage(response.status, errorBody), errorBody)
+  }
+
+  return {
+    fileName: fileNameFromContentDisposition(response.headers.get('content-disposition')),
+    blob: await response.blob(),
+  }
+}
+
+// Permanently erases the signed-in user's account (GDPR Art. 17). The session
+// cookies are expired by the same response, so the caller should treat the user
+// as signed out afterwards.
+export async function deleteMyAccount(password: string): Promise<AccountErasureResultDto> {
+  return request<AccountErasureResultDto>('DELETE', '/me', {
+    body: { password },
+  })
+}
+
+// ----- Position erasure -----
+
+// Permanently deletes a device's stored positions. Requires CanDelete on the
+// device. Unlike deleting a device — a soft delete, precisely so the history
+// survives — this destroys rows.
+export async function erasePositions(
+  deviceId: string,
+  from?: string,
+  to?: string,
+): Promise<PositionErasureResultDto> {
+  return request<PositionErasureResultDto>('DELETE', `/devices/${segment(deviceId)}/positions`, {
+    query: { from, to },
+  })
+}
+
+// Pulls the server's suggested filename out of a Content-Disposition header,
+// falling back to a sensible one. The header is the only place the server names
+// the file, and a download with a generated blob name is a download the user
+// cannot find again.
+function fileNameFromContentDisposition(header: string | null): string {
+  const fallback: string = 'carpos-export.json'
+
+  if (!header) {
+    return fallback
+  }
+
+  const match = /filename="?([^";]+)"?/i.exec(header)
+
+  return match?.[1] ?? fallback
+}
+
+// ----- Temporary share links: the creator's side -----
+
+// Lists every share link on a device, live and dead. Requires CanShare. The
+// response never carries a link's secrets — there is no endpoint that can
+// produce them for an existing link, by construction rather than by policy.
+export async function fetchShareLinks(deviceId: string): Promise<ShareLinkDto[]> {
+  return request<ShareLinkDto[]>('GET', '/shares', {
+    query: { deviceId },
+  })
+}
+
+// Mints a share link. The response is the only time the link and its code exist
+// outside the creator's screen, so a caller that discards it has discarded the
+// share.
+export async function createShareLink(
+  payload: ShareLinkCreateRequestDto,
+): Promise<ShareLinkCreatedDto> {
+  return request<ShareLinkCreatedDto>('POST', '/shares', { body: payload })
+}
+
+// Revokes a share link. Takes effect on the visitor's very next request: the
+// server re-reads the row rather than trusting the token it issued.
+export async function revokeShareLink(shareId: string): Promise<void> {
+  await request<void>('DELETE', `/shares/${segment(shareId)}`)
+}
+
+// ----- Temporary share links: the visitor's side -----
+//
+// All three suppress the session-expired event. A 401 here means "this share
+// needs its code again" and has nothing to do with an account session; firing
+// the global event would sign out an owner previewing their own link.
+
+// Opens a share link with its code. The token goes in the body, never the URL:
+// it is already in the address of the page the visitor loaded, where the
+// deployment's access log redacts it, and an API path has no such rule.
+export async function redeemShareLink(
+  token: string,
+  passphrase: string,
+): Promise<ShareSessionDto> {
+  return request<ShareSessionDto>('POST', '/shares/redeem', {
+    body: { token, passphrase },
+    suppressSessionExpired: true,
+  })
+}
+
+// Reads the share and its fixes. Both bounds are clamped to the share's window
+// server-side, and ignored entirely for a latest-only share.
+export async function fetchSharedView(
+  from?: string,
+  to?: string,
+): Promise<SharedViewDto> {
+  return request<SharedViewDto>('GET', '/shares/view', {
+    query: { from, to },
+    suppressSessionExpired: true,
+  })
+}
+
+// Clears the share cookie. Deliberately tolerant: "let go of whatever I am
+// holding" must work even when what is held is expired or malformed, which is
+// exactly when somebody wants it to.
+export async function leaveShare(): Promise<void> {
+  await request<void>('POST', '/shares/leave', { suppressSessionExpired: true })
+}
+
+// Changes an existing link's window, label, scope and telemetry flags. The link
+// and its code are untouched, so whoever already holds them keeps working
+// access — which is why widening the window is a real disclosure decision and
+// not a settings tweak. A revoked link answers 409; revocation stays revoked.
+export async function updateShareLink(
+  shareId: string,
+  payload: ShareLinkUpdateRequestDto,
+): Promise<ShareLinkDto> {
+  return request<ShareLinkDto>('PUT', `/shares/${segment(shareId)}`, { body: payload })
+}
+
+// Mints a fresh link and code for an existing share, keeping its window, scope,
+// label and redeem history.
+//
+// This is the only answer to "show me the link again": the verifier is stored as
+// a SHA-256 digest and the code as a PBKDF2 hash, so the originals do not exist
+// anywhere to be shown. The trade is that the PREVIOUS link and code stop working
+// immediately — anyone already using the share loses access until they are sent
+// the new pair.
+export async function reissueShareLink(shareId: string): Promise<ShareLinkCreatedDto> {
+  return request<ShareLinkCreatedDto>('POST', `/shares/${segment(shareId)}/reissue`)
 }

@@ -2,6 +2,13 @@
   "name": "fe",
   "private": true,
   "version": "0.0.0",
+  "description": "Dashboard for carPosTracking — a non-commercial personal test project for GNSS vehicle tracking. Not a product or a service.",
+  "author": "Jiri Majer",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jirka7521/carPosTracking.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,8 +23,8 @@
   "dependencies": {
     "i18next": "^26.4.2",
     "i18next-browser-languagedetector": "^8.2.1",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-i18next": "^17.0.13",
     "react-router-dom": "^7.15.0",
     "recharts": "3.10.1"

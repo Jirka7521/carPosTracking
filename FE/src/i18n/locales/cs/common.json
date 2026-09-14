@@ -1,4 +1,19 @@
 {
+  "access": {
+    "links_few": "{{count}} aktivní odkazy",
+    "links_many": "{{count}} aktivního odkazu",
+    "links_one": "{{count}} aktivní odkaz",
+    "links_other": "{{count}} aktivních odkazů",
+    "people_few": "{{count}} osoby",
+    "people_many": "{{count}} osoby",
+    "people_one": "{{count}} osoba",
+    "people_other": "{{count}} osob",
+    "summaryWithLinks": "Přístup mají: {{people}} a {{links}}",
+    "summary_few": "Přístup mají {{count}} osoby",
+    "summary_many": "Přístup má {{count}} osoby",
+    "summary_one": "Přístup má {{count}} osoba",
+    "summary_other": "Přístup má {{count}} osob"
+  },
   "actions": {
     "cancel": "Zrušit",
     "copied": "Zkopírováno",
@@ -29,6 +44,7 @@
     "active": "Aktivní",
     "inactive": "Neaktivní"
   },
+  "documentTitle": "Sledování polohy vozidel — nekomerční testovací projekt",
   "duration": {
     "days_one": "{{value}} den",
     "days_few": "{{value}} dny",
@@ -55,12 +71,19 @@
     "firstName": "Jméno",
     "lastName": "Příjmení"
   },
+  "footer": {
+    "legal": "Podmínky užití",
+    "privacy": "Soukromí",
+    "testProject": "Nekomerční testovací projekt — není to služba. Bez záruky a bez podpory."
+  },
   "language": {
     "change": "Změnit jazyk",
     "heading": "Jazyk"
   },
   "nav": {
     "home": "Přejít na domovskou stránku",
+    "legal": "Přečíst podmínky užití",
+    "privacy": "Přečíst zásady ochrany osobních údajů",
     "profile": "Upravit profil"
   },
   "onOff": {
@@ -85,7 +108,10 @@
   },
   "range": {
     "from": "Od",
-    "to": "Do"
+    "past24Hours": "Posledních 24 hodin",
+    "pastHour": "Poslední hodina",
+    "to": "Do",
+    "today": "Dnes"
   },
   "refresh": {
     "auto": "Automatická aktualizace",

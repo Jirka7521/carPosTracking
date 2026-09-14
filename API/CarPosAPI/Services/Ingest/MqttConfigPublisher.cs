@@ -133,6 +133,31 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
             cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> ClearRetainedAsync(string deviceId, CancellationToken cancellationToken)
+    {
+        // An empty retained payload is the MQTT idiom for deleting a retained message.
+        // Both topics are cleared even if the first fails, because leaving the schedule
+        // behind while the config went is the worst of both outcomes.
+        bool configCleared = await PublishRetainedAsync(
+            deviceId,
+            ConfigTopicSuffix,
+            [],
+            "config erasure",
+            0,
+            cancellationToken);
+
+        bool scheduleCleared = await PublishRetainedAsync(
+            deviceId,
+            ScheduleTopicSuffix,
+            [],
+            "schedule erasure",
+            0,
+            cancellationToken);
+
+        return configCleared && scheduleCleared;
+    }
+
     /// <summary>
     /// Puts one already-serialized payload on one of this device's retained topics.
     ///

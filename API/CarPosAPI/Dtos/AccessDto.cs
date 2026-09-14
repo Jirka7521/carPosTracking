@@ -9,7 +9,10 @@ namespace CarPosAPI.Dtos;
 /// <param name="Id">Surrogate key; the value <c>PUT</c>/<c>DELETE /api/access/{id}</c> address.</param>
 /// <param name="UserId">The user the grant belongs to.</param>
 /// <param name="DeviceId">MQTT identity of the device the grant is on.</param>
-/// <param name="GrantedBy">Id of the user who created the grant (audit).</param>
+/// <param name="GrantedBy">
+/// Id of the user who created the grant (audit). Null when that account has since
+/// been erased — the grant survives, the personal link to its author does not.
+/// </param>
 /// <param name="DateRegistration">When the grant was created (UTC).</param>
 /// <param name="CanRead">Always true on an active grant — the invariant is enforced on write.</param>
 /// <param name="CanDelete">May soft-delete the device.</param>
@@ -19,7 +22,7 @@ public sealed record AccessDto(
     int Id,
     int UserId,
     string DeviceId,
-    int GrantedBy,
+    int? GrantedBy,
     DateTime DateRegistration,
     bool CanRead,
     bool CanDelete,

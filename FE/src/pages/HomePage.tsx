@@ -73,6 +73,10 @@ export function HomePage() {
   const [showAddForm, setShowAddForm] = useState<boolean>(false)
   const [newDeviceId, setNewDeviceId] = useState<string>('')
   const [newDisplayName, setNewDisplayName] = useState<string>('')
+  // Per-device declaration. Asked here rather than only once at registration
+  // because it is a statement about a particular vehicle, and the tracker that
+  // matters is usually the one in a car somebody else also drives.
+  const [hasDeclaredTracking, setHasDeclaredTracking] = useState<boolean>(false)
   const [shares, setShares] = useState<ShareDraft[]>([])
   const [addMessage, setAddMessage] = useState<string>('')
   const [addIsError, setAddIsError] = useState<boolean>(false)
@@ -146,6 +150,7 @@ export function HomePage() {
   function resetAddForm(): void {
     setNewDeviceId('')
     setNewDisplayName('')
+    setHasDeclaredTracking(false)
     setShares([])
     setAddMessage('')
     setAddIsError(false)
@@ -195,6 +200,14 @@ export function HomePage() {
       return
     }
 
+    // Mirrors the server-side guard so the refusal is immediate and readable
+    // rather than a 400 from the API.
+    if (!hasDeclaredTracking) {
+      setAddIsError(true)
+      setAddMessage(t('home:add.declaration.required'))
+      return
+    }
+
     // Rows with an empty email are just unfinished UI, not an error — drop them.
     const additionalAccesses: DeviceAccessGrantInput[] = shares
       .filter((share) => share.email.trim().length > 0)
@@ -211,6 +224,7 @@ export function HomePage() {
         deviceId: trimmedId,
         displayName: newDisplayName.trim() || undefined,
         additionalAccesses: additionalAccesses.length > 0 ? additionalAccesses : undefined,
+        trackingDeclarationAccepted: hasDeclaredTracking,
       })
 
       // Append to the local list without re-fetching; the server already told
@@ -342,8 +356,30 @@ export function HomePage() {
               ))}
             </div>
 
+            {/* The declaration. Immediately above the button because it is the
+                last thing read before a tracker exists, and because it is the one
+                thing on this form that is about somebody other than the person
+                filling it in. Reuses the registration consent styles. */}
+            <div className="consent-block" style={{ marginTop: 12 }}>
+              <label className="consent-check" htmlFor="device-tracking-declaration">
+                <input
+                  id="device-tracking-declaration"
+                  type="checkbox"
+                  checked={hasDeclaredTracking}
+                  onChange={(e) => setHasDeclaredTracking(e.target.checked)}
+                />
+                <span>{t('home:add.declaration.label')}</span>
+              </label>
+            </div>
+
             <div className="add-device-row" style={{ marginTop: 12 }}>
-              <button type="submit" className="btn btn-primary" disabled={isAdding}>
+              {/* Undeclared disables the button rather than only failing on submit:
+                  the requirement should be visible before it is hit. */}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={isAdding || !hasDeclaredTracking}
+              >
                 {isAdding ? t('home:add.submitting') : t('home:add.submit')}
               </button>
             </div>

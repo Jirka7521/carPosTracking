@@ -76,7 +76,8 @@
 
 .header-faculty {
   font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.55);
+  /* 0.55 put this at 3.8:1 on --blue-800, under AA for text this small. */
+  color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -128,27 +129,49 @@
   padding: 24px;
 }
 
-/* The language picker on the auth pages. The trigger sits on the dark gradient
-   rather than on a white panel, so it is the one place its colours are
-   restated; the popover below it is white either way. */
+/* Position only. The colours the picker needs on this page are the dark-surface
+   ones below, which it now shares with the two headers. */
 .auth-language {
   position: absolute;
   top: 20px;
   right: 20px;
 }
 
-.auth-language .export-trigger {
+/* ---- .export-trigger on a dark surface ----
+ * .export-trigger's own colours (see the CSV export section) are muted grey on
+ * transparent, because it was written for the white positions toolbar. On the
+ * dark blue of the two headers and the auth gradient that grey lands at about
+ * 1.6:1 and the picker all but disappears — which is exactly what happened to
+ * the header and the legal pages, since only the auth pages ever restated it.
+ *
+ * So the restatement is scoped to the surface rather than to one page: any
+ * trigger inside a dark bar gets these, and the CSV button on its white toolbar
+ * keeps the light ones. The three selectors below must stay in step.
+ */
+.auth-language .export-trigger,
+.app-header .export-trigger,
+.legal-header .export-trigger {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Not the light .accent-bg chip the base rule uses — a near-white block punched
+   into a dark bar reads as a rendering fault. Translucent white instead, which
+   lifts the button off the blue without changing its colour scheme. */
 .auth-language .export-trigger:hover:not(:disabled),
-.auth-language .export-trigger[aria-expanded='true'] {
+.auth-language .export-trigger[aria-expanded='true'],
+.app-header .export-trigger:hover:not(:disabled),
+.app-header .export-trigger[aria-expanded='true'],
+.legal-header .export-trigger:hover:not(:disabled),
+.legal-header .export-trigger[aria-expanded='true'] {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.3);
   color: #fff;
 }
 
-.auth-language .export-trigger:focus-visible {
+/* --border-focus is --blue-700 on --blue-800: a focus ring you cannot see. */
+.auth-language .export-trigger:focus-visible,
+.app-header .export-trigger:focus-visible,
+.legal-header .export-trigger:focus-visible {
   outline-color: #fff;
 }
 
@@ -180,7 +203,9 @@
 
 .auth-brand-subtitle {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.6);
+  /* Measured against the lightest stop of the gradient, --blue-700, where this
+     text is at its weakest: 0.6 gave 3.1:1 there, 0.85 gives 4.7:1. */
+  color: rgba(255, 255, 255, 0.85);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -242,11 +267,15 @@
   margin: 8px 0;
 }
 
-/* "Don't have an account? Register" link below the card */
+/* "Don't have an account? Register" line below the card. It sits OUTSIDE the
+   white card, on the gradient, so only the <a> was ever readable — the question
+   in front of it was --text-muted grey on dark blue, at about 1.6:1. Same
+   mistake as the language picker above: a light-surface token on a dark
+   surface. */
 .auth-switch-link {
   text-align: center;
   font-size: 0.875rem;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.85);
   margin-top: 16px;
 }
 
@@ -454,6 +483,78 @@
 .battery-badge--lg {
   font-size: 0.85rem;
   padding: 5px 14px;
+}
+
+/*
+ * Access-count pill (see components/AccessCountBadge.tsx) — how many accounts
+ * and live share links can currently see the device.
+ *
+ * Same pill geometry as its two neighbours, but deliberately the calm one: the
+ * battery and status badges own the semantic colours (green / amber / red), and
+ * a count is not a warning. A neutral slate pill sits beside them without
+ * competing, and keeps the eye on the two badges that do signal a problem.
+ */
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.725rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/* One icon + number group. The gap here is tighter than the gap between the
+   groups, which is what makes each pictogram read as belonging to its own
+   number rather than floating between the two. */
+.access-badge-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Hairline between the two counts. */
+.access-badge-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 0.85em;
+  background: var(--gray-300);
+}
+
+/* Larger standalone readout for the device page header, matching
+   .battery-badge--lg so the two stay the same height side by side. */
+.access-badge--lg {
+  font-size: 0.85rem;
+  padding: 5px 14px;
+}
+
+/*
+ * Three pills plus a device name is more than a phone-width row can hold, and
+ * .device-card-uuid has `flex: 1` with `word-break: break-all`, so without this
+ * the name is the thing that gives — squeezed to two characters a line while the
+ * badges keep their full width. A floor under the name forces the cluster to
+ * wrap to its own line instead, which is the right thing to lose first.
+ */
+@media (max-width: 480px) {
+  .device-card-header {
+    flex-wrap: wrap;
+  }
+
+  .device-card-uuid {
+    min-width: 55%;
+  }
+
+  .device-card-badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 /* Footer row: push the "Open →" link to the right */
@@ -811,6 +912,18 @@
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 18px;
+}
+
+/* ---- Range presets ----
+ * The "Past 1 hour" / "This day" shortcuts in RangeToolbar. All three controls
+ * bars are flex rows with align-items: flex-end, so this group needs no rule of
+ * its own to line its buttons up with the bottom edge of the date pickers.
+ * It wraps because the buttons should drop together, not one at a time.
+ */
+.range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 /* ---- CSV export control ----
@@ -1704,13 +1817,15 @@
   color: var(--success);
 }
 
+/* Muted, but still meant to be read — it names a capability the device does not
+   have. --gray-400 under opacity 0.75 came to about 2.4:1 on the grey chip; the
+   line-through already says "missing" without help from the contrast. */
 .permission-badge--missing {
   background: var(--gray-100);
   border-color: var(--gray-200);
-  color: var(--gray-400);
+  color: var(--gray-600);
   text-decoration: line-through;
   text-decoration-color: var(--gray-300);
-  opacity: 0.75;
 }
 
 /* ---- Notification banners ---- */
@@ -2811,4 +2926,622 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ================================================================
+ * 10. SITE FOOTER
+ *     The standing "this is a non-commercial test project" line,
+ *     on every page — inside AppLayout, and repeated on the login,
+ *     registration and legal pages, which have their own shells.
+ * ================================================================ */
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 18px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-page);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Both shells want the footer pushed down and full width. That is all they
+   share: only the auth page is dark behind it. */
+.auth-page .site-footer,
+.legal-page .site-footer {
+  margin-top: 32px;
+  width: 100%;
+}
+
+/* The auth page alone puts the footer on the gradient, so it alone restates the
+   colours. This rule used to name .legal-page too — but .legal-page's own
+   background is --bg-page, near-white, so white-on-white made the footer
+   vanish there entirely. The legal page keeps the base light colours above. */
+.auth-page .site-footer {
+  background: transparent;
+  border-top-color: rgba(255, 255, 255, 0.18);
+  /* 0.75 was 3.9:1 on the gradient's lightest stop; 0.85 clears AA. */
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.site-footer-notice {
+  font-weight: 600;
+}
+
+.site-footer-links {
+  display: flex;
+  gap: 14px;
+}
+
+.site-footer-links a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-footer-links a:hover {
+  color: var(--accent);
+}
+
+/* Auth only, for the same reason: on the legal page's light background a white
+   hover would make the link disappear under the cursor. There it keeps the
+   base --accent hover. */
+.auth-page .site-footer-links a:hover {
+  color: #fff;
+}
+
+/* ================================================================
+ * 11. LEGAL PAGES (privacy policy, legal notice)
+ *     Public, so they carry their own shell rather than AppLayout's.
+ *     Long-form reading: a measured column, generous line height.
+ * ================================================================ */
+
+.legal-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  background: var(--bg-page);
+}
+
+.legal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 24px;
+  background: var(--blue-800);
+  color: #fff;
+}
+
+.legal-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
+}
+
+.legal-logo-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.legal-brand-name {
+  font-weight: 700;
+}
+
+.legal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legal-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 32px 24px;
+}
+
+.legal-article {
+  width: 100%;
+  /* A measured column. Long legal prose set the full width of a desktop
+     browser is prose nobody reads to the end of. */
+  max-width: 46rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-xs);
+}
+
+.legal-article h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: var(--text-h);
+}
+
+.legal-subtitle {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.legal-meta {
+  margin: 20px 0 8px;
+  padding: 14px 16px;
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+}
+
+.legal-version {
+  margin: 0 0 8px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.legal-meta dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.legal-meta dt {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.legal-meta dd {
+  margin: 0;
+}
+
+.legal-section {
+  margin-top: 28px;
+}
+
+.legal-section h2 {
+  font-size: 1.125rem;
+  color: var(--text-h);
+  margin: 0 0 8px;
+}
+
+.legal-section p {
+  margin: 0 0 12px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .legal-article {
+    padding: 20px;
+    border-radius: var(--radius);
+  }
+}
+
+/* ================================================================
+ * 12. PRIVACY CONTROLS
+ *     The GDPR blocks on the profile page, the position-history
+ *     erase block in a device's danger zone, the map consent gate,
+ *     and the registration acknowledgement.
+ * ================================================================ */
+
+.privacy-block {
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.privacy-block:last-child {
+  margin-bottom: 0;
+}
+
+/* Erasure is irreversible; it should not look like the button above it. */
+.privacy-block--danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.privacy-block h4 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+.privacy-block .hint {
+  margin: 0 0 12px;
+  line-height: 1.55;
+}
+
+.privacy-warning {
+  margin: 0 0 14px;
+  font-weight: 600;
+  color: var(--danger-dark);
+}
+
+/* ---- Map consent gate ---- */
+
+.map-consent {
+  gap: 10px;
+  max-width: 34rem;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.map-consent-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  color: var(--text-h);
+}
+
+.map-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.map-consent-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* ---- Registration acknowledgement ---- */
+
+.consent-block {
+  margin: 4px 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+}
+
+.consent-notice {
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.consent-check input {
+  /* Nudged down so the box lines up with the first line of text rather than
+     floating above it. */
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* ============================================================
+   Temporary share links
+   ============================================================ */
+
+/* ---- The public visitor page ----
+   It borrows .legal-page's frame (header, footer, centred column) because the
+   two pages have the same job: stand entirely on their own for somebody with no
+   account and no session. Only the body differs. */
+
+.share-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 32px 24px;
+}
+
+/* The code screen. Narrow on purpose — there is one input on it, and a wide
+   card would imply there is more to read than there is. */
+.share-gate {
+  width: 100%;
+  max-width: 26rem;
+  align-self: flex-start;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-xs);
+}
+
+.share-gate-title {
+  margin: 0 0 8px;
+  font-size: 1.375rem;
+  color: var(--text-h);
+}
+
+.share-gate-prompt {
+  margin: 0 0 20px;
+  color: var(--text-muted);
+}
+
+.share-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Codes are read off a screen and typed back. Monospace with generous tracking
+   makes a transposed pair visible before it costs an attempt against the
+   cooldown. */
+.share-code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-view {
+  width: 100%;
+  max-width: 60rem;
+}
+
+.share-view-header {
+  margin-bottom: 16px;
+}
+
+.share-view-title {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--text-h);
+}
+
+.share-view-window,
+.share-view-scope {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.share-view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.share-privacy-note {
+  margin-top: 20px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+/* ---- The creator's manager, inside device settings ---- */
+
+.share-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.share-form,
+.share-created {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.share-created-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+/* The two secrets. Monospace and selectable: the copy button is the happy path,
+   but clipboard access can be refused, and then reading them off the screen has
+   to work. `break-all` because a share URL has no spaces to wrap at and must not
+   push the panel wider than the phone showing it. */
+.share-secret {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  word-break: break-all;
+  user-select: all;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  margin-bottom: 8px;
+}
+
+.share-secret--code {
+  font-size: 1.125rem;
+  letter-spacing: 0.08em;
+  word-break: normal;
+}
+
+.share-form-window {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 12px;
+}
+
+.share-form-scope,
+.share-form-extras {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The explanatory line under each radio sits inside the label, so it needs to
+   break onto its own row rather than trailing the option text. */
+.share-form-scope .checkbox-field .hint,
+.share-form-extras .hint {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.share-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The list heading and the "still works" filter share a line: the filter is a
+   property of the list below it, and a control that drifts off on its own row
+   reads as another form field rather than as a view switch. It wraps rather
+   than shrinks, so the label stays readable on a phone. */
+.share-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-list-header .info-label {
+  margin: 0;
+}
+
+.share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.share-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--panel-bg);
+}
+
+.share-row-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-row-label {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.share-row-window,
+.share-row-usage {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+/* Wrong-code attempts are the only signal a creator gets that somebody is
+   working on their link, since nothing about the visitor is recorded. Coloured
+   as a warning so it is not read as another usage statistic. */
+.share-row-failed {
+  margin: 6px 0 0;
+  color: var(--warning);
+  font-size: 0.8125rem;
+}
+
+.share-row-confirm {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+}
+
+.share-row-confirm-text {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.share-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.share-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.share-badge--active {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.share-badge--scheduled {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.share-badge--coolingDown {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.share-badge--expired,
+.share-badge--revoked {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+@media (max-width: 480px) {
+  .share-main {
+    padding: 20px 16px;
+  }
+
+  .share-gate {
+    padding: 24px 20px;
+  }
+}
+
+/* The row's action buttons are a schedule profile/rule card's buttons — same
+   classes, same variants, same labels — so the two panels read as one system.
+   The container is reused rather than restyled; only the axis differs, because a
+   schedule card lays its content out horizontally and ends with the buttons,
+   while a share row stacks label, window and usage and the buttons follow. */
+.share-row .schedule-card-actions {
+  align-items: flex-start;
+  margin-top: 12px;
+}
+
+/* The per-row reveal of a link and its code. Collapsed by default and visually
+   set apart from the row's metadata, because these are live credentials rather
+   than another fact about the share. */
+.share-row-secrets {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
 }

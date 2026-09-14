@@ -34,7 +34,16 @@ export type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>
 
   // Create a new account and immediately sign in.
-  register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>
+  // acceptedPrivacyPolicyVersion is the version the registration form displayed.
+  // The server records it against the account and refuses anything but the
+  // current one, so the stored consent is provably the text the user was shown.
+  register: (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    acceptedPrivacyPolicyVersion: string,
+  ) => Promise<void>
 
   // Ends the session server-side (the API expires the cookies) and clears local
   // state, which redirects to /login on the next render.

@@ -13,6 +13,11 @@ namespace CarPosAPI.Dtos;
 /// sent — MQTT topics are case-sensitive (see <see cref="Data.Entities.Device.DeviceId"/>).
 /// </param>
 /// <param name="DisplayName">Optional human-friendly name shown in the dashboard.</param>
+/// <param name="TrackingDeclarationAccepted">
+/// The caller confirming they are entitled to track this vehicle and will tell the
+/// people who drive it. Must be true; a false or absent value is refused with 400.
+/// The acceptance time is stamped on the device row.
+/// </param>
 /// <param name="AdditionalAccesses">
 /// Optional people to share the new device with immediately. The creator always
 /// receives all four capabilities regardless of what appears here — that grant is
@@ -41,4 +46,13 @@ public sealed record CreateDeviceRequestDto(
     // and an INSERT inside the provisioning transaction, so an unbounded list
     // would let one request hold a write transaction open indefinitely.
     [MaxLength(32)]
-    IReadOnlyList<DeviceAccessGrantInputDto>? AdditionalAccesses = null);
+    IReadOnlyList<DeviceAccessGrantInputDto>? AdditionalAccesses = null,
+
+    // Not a DataAnnotation: [Range(true, true)] on a bool is a trick that reads as
+    // a typo, and the failure deserves a sentence rather than a field error. The
+    // guard lives in DeviceService.CreateAsync and answers 400 through
+    // OperationResult.Invalid, the same way every other expected failure does.
+    //
+    // Defaulting to false is deliberate: an older client that does not know about
+    // this field must be refused, not waved through with a declaration nobody made.
+    bool TrackingDeclarationAccepted = false);

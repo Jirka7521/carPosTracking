@@ -26,7 +26,26 @@
     <link rel="alternate icon" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0065BD" />
-    <title>Car Position Tracking</title>
+
+    <!--
+      The title carries the qualifier so a browser tab, a bookmark and a shared
+      link all say what this is without anyone having to open it. src/App.tsx
+      replaces it with the translated `common:documentTitle` once i18next has
+      settled on a language — keep the two saying the same thing.
+    -->
+    <title>Car Position Tracker — non-commercial test project</title>
+    <meta
+      name="description"
+      content="Non-commercial test deployment of a personal GNSS vehicle-tracking project. Not a product and not a service."
+    />
+
+    <!--
+      A test deployment holding precise vehicle location histories has no
+      business in a search index. This is a genuine data-minimisation measure,
+      not decoration: it keeps account pages, and the fact that a given person
+      has an account here at all, out of public search results.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
 
     <!--
       Runtime configuration. It must load *before* the bundle, and not as a

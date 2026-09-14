@@ -1,5 +1,15 @@
 # PostgreSQL + PostGIS container
 
+> ### ⚠️ Non-commercial test project
+>
+> Part of **[carPosTracking](../../README.md)** — a personal project built for learning and
+> experimentation. **Not a product, not a service**: no warranty, no support, no uptime
+> expectation. Licensed under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) —
+> **commercial use is not permitted**.
+>
+> The system handles precise vehicle location data, which is personal data under the GDPR.
+> See the [privacy policy](../../docs/PRIVACY.md).
+
 PostgreSQL **18** with the **PostGIS 3.6** geospatial extension, for storing car
 position data. Uses the `imresamu/postgis` image (the PostGIS project's multi-arch
 mirror), which runs natively on arm64 — the official `postgis/postgis` image is

@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { PermissionBadges } from './PermissionBadges'
 import { BatteryBadge } from './BatteryBadge'
+import { AccessCountBadge } from './AccessCountBadge'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { formatRelativeTime } from '../utils/dates'
@@ -52,6 +53,11 @@ export function DeviceCard({ device }: DeviceCardProps) {
         <span className="device-card-uuid">{label}</span>
 
         <div className="device-card-badges">
+          {/* Who can see this vehicle: accounts with a grant, plus any share
+              link that is live right now. Leftmost of the three so the two
+              badges that can signal a problem keep the end of the row. */}
+          <AccessCountBadge counts={device.accessCounts} />
+
           {/* Battery from the latest fix; renders nothing when the device sent
               none, so a sensor-less device shows no empty slot. */}
           <BatteryBadge value={device.lastBatteryPct} />

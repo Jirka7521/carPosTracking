@@ -2,6 +2,7 @@ using CarPosAPI.Dtos;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Devices;
+using CarPosAPI.Services.Positions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -37,19 +38,23 @@ public sealed class DevicesController : ApiControllerBase
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IDeviceService _devices;
     private readonly IDeviceConfigService _deviceConfig;
+    private readonly IPositionErasureService _positionErasure;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="currentUser">Supplies the caller's id.</param>
     /// <param name="devices">Does the device work and authorises each call.</param>
     /// <param name="deviceConfig">Reads and changes remote settings, and publishes them.</param>
+    /// <param name="positionErasure">Erases a device's stored position history.</param>
     public DevicesController(
         ICurrentUserAccessor currentUser,
         IDeviceService devices,
-        IDeviceConfigService deviceConfig)
+        IDeviceConfigService deviceConfig,
+        IPositionErasureService positionErasure)
     {
         _currentUser = currentUser;
         _devices = devices;
         _deviceConfig = deviceConfig;
+        _positionErasure = positionErasure;
     }
 
     /// <summary>
@@ -101,6 +106,39 @@ public sealed class DevicesController : ApiControllerBase
         OperationResult<bool> result = await _devices.DeactivateAsync(userId, deviceId, cancellationToken);
 
         return result.IsSuccess ? NoContent() : Failure(result);
+    }
+
+    /// <summary>
+    /// Erases a device's stored position history, permanently — the per-device form
+    /// of the right to erasure (GDPR Art. 17).
+    ///
+    /// Positions are never deleted automatically (see docs/PRIVACY.md), so this is
+    /// the only thing that ever bounds a location history. Unlike deleting a device,
+    /// which is a soft delete precisely so the history survives, this destroys rows.
+    /// </summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="from">Optional inclusive lower bound on fix time (UTC).</param>
+    /// <param name="to">Optional inclusive upper bound on fix time (UTC).</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with the number of rows deleted, 403 without <c>CanDelete</c>, 404 when not visible.</returns>
+    [HttpDelete("{deviceId}/positions")]
+    [ProducesResponseType(typeof(PositionErasureResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PositionErasureResultDto>> ErasePositionsAsync(
+        string deviceId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        CancellationToken cancellationToken)
+    {
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<long> result =
+            await _positionErasure.EraseAsync(userId, deviceId, from, to, cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(new PositionErasureResultDto(result.Value))
+            : Failure(result);
     }
 
     /// <summary>

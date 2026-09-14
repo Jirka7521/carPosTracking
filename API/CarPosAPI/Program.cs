@@ -3,6 +3,10 @@
 // behaviour lives in the layer folders (Options/, Data/, Services/), per project
 // guidelines.
 
+using System.Diagnostics;
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using CarPosAPI.Data;
@@ -15,6 +19,7 @@ using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Health;
 using CarPosAPI.Services.Ingest;
 using CarPosAPI.Services.Positions;
+using CarPosAPI.Services.Privacy;
 using CarPosAPI.Services.Provisioning;
 using CarPosAPI.Services.Scheduling;
 using CarPosAPI.Services.Security;
@@ -23,9 +28,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
 
 // CLI mode: compare a database against the schema this source describes, and
 // optionally bring it into line. Runs BEFORE the builder — unlike
@@ -81,6 +88,9 @@ builder.Services.AddOptions<JwtOptions>()
     .Validate(
         static (JwtOptions options) => options.HasStrongSigningKey(),
         $"Jwt:SigningKey must be at least {JwtOptions.MinimumSigningKeyBytes} bytes. There is no default and no fallback — a deployment without a real key would issue forgeable sessions.")
+    .Validate(
+        static (JwtOptions options) => options.HasDistinctShareIdentity(),
+        "Jwt:ShareIssuer and Jwt:ShareAudience must both differ from Jwt:Issuer and Jwt:Audience. Share tokens are signed with the same key as sessions, so those two values are the entire separation between an anonymous visitor and an account holder.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<AuthCookieOptions>()
@@ -96,6 +106,45 @@ builder.Services.AddOptions<HostingOptions>()
         "Hosting:PathBase must be empty or an absolute path with no trailing slash, e.g. \"/carPosAPI\".")
     .ValidateOnStart();
 
+// Ceilings on temporary share links. No secret here — these are policy limits, and
+// they live in configuration so a deployment can tighten them without a rebuild.
+builder.Services.AddOptions<SharingOptions>()
+    .BindConfiguration(SharingOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Who is answerable for the personal data this system holds. The contact check runs
+// only outside Development, for the same reason the JWT key check exists at all: a
+// developer running this on a laptop has no data subjects to answer to, but anything
+// reachable from the internet does, and a privacy policy naming nobody is worse than
+// no policy — it looks like an answer.
+builder.Services.AddOptions<PrivacyOptions>()
+    .BindConfiguration(PrivacyOptions.SectionName)
+    .ValidateDataAnnotations()
+    .Validate(
+        (PrivacyOptions options) => builder.Environment.IsDevelopment() || options.HasController(),
+        $"Privacy:ControllerContactEmail must be a real address before this is deployed — it is where data-subject requests go, and it is published in the privacy policy. It is still set to \"{PrivacyOptions.UnsetContactPlaceholder}\".")
+    .ValidateOnStart();
+
+// ---------------------------------------------------------------------------
+// Request size limit. Kestrel's own default is about 30 MB and nothing this API
+// accepts comes near it: the largest legitimate body is a device registration
+// carrying up to 32 share grants, roughly 11 KB, and the next is a 4 KB public
+// key. Bulk data does not arrive over HTTP at all — position fixes come in over
+// MQTT, capped separately by IngestOptions.
+//
+// Applied here rather than left to Kestrel's configuration binding, which reads
+// Endpoints and Certificates from the Kestrel section but not Limits: setting it
+// in appsettings.json alone looks right, changes nothing, and gives no error.
+// The key is still read so a deployment can override it without a rebuild.
+// ---------------------------------------------------------------------------
+const long DefaultMaxRequestBodyBytes = 256L * 1024L;
+
+builder.WebHost.ConfigureKestrel((KestrelServerOptions kestrel) =>
+    kestrel.Limits.MaxRequestBodySize = builder.Configuration
+        .GetValue<long?>("Kestrel:Limits:MaxRequestBodySize")
+        ?? DefaultMaxRequestBodyBytes);
+
 // ---------------------------------------------------------------------------
 // Database. The connection string is a secret (user-secrets in dev, environment
 // variable in prod) and must exist — refuse to start without it. Runtime uses
@@ -110,8 +159,38 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "Connection string 'CarPos' is missing. Set it in appsettings.Local.json (or with 'dotnet user-secrets set \"ConnectionStrings:CarPos\" \"...\"') in development, or as the ConnectionStrings__CarPos environment variable in production.");
 }
 
+// Transient faults are retried in-process rather than surfacing as a 500 on the
+// first blip: a failover, a reset connection or a pool timeout is a few seconds of
+// bad luck, not a failed request. Three attempts inside five seconds stays well
+// under any sane client timeout, and a fault that outlives that is no longer
+// transient — it should be reported, not retried forever.
+//
+// The price is that EF Core then refuses a user-initiated transaction unless it
+// runs inside the execution strategy, because it cannot know how to replay one it
+// did not open. The three places that begin a transaction wrap themselves in
+// CreateExecutionStrategy().ExecuteAsync accordingly: DeviceService.CreateAsync,
+// DeviceConfigRevisionWriter and AccountErasureService.
+const int DatabaseRetryAttempts = 3;
+const int DatabaseRetryMaxDelaySeconds = 5;
+
+// The Npgsql default is the same thirty seconds; set explicitly so it is a
+// decision rather than an inherited one. A request still waiting on a single
+// statement after half a minute has already failed as far as the caller is
+// concerned.
+const int DatabaseCommandTimeoutSeconds = 30;
+
 builder.Services.AddDbContextFactory<CarPosDbContext>(
-    (DbContextOptionsBuilder options) => options.UseNpgsql(connectionString));
+    (DbContextOptionsBuilder options) => options.UseNpgsql(
+        connectionString,
+        (NpgsqlDbContextOptionsBuilder npgsql) =>
+        {
+            npgsql.EnableRetryOnFailure(
+                maxRetryCount: DatabaseRetryAttempts,
+                maxRetryDelay: TimeSpan.FromSeconds(DatabaseRetryMaxDelaySeconds),
+                errorCodesToAdd: null);
+
+            npgsql.CommandTimeout(DatabaseCommandTimeoutSeconds);
+        }));
 
 // ---------------------------------------------------------------------------
 // Ingest services. Everything is a singleton: the pipeline is driven by one
@@ -154,6 +233,14 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<IUserAccountService, UserAccountService>();
 
+// The share-link credential, kept parallel to the session one at every level: its
+// own issuer, its own cookie writer, its own accessor. The parallel is the point —
+// nothing here is a variant of the session machinery that could be widened into it
+// by an edit that looked harmless.
+builder.Services.AddSingleton<IShareTokenIssuer, ShareTokenIssuer>();
+builder.Services.AddSingleton<IShareCookieWriter, ShareCookieWriter>();
+builder.Services.AddScoped<IShareContextAccessor, ShareContextAccessor>();
+
 // ---------------------------------------------------------------------------
 // Authorisation and the resource services. Every one of these is scoped: they
 // hold the request's DbContext, and the authorizer re-reads the caller's grant
@@ -165,6 +252,28 @@ builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+
+// Temporary share links. The two stateless helpers are shared; the three services
+// are scoped like every other database-touching one.
+//
+// ShareViewService is registered beside PositionQueryService and is emphatically
+// not a variant of it: it takes a share id where the other takes a user id, and
+// keeping them as separate types is what makes it impossible for one to be handed
+// the other's notion of who is asking.
+builder.Services.AddSingleton<IShareTokenFactory, ShareTokenFactory>();
+builder.Services.AddSingleton<IPassphraseGenerator, PassphraseGenerator>();
+builder.Services.AddScoped<IShareLinkService, ShareLinkService>();
+builder.Services.AddScoped<IShareRedemptionService, ShareRedemptionService>();
+builder.Services.AddScoped<IShareViewService, ShareViewService>();
+
+// The GDPR data-subject services. Scoped like everything else that writes through
+// the request's DbContext. The erasure service is the one place in the application
+// that physically deletes rows, which is why it lives behind its own interface
+// rather than as another method on the device or account services — it should be
+// obvious in the DI graph that this capability exists and where it is used.
+builder.Services.AddScoped<IPositionErasureService, PositionErasureService>();
+builder.Services.AddScoped<IDataExportService, DataExportService>();
+builder.Services.AddScoped<IAccountErasureService, AccountErasureService>();
 
 // ---------------------------------------------------------------------------
 // Settings schedules. The evaluator is pure arithmetic over a set of rules — no
@@ -235,6 +344,50 @@ builder.Services
                 return Task.CompletedTask;
             },
         };
+    })
+    // ---------------------------------------------------------------------------
+    // The share scheme, registered *alongside* the default one rather than instead
+    // of it. That arrangement is the wall between an anonymous share visitor and an
+    // account holder, and it holds in both directions without anyone remembering to
+    // check anything:
+    //
+    //   * a plain [Authorize] binds to the default scheme, so every existing
+    //     endpoint rejects share tokens — including endpoints written later;
+    //   * this scheme validates a different issuer and audience, so a session token
+    //     presented here fails validation outright.
+    //
+    // The two are signed with the same key, which is what makes the issuer and
+    // audience load-bearing rather than decorative — see JwtOptions.ShareIssuer, and
+    // the startup check that refuses to let them be configured alike.
+    // ---------------------------------------------------------------------------
+    .AddJwtBearer(ShareAuthenticationDefaults.Scheme, (JwtBearerOptions options) =>
+    {
+        // Same reasoning as above: keep the raw claim names, since ShareContextAccessor
+        // looks for "share" and the inbound mapping would rename what it finds.
+        options.MapInboundClaims = false;
+
+        JwtOptions jwtOptions = builder.Configuration
+            .GetSection(JwtOptions.SectionName)
+            .Get<JwtOptions>() ?? new JwtOptions();
+
+        // Built in ShareTokenValidation so the tests can hold the real parameters to
+        // account rather than a restatement of them.
+        options.TokenValidationParameters = ShareTokenValidation.CreateParameters(jwtOptions);
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = (MessageReceivedContext context) =>
+            {
+                AuthCookieOptions cookieOptions = context.HttpContext.RequestServices
+                    .GetRequiredService<IOptions<AuthCookieOptions>>().Value;
+
+                // Its own cookie, so a browser holding both credentials at once — an
+                // account holder checking a link they created — presents each only
+                // where it is asked for.
+                context.Token = context.Request.Cookies[cookieOptions.ShareCookieName];
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -245,9 +398,44 @@ builder.Services.AddAuthorization();
 // guesses. Partitioned by client address so one attacker cannot lock out the
 // whole world.
 // ---------------------------------------------------------------------------
+// Rejections are logged under their own category rather than Program's, so a
+// deployment can turn the noise up or down without touching anything else.
+const string RateLimitLoggerCategory = "CarPosAPI.RateLimiting";
+
 builder.Services.AddRateLimiter((RateLimiterOptions options) =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // A rejection is a security event. A burst of them is what credential
+    // stuffing, a hunt for valid share links, or a runaway client looks like from
+    // in here, and until now they left no trace in the log at all.
+    //
+    // Logged with the policy and the path but never the partition key: that key is
+    // a client address or an account id, and neither belongs in a log line that
+    // exists to count events. The body is left empty on purpose — UseStatusCodePages
+    // fills it with the same ProblemDetails shape every other error uses.
+    options.OnRejected = (OnRejectedContext context, CancellationToken cancellationToken) =>
+    {
+        ILogger logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger(RateLimitLoggerCategory);
+
+        logger.LogWarning(
+            "Rate limit rejected {Method} {Path}",
+            context.HttpContext.Request.Method,
+            context.HttpContext.Request.Path);
+
+        // Tells a well-behaved client when it is worth coming back, instead of
+        // leaving it to hammer a door that is going to stay shut for the rest of
+        // the window. Only set when the limiter actually knows the answer.
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds)
+                .ToString(CultureInfo.InvariantCulture);
+        }
+
+        return ValueTask.CompletedTask;
+    };
 
     options.AddPolicy(RateLimitPolicies.Authentication, (HttpContext context) =>
         RateLimitPartition.GetFixedWindowLimiter(
@@ -262,13 +450,85 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
+
+    // The GDPR endpoints on /api/me. Authenticated, so partitioned by account id
+    // rather than by address — the account is what is being abused, and users behind
+    // one address must not be able to exhaust each other's budget.
+    //
+    // This reads HttpContext.User, which only exists because UseRateLimiter runs
+    // AFTER UseAuthentication in the pipeline below. Move it back above and this
+    // silently degrades to the address fallback with no error anywhere: every user
+    // behind one NAT would share a single bucket again.
+    options.AddPolicy(RateLimitPolicies.PrivacyOperations, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "unknown",
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                // An export is a full history dump and a deletion is final: nobody
+                // legitimately needs either more than a handful of times running.
+                // Loose enough that a retry after a failed download still works.
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(5),
+                QueueLimit = 0,
+            }));
+
+    // Redeeming a share link. The second unauthenticated front door, and the one
+    // with no account behind it to lock or notify.
+    //
+    // This is the outer of two limits. The per-link cooldown in ShareCooldownPolicy
+    // makes guessing the code of one share progressively hopeless; this caps how
+    // fast one address can work through many of them, which is the shape a hunt for
+    // valid links would take. Partitioned by address because a visitor has no
+    // identity here to partition by.
+    options.AddPolicy(RateLimitPolicies.ShareRedemption, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                // Generous for a person typing one code and refreshing a map, mean for
+                // anything working through a list. The map itself polls this
+                // controller's read action on a thirty-second timer, so the ceiling
+                // has to leave room for that as well as for the redeem.
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
 });
 
 // ---------------------------------------------------------------------------
 // Error handling: one handler, ProblemDetails out, nothing internal leaked.
+//
+// CustomizeProblemDetails runs for every problem response this API produces — the
+// 500 from GlobalExceptionHandler, the 4xx from ApiControllerBase.Failure, the
+// automatic 400 from [ApiController] validation, and the bodies UseStatusCodePages
+// fills in for 401/403/404/405/429 — so every error carries the same correlation
+// id under the same name.
+//
+// The id is safe to publish. It identifies one request and nothing else: not the
+// server, not the build, not the caller. It is also what the logging provider
+// stamps on the matching log line, which is the whole point — it turns "the site
+// broke this morning" into a single grep.
 // ---------------------------------------------------------------------------
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
+builder.Services.AddProblemDetails((ProblemDetailsOptions options) =>
+    options.CustomizeProblemDetails = (ProblemDetailsContext context) =>
+        context.ProblemDetails.Extensions["traceId"] =
+            Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+
+// A BackgroundService that throws stops the whole host by default, which would
+// mean an MQTT fault taking the REST API down with it — the opposite of what the
+// health model here says should happen, where a broker outage is Degraded and
+// self-healing while only the database can be Unhealthy.
+//
+// Both workers already supervise themselves (see MqttIngestService.ExecuteAsync
+// and DeviceConfigScheduleWorker.RunPassAsync), so this is the second line of
+// defence rather than the first. If one ever does escape its own guards, HTTP
+// keeps serving and /health is what reports the loss: MqttIngestHealthCheck goes
+// Degraded the moment the connection is gone, however it went.
+builder.Services.Configure<HostOptions>((HostOptions options) =>
+    options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 
 // ---------------------------------------------------------------------------
 // Health. One check per dependency, each reporting separately in the JSON body
@@ -296,6 +556,29 @@ if (DeviceKeyImportCommand.IsRequested(args))
 {
     return await DeviceKeyImportCommand.RunAsync(app.Services, args);
 }
+
+// Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).
+//
+// First in the pipeline, above even UsePathBase and UseForwardedHeaders. Those two
+// can throw — a malformed X-Forwarded-For is the realistic way — and anything
+// thrown above this line escapes to Kestrel instead, which answers a bare 500 and
+// logs it somewhere this application never sees. The whole point of the handler is
+// that no failure is invisible, so it has to be the outermost thing there is.
+app.UseExceptionHandler();
+
+// Gives a body to the error statuses that are produced without one: 401 from the
+// JWT handler, 403 from [Authorize], 404 for an unmatched route, 405, and 429 from
+// the rate limiter. AddProblemDetails above makes that body a ProblemDetails, so
+// the frontend has exactly one error shape to parse however a request failed.
+//
+// The text it generates is generic, and that is deliberate rather than lazy: a 404
+// from an unmatched route and a 404 from "that device exists but is not yours"
+// must stay indistinguishable, which is the same enumeration defence the service
+// layer implements by answering 404 where 403 would be the honest answer.
+//
+// It only fills a response that has no body of its own, so /health (which writes
+// its own JSON report) and every Problem() response are left exactly as they are.
+app.UseStatusCodePages();
 
 // Strips the prefix the API is published under, before anything downstream looks
 // at the path. The Cloudflare tunnel routes /carPosAPI/* here and forwards the
@@ -327,9 +610,6 @@ forwardedHeaders.KnownIPNetworks.Clear();
 forwardedHeaders.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeaders);
 
-// Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).
-app.UseExceptionHandler();
-
 if (app.Environment.IsDevelopment())
 {
     // The OpenAPI document describes every endpoint including request shapes, so
@@ -346,13 +626,22 @@ else
     app.UseHttpsRedirection();
 }
 
-app.UseRateLimiter();
-
 // Order matters: authentication first (so the session cookie is turned into a
-// principal), then the CSRF check, then authorisation. Putting CSRF ahead of
-// authentication would be just as safe but harder to read in the logs, since the
-// rejection would carry no user.
+// principal), then rate limiting, then the CSRF check, then authorisation. Putting
+// CSRF ahead of authentication would be just as safe but harder to read in the
+// logs, since the rejection would carry no user.
+//
+// The limiter sits below authentication because the PrivacyOperations policy
+// partitions by the caller's account id. Read any earlier and HttpContext.User is
+// still the empty default principal, so that policy falls through to its address
+// fallback and every user behind one NAT shares a single export budget — the exact
+// failure its comment says must not happen, and one that shows up nowhere but in a
+// complaint. The two anonymous policies partition by address and do not care.
+//
+// Endpoint metadata is resolved by routing before any of this, so [EnableRateLimiting]
+// still selects the right policy from down here.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseMiddleware<CsrfProtectionMiddleware>();
 app.UseAuthorization();
 

@@ -5,6 +5,9 @@
 //   • A sticky top navigation bar with the app logo mark,
 //     application title, signed-in user's name, and logout button.
 //   • An <Outlet /> where React Router mounts the active page.
+//   • A standing footer saying this is a non-commercial test project, with
+//     links to the privacy policy and the legal notice. The flex column and
+//     `flex: 1` on <main> are what pin it to the bottom on a short page.
 //
 // The header does NOT contain per-page navigation tabs — those live
 // inside the individual page components so each page fully controls
@@ -16,6 +19,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { assetUrl } from '../services/runtimeConfig'
 import { LanguageMenu } from './LanguageMenu'
+import { SiteFooter } from './SiteFooter'
 
 export function AppLayout() {
   const { currentUser, logout } = useAuth()
@@ -77,6 +81,9 @@ export function AppLayout() {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Outlet />
       </main>
+
+      {/* ---- What this is, on every page ---- */}
+      <SiteFooter />
     </div>
   )
 }

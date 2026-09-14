@@ -24,6 +24,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     /// <summary>Maximum length of either name part.</summary>
     private const int NameMaxLength = 128;
 
+    /// <summary>Upper bound on the stored policy-version string (a date, today).</summary>
+    private const int PolicyVersionMaxLength = 32;
+
     /// <summary>Configures the users table.</summary>
     /// <param name="builder">Type builder supplied by EF Core.</param>
     public void Configure(EntityTypeBuilder<User> builder)
@@ -65,5 +68,17 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.CreatedAt)
             .HasColumnName("created_at")
             .HasDefaultValueSql("now()");
+
+        builder.Property(user => user.PrivacyPolicyVersion)
+            .HasColumnName("privacy_policy_version")
+            .HasMaxLength(PolicyVersionMaxLength)
+            .HasDefaultValue(string.Empty)
+            .IsRequired();
+
+        // Nullable rather than defaulted: an account created before acknowledgement
+        // was recorded genuinely has no acceptance moment, and inventing one would
+        // put a false consent record in the table.
+        builder.Property(user => user.PrivacyPolicyAcceptedAt)
+            .HasColumnName("privacy_policy_accepted_at");
     }
 }

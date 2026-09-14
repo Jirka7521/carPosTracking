@@ -72,6 +72,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { formatDate } from '../i18n/format'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { DeviceConfigSection } from '../components/DeviceConfigSection'
+import { ErasePositionHistory } from '../components/ErasePositionHistory'
 import { FirmwareParameterTable } from '../components/FirmwareParameterTable'
 import { PermissionBadges } from '../components/PermissionBadges'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
@@ -79,6 +80,7 @@ import { RefreshToolbar } from '../components/RefreshToolbar'
 import { ScheduleSection } from '../components/ScheduleSection'
 import type { ScheduleLoadStatus } from '../components/ScheduleSection'
 import { SharedUserCard } from '../components/SharedUserCard'
+import { ShareLinkManager } from '../components/ShareLinkManager'
 import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
 import { EMPTY_FLAGS } from '../components/capabilityFlags'
 import type { SharedUserData } from '../components/SharedUserCard'
@@ -120,7 +122,7 @@ export function DeviceSettingsTab() {
   } = useOutletContext<DevicePageContext>()
   const { currentUser } = useAuth()
   const navigate        = useNavigate()
-  const { t }           = useTranslation(['settings', 'common', 'errors'])
+  const { t }           = useTranslation(['settings', 'common', 'errors', 'share'])
   const perms           = device.permissions
 
   // ---- Convenience booleans derived from permissions ----
@@ -863,7 +865,27 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 6: Danger Zone — visible only if canDelete
+       * Section 6: Temporary share links — visible on the same terms as the
+       * roster above, because it is the same question asked about people who
+       * have no account. Creating one needs canShare; the manager says so
+       * itself when the caller only has canModifySettings, and the server
+       * re-checks on every call regardless.
+       * ================================================================ */}
+      {canViewAccess ? (
+        <div className="settings-section">
+          <div className="settings-section-header">
+            <span className="settings-section-icon" aria-hidden="true">🔗</span>
+            <h3>{t('share:manage.title')}</h3>
+          </div>
+
+          <div className="settings-section-body">
+            <ShareLinkManager deviceId={device.deviceId} canShare={canEditAccess} />
+          </div>
+        </div>
+      ) : null}
+
+      {/* ================================================================
+       * Section 7: Danger Zone — visible only if canDelete
        * ================================================================ */}
       {perms.canDelete ? (
         <div className="settings-section settings-section--danger">
@@ -876,6 +898,15 @@ export function DeviceSettingsTab() {
             <p>
               <Trans i18nKey="danger.intro" ns="settings" components={{ strong: <strong /> }} />
             </p>
+
+            {/*
+              Erasing the history comes FIRST, above deleting the device, because
+              it is the one people actually want: deleting a device is a soft
+              delete that keeps every coordinate it ever reported. Somebody who
+              means "get rid of where this car has been" and presses the wrong one
+              gets the opposite of what they asked for.
+            */}
+            <ErasePositionHistory deviceId={device.deviceId} />
 
             {deleteError ? (
               <div className="banner banner--error" role="alert">{deleteError}</div>

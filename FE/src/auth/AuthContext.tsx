@@ -89,8 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     firstName: string,
     lastName: string,
+    acceptedPrivacyPolicyVersion: string,
   ): Promise<void> => {
-    const response = await registerUser(email, password, firstName, lastName)
+    const response = await registerUser(
+      email,
+      password,
+      firstName,
+      lastName,
+      acceptedPrivacyPolicyVersion,
+    )
     setCurrentUser(response.user)
     setStatus('authenticated')
   }, [])
