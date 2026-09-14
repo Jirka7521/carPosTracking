@@ -108,10 +108,10 @@ function RangeToolbar({
         >
           {t('range.today')}
         </button>
-        {/* Spelled 24 rather than RANGE_PAST_HOURS: the label says "24 hours"
-            in every language, so reading the default-window constant here would
-            let a change to that constant make the label lie. That they happen
-            to agree today is a coincidence worth keeping visible. */}
+        {/* The way back to a full day after the page opens on today, which at
+            breakfast is a very short window. The 24 is spelled out because the
+            label says "24 hours" in every language: the number and the words
+            have to change together, so they live next to each other. */}
         <button
           type="button"
           className="btn btn-quiet btn-sm"

@@ -12,12 +12,15 @@
 import i18n from '../i18n'
 import { formatDate } from '../i18n/format'
 
-// The window every tab opens with. It reaches BACK a day for history and
-// FORWARD half a day so that fixes arriving while the page is open still fall
-// inside it — that is what lets a refresh re-run the very same query instead of
-// pushing "to" to now, which used to discard whatever end time the user picked.
-export const RANGE_PAST_HOURS: number   = 24
-export const RANGE_FUTURE_HOURS: number = 12
+// How far past "now" a rolling "last N hours" window reaches. It exists so that
+// fixes arriving while the page is open still fall inside the range — that is
+// what lets a refresh re-run the very same query instead of pushing "to" to
+// now, which used to discard whatever end time the user picked. Two hours is
+// enough headroom for a session without stretching the window far past what the
+// label promises.
+//
+// The calendar-day window does not use this; it ends at the end of its day.
+export const RANGE_FUTURE_HOURS: number = 2
 
 // A from/to pair as the `<input type="datetime-local">` elements carry it.
 export type DateRange = {
@@ -36,22 +39,35 @@ export function getPastHoursRange(hours: number): DateRange {
   }
 }
 
-// Today so far: local midnight up to now, plus the usual forward padding.
-// Built from the calendar fields rather than by subtracting hours, so it lands
-// on the reader's own midnight and stays right across a DST change.
+// The whole calendar day: local midnight to 23:59 the same evening. Both ends
+// are built from the calendar fields rather than by adding hours, so they land
+// on the reader's own midnight and stay right across a DST change.
+//
+// Ending at the end of the day rather than a couple of hours past now is what
+// makes this window mean "today" all day: everything that arrives before
+// midnight is already inside it, so the range never needs revisiting.
 export function getTodayRange(): DateRange {
   const now: Date = new Date()
-  const midnight: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const year: number = now.getFullYear()
+  const month: number = now.getMonth()
+  const day: number = now.getDate()
   return {
-    from: formatDateTimeLocal(midnight),
-    to:   formatDateTimeLocal(new Date(now.getTime() + RANGE_FUTURE_HOURS * 60 * 60 * 1000)),
+    from: formatDateTimeLocal(new Date(year, month, day)),
+    to:   formatDateTimeLocal(new Date(year, month, day, 23, 59)),
   }
 }
 
-// The default range, computed once when a tab mounts and then left alone. It is
-// exactly the "past N hours" window, so it is built by the same function.
+// The range every tab opens with: today so far. Computed once when a tab mounts
+// and then left alone.
+//
+// Opening on the calendar day rather than a rolling 24 hours means the first
+// load answers "where has it been today", and it answers it with less data.
+// The cost is the small hours: the window spans the whole day, but just after
+// midnight there is almost nothing in it yet, so the page will look empty. That
+// is why the toolbar's other presets are one click away — "Past 24 hours"
+// reaches back across midnight and is the way to the previous behaviour.
 export function getDefaultDateRange(): DateRange {
-  return getPastHoursRange(RANGE_PAST_HOURS)
+  return getTodayRange()
 }
 
 export function formatDateTimeLocal(value: Date): string {
