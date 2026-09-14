@@ -155,6 +155,31 @@ Leaving them empty is deliberate — startup validation rejects blank secrets, s
 a missing local file fails fast with a clear message instead of a confusing
 error on the first message.
 
+### Resilience and limits
+
+None of these are secret, and all have working defaults.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Kestrel:Limits:MaxRequestBodySize` | `262144` (256 KB) | Caps an inbound request body. Kestrel's own default is ~30 MB, and nothing here comes near either number: the largest legitimate request is a device registration carrying up to 32 share grants (~11 KB), and the next is a 4 KB public key. Position fixes do not arrive over HTTP at all — they come in over MQTT, capped separately by `IngestOptions`. Exceeding it answers **413**. |
+| `Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command` | `Warning` | EF logs every statement it executes at `Information`, which under the `Default` level fills the log with query text and buries what it exists to surface. [`appsettings.Development.json`](appsettings.Development.json) turns it back up, where reading the SQL is the point. |
+
+**Transient database faults are retried in-process** — three attempts inside five
+seconds, via Npgsql's `EnableRetryOnFailure`. A failover, a reset connection or a
+pool timeout is a few seconds of bad luck rather than a failed request, and only a
+fault that outlives the retries reaches the caller as a 500. Note the consequence
+for anyone adding code: EF refuses a hand-opened transaction outside an execution
+strategy, so a new `BeginTransactionAsync` must be wrapped in
+`Database.CreateExecutionStrategy().ExecuteAsync(...)`, and **its body must be
+safe to run twice** — see the comments in `DeviceService.CreateAsync` and
+`DeviceConfigRevisionWriter` for the two traps (a change tracker still holding the
+failed attempt's entities, and an in-memory counter already incremented by it).
+
+**Neither background worker can take the API down.** The MQTT ingest and the
+schedule worker each supervise their own loop and restart it after a bounded
+pause, and the host is configured not to stop when a background service throws. A
+worker that dies anyway shows up on `/health` rather than as an outage.
+
 ### `Hosting:PathBase` — published under a path prefix
 
 The Cloudflare tunnel in front of this deployment routes
@@ -413,8 +438,39 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/shares/leave` | **unauthenticated**: clear the share cookie (204) |
 | `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
 
-Failures return **`ProblemDetails`** (`application/problem+json`), with `detail`
-written for the end user — never an exception message, SQL or a stack trace.
+### Errors
+
+**Every** failure returns **`ProblemDetails`** (`application/problem+json`) — one
+shape for the whole surface, including the statuses the framework would otherwise
+answer with an empty body (401, 403, a 404 from an unmatched route, 405, 429).
+
+| Field | Meaning |
+|---|---|
+| `status`, `title` | the status code and a short, generic summary |
+| `detail` | written for the end user. Never an exception message, SQL, or a stack trace |
+| `traceId` | correlation id for this one request — quote it when reporting a fault and it finds the matching log line |
+| `errors` | on a 400 from DataAnnotations only: field name → messages |
+
+A 500 always says the same thing (`"The server encountered an error. Please try
+again later."`) whatever actually failed. The exception behind it — message,
+stack trace, inner exceptions and all — goes to the log and nowhere else; a
+varying message would let a caller probe the server by reading the differences.
+The same applies to a request Kestrel refuses to read: it keeps its real status
+(413 for an oversized body, 431 for oversized headers, 400 otherwise) but the
+`detail` never names the limit that was hit.
+
+Status codes follow the service outcome, not the cause: **403** is a permission
+failure, **404** a missing row *or* one the caller may not see, **409** a
+duplicate. That a hidden device answers 404 rather than 403 is deliberate — a 403
+would confirm the id exists, which is what an enumeration attempt is after.
+
+The one case where a clean error cannot be returned is `GET /api/me/export`,
+which streams: if it faults partway through, a `200` and part of the body are
+already on the wire and cannot be recalled. The connection is **aborted** mid-body
+instead, so the client reports a failed transfer rather than saving a truncated
+file that looks complete. The exception is logged in full, as always. Callers
+should treat a short or interrupted export as a failure and retry it — the file is
+only complete if the transfer finished cleanly.
 
 ### Temporary share links
 

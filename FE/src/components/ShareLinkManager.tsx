@@ -50,6 +50,14 @@ type RevealedSecrets = {
 // a deliberate act rather than a default.
 const DEFAULT_WINDOW_HOURS = 2
 
+// Whether a link can still be opened, now or at some point later. Revoked and
+// expired are the two ends of "will never work again"; a link cooling down after
+// wrong codes is only shut out for the moment and comes back on its own, so it
+// counts as usable.
+function isStillUsable(link: ShareLinkDto): boolean {
+  return link.status !== 'revoked' && link.status !== 'expired'
+}
+
 function defaultWindow(): { from: string; to: string } {
   const now = new Date()
   const later = new Date(now.getTime() + DEFAULT_WINDOW_HOURS * 60 * 60 * 1000)
@@ -99,6 +107,13 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
   // these are live credentials now that the server stores them readable, and a
   // list that displays several of them at once is a list nobody can screen-share.
   const [revealed, setRevealed] = useState<string | null>(null)
+
+  // Hides the links that can no longer be opened. On by default because this list
+  // only ever grows: every two-hour link ever made stays in it, and what the
+  // creator came to look at is almost always the few that still work. Links that
+  // have not started yet stay in view — they are the other half of "still
+  // useful", and hiding a link somebody is waiting on would be the worse error.
+  const [hideInactive, setHideInactive] = useState<boolean>(true)
 
   useEffect(() => {
     if (!canShare) {
@@ -273,6 +288,9 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
     }
   }
 
+  const visibleLinks: ShareLinkDto[] = hideInactive ? links.filter(isStillUsable) : links
+  const hiddenCount: number = links.length - visibleLinks.length
+
   if (!canShare) {
     return (
       <div className="banner banner--info" role="status">
@@ -300,14 +318,35 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
       )}
 
       <div className="share-list">
-        <p className="info-label">{t('share:manage.listHeading')}</p>
+        <div className="share-list-header">
+          <p className="info-label">{t('share:manage.listHeading')}</p>
+
+          {links.length > 0 && (
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={hideInactive}
+                onChange={(event) => setHideInactive(event.target.checked)}
+              />
+              <span>{t('share:manage.hideInactive')}</span>
+            </label>
+          )}
+        </div>
 
         {isLoading ? (
           <div className="loading-state"><span className="spinner" aria-hidden="true" /></div>
         ) : links.length === 0 ? (
           <p className="hint">{t('share:manage.empty')}</p>
+        ) : visibleLinks.length === 0 ? (
+          <p className="hint">{t('share:manage.allHidden', { count: hiddenCount })}</p>
         ) : (
-          links.map((link) => renderRow(link))
+          <>
+            {visibleLinks.map((link) => renderRow(link))}
+
+            {hiddenCount > 0 && (
+              <p className="hint">{t('share:manage.someHidden', { count: hiddenCount })}</p>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -493,7 +532,7 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
   function renderRow(link: ShareLinkDto) {
     const from = parseApiTimestamp(link.validFrom)
     const to = parseApiTimestamp(link.validUntil)
-    const isLive: boolean = link.status !== 'revoked' && link.status !== 'expired'
+    const isLive: boolean = isStillUsable(link)
 
     return (
       <div className="share-row" key={link.id}>

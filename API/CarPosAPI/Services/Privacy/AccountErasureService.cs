@@ -159,12 +159,19 @@ internal sealed class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Performs the deletion itself, in one transaction.
+    /// Runs the deletion under the connection's retry strategy.
     ///
-    /// Ordered by the foreign keys: everything that points at a row is removed or
-    /// unlinked before the row it points at. <c>ExecuteDeleteAsync</c> throughout,
-    /// because loading a year of positions into the change tracker only to delete
-    /// them would be an outage dressed up as a privacy feature.
+    /// The strategy exists because the context enables <c>EnableRetryOnFailure</c>
+    /// (see Program.cs), and EF refuses a hand-opened transaction outside one: it
+    /// cannot replay a transaction it did not open, so it insists the caller says
+    /// what "the whole unit of work" is. This method is that declaration.
+    ///
+    /// Replaying this particular unit is safe, which is why it needs no special
+    /// handling. Every statement in it is an <c>ExecuteDeleteAsync</c> or
+    /// <c>ExecuteUpdateAsync</c> issued straight to the server, so nothing is left
+    /// sitting in the change tracker between attempts, and the counts that make up
+    /// the summary are recomputed from scratch each time. A retried attempt starts
+    /// from the state a rolled-back one left behind: the original.
     /// </summary>
     /// <param name="userId">The account being erased.</param>
     /// <param name="deviceRowIds">Devices to delete outright.</param>
@@ -172,6 +179,37 @@ internal sealed class AccountErasureService : IAccountErasureService
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>What was removed.</returns>
     private async Task<AccountErasureSummary> EraseInTransactionAsync(
+        int userId,
+        List<Guid> deviceRowIds,
+        int retainedDevices,
+        CancellationToken cancellationToken)
+    {
+        IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(
+            (CancellationToken attemptToken) =>
+                EraseOnceAsync(userId, deviceRowIds, retainedDevices, attemptToken),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// One attempt at the deletion, in one transaction.
+    ///
+    /// Ordered by the foreign keys: everything that points at a row is removed or
+    /// unlinked before the row it points at. <c>ExecuteDeleteAsync</c> throughout,
+    /// because loading a year of positions into the change tracker only to delete
+    /// them would be an outage dressed up as a privacy feature.
+    ///
+    /// Called only by <see cref="EraseInTransactionAsync"/>, which may call it more
+    /// than once if the connection drops mid-erasure. Either the transaction commits
+    /// whole or it rolls back whole, so a retry can never half-erase an account.
+    /// </summary>
+    /// <param name="userId">The account being erased.</param>
+    /// <param name="deviceRowIds">Devices to delete outright.</param>
+    /// <param name="retainedDevices">How many devices are being left for other users.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>What was removed.</returns>
+    private async Task<AccountErasureSummary> EraseOnceAsync(
         int userId,
         List<Guid> deviceRowIds,
         int retainedDevices,

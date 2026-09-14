@@ -7,6 +7,13 @@
     "empty": "Zatím žádné odkazy.",
     "loadFailed": "Odkazy se nepodařilo načíst.",
     "listHeading": "Existující odkazy",
+    "hideInactive": "Zobrazit jen odkazy, které stále fungují",
+    "someHidden_one": "1 odkaz je skrytý, protože vypršel nebo byl zrušený.",
+    "someHidden_few": "{{count}} odkazy jsou skryté, protože vypršely nebo byly zrušené.",
+    "someHidden_other": "{{count}} odkazů je skrytých, protože vypršely nebo byly zrušené.",
+    "allHidden_one": "Jediný zdejší odkaz vypršel nebo byl zrušený. Odškrtnutím políčka výše ho zobrazíte.",
+    "allHidden_few": "Všechny {{count}} zdejší odkazy vypršely nebo byly zrušené. Odškrtnutím políčka výše je zobrazíte.",
+    "allHidden_other": "Všech {{count}} zdejších odkazů vypršelo nebo bylo zrušeno. Odškrtnutím políčka výše je zobrazíte.",
     "noPermission": "K vytváření odkazů potřebujete u tohoto zařízení právo sdílet."
   },
   "form": {

@@ -3401,6 +3401,22 @@
   gap: 8px;
 }
 
+/* The list heading and the "still works" filter share a line: the filter is a
+   property of the list below it, and a control that drifts off on its own row
+   reads as another form field rather than as a view switch. It wraps rather
+   than shrinks, so the label stays readable on a phone. */
+.share-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-list-header .info-label {
+  margin: 0;
+}
+
 .share-list {
   display: flex;
   flex-direction: column;

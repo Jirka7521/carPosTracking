@@ -132,81 +132,107 @@ internal sealed class DeviceService : IDeviceService
                 "tell the people who drive it before a device can be registered.");
         }
 
-        // The device row and the grants that make it reachable are one unit of
-        // work. Committing the device alone would leave a tracker nobody can see,
-        // list or delete — and whose id can never be reused, because provisioning
-        // is create-only.
-        await using IDbContextTransaction transaction =
-            await _context.Database.BeginTransactionAsync(cancellationToken);
+        // Required because the connection retries transient faults (Program.cs): EF
+        // will not let a hand-opened transaction run outside the execution strategy,
+        // since it cannot replay one it did not open.
+        IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
-        DeviceProvisioningResult provisioning =
-            await _provisioningService.ProvisionAsync(_context, request, cancellationToken);
+        return await strategy.ExecuteAsync(
+            async (CancellationToken attemptToken) =>
+            {
+                // Undo anything a previous attempt staged. A failed SaveChangesAsync
+                // leaves its entities sitting in the tracker as Added, so a retry
+                // would insert the device, its grants and its first revision a second
+                // time on top of the first attempt's rows.
+                //
+                // Clearing is exactly an undo here, and safe in a way it would not be
+                // elsewhere: everything this operation stages, it stages below this
+                // line. Nothing the caller set up earlier in the request is in the
+                // tracker to lose.
+                //
+                // A retry does mint a fresh RSA key pair, because ProvisionAsync runs
+                // again. That costs a few milliseconds and nothing else: the pair from
+                // the rolled-back attempt was never committed and never left the
+                // process, so it simply ceases to exist.
+                _context.ChangeTracker.Clear();
 
-        if (provisioning.Outcome == DeviceProvisioningOutcome.DuplicateDeviceId)
-        {
-            return OperationResult<DeviceCreatedDto>.Conflict(
-                $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.");
-        }
+                // The device row and the grants that make it reachable are one unit of
+                // work. Committing the device alone would leave a tracker nobody can see,
+                // list or delete — and whose id can never be reused, because provisioning
+                // is create-only.
+                await using IDbContextTransaction transaction =
+                    await _context.Database.BeginTransactionAsync(attemptToken);
 
-        // The creator's grant is built from CapabilitySet.Full(), never from the
-        // request: a client that could talk the server into registering a device it
-        // then cannot administer would have created an orphan.
-        AddGrant(provisioning.DeviceRowId, userId, userId, CapabilitySet.Full());
+                DeviceProvisioningResult provisioning =
+                    await _provisioningService.ProvisionAsync(_context, request, attemptToken);
 
-        // Revision 1, in the same transaction. Every device must always point at a row
-        // that exists — the settings endpoints and the retained-config sweep both
-        // resolve devices.config_version to one, and a device without it would answer
-        // 404 on a panel the dashboard shows unconditionally. No author is recorded:
-        // these are the factory defaults, not somebody's decision.
-        _context.DeviceConfigVersions.Add(new DeviceConfigVersion
-        {
-            DeviceId = provisioning.DeviceRowId,
-            Version = DeviceConfigRules.InitialVersion,
-            IntervalSeconds = DeviceConfigRules.DefaultIntervalSeconds,
-            SleepBetween = DeviceConfigRules.DefaultSleepBetween,
-            FixTimeoutSeconds = DeviceConfigRules.DefaultFixTimeoutSeconds,
-            QueueMaxFixes = DeviceConfigRules.DefaultQueueMaxFixes,
-            RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
-            RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
-            ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
-            CreatedByUserId = null,
-            CreatedAt = DateTime.UtcNow,
-        });
+                if (provisioning.Outcome == DeviceProvisioningOutcome.DuplicateDeviceId)
+                {
+                    return OperationResult<DeviceCreatedDto>.Conflict(
+                        $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.");
+                }
 
-        int sharedCount = await AddAdditionalGrantsAsync(
-            provisioning.DeviceRowId,
-            userId,
-            request.AdditionalAccesses,
+                // The creator's grant is built from CapabilitySet.Full(), never from the
+                // request: a client that could talk the server into registering a device it
+                // then cannot administer would have created an orphan.
+                AddGrant(provisioning.DeviceRowId, userId, userId, CapabilitySet.Full());
+
+                // Revision 1, in the same transaction. Every device must always point at a row
+                // that exists — the settings endpoints and the retained-config sweep both
+                // resolve devices.config_version to one, and a device without it would answer
+                // 404 on a panel the dashboard shows unconditionally. No author is recorded:
+                // these are the factory defaults, not somebody's decision.
+                _context.DeviceConfigVersions.Add(new DeviceConfigVersion
+                {
+                    DeviceId = provisioning.DeviceRowId,
+                    Version = DeviceConfigRules.InitialVersion,
+                    IntervalSeconds = DeviceConfigRules.DefaultIntervalSeconds,
+                    SleepBetween = DeviceConfigRules.DefaultSleepBetween,
+                    FixTimeoutSeconds = DeviceConfigRules.DefaultFixTimeoutSeconds,
+                    QueueMaxFixes = DeviceConfigRules.DefaultQueueMaxFixes,
+                    RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
+                    RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
+                    ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
+                    CreatedByUserId = null,
+                    CreatedAt = DateTime.UtcNow,
+                });
+
+                int sharedCount = await AddAdditionalGrantsAsync(
+                    provisioning.DeviceRowId,
+                    userId,
+                    request.AdditionalAccesses,
+                    attemptToken);
+
+                await _context.SaveChangesAsync(attemptToken);
+                await transaction.CommitAsync(attemptToken);
+
+                _logger.LogInformation(
+                    "User {UserId} registered device {DeviceId} and shared it with {SharedCount} other user(s)",
+                    userId,
+                    request.DeviceId,
+                    sharedCount);
+
+                DeviceDto device = new DeviceDto(
+                    provisioning.Device!.DeviceId,
+                    provisioning.Device.DisplayName,
+                    // A brand-new device has no alias and has never reported, so these are
+                    // known without asking the database again (no last-seen, no battery).
+                    null,
+                    true,
+                    DateTime.UtcNow,
+                    null,
+                    null,
+                    null,
+                    // Known without asking the database: the creator's own grant plus
+                    // however many of the requested additional ones actually resolved to
+                    // a real account, and no share links, because a device that did not
+                    // exist a moment ago cannot have been shared.
+                    new DeviceAccessCountsDto(1 + sharedCount, 0),
+                    new DevicePermissionsDto(true, true, true, true));
+
+                return OperationResult<DeviceCreatedDto>.Success(new DeviceCreatedDto(device, provisioning.Device));
+            },
             cancellationToken);
-
-        await _context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "User {UserId} registered device {DeviceId} and shared it with {SharedCount} other user(s)",
-            userId,
-            request.DeviceId,
-            sharedCount);
-
-        DeviceDto device = new DeviceDto(
-            provisioning.Device!.DeviceId,
-            provisioning.Device.DisplayName,
-            // A brand-new device has no alias and has never reported, so these are
-            // known without asking the database again (no last-seen, no battery).
-            null,
-            true,
-            DateTime.UtcNow,
-            null,
-            null,
-            null,
-            // Known without asking the database: the creator's own grant plus
-            // however many of the requested additional ones actually resolved to
-            // a real account, and no share links, because a device that did not
-            // exist a moment ago cannot have been shared.
-            new DeviceAccessCountsDto(1 + sharedCount, 0),
-            new DevicePermissionsDto(true, true, true, true));
-
-        return OperationResult<DeviceCreatedDto>.Success(new DeviceCreatedDto(device, provisioning.Device));
     }
 
     /// <inheritdoc />

@@ -7,6 +7,11 @@
     "empty": "No share links yet.",
     "loadFailed": "Could not load the share links.",
     "listHeading": "Existing links",
+    "hideInactive": "Only show links that still work",
+    "someHidden_one": "1 link is hidden because it has expired or been revoked.",
+    "someHidden_other": "{{count}} links are hidden because they have expired or been revoked.",
+    "allHidden_one": "The one link here has expired or been revoked. Untick the box above to see it.",
+    "allHidden_other": "All {{count}} links here have expired or been revoked. Untick the box above to see them.",
     "noPermission": "You need sharing rights on this device to create share links."
   },
   "form": {

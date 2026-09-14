@@ -35,19 +35,23 @@ internal sealed class CsrfProtectionMiddleware
     private readonly RequestDelegate _next;
     private readonly AuthCookieOptions _options;
     private readonly ILogger<CsrfProtectionMiddleware> _logger;
+    private readonly IProblemDetailsService _problemDetails;
 
     /// <summary>Creates the middleware.</summary>
     /// <param name="next">The next component in the pipeline.</param>
     /// <param name="options">Cookie and header names.</param>
     /// <param name="logger">Structured logger.</param>
+    /// <param name="problemDetails">Writes the rejection body in the negotiated format.</param>
     public CsrfProtectionMiddleware(
         RequestDelegate next,
         IOptions<AuthCookieOptions> options,
-        ILogger<CsrfProtectionMiddleware> logger)
+        ILogger<CsrfProtectionMiddleware> logger,
+        IProblemDetailsService problemDetails)
     {
         _next = next;
         _options = options.Value;
         _logger = logger;
+        _problemDetails = problemDetails;
     }
 
     /// <summary>Validates the token, or passes the request through.</summary>
@@ -105,17 +109,32 @@ internal sealed class CsrfProtectionMiddleware
     /// <summary>Writes the 403 that a failed check produces.</summary>
     /// <param name="context">The current request.</param>
     /// <returns>A task that completes when the response has been written.</returns>
-    private static Task WriteRejectionAsync(HttpContext context)
+    private async Task WriteRejectionAsync(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
 
-        // ProblemDetails, like every other error this API returns, so the frontend
-        // has exactly one error shape to parse.
-        return context.Response.WriteAsJsonAsync(new ProblemDetails
+        ProblemDetails problem = new ProblemDetails
         {
             Status = StatusCodes.Status403Forbidden,
             Title = "Invalid CSRF token",
             Detail = "The request could not be verified. Reload the page and try again.",
+        };
+
+        // Written through IProblemDetailsService rather than serialised directly so
+        // this rejection is indistinguishable from every other error the API
+        // returns: same application/problem+json content type, same traceId
+        // extension. A client should never have to special-case one middleware.
+        bool written = await _problemDetails.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = context,
+            ProblemDetails = problem,
         });
+
+        if (!written)
+        {
+            // Declined because the caller's Accept header ruled out every format the
+            // writer can produce. The 403 still has to carry its reason, so fall back.
+            await context.Response.WriteAsJsonAsync(problem);
+        }
     }
 }
