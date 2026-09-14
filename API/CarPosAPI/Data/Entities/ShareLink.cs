@@ -144,10 +144,18 @@ public sealed class ShareLink
     public bool IncludeSpeed { get; set; }
 
     /// <summary>
-    /// Whether battery and temperature travel with each fix. Off by default —
-    /// they say nothing about location and quite a lot about the vehicle.
+    /// Whether the battery percentage travels with each fix. Off by default — it
+    /// says nothing about location and quite a lot about the vehicle.
     /// </summary>
-    public bool IncludeTelemetry { get; set; }
+    public bool IncludeBattery { get; set; }
+
+    /// <summary>
+    /// Whether the temperature travels with each fix. Off by default, and chosen
+    /// separately from <see cref="IncludeBattery"/>. These were one flag until
+    /// 2026-09-14, which meant a creator who only wanted to show that the tracker
+    /// still had charge had to disclose the cabin temperature to do it.
+    /// </summary>
+    public bool IncludeTemperature { get; set; }
 
     /// <summary>
     /// When the creator revoked the link, or null while it stands.

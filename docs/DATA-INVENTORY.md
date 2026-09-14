@@ -66,7 +66,7 @@ On account deletion the user's own rows are deleted; `granted_by` on *surviving*
 
 `device_id` p, `created_by_user_id` **P**, `label` **P** (free text, chosen by the creator and
 shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_speed` ·,
-`include_telemetry` ·, `revoked_at` p, `created_at` p, and three usage counters —
+`include_battery` ·, `include_temperature` ·, `revoked_at` p, `created_at` p, and three usage counters —
 `successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
 
 Three columns are **credentials, never personal data to export**: `selector` and `verifier`

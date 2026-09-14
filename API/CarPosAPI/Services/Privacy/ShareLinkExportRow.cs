@@ -26,7 +26,8 @@ namespace CarPosAPI.Services.Privacy;
 /// <param name="ValidUntil">End of the window (UTC).</param>
 /// <param name="Scope">Whether the link shows the latest fix only or the whole track.</param>
 /// <param name="IncludeSpeed">Whether speed is disclosed with each fix.</param>
-/// <param name="IncludeTelemetry">Whether battery and temperature are disclosed with each fix.</param>
+/// <param name="IncludeBattery">Whether the battery percentage is disclosed with each fix.</param>
+/// <param name="IncludeTemperature">Whether the temperature is disclosed with each fix.</param>
 /// <param name="CreatedAt">When the link was minted (UTC).</param>
 /// <param name="RevokedAt">When it was withdrawn (UTC), or null.</param>
 /// <param name="SuccessfulRedeems">How many times it was opened successfully.</param>
@@ -38,7 +39,8 @@ public sealed record ShareLinkExportRow(
     DateTime ValidUntil,
     string Scope,
     bool IncludeSpeed,
-    bool IncludeTelemetry,
+    bool IncludeBattery,
+    bool IncludeTemperature,
     DateTime CreatedAt,
     DateTime? RevokedAt,
     int SuccessfulRedeems,

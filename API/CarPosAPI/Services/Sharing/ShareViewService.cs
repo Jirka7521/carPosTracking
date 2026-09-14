@@ -57,7 +57,8 @@ internal sealed class ShareViewService : IShareViewService
                 candidate.ValidUntil,
                 candidate.Scope,
                 candidate.IncludeSpeed,
-                candidate.IncludeTelemetry,
+                candidate.IncludeBattery,
+                candidate.IncludeTemperature,
                 candidate.RevokedAt))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -79,7 +80,8 @@ internal sealed class ShareViewService : IShareViewService
             link.ValidUntil,
             link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
             link.IncludeSpeed,
-            link.IncludeTelemetry);
+            link.IncludeBattery,
+            link.IncludeTemperature);
 
         List<SharedPositionDto> positions = await QueryAsync(link, fromUtc, toUtc, cancellationToken);
 
@@ -129,7 +131,8 @@ internal sealed class ShareViewService : IShareViewService
         }
 
         bool includeSpeed = link.IncludeSpeed;
-        bool includeTelemetry = link.IncludeTelemetry;
+        bool includeBattery = link.IncludeBattery;
+        bool includeTemperature = link.IncludeTemperature;
 
         // Filtering, ordering, the cap and the opt-in fields all happen in SQL, so a
         // value the share does not cover is never serialised and a track longer than
@@ -145,8 +148,8 @@ internal sealed class ShareViewService : IShareViewService
                 position.Latitude,
                 position.Longitude,
                 includeSpeed ? position.SpeedKmph : null,
-                includeTelemetry ? position.BatteryPct : null,
-                includeTelemetry ? position.TemperatureC : null))
+                includeBattery ? position.BatteryPct : null,
+                includeTemperature ? position.TemperatureC : null))
             .ToListAsync(cancellationToken);
     }
 

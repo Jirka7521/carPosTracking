@@ -530,7 +530,8 @@ export interface ShareLinkDto {
   validUntil: string
   scope: ShareScope
   includeSpeed: boolean
-  includeTelemetry: boolean
+  includeBattery: boolean
+  includeTemperature: boolean
   status: ShareLinkStatus
   createdAt: string
   revokedAt: string | null
@@ -551,7 +552,8 @@ export interface ShareLinkCreateRequestDto {
   validUntil: string
   scope: ShareScope
   includeSpeed: boolean
-  includeTelemetry: boolean
+  includeBattery: boolean
+  includeTemperature: boolean
 }
 
 // The 201 body, and the only time the two secrets exist outside the creator's
@@ -581,7 +583,8 @@ export interface ShareSessionDto {
   validUntil: string
   scope: ShareScope
   includeSpeed: boolean
-  includeTelemetry: boolean
+  includeBattery: boolean
+  includeTemperature: boolean
 }
 
 // One fix as a visitor sees it. Compare PositionDto: no id, no deviceId, no
@@ -614,5 +617,6 @@ export interface ShareLinkUpdateRequestDto {
   validUntil: string
   scope: ShareScope
   includeSpeed: boolean
-  includeTelemetry: boolean
+  includeBattery: boolean
+  includeTemperature: boolean
 }

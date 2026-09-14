@@ -31,10 +31,10 @@ namespace CarPosAPI.Dtos;
 /// <param name="Longitude">Decimal degrees, +E/−W.</param>
 /// <param name="SpeedKmph">Ground speed in km/h, or null when the share does not include speed.</param>
 /// <param name="BatteryPct">
-/// Battery state of charge 0–100, or null when the share does not include
-/// telemetry. As elsewhere, 0 is the "charging" sentinel.
+/// Battery state of charge 0–100, or null when the share does not include the
+/// battery. As elsewhere, 0 is the "charging" sentinel.
 /// </param>
-/// <param name="TemperatureC">Modem die temperature in °C, or null when the share does not include telemetry.</param>
+/// <param name="TemperatureC">Modem die temperature in °C, or null when the share does not include the temperature.</param>
 public sealed record SharedPositionDto(
     DateTime Timestamp,
     double Latitude,

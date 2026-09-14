@@ -29,7 +29,8 @@ namespace CarPosAPI.Dtos;
 /// <param name="ValidUntil">New end of the window (UTC).</param>
 /// <param name="Scope">One of <see cref="ShareScopeNames"/>.</param>
 /// <param name="IncludeSpeed">Whether speed travels with each fix.</param>
-/// <param name="IncludeTelemetry">Whether battery and temperature travel with each fix.</param>
+/// <param name="IncludeBattery">Whether the battery percentage travels with each fix.</param>
+/// <param name="IncludeTemperature">Whether the temperature travels with each fix.</param>
 public sealed record ShareLinkUpdateRequestDto(
     [StringLength(80)]
     string? Label,
@@ -46,4 +47,6 @@ public sealed record ShareLinkUpdateRequestDto(
 
     bool IncludeSpeed,
 
-    bool IncludeTelemetry);
+    bool IncludeBattery,
+
+    bool IncludeTemperature);

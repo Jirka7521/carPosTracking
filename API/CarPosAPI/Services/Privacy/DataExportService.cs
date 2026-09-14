@@ -297,7 +297,8 @@ internal sealed class DataExportService : IDataExportService
                     link.ValidUntil,
                     link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
                     link.IncludeSpeed,
-                    link.IncludeTelemetry,
+                    link.IncludeBattery,
+                    link.IncludeTemperature,
                     link.CreatedAt,
                     link.RevokedAt,
                     link.SuccessfulRedeems,
@@ -316,7 +317,8 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteString("validUntilUtc", link.ValidUntil);
             writer.WriteString("scope", link.Scope);
             writer.WriteBoolean("includeSpeed", link.IncludeSpeed);
-            writer.WriteBoolean("includeTelemetry", link.IncludeTelemetry);
+            writer.WriteBoolean("includeBattery", link.IncludeBattery);
+            writer.WriteBoolean("includeTemperature", link.IncludeTemperature);
             writer.WriteString("createdAtUtc", link.CreatedAt);
 
             if (link.RevokedAt.HasValue)

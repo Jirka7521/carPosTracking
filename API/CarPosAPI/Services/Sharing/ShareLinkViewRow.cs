@@ -10,7 +10,7 @@ namespace CarPosAPI.Services.Sharing;
 /// A named projection rather than loading the entity, for two reasons. It keeps
 /// the three secret columns out of the query on a path that runs on every refresh
 /// of a public page. And it makes the set of facts this decision rests on
-/// enumerable in one place — window, revocation, scope, two flags and the device
+/// enumerable in one place — window, revocation, scope, three flags and the device
 /// row — rather than implied by whichever properties the code happens to touch.
 /// </para>
 /// </summary>
@@ -20,7 +20,8 @@ namespace CarPosAPI.Services.Sharing;
 /// <param name="ValidUntil">End of the window (UTC).</param>
 /// <param name="Scope">How much history the link exposes.</param>
 /// <param name="IncludeSpeed">Whether speed travels with each fix.</param>
-/// <param name="IncludeTelemetry">Whether battery and temperature travel with each fix.</param>
+/// <param name="IncludeBattery">Whether the battery percentage travels with each fix.</param>
+/// <param name="IncludeTemperature">Whether the temperature travels with each fix.</param>
 /// <param name="RevokedAt">When the link was withdrawn (UTC), or null while it stands.</param>
 internal sealed record ShareLinkViewRow(
     Guid DeviceId,
@@ -29,5 +30,6 @@ internal sealed record ShareLinkViewRow(
     DateTime ValidUntil,
     ShareScope Scope,
     bool IncludeSpeed,
-    bool IncludeTelemetry,
+    bool IncludeBattery,
+    bool IncludeTemperature,
     DateTime? RevokedAt);

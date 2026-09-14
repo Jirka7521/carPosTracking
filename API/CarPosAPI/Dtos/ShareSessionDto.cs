@@ -17,11 +17,13 @@ namespace CarPosAPI.Dtos;
 /// <param name="ValidUntil">End of the window (UTC) — also the latest fix obtainable.</param>
 /// <param name="Scope">One of <see cref="ShareScopeNames"/>, so the page knows whether to offer a range at all.</param>
 /// <param name="IncludeSpeed">Whether speed will be present on each fix.</param>
-/// <param name="IncludeTelemetry">Whether battery and temperature will be present on each fix.</param>
+/// <param name="IncludeBattery">Whether the battery percentage will be present on each fix.</param>
+/// <param name="IncludeTemperature">Whether the temperature will be present on each fix.</param>
 public sealed record ShareSessionDto(
     string Label,
     DateTime ValidFrom,
     DateTime ValidUntil,
     string Scope,
     bool IncludeSpeed,
-    bool IncludeTelemetry);
+    bool IncludeBattery,
+    bool IncludeTemperature);

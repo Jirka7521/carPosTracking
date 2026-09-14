@@ -42,12 +42,23 @@ public sealed class ShareViewQueryTranslationTests
         return new CarPosDbContext(options);
     }
 
+    // All eight combinations rather than a representative few. The four rows where
+    // battery and temperature disagree are the only thing in this build that would
+    // notice the two being wired to each other's flag — a mistake that compiles,
+    // translates to valid SQL, and hands a visitor a field the creator switched off.
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public void TheSharedProjectionTranslatesToSql(bool includeSpeed, bool includeTelemetry)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void TheSharedProjectionTranslatesToSql(
+        bool includeSpeed,
+        bool includeBattery,
+        bool includeTemperature)
     {
         using CarPosDbContext context = CreateContext();
 
@@ -69,8 +80,8 @@ public sealed class ShareViewQueryTranslationTests
                 position.Latitude,
                 position.Longitude,
                 includeSpeed ? position.SpeedKmph : null,
-                includeTelemetry ? position.BatteryPct : null,
-                includeTelemetry ? position.TemperatureC : null));
+                includeBattery ? position.BatteryPct : null,
+                includeTemperature ? position.TemperatureC : null));
 
         string sql = query.ToQueryString();
 
@@ -81,8 +92,8 @@ public sealed class ShareViewQueryTranslationTests
 
         // The columns the share does not cover must not be selected at all.
         AssertColumnPresence(sql, "speed_kmph", includeSpeed);
-        AssertColumnPresence(sql, "battery_pct", includeTelemetry);
-        AssertColumnPresence(sql, "temperature_c", includeTelemetry);
+        AssertColumnPresence(sql, "battery_pct", includeBattery);
+        AssertColumnPresence(sql, "temperature_c", includeTemperature);
 
         // And the ones it never covers, whatever the flags say.
         Assert.DoesNotContain("altitude_m", sql, StringComparison.OrdinalIgnoreCase);
@@ -107,7 +118,8 @@ public sealed class ShareViewQueryTranslationTests
                 candidate.ValidUntil,
                 candidate.Scope,
                 candidate.IncludeSpeed,
-                candidate.IncludeTelemetry,
+                candidate.IncludeBattery,
+                candidate.IncludeTemperature,
                 candidate.RevokedAt));
 
         string sql = query.ToQueryString();
@@ -147,6 +159,7 @@ public sealed class ShareViewQueryTranslationTests
         DateTime ValidUntil,
         ShareScope Scope,
         bool IncludeSpeed,
-        bool IncludeTelemetry,
+        bool IncludeBattery,
+        bool IncludeTemperature,
         DateTime? RevokedAt);
 }
