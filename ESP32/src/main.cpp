@@ -25,8 +25,13 @@
 #include "power/BootJournal.h"
 #include "power/ChargerWatcher.h"
 #include "power/DeepSleepController.h"
+#include "power/PowerSwitch.h"
 #include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
+#include "sensors/AmbientWindowSampler.h"
+#include "sensors/Dht22.h"
+#include "status/StatusLed.h"
+#include "status/StatusLeds.h"
 #include "sdcard/FixForwarder.h"
 #include "sdcard/FixQueue.h"
 #include "sdcard/RetryQueue.h"
@@ -55,7 +60,8 @@ static const char* TAG = "main";
 // hot-car cut-off.
 static void debugPrintSensors(const BatteryStatus& battery,
                               const AccelSample& accel,
-                              const ModemHealth& modem) {
+                              const ModemHealth& modem,
+                              const AmbientSample& ambient) {
   printf("---------------- SENSORS ----------------\n");
   if (!battery.valid) {
     printf("  Battery        : n/a (disabled / read failed)\n");
@@ -74,21 +80,67 @@ static void debugPrintSensors(const BatteryStatus& battery,
   }
 
   if (modem.valid) {
-    printf("  Temperature    : %.1f C\n", modem.temperatureC);
+    printf("  Modem temp     : %.1f C\n", modem.temperatureC);
   } else {
-    printf("  Temperature    : n/a (unavailable)\n");
+    printf("  Modem temp     : n/a (unavailable)\n");
+  }
+
+  // The DHT22's air reading, labelled apart from the modem die temperature
+  // above so the two are never mistaken for each other on the console either.
+  if (ambient.valid) {
+    printf("  Ambient        : %.1f C, %.1f %%RH\n", ambient.temperatureC,
+           ambient.humidityPct);
+  } else {
+    printf("  Ambient        : n/a (disabled / warming up / read failed)\n");
   }
   printf("-----------------------------------------\n\n");
 }
 
 extern "C" void app_main(void) {
-  // Undo the PWRKEY latch left behind by a previous deep sleep. This must happen
-  // before any driver touches that pin, or the modem could never be pulsed back
-  // on. On a cold boot there is nothing latched and this is a no-op.
-  DeepSleepController::releasePinHolds(config::kModemPwrKeyPin);
+  // Undo the pin latches left behind by a previous deep sleep. This must happen
+  // before any driver touches those pins: until it does, PWRKEY is frozen and
+  // the modem could never be pulsed back on, and the power switch still reads
+  // through the RTC pull that ext0 latched onto it. On a cold boot there is
+  // nothing latched and both are no-ops.
+  DeepSleepController::releasePinHolds(config::kModemPwrKeyPin,
+                                       config::kWakeGpioPin);
 
   ESP_LOGI(TAG, "Car position tracker starting (wake cause: %s).",
            DeepSleepController::wakeCauseName());
+
+  // ---- Checkpoint 0: is the operator asking for this at all? ---------------
+  //
+  // Before anything expensive - before the radio, the card, the modem or a cold
+  // GNSS acquire - find out whether the power switch is even on. Every wake from
+  // the switch is a full reboot, so without this check a single bouncing contact
+  // would turn one flick into a burst of complete boot cycles.
+  static PowerSwitch powerSwitch(
+      config::kPowerSwitchEnabled ? config::kPowerSwitchPin : -1,
+      config::kPowerSwitchRunLevel, config::kPowerSwitchDebounceMs);
+  powerSwitch.begin();
+
+  if (!powerSwitch.isRunRequested()) {
+    // Switched off. The only thing that still needs dealing with is the modem,
+    // which keeps its own power state across an ESP32 reset - so a brown-out or
+    // a re-flash can land us here with it still running and drawing far more
+    // than everything else put together.
+    //
+    // It is probed before it is touched. A blind PWRKEY pulse would switch an
+    // already-off modem back ON, which is the exact opposite of what this path
+    // is for, so isResponsive() decides. These two are locals, not statics: this
+    // branch never returns, so there is nothing to outlive.
+    ESP_LOGI(TAG, "Power switch is off - shutting down without starting up.");
+    SerialPort    offSerial(config::kModemUartPort, config::kModemTxPin,
+                            config::kModemRxPin, config::kModemBaudRate);
+    Sim7000Modem  offModem(offSerial, config::kModemPwrKeyPin);
+    if (offModem.begin() && offModem.isResponsive()) {
+      ESP_LOGI(TAG, "Modem still running - powering it down first.");
+      offModem.powerOff();
+    }
+    DeepSleepController::sleepUntilExternalWakeBare(config::kModemPwrKeyPin,
+                                                    config::kWakeGpioPin,
+                                                    config::kWakeGpioLevel);
+  }
 
   // WiFi. Constructed unconditionally - even a WiFi-disabled build hands it to
   // DeepSleepController, whose shutdown sequence must be able to stop the radio.
@@ -108,6 +160,22 @@ extern "C" void app_main(void) {
     }
   } else {
     ESP_LOGI(TAG, "WiFi disabled in Config.h.");
+  }
+
+  // Status indicators. Constructed after WiFi because the green LED is driven by
+  // polling WifiManager::linkState() - see StatusLeds.h for why that dependency
+  // points this way round rather than WifiManager pushing events at a LED it
+  // should know nothing about.
+  static StatusLeds statusLeds(
+      &wifi, config::kStatusLedsEnabled ? config::kGnssLedPin : -1,
+      config::kStatusLedsEnabled ? config::kWifiLedPin : -1,
+      config::kStatusLedActiveHigh, config::kStatusLedTickMs,
+      config::kStatusLedBlinkMs);
+  if (config::kStatusLedsEnabled) {
+    statusLeds.begin();
+    statusLeds.start();
+  } else {
+    ESP_LOGI(TAG, "Status LEDs disabled in Config.h.");
   }
 
   // microSD store-and-forward. When the broker cannot be reached, each fix is
@@ -227,6 +295,31 @@ extern "C" void app_main(void) {
     } else if (!accelPeak.start()) {
       ESP_LOGW(TAG, "accelerometer peak tracking failed to start.");
     }
+  }
+
+  // Ambient temperature and humidity from the DHT22, on its own task. It runs at
+  // the sensor's own 2 s floor rather than the 0.5 s the pack and accelerometer
+  // share - the part physically cannot go faster (see Dht22.h) - and the report
+  // carries the MEDIAN of whatever it collected while the device was awake.
+  //
+  // Optional in the same sense as everything else here: a sensor that is absent
+  // or still warming up leaves the two fields out of the payload rather than
+  // holding up the cycle.
+  static Dht22 dht22(config::kDht22Enabled ? config::kDht22DataPin : -1,
+                     config::kDht22SampleIntervalMs);
+  static AmbientWindowSampler ambientWindow(dht22,
+                                            config::kDht22SampleIntervalMs);
+  bool ambientReady = false;
+  if (config::kDht22Enabled) {
+    if (!dht22.begin()) {
+      ESP_LOGW(TAG, "DHT22 unavailable - ambient fields will be omitted.");
+    } else if (!ambientWindow.start()) {
+      ESP_LOGW(TAG, "DHT22 sampling task failed to start.");
+    } else {
+      ambientReady = true;
+    }
+  } else {
+    ESP_LOGI(TAG, "DHT22 disabled in Config.h.");
   }
 
   // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
@@ -450,7 +543,18 @@ extern "C" void app_main(void) {
   // Only `fix` and `settings` need capturing - every collaborator touched here
   // has static storage duration and is reachable without one. Both are locals of
   // app_main(), which never returns, so the references cannot dangle.
-  std::function<void()> onEachPoll = [&fix, &settings]() {
+  //   3. Checks the power switch, and returns false to ABANDON the acquire when
+  //      it has been turned off. That return is the whole reason this hook has a
+  //      result: a fix budget can be up to an hour at its clamp, and without it
+  //      a device switched off mid-hunt would sit there hunting anyway.
+  std::function<bool()> onEachPoll = [&fix, &settings]() -> bool {
+    // Asked first, and answered by abandoning everything else: if the operator
+    // has switched the unit off there is no point seeding a clock, flushing a
+    // backlog or re-resolving settings for a cycle that is about to end.
+    if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
+      return false;
+    }
+
     // Seed the clock from the poll that has just happened. Doing it here rather
     // than only after the acquire succeeds means the schedule starts being
     // evaluated the moment the receiver has a time, which on a cold boot can be
@@ -482,11 +586,29 @@ extern "C" void app_main(void) {
       if (config::kAdxlEnabled) {
         accel.read(accelSample);
       }
-      debugPrintSensors(batteryStatus, accelSample, modemHealth);
+      // The ambient reading is NOT re-read here: the DHT22 has its own 2 s
+      // floor and its own task, so asking it again from this hook would only
+      // ever be refused. The blank line in the debug block is honest - it says
+      // the console has no fresher reading than the window already holds.
+      AmbientSample ambientSample;
+      debugPrintSensors(batteryStatus, accelSample, modemHealth, ambientSample);
     }
+
+    return true;  // keep waiting for the fix
   };
 
   while (true) {
+    // ---- Checkpoint 1: still switched on? -----------------------------------
+    // Cheap, and it covers the case checkpoint 0 cannot: the switch flicked off
+    // during the previous cycle's publish or interval wait. Everything is up by
+    // now, so this takes the full shutdown path rather than the bare one.
+    if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
+      statusLeds.allOff();
+      sleeper.sleepUntilExternalWake();
+    }
+
+    statusLeds.setGnss(StatusLed::Mode::Blink);
+
     // Before committing to an acquire that may burn kFixAcquireTimeoutSeconds
     // and come back empty-handed, give anything already on the card its chance:
     // this is the first thing that runs after a cold boot or a deep-sleep wake,
@@ -505,6 +627,20 @@ extern "C" void app_main(void) {
     // working from the same averaged position.
     bool haveFix = averager.acquire(fix, settings.fixTimeoutSeconds() * 1000,
                                     config::kFixPollStepMs, onEachPoll);
+
+    // ---- Checkpoint 2: did the acquire end because we were switched off? ----
+    // acquire() reports a caller-requested abort exactly as it reports a
+    // timeout, so ask the switch rather than trying to tell the two apart from
+    // its return value. Nothing is published: the fix, if there even is one, is
+    // from a cycle the operator has already ended.
+    if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
+      statusLeds.allOff();
+      sleeper.sleepUntilExternalWake();
+    }
+
+    // Solid for a lock, dark for a hunt that ran out of budget - the receiver is
+    // no longer searching either way, so leaving it blinking would be a lie.
+    statusLeds.setGnss(haveFix ? StatusLed::Mode::On : StatusLed::Mode::Off);
 
     // Timestamp the *capture*, not the publish. Anchoring the interval here is
     // what keeps the cadence steady: however long sealing, connecting and
@@ -637,6 +773,16 @@ extern "C" void app_main(void) {
         sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
       }
 
+      // Close the ambient window and take its median. Like the accelerometer
+      // peak above, taking it RESETS the window, so this belongs here - once per
+      // report - rather than anywhere that runs per poll. A false return means
+      // the window was empty (sensor absent, or an awake period shorter than the
+      // DHT22's first conversion), which leaves sample.ambient invalid and the
+      // two fields simply absent from the payload.
+      if (ambientReady) {
+        ambientWindow.takeMedian(sample.ambient);
+      }
+
       // Checkpoint this run in RTC memory so the NEXT boot's journal line can
       // say where it got to. Costs a couple of stores - no card write. The
       // charging path deliberately leaves millivolts unset (percent 0 is the
@@ -734,6 +880,25 @@ extern "C" void app_main(void) {
         }
       }
 
+      // ...nor past the next power-switch poll. Without this cap a device on an
+      // hourly interval would keep running for up to an hour after being
+      // switched off, because nothing else in this loop wakes to look. One extra
+      // task wake-up a second is what makes the switch feel immediate, and it is
+      // nothing against a radio that is still up.
+      if (config::kPowerSwitchEnabled) {
+        const int64_t pollUs =
+            static_cast<int64_t>(config::kPowerSwitchPollMs) * 1000LL;
+        if (pollUs < chunkUs) {
+          chunkUs = pollUs;
+        }
+      }
+
+      // ---- Checkpoint 3: switched off while waiting out the interval? -------
+      if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
+        statusLeds.allOff();
+        sleeper.sleepUntilExternalWake();
+      }
+
       if (selector.waitForChange(static_cast<uint32_t>(chunkUs / 1000))) {
         settings = selector.current();
         settingsApplier.apply(settings);
@@ -807,6 +972,7 @@ extern "C" void app_main(void) {
       if (remainingUs < minSleepUs) {
         remainingUs = minSleepUs;
       }
+      statusLeds.allOff();
       sleeper.sleepFor(static_cast<uint32_t>(remainingUs / 1000));
     }
 

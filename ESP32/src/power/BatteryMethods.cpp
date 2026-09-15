@@ -1,6 +1,7 @@
 #include "power/BatteryMethods.h"
 
 #include "esp_log.h"
+#include "util/Statistics.h"
 
 static const char* TAG = "BatteryMethods";
 
@@ -99,16 +100,9 @@ bool BatteryMethods::sample(BatteryMethodsSample& out) {
 }
 
 uint32_t BatteryMethods::medianOf(uint32_t* values, std::size_t n) {
-  for (std::size_t i = 1; i < n; ++i) {
-    const uint32_t key = values[i];
-    std::size_t    j   = i;
-    while (j > 0 && values[j - 1] > key) {
-      values[j] = values[j - 1];
-      --j;
-    }
-    values[j] = key;
-  }
-  return (n % 2) ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
+  // The reduction itself lives in util/Statistics.h, shared with the ambient
+  // window sampler - same insertion sort, same even-count rule, one copy.
+  return statistics::medianOf(values, n);
 }
 
 std::size_t BatteryMethods::rejectOutliers(uint32_t* values, std::size_t n,

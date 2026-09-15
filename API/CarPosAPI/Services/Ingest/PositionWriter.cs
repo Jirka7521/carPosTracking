@@ -64,6 +64,8 @@ internal sealed class PositionWriter : IPositionWriter
         double?[] accelYs = new double?[unique.Count];
         double?[] accelZs = new double?[unique.Count];
         double?[] temperatures = new double?[unique.Count];
+        double?[] ambientTemperatures = new double?[unique.Count];
+        double?[] humidities = new double?[unique.Count];
 
         int index = 0;
         foreach (ValidatedPosition position in unique.Values)
@@ -80,6 +82,8 @@ internal sealed class PositionWriter : IPositionWriter
             accelYs[index] = position.AccelYG;
             accelZs[index] = position.AccelZG;
             temperatures[index] = position.TemperatureC;
+            ambientTemperatures[index] = position.AmbientTemperatureC;
+            humidities[index] = position.HumidityPct;
             index++;
         }
 
@@ -89,8 +93,8 @@ internal sealed class PositionWriter : IPositionWriter
         // the unique-index columns, so it keeps working even if the index is renamed.
         int inserted = await context.Database.ExecuteSqlInterpolatedAsync(
             $"""
-             INSERT INTO positions (device_id, fix_time, latitude, longitude, speed_kmph, altitude_m, battery_pct, accel_x_g, accel_y_g, accel_z_g, temperature_c)
-             SELECT {deviceId}, batch.fix_time, batch.latitude, batch.longitude, batch.speed_kmph, batch.altitude_m, batch.battery_pct, batch.accel_x_g, batch.accel_y_g, batch.accel_z_g, batch.temperature_c
+             INSERT INTO positions (device_id, fix_time, latitude, longitude, speed_kmph, altitude_m, battery_pct, accel_x_g, accel_y_g, accel_z_g, temperature_c, ambient_temperature_c, humidity_pct)
+             SELECT {deviceId}, batch.fix_time, batch.latitude, batch.longitude, batch.speed_kmph, batch.altitude_m, batch.battery_pct, batch.accel_x_g, batch.accel_y_g, batch.accel_z_g, batch.temperature_c, batch.ambient_temperature_c, batch.humidity_pct
              FROM unnest(
                  {fixTimes}::timestamptz[],
                  {latitudes}::float8[],
@@ -101,8 +105,10 @@ internal sealed class PositionWriter : IPositionWriter
                  {accelXs}::float8[],
                  {accelYs}::float8[],
                  {accelZs}::float8[],
-                 {temperatures}::float8[])
-                 AS batch(fix_time, latitude, longitude, speed_kmph, altitude_m, battery_pct, accel_x_g, accel_y_g, accel_z_g, temperature_c)
+                 {temperatures}::float8[],
+                 {ambientTemperatures}::float8[],
+                 {humidities}::float8[])
+                 AS batch(fix_time, latitude, longitude, speed_kmph, altitude_m, battery_pct, accel_x_g, accel_y_g, accel_z_g, temperature_c, ambient_temperature_c, humidity_pct)
              ON CONFLICT (device_id, fix_time) DO NOTHING
              """,
             cancellationToken);

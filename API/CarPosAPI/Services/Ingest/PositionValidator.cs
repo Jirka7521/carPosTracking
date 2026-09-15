@@ -56,6 +56,22 @@ internal sealed class PositionValidator
     public const double MaxTemperatureC = 125.0;
 
     /// <summary>
+    /// Ambient temperature floor in °C. Narrower than <see cref="MinTemperatureC"/> because
+    /// this is the DHT22's own specified range, not a modem die sensor's: a reading outside
+    /// it is a decode error, not a cold morning.
+    /// </summary>
+    public const double MinAmbientTemperatureC = -40.0;
+
+    /// <summary>Ambient temperature ceiling in °C — the DHT22's specified maximum.</summary>
+    public const double MaxAmbientTemperatureC = 80.0;
+
+    /// <summary>Relative humidity floor in percent.</summary>
+    public const double MinHumidityPct = 0.0;
+
+    /// <summary>Relative humidity ceiling in percent — a relative humidity cannot exceed 100.</summary>
+    public const double MaxHumidityPct = 100.0;
+
+    /// <summary>
     /// The firmware's exact timestamp shape (<c>TelemetryPublisher.cpp</c> emits
     /// <c>%04u-%02u-%02uT%02u:%02u:%02uZ</c>). Parsed exactly — anything looser
     /// (milliseconds, offsets) does not come from our firmware.
@@ -174,6 +190,27 @@ internal sealed class PositionValidator
             return false;
         }
 
+        // Ambient temperature and humidity are optional in the same way (absent on
+        // firmware without a DHT22, and on every report where the sensor was still
+        // warming up). Checked against the sensor's own range rather than the modem's:
+        // outside it, the frame decoded wrong.
+        if (payload.AmbientTempC is double ambientTemperatureC
+            && (!double.IsFinite(ambientTemperatureC)
+                || ambientTemperatureC < MinAmbientTemperatureC
+                || ambientTemperatureC > MaxAmbientTemperatureC))
+        {
+            reason = PositionRejectReason.AmbientTemperatureOutOfRange;
+            return false;
+        }
+
+        if (payload.HumidityPct is double humidityPct
+            && (!double.IsFinite(humidityPct)
+                || humidityPct < MinHumidityPct || humidityPct > MaxHumidityPct))
+        {
+            reason = PositionRejectReason.HumidityOutOfRange;
+            return false;
+        }
+
         // AdjustToUniversal + AssumeUniversal yields DateTimeKind.Utc, which Npgsql
         // demands for timestamptz parameters — parsing and kind are settled here once.
         bool parsed = DateTime.TryParseExact(
@@ -209,6 +246,8 @@ internal sealed class PositionValidator
             payload.AccelYG,
             payload.AccelZG,
             payload.TempC,
+            payload.AmbientTempC,
+            payload.HumidityPct,
             // Deliberately unvalidated beyond "is it a positive number". A revision the
             // server has never issued is not a reason to throw away a good position:
             // the worst case is that the dashboard shows the device as out of sync,

@@ -27,10 +27,12 @@
       "accelYG": "Zrychlení Y",
       "accelZG": "Zrychlení Z",
       "altitudeMeters": "Nadmořská výška",
+      "ambientTemperatureC": "Teplota vzduchu",
       "batteryPct": "Baterie",
+      "humidityPct": "Vlhkost",
       "legend": "Veličiny",
       "speedKmph": "Rychlost",
-      "temperatureC": "Teplota"
+      "temperatureC": "Teplota modemu"
     },
     "truncated": "Tento rozsah obsahuje víc než {{limit}} poloh, což je nejdál, kam jedno načtení dosáhne, takže graf začíná v {{start}} místo v čase „Od“, který jste zvolili. Zúžením rozsahu uvidíte starší data."
   },
@@ -56,12 +58,14 @@
     "info": {
       "accel": "Zrychlení X/Y/Z (g)",
       "altitude": "Nadmořská výška",
+      "ambientTemperature": "Teplota vzduchu",
       "battery": "Baterie",
+      "humidity": "Vlhkost",
       "latitude": "Zeměpisná šířka",
       "longitude": "Zeměpisná délka",
       "recorded": "Zaznamenáno: {{when}}",
       "speed": "Rychlost",
-      "temperature": "Teplota",
+      "temperature": "Teplota modemu",
       "title": "Poloha"
     },
     "legend": "Legenda mapy",
@@ -97,11 +101,13 @@
       "accelY": "Zrychlení Y (g)",
       "accelZ": "Zrychlení Z (g)",
       "altitude": "Výška",
+      "ambientTemperature": "Vzduch",
       "battery": "Baterie",
+      "humidity": "Vlhkost",
       "latitude": "Šířka",
       "longitude": "Délka",
       "speed": "Rychlost",
-      "temperature": "Teplota",
+      "temperature": "Teplota modemu",
       "timestamp": "Čas"
     },
     "columnSeparator": "Oddělovač sloupců",

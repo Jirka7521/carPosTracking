@@ -31,6 +31,11 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
             table.HasCheckConstraint("ck_positions_accel_y_g", "accel_y_g >= -16 AND accel_y_g <= 16");
             table.HasCheckConstraint("ck_positions_accel_z_g", "accel_z_g >= -16 AND accel_z_g <= 16");
             table.HasCheckConstraint("ck_positions_temperature_c", "temperature_c >= -40 AND temperature_c <= 125");
+            // Narrower than the modem die temperature above on purpose: these mirror the
+            // DHT22's own specified range, so a value outside them is a decode error
+            // rather than an unusual day.
+            table.HasCheckConstraint("ck_positions_ambient_temperature_c", "ambient_temperature_c >= -40 AND ambient_temperature_c <= 80");
+            table.HasCheckConstraint("ck_positions_humidity_pct", "humidity_pct >= 0 AND humidity_pct <= 100");
         });
 
         builder.HasKey(position => position.Id);
@@ -89,6 +94,12 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
 
         builder.Property(position => position.TemperatureC)
             .HasColumnName("temperature_c");
+
+        builder.Property(position => position.AmbientTemperatureC)
+            .HasColumnName("ambient_temperature_c");
+
+        builder.Property(position => position.HumidityPct)
+            .HasColumnName("humidity_pct");
 
         // The dedupe arbiter: MQTT delivery is at-least-once and backlog replays
         // carry no markers, so (device, fix time) is the only identity of a fix.

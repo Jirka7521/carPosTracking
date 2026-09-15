@@ -23,6 +23,8 @@ export type SeriesKey =
   | 'altitudeMeters'
   | 'batteryPct'
   | 'temperatureC'
+  | 'ambientTemperatureC'
+  | 'humidityPct'
   | 'accelXG'
   | 'accelYG'
   | 'accelZG'
@@ -54,6 +56,8 @@ export type ChartRow = {
   altitudeMeters: number | null
   batteryPct:     number | null
   temperatureC:   number | null
+  ambientTemperatureC: number | null
+  humidityPct:    number | null
   accelXG:        number | null
   accelYG:        number | null
   accelZG:        number | null
@@ -79,6 +83,8 @@ export const SERIES: readonly SeriesDef[] = [
   { key: 'altitudeMeters', labelKey: 'device:charts.series.altitudeMeters', unit: 'm',    color: '#9085E9', decimals: 0 },
   { key: 'batteryPct',     labelKey: 'device:charts.series.batteryPct',     unit: '%',    color: '#199E70', decimals: 0 },
   { key: 'temperatureC',   labelKey: 'device:charts.series.temperatureC',   unit: '°C',   color: '#EB6834', decimals: 1 },
+  { key: 'ambientTemperatureC', labelKey: 'device:charts.series.ambientTemperatureC', unit: '°C', color: '#C2255C', decimals: 1 },
+  { key: 'humidityPct',    labelKey: 'device:charts.series.humidityPct',    unit: '%',    color: '#5F3DC4', decimals: 0 },
   { key: 'accelXG',        labelKey: 'device:charts.series.accelXG',        unit: 'g',    color: '#C06FD0', decimals: 2 },
   { key: 'accelYG',        labelKey: 'device:charts.series.accelYG',        unit: 'g',    color: '#EDA100', decimals: 2 },
   { key: 'accelZG',        labelKey: 'device:charts.series.accelZG',        unit: 'g',    color: '#B5651D', decimals: 2 },
@@ -127,6 +133,8 @@ export function toChartRows(positions: readonly PositionDto[]): ChartRow[] {
       batteryPct:     position.batteryPct === 0 ? null : position.batteryPct,
       charging:       position.batteryPct === 0,
       temperatureC:   position.temperatureC,
+      ambientTemperatureC: position.ambientTemperatureC,
+      humidityPct:    position.humidityPct,
       accelXG:        position.accelXG,
       accelYG:        position.accelYG,
       accelZG:        position.accelZG,

@@ -67,6 +67,8 @@ type SortKey =
   | 'accelYG'
   | 'accelZG'
   | 'temperatureC'
+  | 'ambientTemperatureC'
+  | 'humidityPct'
 
 type SortDir = 'asc' | 'desc'
 
@@ -104,6 +106,8 @@ const COLUMNS = [
   { key: 'accelYG',        labelKey: 'device:positions.column.accelY' },
   { key: 'accelZG',        labelKey: 'device:positions.column.accelZ' },
   { key: 'temperatureC',   labelKey: 'device:positions.column.temperature' },
+  { key: 'ambientTemperatureC', labelKey: 'device:positions.column.ambientTemperature' },
+  { key: 'humidityPct',    labelKey: 'device:positions.column.humidity' },
 ] as const satisfies readonly { key: SortKey; labelKey: string }[]
 
 // The single number a row is ranked by, or null when it has none to rank —
@@ -165,6 +169,15 @@ function formatBattery(value: number | null): string {
 // device sent no reading (older firmware or the sensor unsupported).
 function formatTemperature(value: number | null): string {
   return value === null ? i18n.t('common:states.none') : `${formatNumber(value, 1)} °C`
+}
+
+// Format relative humidity for the table, or an em dash when the device sent no
+// reading. Goes through the same key battery percentages use rather than
+// appending a bare '%', because Czech writes "47 %" with a space.
+function formatHumidity(value: number | null): string {
+  return value === null
+    ? i18n.t('common:states.none')
+    : i18n.t('common:battery.percent', { value: formatNumber(value, 0) })
 }
 
 // Formats an API timestamp to a readable local date/time string.
@@ -884,6 +897,8 @@ export function PositionListTab() {
                       <td className="position-coord">{formatAccel(position.accelYG)}</td>
                       <td className="position-coord">{formatAccel(position.accelZG)}</td>
                       <td className="position-coord">{formatTemperature(position.temperatureC)}</td>
+                      <td className="position-coord">{formatTemperature(position.ambientTemperatureC)}</td>
+                      <td className="position-coord">{formatHumidity(position.humidityPct)}</td>
                     </tr>
                   )
                 })}

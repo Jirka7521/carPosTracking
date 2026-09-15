@@ -84,6 +84,18 @@ reuse.
   unexplained restart can be diagnosed after the fact. Because RTC memory
   survives a reset but not a lost rail, it separates **"it crashed"** from
   **"it lost power"**, which the serial console alone never could.
+- 🌡️ **DHT22 ambient temperature and humidity**: cabin climate read every 2 s
+  for the whole awake window and published as the **median** of those readings,
+  as `ambient_temp_c` / `humidity_pct` — deliberately separate from `temp_c`,
+  which is and remains the modem's own die temperature. See
+  [Ambient temperature and humidity](#ambient-temperature-and-humidity).
+- 💡 **Two status LEDs**: yellow for the GNSS hunt, green for WiFi — blinking
+  while working, solid when done, dark when the subsystem is off. See
+  [Status LEDs](#status-leds).
+- 🔘 **Hardware power switch**: a plain switch to ground puts the whole unit into
+  the deepest sleep the board allows and holds it there until it is switched back
+  on. Charging and the pack's protection board are untouched. See
+  [Power switch](#power-switch).
 - 🐛 **GNSS debug mode** (one flag in the config file): prints every value read
   from the module *and* how many satellites of each constellation are in view.
 - 🧱 Clean class-per-file structure, heavily commented.
@@ -122,7 +134,15 @@ src/
 │
 ├── sensors/
 │   ├── AccelData.h             ← Plain AccelSample struct (X/Y/Z in g)
-│   └── Adxl345.h/.cpp          ← I2C driver for the ADXL345 accelerometer
+│   ├── Adxl345.h/.cpp          ← I2C driver for the ADXL345 accelerometer
+│   ├── AccelPeakTracker.h/.cpp ← Per-axis peak of the interval, on its own task
+│   ├── AmbientData.h           ← Plain AmbientSample struct (°C + %RH)
+│   ├── Dht22.h/.cpp            ← RMT-based one-wire driver for the DHT22
+│   └── AmbientWindowSampler.h/.cpp← Read every 2 s all cycle; publish the median
+│
+├── status/
+│   ├── StatusLed.h/.cpp        ← One LED: a mode (off/blink/on) → a pin level
+│   └── StatusLeds.h/.cpp       ← The two indicators + the blink task
 │
 ├── mqtt/
 │   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
@@ -165,6 +185,7 @@ src/
     ├── BatteryReporter.h/.cpp     ← Picks the ONE percent that goes on the wire
     ├── ChargerWatcher.h/.cpp      ← Spots the charger-off edge (RTC-backed)
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
+    ├── PowerSwitch.h/.cpp         ← The run/sleep switch, debounced
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
 
@@ -238,6 +259,105 @@ test:
 
 ---
 
+## Wiring
+
+Everything below hangs off a **LilyGO TTGO T-SIM7000G** (ESP32-WROVER-B). The
+modem, the microSD slot and the battery sense are on the board already; the four
+peripherals here are what gets added to it.
+
+```
+                         LilyGO TTGO T-SIM7000G
+                        (ESP32-WROVER-B + SIM7000G)
+                    ┌───────────────────────────────────┐
+                    │                                   │
+   ADXL345 (GY-291)  │                                   │
+   ┌──────────┐      │                                   │
+   │ VCC ─────┼──────┤ 3V3                          GND ├──────┬──────┬───────┐
+   │ GND ─────┼──────┤ GND                               │      │      │       │
+   │ SDA ─────┼──────┤ 21  (I2C data)                    │      │      │       │
+   │ SCL ─────┼──────┤ 22  (I2C clock)                   │      │      │       │
+   │ INT1 ────┼──────┤ 32  (RTC-capable: future ext1)    │      │      │       │
+   │ INT2 ────┼──────┤ 34  (input-only: awake-time use)  │      │      │       │
+   │ CS ──3V3 │      │                                   │      │      │       │
+   │ SDO ─GND │      │                                   │      │      │       │
+   └──────────┘      │                                   │      │      │       │
+                     │                                   │      │      │       │
+   Power switch      │                                   │      │      │       │
+   ┌──────────┐      │                                   │      │      │       │
+   │    ␣╱␣   ├──────┤ 33  (internal pull-up, ext0 wake) │      │      │       │
+   │          ├──────┼───────────────────────────────────┼──────┘      │       │
+   └──────────┘      │                                   │             │       │
+                     │                                   │             │       │
+   Yellow LED        │                                   │             │       │
+   ┌──────────┐      │                                   │             │       │
+   │ ──▶|──[R]├──────┤ 18  (GNSS status)                 │             │       │
+   │          ├──────┼───────────────────────────────────┼─────────────┘       │
+   └──────────┘      │                                   │                     │
+                     │                                   │                     │
+   Green LED         │                                   │                     │
+   ┌──────────┐      │                                   │                     │
+   │ ──▶|──[R]├──────┤ 19  (WiFi status)                 │                     │
+   │          ├──────┼───────────────────────────────────┼─────────────────────┘
+   └──────────┘      │                                   │
+                     │                                   │
+   DHT22 (3-pin)     │                                   │
+   ┌──────────┐      │                                   │
+   │ VCC ─────┼──────┤ 3V3                               │
+   │ DATA ────┼──────┤ 23  (one-wire, 4.7k pull-up)      │
+   │ GND ─────┼──────┤ GND                               │
+   └──────────┘      │                                   │
+                     └───────────────────────────────────┘
+```
+
+| Peripheral | Pin | Notes |
+|---|---|---|
+| ADXL345 SDA / SCL | `21` / `22` | I2C. The GY-291 carries its own bus pull-ups; the firmware enables the internal ones too. |
+| ADXL345 INT1 | `32` | Reserved. RTC-capable, so a future motion wake can use **ext1** on it. |
+| ADXL345 INT2 | `34` | Reserved. Input-only, so awake-time interrupts only — which is all a second INT line needs to be. |
+| Power switch | `33` | To **GND**. Internal pull-up, ext0 wake. |
+| Yellow LED (GNSS) | `18` | Anode via series resistor; cathode to GND. **Active high.** |
+| Green LED (WiFi) | `19` | Anode via series resistor; cathode to GND. **Active high.** |
+| DHT22 DATA | `23` | Needs a 4.7 kΩ pull-up to 3V3 — already fitted on a 3-pin module. |
+
+**No discrete resistors are needed** for the build this was written for: the
+switch uses the ESP32's internal pull-up, the LEDs are pre-wired 3 V parts with
+the resistor already in the lead, and the DHT22 is a 3-pin breakout with its
+pull-up on the PCB. With bare parts instead, fit **1 kΩ** per LED (≈1.3 mA — use
+470 Ω if the unit sits behind smoked plastic, and never share one resistor
+between two LEDs, because the lower-Vf one takes the current and the other stays
+dark) and **4.7 kΩ** from the DHT22's DATA line to 3V3. The ESP32's own ~45 kΩ
+internal pull-up is too weak for the DHT22 on anything but a very short lead.
+
+### Why these pins, and what had to move
+
+The board leaves very little free. `2/13/14/15` are the microSD, `4/26/27` the
+modem, `21/22` the I2C bus, `35/36` the battery and solar sense, `25` the modem's
+DTR, `12` the onboard LED, `16/17` the WROVER's PSRAM and `6-11` the flash.
+
+The **power switch** is the pin that constrains everything, because it needs two
+properties at once: an **internal pull-up** (so the open state is defined without
+a board resistor) and **RTC capability** (ext0 is the only thing that can wake the
+chip on a *level*). Only `32` and `33` qualified, and both were occupied by the
+ADXL345's interrupt lines. `0` and `12` are strapping pins — a switch held closed
+on `0` at power-on drops the chip into download mode, and `12` held high breaks
+the flash voltage selection — so neither is usable.
+
+**ADXL345 INT2 therefore moved from `33` to `34`.** The move was forced: with
+`INT_ENABLE` at its `0x00` reset default the ADXL drives both INT pins **LOW**
+through a push-pull output, so a switch sharing `33` would have read "closed"
+forever. `34` is a good home for it rather than a consolation prize — an
+interrupt line is an input, `34` is input-only (which is exactly why nothing else
+wanted it), and it needs no pull resistor because the sensor drives it. Both INT
+lines stay wired and usable. Two `static_assert`s in `Config.h` make sure the
+switch can never be configured back onto either of them.
+
+`18`, `19` and `23` are the remaining plain GPIOs with no strapping role. `23`
+goes to the DHT22 specifically because the sensor's host pulls the line down to
+start every exchange, so it needs an **output-capable** pin — which rules out
+`34`/`39`. After all this, `39` is the only pin left free.
+
+---
+
 ## Configuration
 
 > ⚠️ **First-time setup — create your config file.**
@@ -299,9 +419,22 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
-| `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `33` | INT pins — reserved, interrupts not used yet |
+| `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `34` | INT pins — reserved, interrupts not used yet. INT2 moved off `33` to free it for the power switch; see [Wiring](#wiring) |
 | **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
 | `kAccelSampleIntervalMs` | `500` | How often the sensor is sampled while peak tracking is on |
+| **`kDht22Enabled`** | `true` | **Enable/disable the DHT22 ambient sensor** (see [Ambient temperature and humidity](#ambient-temperature-and-humidity)) |
+| `kDht22DataPin` | `23` | One-wire DATA pin. Must be **output-capable** — the host drives the start pulse |
+| `kDht22SampleIntervalMs` | `2000` | How often the sensor is read. **The part's own floor** — lower values are clamped back up |
+| **`kStatusLedsEnabled`** | `true` | **Enable/disable both status LEDs** (see [Status LEDs](#status-leds)) |
+| `kGnssLedPin` / `kWifiLedPin` | `18` / `19` | Yellow (GNSS) and green (WiFi) indicator pins; `-1` drops one |
+| `kStatusLedActiveHigh` | `true` | `true` = a HIGH level lights the LED (anode to the pin) |
+| `kStatusLedTickMs` | `100` | How often the pins are refreshed — also the worst-case lag on a state change |
+| `kStatusLedBlinkMs` | `500` | Half a blink period |
+| **`kPowerSwitchEnabled`** | `true` | **Enable/disable the hardware run/sleep switch** (see [Power switch](#power-switch)) |
+| `kPowerSwitchPin` | `33` | Switch to GND. Must be RTC-capable **and** have an internal pull-up |
+| `kPowerSwitchRunLevel` | `0` | Level meaning "run" (`0` = closed to ground) |
+| `kPowerSwitchDebounceMs` | `100` | How long a reading must hold steady to be believed |
+| `kPowerSwitchPollMs` | `1000` | How often the switch is re-read while awake |
 | **`kBatteryEnabled`** | `true` | **Enable/disable the battery monitor** |
 | `kBatteryChargeSensePin` | `35` | Charge-sense ADC pin; reads ~0 while charging |
 | `kBatteryChargeAdcThreshold` | `200` | Raw ADC counts below which = charging (report `0`) |
@@ -365,8 +498,8 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdBootLogPath` | `/sdcard/boot.log` | One line per boot (**plaintext**) |
 | `kSdMaxBootLogLines` | `200` | Cap on the boot log; oldest lines are dropped past this |
 | `kBootLogPrintLines` | `10` | How many previous boots are printed to serial at start-up |
-| `kWakeGpioPin` | `-1` | Extra ext0 wake pin; `-1` = timer-only |
-| `kWakeGpioLevel` | `1` | Pin level that wakes the chip (`1` = HIGH) |
+| `kWakeGpioPin` | `33` | ext0 wake pin — **derived from `kPowerSwitchPin`**, not set independently |
+| `kWakeGpioLevel` | `0` | Pin level that wakes the chip — **derived from `kPowerSwitchRunLevel`** |
 | `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
@@ -435,14 +568,22 @@ sensor fields; the field names match the API's `PositionPayloadDto` exactly:
 {"device":"GNSS01","latitude_deg":50.08,"longitude_deg":14.42,
  "speed_kmph":0.0,"altitude_m":210.0,"time_utc":"2026-07-23T10:00:00Z",
  "battery_pct":87,"accel_x_g":0.01,"accel_y_g":-0.02,"accel_z_g":0.99,
- "temp_c":31.0}
+ "temp_c":31.0,"ambient_temp_c":21.4,"humidity_pct":47.2}
 ```
 
-`battery_pct` (`0` = charging), `accel_x/y/z_g` and `temp_c` (modem die
-temperature in °C) are **omitted** when their sensor is disabled or a read
-failed, so an older decoder still parses the six location fields it knows. The
-raw pack millivolts are **not** on the wire — they stay on the serial console as
-a curve-calibration aid only.
+`battery_pct` (`0` = charging), `accel_x/y/z_g`, `temp_c` (modem die temperature
+in °C) and the `ambient_temp_c` / `humidity_pct` pair are **omitted** when their
+sensor is disabled or a read failed, so an older decoder still parses the six
+location fields it knows. The raw pack millivolts are **not** on the wire — they
+stay on the serial console as a curve-calibration aid only.
+
+> **`temp_c` and `ambient_temp_c` are two different things.** `temp_c` is the
+> SIM7000's own die temperature (`AT+CPMUTEMP`) — the reading that explains a
+> hot-car cut-off. `ambient_temp_c` is the air, from the DHT22. The ambient pair
+> got its own names rather than taking over `temp_c` precisely so that neither
+> the firmware nor an existing database column silently changed meaning.
+> `ambient_temp_c` and `humidity_pct` are emitted together or not at all: one
+> sensor frame produces both.
 
 `battery_pct` is produced by [`BatteryReporter`](src/power/BatteryReporter.h)
 from the measurement described under [Battery measurement](#battery-measurement)
@@ -1268,7 +1409,8 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
 ---------------- SENSORS ----------------
   Battery        : 87 % (3892 mV)
   Accel X/Y/Z    : 0.01 / -0.02 / 0.99 g
-  Temperature    : 31.0 C
+  Modem temp     : 31.0 C
+  Ambient        : n/a (disabled / warming up / read failed)
 -----------------------------------------
 ```
 
@@ -1278,8 +1420,15 @@ visible even before a fix arrives. `Battery` shows the percent with the raw pack
 millivolts in parentheses — a calibration aid for the Li-ion curve, and
 deliberately **not** published — or `charging (sentinel 0)` while the charger is
 connected, or `n/a` when the monitor is disabled or a read failed; `Accel X/Y/Z`
-shows the raw ADXL345 sample in g, or `n/a`; `Temperature` is the modem die
+shows the raw ADXL345 sample in g, or `n/a`; `Modem temp` is the modem die
 temperature (published as `temp_c`), or `n/a` when unavailable.
+
+`Ambient` is the DHT22's air reading, and it is **always `n/a` in this block** —
+deliberately. The sensor has its own 2 s floor and its own sampling task, so
+asking it again from a per-poll hook would only ever be refused; the reading that
+gets published is the median of that task's window, taken once per report. The
+line is there so the two temperatures are labelled apart on the console the same
+way they are on the wire, not as a live readout.
 
 Once a lock arrives, three more **GNSS FIX** blocks follow about a second apart
 with **no satellite table between them** — that is the averaging burst, which
@@ -1642,6 +1791,178 @@ so [`AdcSampler`](src/power/AdcSampler.h) guards its conversions and its pin
 table too, and the sampler's reservoir takes a lock of its own. Nothing else in
 the firmware became concurrent — the delivery path is still driven entirely from
 the main task.
+
+---
+
+## Ambient temperature and humidity
+
+A **DHT22 (AM2302)** on `kDht22DataPin` reports the air the unit is actually
+sitting in, published as `ambient_temp_c` and `humidity_pct`.
+
+Every report carries the **median** of every reading taken since the previous
+one, not one instantaneous sample — the same treatment the pack voltage gets, and
+for a related reason: a single frame that decodes cleanly can still be wrong, and
+the middle of a dozen readings is not.
+
+```
+  boot / deep-sleep wake                                      publish
+     │                                                           │
+     │  *        *        *        *        *        *        *  │
+     │  one reading every kDht22SampleIntervalMs (2 s)            │
+     └───────────────────────────────────────────────────────────┘
+                                                   takeMedian() → window reset
+```
+
+There is deliberately **no outlier trim**, which is where this differs from the
+battery path. The pack window is trimmed because a SIM7000 transmit burst drags
+the rail down for tens of milliseconds and those samples are measurement
+artefacts. Air temperature has no equivalent — a reading that differs from its
+neighbours is usually the air actually changing, and deleting it would be
+deleting the signal. The median alone rejects what needs rejecting, and a
+genuinely corrupt frame never gets this far because its checksum already failed.
+
+**Why 2 s and not 0.5 s.** The accelerometer and the pack are both sampled every
+500 ms; the DHT22 is not, and cannot be. The part samples its own sensing element
+about once every two seconds and returns a stale frame — or nothing at all — if
+polled faster, so [`Dht22`](src/sensors/Dht22.h) enforces that floor internally
+and **clamps `kDht22SampleIntervalMs` up** if it is set lower. The same rule
+covers the roughly two seconds the sensor needs after power-on before its first
+conversion exists, which is why **the first report after a deep-sleep wake
+usually carries no ambient fields at all**. That is the honest answer rather than
+a defect: on a sleeping device there was no sensor running to ask.
+
+**Why the driver uses RMT.** The DHT22 encodes each bit in the *length* of a high
+pulse — about 26 µs means 0, about 70 µs means 1 — and a whole 40-bit frame takes
+roughly 5 ms. Timing that on the CPU means either polling in a tight loop, where
+one FreeRTOS pre-emption or WiFi interrupt lands mid-pulse and corrupts the
+frame, or disabling interrupts for the full 5 ms on a device whose radio is up
+and whose MQTT session is live. Neither is acceptable here, so the RMT peripheral
+captures the pulse train in hardware and the CPU decodes it afterwards at its
+leisure.
+
+One subtlety worth knowing if you touch that driver: the exchange *starts* with
+the host pulling the line low for more than a millisecond, which a receive-only
+RMT channel cannot do. The pad is therefore left in open-drain input+output mode
+after the channel claims it, so the CPU can still pull it down while the
+peripheral keeps watching, and the receive is armed **before** the start pulse is
+driven. That means the captured stream also contains the host's own pulse and the
+sensor's 80/80 µs response, which the decoder skips by counting back and taking
+the **last 40 symbols**.
+
+DHT11 was considered and rejected. Its range is 0–50 °C and 20–90 %RH with 1 °
+resolution — a parked car goes outside that in both directions, in most of
+Europe, most years.
+
+---
+
+## Status LEDs
+
+Two indicators, so the unit says what it is doing without a serial cable:
+
+| LED | Blinking | Solid | Dark |
+|---|---|---|---|
+| **Yellow** (`kGnssLedPin`) | hunting a GNSS fix | locked | not searching — asleep, or the acquire gave up |
+| **Green** (`kWifiLedPin`) | associating, or retrying in the background | connected, holding an IP | radio stopped |
+
+The green LED keeps blinking for as long as the WiFi manager keeps retrying,
+which — since it retries forever — means a unit parked out of range blinks for
+the whole awake window. That is deliberate: "still looking" is the truth, and a
+dark LED already means something else.
+
+The two are driven differently, and the split is the interesting part.
+The **GNSS state is pushed**: the main loop knows exactly when it starts an
+acquire and exactly when one succeeds, so it calls `setGnss()` at those two
+points. The **WiFi state is polled**: the connection comes and goes on the WiFi
+driver's own event task at moments the main loop knows nothing about — and the
+main loop is blocked inside `averager.acquire()` for minutes at a time, so it
+could not forward those events even if it saw them. The indicator task therefore
+reads [`WifiManager::linkState()`](src/wifi/WifiManager.h) on every tick.
+
+That is also why the dependency points the way it does.
+[`WifiManager`](src/wifi/WifiManager.h) stays ignorant of LEDs — it has to keep
+working in a build with no indicators at all — so the presentation layer reaches
+into it, never the reverse.
+
+**Active-high wiring matters.** Each pin drives the LED's anode through a series
+resistor with the cathode at ground. In deep sleep the digital pads go
+high-impedance, and a high-Z source cannot light an LED, so the indicators go
+genuinely dark on sleep with no hold logic, no RTC pad and nothing to undo on the
+next boot. Wiring them the other way round would work electrically but would need
+all of that, for nothing.
+
+---
+
+## Power switch
+
+A plain mechanical switch between `kPowerSwitchPin` and **ground**. Closed means
+run; open means sleep until it is closed again.
+
+```
+   switch closed  →  pin LOW   →  run normally
+   switch open    →  pin HIGH  →  shut everything down, deep-sleep on ext0 only
+```
+
+The pin's **internal pull-up** supplies the open state, so no board resistor is
+needed — which is exactly why the pin has to be one that *has* an internal
+pull-up, and RTC-capable besides, since ext0 is the only thing that can wake the
+chip on a *level*. See [Wiring](#wiring) for why that pair of requirements landed
+on `33` and what had to move to free it.
+
+### What "off" actually costs
+
+**Expect ~1–2 mA, not microamps.** The T-SIM7000G has no rail the ESP32 can cut:
+the board's LDO and charger IC stay powered no matter what the firmware does. On
+an 18650 that is still months.
+
+What the firmware *does* cut, it cuts completely — the same ordered shutdown a
+timed sleep uses (see [Deep sleep between reports](#deep-sleep-between-reports)):
+MQTT disconnects cleanly, the radio stops, the modem goes down via `AT+CPOWD=1`
+(taking the GNSS engine and the active antenna's amplifier with it), the card
+unmounts, the LEDs go dark, and the ESP32 deep-sleeps with **ext0 as the only
+wake source** — no timer, so it stays down until the switch says otherwise.
+
+The pack's protection board and the charger are deliberately untouched: **charging
+still works with the switch off.**
+
+### Four checkpoints, so it feels immediate
+
+A wake from the switch is a **reboot** — `app_main()` runs from the top — so a
+switch that was only read once per cycle would be both slow to react and
+expensive to bounce. It is checked at four points instead:
+
+| # | Where | Why it exists |
+|---|---|---|
+| 0 | the first thing in `app_main()`, before WiFi, the card or the modem | A bounce costs ~2 s, not a full boot with a cold GNSS acquire |
+| 1 | top of each cycle | Catches a switch thrown during the previous publish |
+| 2 | inside the per-poll hook, and again after `acquire()` returns | A fix budget is up to an hour at its clamp; without this a unit switched off mid-hunt would keep hunting |
+| 3 | inside the interval wait, capped at `kPowerSwitchPollMs` | Otherwise an hourly device would keep running for up to an hour after being switched off |
+
+Checkpoint 0 has one wrinkle worth calling out. The modem keeps its own power
+state across an ESP32 reset, so a brown-out or a re-flash can land there with it
+still running and drawing more than everything else put together — but a blind
+PWRKEY pulse would switch an *already-off* modem back **on**, which is the exact
+opposite of the intent. So it probes with `isResponsive()` first and only powers
+down a modem that answers.
+
+Checkpoint 2 is why
+[`GnssModule::waitForFix()`](src/gnss/GnssModule.h)'s per-poll hook returns a
+`bool`: returning `false` abandons the acquisition immediately, exactly as a
+timeout would.
+
+### It cannot brick itself
+
+Two guards, because "asleep with no way back" needs a pack pull to undo:
+
+- **`static_assert`s in `Config.h`** tie `kWakeGpioPin`/`kWakeGpioLevel` to the
+  switch's own pin and level (ext0 is one piece of hardware and cannot serve two
+  signals), and forbid the switch from sharing either ADXL345 INT pin — the
+  sensor drives those push-pull, so a switch there would read the accelerometer.
+- **A fallback timer at runtime.** If ext0 cannot be armed for any reason,
+  [`DeepSleepController`](src/power/DeepSleepController.h) arms a 60 s timer
+  instead and says so loudly in the log, rather than sleeping with nothing.
+
+Set `kPowerSwitchEnabled` to `false` and the device always runs, exactly as it
+did before.
 
 ---
 

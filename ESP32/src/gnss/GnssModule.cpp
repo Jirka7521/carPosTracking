@@ -134,7 +134,7 @@ bool GnssModule::readFix(GnssFix& fix, bool scanSatellites) {
 
 bool GnssModule::waitForFix(GnssFix& fix, uint32_t timeoutMs,
                             uint32_t pollStepMs,
-                            const std::function<void()>& onEachRead) {
+                            const std::function<bool()>& onEachRead) {
   const int64_t deadlineUs =
       esp_timer_get_time() + static_cast<int64_t>(timeoutMs) * 1000;
 
@@ -149,8 +149,14 @@ bool GnssModule::waitForFix(GnssFix& fix, uint32_t timeoutMs,
     // Let the caller report after this poll (e.g. print battery/accel beneath
     // the satellite table readFix just produced), on every poll including the
     // one that finally gets the fix.
-    if (onEachRead) {
-      onEachRead();
+    //
+    // A false return abandons the wait. The fix is still handed back as-is, so
+    // a caller that aborts on the very poll that succeeded does not silently
+    // throw the position away - it just gets `false`, the same as a timeout,
+    // and decides for itself what that means.
+    if (onEachRead && !onEachRead()) {
+      ESP_LOGI(TAG, "Fix wait abandoned at the caller's request.");
+      return false;
     }
 
     if (gotFix) {

@@ -132,8 +132,16 @@ constexpr int      kI2cSclPin      = 22;      // ESP32 SCL -> ADXL345 SCL
 constexpr uint32_t kI2cClockHz     = 400000;  // 400 kHz fast-mode I2C
 constexpr uint8_t  kAdxlI2cAddress = 0x53;    // CS->3V3, SDO->GND
 
-constexpr int kAdxlInt1Pin = 32;  // reserved (interrupts not used yet)
-constexpr int kAdxlInt2Pin = 33;  // reserved (interrupts not used yet)
+// The two interrupt outputs. Still unused by this firmware, still wired, and
+// both usable the day something wants them. INT2 sits on 34 rather than the 33
+// it used to, because GPIO33 is the only free pin with an internal pull-up AND
+// RTC capability, which is what the power switch needs - and the ADXL drives its
+// INT pins push-pull, so a switch sharing 33 would have read "closed" forever.
+//
+// Neither needs a pull resistor: the sensor drives them, it does not open-drain
+// them. 34 is input-only, which is all an interrupt line ever is.
+constexpr int kAdxlInt1Pin = 32;  // reserved; RTC-capable, so ext1 can wake on it
+constexpr int kAdxlInt2Pin = 34;  // reserved; input-only, awake-time use only
 
 // -----------------------------------------------------------------------------
 //  Peak accelerometer readings.
@@ -736,6 +744,101 @@ constexpr uint32_t kSdMaxBootLogLines = 200;
 constexpr uint32_t kBootLogPrintLines = 10;
 
 // -----------------------------------------------------------------------------
+//  Status LEDs.
+//
+//  Two indicators on the outside of the case, so the unit says what it is doing
+//  without a serial cable:
+//
+//      YELLOW (kGnssLedPin)  blinking : hunting a GNSS fix
+//                            solid    : locked
+//                            dark     : not searching - asleep, or gave up
+//
+//      GREEN  (kWifiLedPin)  blinking : associating, or retrying in background
+//                            solid    : connected, holding an IP
+//                            dark     : radio stopped
+//
+//  Wire each pin to the LED's anode through a series resistor, cathode to
+//  ground - or use a pre-wired 3 V LED with the resistor already in the lead,
+//  which is what the build this was written for uses. ACTIVE HIGH matters: in
+//  deep sleep the digital pads go high-impedance, and a high-Z source cannot
+//  light an LED, so the indicators go genuinely dark with no hold logic, no RTC
+//  pad and nothing to undo on the next boot.
+//
+//  18 and 19 are plain GPIOs with no strapping role and no RTC capability worth
+//  spending elsewhere. Set a pin to -1 to drop that indicator; set
+//  kStatusLedsEnabled to false and the task is never created at all.
+// -----------------------------------------------------------------------------
+constexpr bool     kStatusLedsEnabled   = true;
+constexpr int      kGnssLedPin          = 18;   // yellow
+constexpr int      kWifiLedPin          = 19;   // green
+constexpr bool     kStatusLedActiveHigh = true;
+constexpr uint32_t kStatusLedTickMs     = 100;  // how often the pins refresh
+constexpr uint32_t kStatusLedBlinkMs    = 500;  // half a blink period
+
+// -----------------------------------------------------------------------------
+//  Power switch.
+//
+//  A plain mechanical switch between kPowerSwitchPin and GROUND. Closed means
+//  run; open means sleep until it is closed again. The pin's INTERNAL pull-up
+//  supplies the open state, so no external resistor is needed - which is exactly
+//  why the pin has to be one that HAS an internal pull-up. GPIOs 34-39 have none
+//  in silicon and would need a board resistor.
+//
+//  It must also be RTC-capable, because ext0 is the only thing that can wake the
+//  chip on a LEVEL. That pair of requirements is what makes 33 the pin: 0 and 12
+//  are strapping pins that would break booting, 2/13/14/15 are the card, 4/26/27
+//  the modem, 21/22 the I2C bus, 35/36 the sense inputs, 25 the modem's DTR, and
+//  16/17 are the WROVER's PSRAM. See kAdxlInt2Pin for what had to move.
+//
+//  WHAT "OFF" ACTUALLY COSTS. The T-SIM7000G has no rail the ESP32 can cut, so
+//  the board's LDO and charger IC stay powered no matter what: expect ~1-2 mA,
+//  not microamps. What the firmware does cut is everything it can reach - the
+//  modem via AT+CPOWD (which takes the GNSS engine and the antenna amplifier
+//  with it), the card, the radio, the indicators - and then deep-sleeps with
+//  ext0 as the ONLY wake source. The pack's protection board and the charger are
+//  deliberately untouched: charging still works with the switch off.
+//
+//  Set kPowerSwitchEnabled to false to disable the feature; the device then
+//  always runs, exactly as it did before.
+// -----------------------------------------------------------------------------
+constexpr bool     kPowerSwitchEnabled    = true;
+constexpr int      kPowerSwitchPin        = 33;  // internal pull-up; INT2 moved to 34
+constexpr int      kPowerSwitchRunLevel   = 0;   // closed to GND = run
+constexpr uint32_t kPowerSwitchDebounceMs = 100;
+// How often the switch is re-read while the device is awake and waiting out its
+// reporting interval. One extra task wake-up a second, against a radio drawing
+// tens of milliamps, is what buys "the switch takes effect within a second".
+constexpr uint32_t kPowerSwitchPollMs = 1000;
+
+// -----------------------------------------------------------------------------
+//  DHT22 / AM2302 ambient temperature and humidity.
+//
+//  Cabin climate, sampled for the whole awake window and published as the MEDIAN
+//  of those readings - the same treatment the pack voltage gets, minus the
+//  outlier trim (see AmbientWindowSampler.h for why trimming air temperature
+//  would be deleting the signal).
+//
+//  THE 2 SECOND CADENCE IS THE SENSOR'S, not a tuning choice. The DHT22 samples
+//  its own element that slowly and returns a stale frame if polled faster, so
+//  this cannot be lowered to join the 0.5 s battery/accelerometer cadence no
+//  matter how the value is set - Dht22 clamps it. The same floor covers the ~2 s
+//  warm-up after power-on, which is why the first report of a deep-sleep cycle
+//  usually carries no ambient fields at all.
+//
+//  The pin must be OUTPUT-capable: the host starts every exchange by pulling the
+//  line down, so the input-only 34-39 cannot serve. It also needs a 4.7k pull-up
+//  to 3V3 - already fitted on a 3-pin breakout module, needed as a discrete part
+//  on a bare 4-pin sensor. The ESP32's own ~45k internal pull-up is too weak for
+//  anything but a very short lead and is deliberately not used.
+//
+//  Published as ambient_temp_c / humidity_pct - NOT temp_c, which is the modem's
+//  own die temperature and has meant that since the field existed.
+// -----------------------------------------------------------------------------
+constexpr bool     kDht22Enabled          = true;
+constexpr int      kDht22DataPin          = 23;
+constexpr uint32_t kDht22SampleIntervalMs = 2000;  // sensor floor; do not lower
+
+// -----------------------------------------------------------------------------
 //  Deep sleep (only used when the "sleep_between" setting is on).
 //
 //  Between reports the modem is powered right down - which also cuts the GNSS
@@ -759,12 +862,35 @@ constexpr uint32_t kBootLogPrintLines = 10;
 //                          internal pull (down for level 1, up for level 0) is
 //                          held through sleep.
 //
-// Pins 2, 4, 13, 14, 15, 26 and 27 are already taken by the modem and the SD
-// card. Free RTC-capable choices on the T-SIM7000G are 32 and 33. Note that
-// 34-39 are input-only and have no internal pull resistors, so those need an
-// external one.
-constexpr int kWakeGpioPin   = -1;  // -1 = timer-only (no external wake)
-constexpr int kWakeGpioLevel = 1;   // 1 = wake when the pin reads HIGH
+// This is now the POWER SWITCH's pin and is derived from it below - ext0 is one
+// piece of hardware and cannot serve two signals. A motion wake from the
+// accelerometer would therefore use ext1 on kAdxlInt1Pin (32), which is
+// RTC-capable and idles LOW, so ESP_EXT1_WAKEUP_ANY_HIGH is the mode; ext0 and
+// ext1 can be armed together.
+//
+// For the record, the full picture on this board: 2, 13, 14, 15 are the card,
+// 4, 26, 27 the modem, 21/22 the I2C bus, 35/36 the sense inputs, 25 the modem's
+// DTR, 12 the onboard LED, 16/17 the WROVER's PSRAM and 6-11 the flash. 18/19
+// are the status LEDs, 23 the DHT22, 32/34 the ADXL interrupts, 33 the switch.
+// That leaves 39. Note that 34-39 are input-only with no internal pull
+// resistors, so anything there needs an external one.
+constexpr int kWakeGpioPin   = kPowerSwitchEnabled ? kPowerSwitchPin : -1;
+constexpr int kWakeGpioLevel = kPowerSwitchEnabled ? kPowerSwitchRunLevel : 1;
+
+// ext0 is ONE piece of hardware and the power switch owns it. Deriving the wake
+// pin from the switch above rather than repeating it is what stops the two
+// drifting apart into a device that goes to sleep and never wakes up.
+static_assert(!kPowerSwitchEnabled || kWakeGpioPin == kPowerSwitchPin,
+              "the ext0 wake pin must be the power switch pin");
+static_assert(!kPowerSwitchEnabled || kWakeGpioLevel == kPowerSwitchRunLevel,
+              "the ext0 wake level must be the power switch's run level");
+
+// And it must not be a pin the accelerometer is driving: the ADXL's INT outputs
+// are push-pull, so a switch sharing one would read the sensor, not the switch.
+static_assert(!kPowerSwitchEnabled || kPowerSwitchPin != kAdxlInt1Pin,
+              "the power switch cannot share the ADXL345 INT1 pin");
+static_assert(!kPowerSwitchEnabled || kPowerSwitchPin != kAdxlInt2Pin,
+              "the power switch cannot share the ADXL345 INT2 pin");
 
 // Floor on the deep-sleep duration. If publishing a fix overran the interval
 // there is no time left to sleep, but bouncing straight back through a reboot

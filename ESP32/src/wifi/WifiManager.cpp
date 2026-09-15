@@ -23,7 +23,7 @@ WifiManager::WifiManager(const char* ssid, const char* password, int maxRetries,
       maxRetries_(maxRetries),
       reconnectIntervalMs_(reconnectIntervalMs),
       initialised_(false),
-      connected_(false),
+      linkState_(LinkState::Off),
       retryCount_(0),
       events_(nullptr),
       reconnectTimer_(nullptr) {}
@@ -94,7 +94,7 @@ bool WifiManager::connect(uint32_t timeoutMs) {
 
   // Fresh attempt: clear previous result bits and the retry counter.
   retryCount_ = 0;
-  connected_  = false;
+  linkState_  = LinkState::Connecting;
   xEventGroupClearBits(events_, kConnectedBit | kFailedBit);
 
   ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid_);
@@ -119,7 +119,11 @@ bool WifiManager::connect(uint32_t timeoutMs) {
   return false;
 }
 
-bool WifiManager::isConnected() const { return connected_; }
+bool WifiManager::isConnected() const {
+  return linkState_ == LinkState::Connected;
+}
+
+WifiManager::LinkState WifiManager::linkState() const { return linkState_; }
 
 void WifiManager::disconnect() {
   if (!initialised_) {
@@ -129,7 +133,7 @@ void WifiManager::disconnect() {
   esp_timer_stop(reconnectTimer_);  // Stop background reconnects first.
   esp_wifi_disconnect();
   esp_wifi_stop();
-  connected_ = false;
+  linkState_ = LinkState::Off;
 }
 
 void WifiManager::eventHandler(void* arg, const char* eventBase,
@@ -138,12 +142,13 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
 
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_START) {
     // Driver is up - kick off the association.
+    self->linkState_ = LinkState::Connecting;
     esp_wifi_connect();
     return;
   }
 
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_DISCONNECTED) {
-    self->connected_ = false;
+    self->linkState_ = LinkState::Connecting;
     if (self->retryCount_ < self->maxRetries_) {
       // Still inside the current fast burst: retry immediately.
       ++self->retryCount_;
@@ -168,7 +173,7 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
   if (eventBase == IP_EVENT && eventId == IP_EVENT_STA_GOT_IP) {
     auto* event = static_cast<ip_event_got_ip_t*>(eventData);
     ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
-    self->connected_  = true;
+    self->linkState_  = LinkState::Connected;
     self->retryCount_ = 0;
     esp_timer_stop(self->reconnectTimer_);  // Connected - cancel any pending retry.
     xEventGroupSetBits(self->events_, kConnectedBit);

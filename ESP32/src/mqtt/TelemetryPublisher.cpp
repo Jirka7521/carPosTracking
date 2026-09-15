@@ -50,6 +50,18 @@ std::string TelemetryPublisher::buildPayloadJson(
     cJSON_AddNumberToObject(root, "temp_c", sample.modem.temperatureC);
   }
 
+  // Cabin climate from the DHT22. Note the key is NOT temp_c: that one is the
+  // modem's die temperature and has meant that since the field existed, so the
+  // ambient reading gets its own name all the way to the database rather than
+  // quietly changing what an existing column means. Both keys are emitted
+  // together or not at all - one frame produced both, and a humidity with no
+  // temperature beside it would only ever be a decoding bug.
+  if (sample.ambient.valid) {
+    cJSON_AddNumberToObject(root, "ambient_temp_c",
+                            sample.ambient.temperatureC);
+    cJSON_AddNumberToObject(root, "humidity_pct", sample.ambient.humidityPct);
+  }
+
   // Which settings document this sample was taken under. Omitted when we have
   // never received one, so the server can tell "running an unknown config" apart
   // from "running revision 0", which does not exist.

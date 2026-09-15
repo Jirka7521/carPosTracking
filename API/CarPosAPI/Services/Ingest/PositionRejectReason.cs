@@ -52,4 +52,10 @@ internal enum PositionRejectReason
 
     /// <summary>temp_c present but non-finite or outside [-40, 125] °C.</summary>
     TemperatureOutOfRange,
+
+    /// <summary>ambient_temp_c present but non-finite or outside the DHT22's [-40, 80] °C.</summary>
+    AmbientTemperatureOutOfRange,
+
+    /// <summary>humidity_pct present but non-finite or outside [0, 100] %.</summary>
+    HumidityOutOfRange,
 }

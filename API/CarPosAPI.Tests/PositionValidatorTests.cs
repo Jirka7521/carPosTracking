@@ -320,4 +320,75 @@ public sealed class PositionValidatorTests
         Assert.False(valid);
         Assert.Equal(PositionRejectReason.TemperatureOutOfRange, reason);
     }
+
+    /// <summary>
+    /// The DHT22 pair survives validation, and lands in the fields that mean the air —
+    /// not in <c>TemperatureC</c>, which is the modem's own die and a separate column.
+    /// </summary>
+    [Fact]
+    public void CarriesAmbientTemperatureAndHumidityWhenPresent()
+    {
+        PositionPayloadDto payload = ValidPayload() with { AmbientTempC = 21.4, HumidityPct = 47.2 };
+
+        bool valid = CreateValidator().TryValidate(
+            payload, TopicDeviceId, s_utcNow, out ValidatedPosition? position, out PositionRejectReason _);
+
+        Assert.True(valid);
+        Assert.NotNull(position);
+        Assert.Equal(21.4, position.AmbientTemperatureC);
+        Assert.Equal(47.2, position.HumidityPct);
+        Assert.Null(position.TemperatureC);
+    }
+
+    /// <summary>
+    /// Absent ambient readings are the normal case, not a defect: no sensor fitted, or
+    /// the DHT22 still inside its two-second warm-up when the report was assembled.
+    /// </summary>
+    [Fact]
+    public void AbsentAmbientReadingsBecomeNull()
+    {
+        bool valid = CreateValidator().TryValidate(
+            ValidPayload(), TopicDeviceId, s_utcNow, out ValidatedPosition? position, out PositionRejectReason _);
+
+        Assert.True(valid);
+        Assert.NotNull(position);
+        Assert.Null(position.AmbientTemperatureC);
+        Assert.Null(position.HumidityPct);
+    }
+
+    /// <summary>
+    /// Bounds are the DHT22's own range, deliberately narrower than the modem's [-40, 125]:
+    /// outside it the frame decoded wrong, so the value must not reach the CHECK-constrained
+    /// column. Note 80.1 is accepted for <c>temp_c</c> and rejected here — that is the point.
+    /// </summary>
+    [Theory]
+    [InlineData(-40.1)]
+    [InlineData(80.1)]
+    [InlineData(double.NaN)]
+    public void RejectsAmbientTemperatureOutOfRange(double ambientTemperatureC)
+    {
+        PositionPayloadDto payload = ValidPayload() with { AmbientTempC = ambientTemperatureC };
+
+        bool valid = CreateValidator().TryValidate(
+            payload, TopicDeviceId, s_utcNow, out ValidatedPosition? _, out PositionRejectReason reason);
+
+        Assert.False(valid);
+        Assert.Equal(PositionRejectReason.AmbientTemperatureOutOfRange, reason);
+    }
+
+    /// <summary>A relative humidity outside [0, 100] is not a reading.</summary>
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(100.1)]
+    [InlineData(double.NaN)]
+    public void RejectsHumidityOutOfRange(double humidityPct)
+    {
+        PositionPayloadDto payload = ValidPayload() with { HumidityPct = humidityPct };
+
+        bool valid = CreateValidator().TryValidate(
+            payload, TopicDeviceId, s_utcNow, out ValidatedPosition? _, out PositionRejectReason reason);
+
+        Assert.False(valid);
+        Assert.Equal(PositionRejectReason.HumidityOutOfRange, reason);
+    }
 }

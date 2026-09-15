@@ -516,6 +516,8 @@ internal sealed class DataExportService : IDataExportService
             WriteNullableDouble(writer, "accelYG", position.AccelYG);
             WriteNullableDouble(writer, "accelZG", position.AccelZG);
             WriteNullableDouble(writer, "temperatureC", position.TemperatureC);
+            WriteNullableDouble(writer, "ambientTemperatureC", position.AmbientTemperatureC);
+            WriteNullableDouble(writer, "humidityPct", position.HumidityPct);
             writer.WriteEndObject();
 
             written++;

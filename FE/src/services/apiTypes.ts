@@ -106,6 +106,14 @@ export type PositionDto = {
   // (older firmware, or the SIM7000 AT+CPMUTEMP command unsupported). A proxy for
   // how hot the tracker is running — a hot-car cut-off shows up here.
   temperatureC: number | null
+  // Ambient air temperature at this fix in °C from the device's DHT22, or null
+  // when the device sent none (no sensor fitted, or it was still inside its
+  // two-second warm-up — which is the normal case for the first report after a
+  // deep-sleep wake). This is the cabin; `temperatureC` above is the board.
+  ambientTemperatureC: number | null
+  // Relative humidity at this fix (0–100), from the same sensor frame as
+  // `ambientTemperatureC`, so the two are present or absent together.
+  humidityPct: number | null
 }
 
 // One row in GET /api/access?deviceId=X — the four capability flags a user

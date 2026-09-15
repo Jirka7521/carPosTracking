@@ -87,7 +87,9 @@ internal sealed class PositionQueryService : IPositionQueryService
                 position.AccelXG,
                 position.AccelYG,
                 position.AccelZG,
-                position.TemperatureC))
+                position.TemperatureC,
+                position.AmbientTemperatureC,
+                position.HumidityPct))
             .ToListAsync(cancellationToken);
 
         return OperationResult<IReadOnlyList<PositionDto>>.Success(positions);

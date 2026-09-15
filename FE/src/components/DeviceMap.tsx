@@ -46,6 +46,11 @@ export type MapPosition = {
   accelXG?: number | null
   accelYG?: number | null
   accelZG?: number | null
+  // Optional like the accel fields above, and for the same reason: this type is
+  // structural and SharePage feeds it a SharedPositionDto, which deliberately
+  // carries less. Making these required would break the share page.
+  ambientTemperatureC?: number | null
+  humidityPct?: number | null
 }
 
 type DeviceMapProps = {
@@ -147,6 +152,18 @@ function buildInfoContent(position: MapPosition): HTMLElement {
   }
   if (position.temperatureC !== null) {
     appendRow(i18n.t('device:map.info.temperature'), `${formatNumber(position.temperatureC, 1)} °C`)
+  }
+  if ((position.ambientTemperatureC ?? null) !== null) {
+    appendRow(
+      i18n.t('device:map.info.ambientTemperature'),
+      `${formatNumber(position.ambientTemperatureC as number, 1)} °C`,
+    )
+  }
+  if ((position.humidityPct ?? null) !== null) {
+    appendRow(
+      i18n.t('device:map.info.humidity'),
+      i18n.t('common:battery.percent', { value: formatNumber(position.humidityPct as number, 0) }),
+    )
   }
 
   const recorded = document.createElement('div')

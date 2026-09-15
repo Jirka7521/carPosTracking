@@ -19,12 +19,17 @@
 #include "modem/ModemData.h"
 #include "power/BatteryData.h"
 #include "sensors/AccelData.h"
+#include "sensors/AmbientData.h"
 
 struct TelemetrySample {
   GnssFix       gnss;     // position / speed / time (always present)
   BatteryStatus battery;  // pack state of charge (valid when read succeeded)
   AccelSample   accel;    // X/Y/Z acceleration in g (valid when read succeeded)
   ModemHealth   modem;    // modem die temperature (valid when read succeeded)
+  // Cabin climate from the DHT22, medianed over the awake window. A DIFFERENT
+  // quantity from modem.temperatureC above, which is the SIM7000's own die
+  // temperature - that one explains a hot-car cut-off, this one is the air.
+  AmbientSample ambient;
 
   // Revision of the settings document in force when this sample was taken; 0
   // when the device has never received one. Sealed into the payload so the

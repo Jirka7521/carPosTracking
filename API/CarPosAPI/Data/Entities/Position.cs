@@ -68,4 +68,21 @@ public sealed class Position
     /// here. CHECK-constrained to [-40, 125].
     /// </summary>
     public double? TemperatureC { get; set; }
+
+    /// <summary>
+    /// Ambient air temperature in °C at the fix, from the device's DHT22, or null when
+    /// the device sent none (no sensor fitted, or it was still warming up — which is the
+    /// normal case for the first report after a deep-sleep wake). This is the cabin, not
+    /// the board: <see cref="TemperatureC"/> remains the modem's own die temperature and
+    /// the two are deliberately separate columns. CHECK-constrained to the sensor's own
+    /// [-40, 80].
+    /// </summary>
+    public double? AmbientTemperatureC { get; set; }
+
+    /// <summary>
+    /// Relative humidity in percent at the fix, from the same DHT22 frame as
+    /// <see cref="AmbientTemperatureC"/>, or null when the device sent none.
+    /// CHECK-constrained to [0, 100].
+    /// </summary>
+    public double? HumidityPct { get; set; }
 }

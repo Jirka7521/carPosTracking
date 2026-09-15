@@ -44,7 +44,7 @@ bool sameInstant(const GnssTime& a, const GnssTime& b) {
 FixAverager::FixAverager(GnssModule& gnss) : gnss_(gnss) {}
 
 bool FixAverager::acquire(GnssFix& out, uint32_t timeoutMs, uint32_t pollStepMs,
-                          const std::function<void()>& onEachRead) {
+                          const std::function<bool()>& onEachRead) {
   // The acquisition is untouched - same timeout, same poll step, same per-poll
   // hook. What comes back is reading #1 of four, and it is about to be thrown
   // away: it is the receiver's first solution after the lock and the least

@@ -309,9 +309,13 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   `battery_pct` (nullable, 0–100 with `0` = *charging*), `accel_x_g`/`accel_y_g`/
   `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample, or the strongest
   per-axis reading of the reporting interval when the device runs with
-  `kAccelPeakEnabled`) and `temperature_c`
+  `kAccelPeakEnabled`), `temperature_c`
   (nullable, °C from the modem's `AT+CPMUTEMP`, [-40, 125] — the sensor that
-  explains a hot-car cut-off; all sensor columns CHECK-constrained),
+  explains a hot-car cut-off) and the DHT22 pair `ambient_temperature_c`
+  (nullable, °C, [-40, 80] — the **air**, not the board, and a deliberately
+  separate column from `temperature_c` rather than a redefinition of it) and
+  `humidity_pct` (nullable, [0, 100] — written from the same sensor frame, so
+  the two are present or absent together; all sensor columns CHECK-constrained),
   **UNIQUE (device_id, fix_time)** (the dedupe key), and a database-generated
   `location geography(Point,4326)` column + GIST index (derived from lat/lon —
   the app needs no spatial dependency). The sensor columns are nullable because

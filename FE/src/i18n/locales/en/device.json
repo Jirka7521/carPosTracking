@@ -23,10 +23,12 @@
       "accelYG": "Accel Y",
       "accelZG": "Accel Z",
       "altitudeMeters": "Altitude",
+      "ambientTemperatureC": "Ambient temperature",
       "batteryPct": "Battery",
+      "humidityPct": "Humidity",
       "legend": "Series",
       "speedKmph": "Speed",
-      "temperatureC": "Temperature"
+      "temperatureC": "Modem temperature"
     },
     "truncated": "This range holds more than {{limit}} fixes, which is as far back as one load goes, so the chart starts at {{start}} rather than at the “From” you chose. Narrow the range to see earlier data."
   },
@@ -50,12 +52,14 @@
     "info": {
       "accel": "Accel X/Y/Z (g)",
       "altitude": "Altitude",
+      "ambientTemperature": "Ambient temperature",
       "battery": "Battery",
+      "humidity": "Humidity",
       "latitude": "Latitude",
       "longitude": "Longitude",
       "recorded": "Recorded: {{when}}",
       "speed": "Speed",
-      "temperature": "Temperature",
+      "temperature": "Modem temperature",
       "title": "Position"
     },
     "legend": "Map legend",
@@ -87,11 +91,13 @@
       "accelY": "Accel Y (g)",
       "accelZ": "Accel Z (g)",
       "altitude": "Altitude",
+      "ambientTemperature": "Ambient",
       "battery": "Battery",
+      "humidity": "Humidity",
       "latitude": "Latitude",
       "longitude": "Longitude",
       "speed": "Speed",
-      "temperature": "Temp",
+      "temperature": "Modem temp",
       "timestamp": "Timestamp"
     },
     "columnSeparator": "Column separator",
