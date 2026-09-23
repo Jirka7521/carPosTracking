@@ -80,12 +80,13 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         DeviceAccessContext? access = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
         if (access is null)
         {
-            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+            return OperationResult<DeviceConfigStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<DeviceConfigStateDto>.Forbidden(
+                ErrorCodes.NoPermissionViewSettings,
                 "You do not have permission to view this device's settings.");
         }
 
@@ -102,12 +103,13 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         DeviceAccessContext? access = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
         if (access is null)
         {
-            return OperationResult<IReadOnlyList<DeviceConfigVersionDto>>.NotFound("No such device.");
+            return OperationResult<IReadOnlyList<DeviceConfigVersionDto>>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<IReadOnlyList<DeviceConfigVersionDto>>.Forbidden(
+                ErrorCodes.NoPermissionViewSettings,
                 "You do not have permission to view this device's settings.");
         }
 
@@ -136,12 +138,13 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         DeviceAccessContext? access = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
         if (access is null)
         {
-            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+            return OperationResult<DeviceConfigStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<DeviceConfigStateDto>.Forbidden(
+                ErrorCodes.NoPermissionChangeSettings,
                 "You do not have permission to change this device's settings.");
         }
 
@@ -151,6 +154,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             // would be theatre. Invalid rather than NotFound: the caller can see the
             // device, so pretending it does not exist would be needlessly confusing.
             return OperationResult<DeviceConfigStateDto>.Invalid(
+                ErrorCodes.SettingsDeviceDeleted,
                 "This device has been deleted, so its settings can no longer be changed.");
         }
 
@@ -160,7 +164,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             .SingleOrDefaultAsync(candidate => candidate.Id == access.DeviceRowId, cancellationToken);
         if (device is null)
         {
-            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+            return OperationResult<DeviceConfigStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (device.ConfigScheduleEnabled)
@@ -183,7 +187,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
 
         if (outcome is null)
         {
-            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+            return OperationResult<DeviceConfigStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (outcome.Changed)
@@ -230,6 +234,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         if (!request.AcknowledgeOverride)
         {
             return OperationResult<DeviceConfigStateDto>.Invalid(
+                ErrorCodes.ScheduleOverrideNeedsConfirm,
                 "This device is on a schedule, so saving settings by hand only holds until "
                 + "the next scheduled switch. Confirm that you understand this, edit the "
                 + "profile the schedule uses, or turn the schedule off.");
@@ -248,6 +253,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             // invent a horizon — a day? a week? — say so: the only honest way to change
             // such a device's settings is to change what the schedule itself says.
             return OperationResult<DeviceConfigStateDto>.Invalid(
+                ErrorCodes.ScheduleNeverSwitches,
                 "This device's schedule never switches profiles, so a temporary change has "
                 + "nothing to expire at. Edit the profile it uses, or turn the schedule off.");
         }
@@ -265,12 +271,13 @@ internal sealed class DeviceConfigService : IDeviceConfigService
         DeviceAccessContext? access = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
         if (access is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<bool>.Forbidden(
+                ErrorCodes.NoPermissionChangeSettings,
                 "You do not have permission to change this device's settings.");
         }
 
@@ -296,7 +303,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
 
         if (publication is null)
         {
-            return OperationResult<bool>.NotFound("This device has no stored configuration to publish.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoStoredConfigToPublish, "This device has no stored configuration to publish.");
         }
 
         bool published = await _publisher.PublishAsync(
@@ -344,7 +351,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
 
         if (pointers is null)
         {
-            return OperationResult<DeviceConfigStateDto>.NotFound("No such device.");
+            return OperationResult<DeviceConfigStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Both revisions in one round trip. They are usually the same row, and the
@@ -371,6 +378,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                 deviceRowId,
                 pointers.DesiredVersion);
             return OperationResult<DeviceConfigStateDto>.NotFound(
+                ErrorCodes.NoStoredConfig,
                 "This device has no stored configuration.");
         }
 

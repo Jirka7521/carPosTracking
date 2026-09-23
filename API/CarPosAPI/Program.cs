@@ -510,12 +510,20 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
 // server, not the build, not the caller. It is also what the logging provider
 // stamps on the matching log line, which is the whole point — it turns "the site
 // broke this morning" into a single grep.
+//
+// The same hook gives every response an error `code` the frontend translates,
+// derived from the status wherever the producer did not set a specific one — see
+// ProblemCodeDefaults.
 // ---------------------------------------------------------------------------
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails((ProblemDetailsOptions options) =>
     options.CustomizeProblemDetails = (ProblemDetailsContext context) =>
+    {
         context.ProblemDetails.Extensions["traceId"] =
-            Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+            Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+
+        ProblemCodeDefaults.Apply(context.ProblemDetails);
+    });
 
 // A BackgroundService that throws stops the whole host by default, which would
 // mean an MQTT fault taking the REST API down with it — the opposite of what the

@@ -8,6 +8,10 @@
     "summary_one": "{{count}} person has access",
     "summary_other": "{{count}} people have access"
   },
+  "account": {
+    "menu": "Account menu",
+    "profile": "Account & profile"
+  },
   "actions": {
     "cancel": "Cancel",
     "copied": "Copied",
@@ -69,8 +73,7 @@
   "nav": {
     "home": "Go to home page",
     "legal": "Read the terms of use",
-    "privacy": "Read the privacy policy",
-    "profile": "Edit your profile"
+    "privacy": "Read the privacy policy"
   },
   "onOff": {
     "off": "off",

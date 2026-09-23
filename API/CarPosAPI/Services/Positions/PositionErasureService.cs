@@ -46,7 +46,7 @@ internal sealed class PositionErasureService : IPositionErasureService
 
         if (access is null)
         {
-            return OperationResult<long>.NotFound("No such device.");
+            return OperationResult<long>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Reading a history and destroying one are different acts, so this asks for
@@ -56,6 +56,7 @@ internal sealed class PositionErasureService : IPositionErasureService
         if (!access.Permissions.CanDelete)
         {
             return OperationResult<long>.Forbidden(
+                ErrorCodes.NoPermissionDeleteData,
                 "You do not have permission to delete this device's data.");
         }
 

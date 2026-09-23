@@ -57,6 +57,8 @@ export default defineConfig({
       'charts.series.*',       // utils/telemetry.ts  SERIES labelKey
       'positions.column.*',    // PositionListTab  COLUMNS labelKey
       'status.*',              // ShareLinkList, template literal over ShareLinkStatus
+      'server.*',              // utils/errors.ts  KNOWN_MESSAGES (API error texts)
+      'http.*',                // utils/errors.ts  KNOWN_MESSAGES (request-level failures)
     ],
   },
 

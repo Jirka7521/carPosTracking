@@ -451,9 +451,19 @@ answer with an empty body (401, 403, a 404 from an unmatched route, 405, 429).
 | Field | Meaning |
 |---|---|
 | `status`, `title` | the status code and a short, generic summary |
-| `detail` | written for the end user. Never an exception message, SQL, or a stack trace |
+| `detail` | written for the end user, in English. Never an exception message, SQL, or a stack trace |
+| `code` | stable machine-readable name of the failure (`noSuchDevice`, `profileInUse`, …) — see `Services/Common/ErrorCodes.cs`. This is what the frontend translates, so a client must key on it, never on `detail` |
+| `params` | only when the message mentions values: the values by name, e.g. `{ "name": "Night", "count": 2 }`. `count` selects the plural form |
 | `traceId` | correlation id for this one request — quote it when reporting a fault and it finds the matching log line |
 | `errors` | on a 400 from DataAnnotations only: field name → messages |
+
+`code` is on **every** error: a service failure sets its own, and a response the
+framework builds (the DataAnnotations 400 → `validationFailed`, a bare 401/403/404/
+405/429, a 413/431, a 500) gets a generic one from its status
+(`Middleware/ProblemCodeDefaults.cs`). The `detail` wording may change freely; a
+code may not, because the frontend's `errors:api.<code>` translations are keyed on
+it — **a new code needs its English and Czech text in
+`FE/src/i18n/locales/*/errors.json` in the same change.**
 
 A 500 always says the same thing (`"The server encountered an error. Please try
 again later."`) whatever actually failed. The exception behind it — message,

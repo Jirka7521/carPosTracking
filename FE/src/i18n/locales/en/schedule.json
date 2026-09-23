@@ -29,6 +29,8 @@
     "resumed": "Schedule resumed.",
     "ruleAdded": "Rule added.",
     "ruleDeleted": "Rule deleted.",
+    "rulePaused": "Rule paused — it will not apply until you resume it.",
+    "ruleResumed": "Rule resumed.",
     "ruleSaved": "Rule saved."
   },
   "override": {
@@ -85,7 +87,9 @@
     "intro": "Listed in the order they are evaluated — lower priority number first. The first rule whose window contains the moment wins; if none does, the fallback applies.",
     "matchingNow": "matching now",
     "needProfile": "Create a profile first",
-    "prioritySummary": "priority {{priority}}"
+    "pause": "Pause",
+    "prioritySummary": "priority {{priority}}",
+    "resume": "Resume"
   },
   "status": {
     "awaitingFirstPass": "Waiting for the scheduler’s first pass — this is what it will apply.",

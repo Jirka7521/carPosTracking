@@ -128,6 +128,7 @@ internal sealed class DeviceService : IDeviceService
         if (!request.TrackingDeclarationAccepted)
         {
             return OperationResult<DeviceCreatedDto>.Invalid(
+                ErrorCodes.TrackingDeclarationRequired,
                 "You must confirm that you are entitled to track this vehicle and will " +
                 "tell the people who drive it before a device can be registered.");
         }
@@ -169,7 +170,9 @@ internal sealed class DeviceService : IDeviceService
                 if (provisioning.Outcome == DeviceProvisioningOutcome.DuplicateDeviceId)
                 {
                     return OperationResult<DeviceCreatedDto>.Conflict(
-                        $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.");
+                        ErrorCodes.DeviceIdTaken,
+                        $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.",
+                        new Dictionary<string, object> { ["deviceId"] = request.DeviceId });
                 }
 
                 // The creator's grant is built from CapabilitySet.Full(), never from the
@@ -245,12 +248,12 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanDelete)
         {
-            return OperationResult<bool>.Forbidden("You do not have permission to delete this device.");
+            return OperationResult<bool>.Forbidden(ErrorCodes.NoPermissionDeleteDevice, "You do not have permission to delete this device.");
         }
 
         if (!access.IsActive)
@@ -265,7 +268,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (device is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Soft delete only. The rows are history: positions reference this device,
@@ -294,7 +297,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // No capability check beyond the grant existing: the alias is private to
@@ -352,7 +355,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<DeviceProvisioningResultDto>.NotFound("No such device.");
+            return OperationResult<DeviceProvisioningResultDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
@@ -361,6 +364,7 @@ internal sealed class DeviceService : IDeviceService
             // server — but it does describe the broker topics this device publishes
             // on, which is operational detail a read-only viewer has no use for.
             return OperationResult<DeviceProvisioningResultDto>.Forbidden(
+                ErrorCodes.NoPermissionViewFirmware,
                 "You do not have permission to view this device's firmware configuration.");
         }
 
@@ -369,6 +373,7 @@ internal sealed class DeviceService : IDeviceService
 
         return payload is null
             ? OperationResult<DeviceProvisioningResultDto>.NotFound(
+                ErrorCodes.NoStoredPublicKey,
                 "This device has no stored public key, so no firmware configuration can be rendered.")
             : OperationResult<DeviceProvisioningResultDto>.Success(payload);
     }
@@ -386,7 +391,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+            return OperationResult<AckKeyImportedDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // The same gate as reading the firmware configuration, and for a stronger
@@ -394,6 +399,7 @@ internal sealed class DeviceService : IDeviceService
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<AckKeyImportedDto>.Forbidden(
+                ErrorCodes.NoPermissionChangeFirmware,
                 "You do not have permission to change this device's firmware configuration.");
         }
 

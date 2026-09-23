@@ -273,6 +273,26 @@ function ScheduleContent({
     )
   }
 
+  // The rule's own isEnabled, flipped straight from the card. The editor carries
+  // the same checkbox, but silencing a rule for an evening should not mean
+  // opening a form and saving it back — and the card already shows the result,
+  // so the round trip taught nothing. The API replaces the rule wholesale, hence
+  // every other field is passed through untouched.
+  function handleRuleToggleEnabled(rule: DeviceScheduleRuleDto): void {
+    void run(
+      `rule-${rule.id}`,
+      () => updateScheduleRule(deviceId, rule.id, {
+        profileId: rule.profileId,
+        daysMaskUtc: rule.daysMaskUtc,
+        startMinuteUtc: rule.startMinuteUtc,
+        durationMinutes: rule.durationMinutes,
+        priority: rule.priority,
+        isEnabled: !rule.isEnabled,
+      }),
+      rule.isEnabled ? t('schedule:message.rulePaused') : t('schedule:message.ruleResumed'),
+    )
+  }
+
   const canEnable: boolean = schedule.profiles.length > 0 && schedule.fallbackProfileId !== null
 
   // Why a profile cannot be deleted, or null when it can be.
@@ -537,6 +557,21 @@ function ScheduleContent({
                             onClick={() => { setEditingRuleId(rule.id); setMessage('') }}
                           >
                             {t('common:actions.edit')}
+                          </button>
+                          {/* Beside Edit rather than inside it: pausing a rule
+                              is the one change to it worth making in a hurry,
+                              and it is reversible, so it does not need a form.
+                              Shares Delete's busy key — one row, one change in
+                              flight. */}
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleRuleToggleEnabled(rule)}
+                            disabled={busy === `rule-${rule.id}`}
+                          >
+                            {rule.isEnabled
+                              ? t('schedule:ruleList.pause')
+                              : t('schedule:ruleList.resume')}
                           </button>
                           {/* Unconditional, unlike a profile's: nothing
                               references a rule, so there is never a reason to

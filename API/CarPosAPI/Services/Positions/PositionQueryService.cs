@@ -49,7 +49,7 @@ internal sealed class PositionQueryService : IPositionQueryService
 
         if (access is null)
         {
-            return OperationResult<IReadOnlyList<PositionDto>>.NotFound("No such device.");
+            return OperationResult<IReadOnlyList<PositionDto>>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Every active grant carries CanRead, so reaching here is already

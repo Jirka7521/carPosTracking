@@ -65,16 +65,66 @@ export const SESSION_EXPIRED_EVENT = 'carpos:session-expired'
 // Typed error thrown by every API call so callers can branch on `status`
 // (e.g. 403 -> "not allowed", 409 -> "already exists") instead of parsing
 // message strings.
+//
+// `code` is the API's stable name for the failure (ProblemDetails `code`, see
+// API/CarPosAPI/Services/Common/ErrorCodes.cs) and `params` the values its
+// message mentions. utils/errors.ts translates the pair; `message` stays the
+// server's English sentence, for logs and as the last resort.
 export class ApiError extends Error {
   public readonly status: number
   public readonly body: unknown
+  public readonly code: string | null
+  public readonly params: Record<string, unknown>
 
   public constructor(status: number, message: string, body: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.body = body
+    this.code = readErrorCode(status, body)
+    this.params = readErrorParams(body)
   }
+}
+
+// The code the API sent, or — when the response never reached the API, like a
+// network failure or the proxy's own 502 page — one derived from the status, so
+// those still get a translated message rather than a generic one.
+function readErrorCode(status: number, body: unknown): string | null {
+  if (body && typeof body === 'object') {
+    const code: unknown = (body as { code?: unknown }).code
+    if (typeof code === 'string' && code.length > 0) {
+      return code
+    }
+  }
+  if (status === 0) {
+    return 'network'
+  }
+  if (status === 401) {
+    return 'unauthorized'
+  }
+  if (status === 403) {
+    return 'forbidden'
+  }
+  if (status === 404) {
+    return 'notFound'
+  }
+  if (status === 429) {
+    return 'tooManyRequests'
+  }
+  if (status >= 500) {
+    return 'serverError'
+  }
+  return null
+}
+
+function readErrorParams(body: unknown): Record<string, unknown> {
+  if (body && typeof body === 'object') {
+    const params: unknown = (body as { params?: unknown }).params
+    if (params && typeof params === 'object' && !Array.isArray(params)) {
+      return params as Record<string, unknown>
+    }
+  }
+  return {}
 }
 
 // =============================================================================

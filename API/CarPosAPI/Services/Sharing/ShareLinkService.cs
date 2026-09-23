@@ -65,12 +65,13 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (caller is null)
         {
-            return OperationResult<IReadOnlyList<ShareLinkDto>>.NotFound("No such device.");
+            return OperationResult<IReadOnlyList<ShareLinkDto>>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return OperationResult<IReadOnlyList<ShareLinkDto>>.Forbidden(
+                ErrorCodes.NoPermissionManageSharing,
                 "You do not have permission to manage sharing for this device.");
         }
 
@@ -125,18 +126,20 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (caller is null)
         {
-            return OperationResult<ShareLinkCreatedDto>.NotFound("No such device.");
+            return OperationResult<ShareLinkCreatedDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return OperationResult<ShareLinkCreatedDto>.Forbidden(
+                ErrorCodes.NoPermissionShare,
                 "You do not have permission to share this device.");
         }
 
         if (!TryReadScope(request.Scope, out ShareScope scope))
         {
             return OperationResult<ShareLinkCreatedDto>.Invalid(
+                ErrorCodes.ShareScopeRequired,
                 "Choose whether the link shows the current position only or the whole track.");
         }
 
@@ -144,7 +147,7 @@ internal sealed class ShareLinkService : IShareLinkService
         DateTime validFrom = NormaliseToUtc(request.ValidFrom);
         DateTime validUntil = NormaliseToUtc(request.ValidUntil);
 
-        string? windowFailure = ValidateWindow(validFrom, validUntil, nowUtc);
+        ServiceError? windowFailure = ValidateWindow(validFrom, validUntil, nowUtc);
 
         if (windowFailure is not null)
         {
@@ -165,6 +168,7 @@ internal sealed class ShareLinkService : IShareLinkService
         if (liveLinks >= _options.MaxLiveLinksPerDevice)
         {
             return OperationResult<ShareLinkCreatedDto>.Conflict(
+                ErrorCodes.TooManyShareLinks,
                 "This device already has as many active share links as are allowed. Revoke one before creating another.");
         }
 
@@ -228,7 +232,7 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (lookup.Failure is not null)
         {
-            return new OperationResult<ShareLinkDto>(lookup.FailureOutcome, null, lookup.Failure);
+            return OperationResult<ShareLinkDto>.Failed(lookup.FailureOutcome, lookup.Failure);
         }
 
         ShareLink link = lookup.Link!;
@@ -240,12 +244,14 @@ internal sealed class ShareLinkService : IShareLinkService
         if (!ShareLinkStatusResolver.IsEditable(link.RevokedAt))
         {
             return OperationResult<ShareLinkDto>.Conflict(
+                ErrorCodes.LinkRevokedImmutable,
                 "This link has been revoked and cannot be changed. Create a new one instead.");
         }
 
         if (!TryReadScope(request.Scope, out ShareScope scope))
         {
             return OperationResult<ShareLinkDto>.Invalid(
+                ErrorCodes.ShareScopeRequired,
                 "Choose whether the link shows the current position only or the whole track.");
         }
 
@@ -253,7 +259,7 @@ internal sealed class ShareLinkService : IShareLinkService
         DateTime validFrom = NormaliseToUtc(request.ValidFrom);
         DateTime validUntil = NormaliseToUtc(request.ValidUntil);
 
-        string? windowFailure = ValidateWindow(validFrom, validUntil, nowUtc);
+        ServiceError? windowFailure = ValidateWindow(validFrom, validUntil, nowUtc);
 
         if (windowFailure is not null)
         {
@@ -304,7 +310,7 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (lookup.Failure is not null)
         {
-            return new OperationResult<ShareLinkCreatedDto>(lookup.FailureOutcome, null, lookup.Failure);
+            return OperationResult<ShareLinkCreatedDto>.Failed(lookup.FailureOutcome, lookup.Failure);
         }
 
         ShareLink link = lookup.Link!;
@@ -316,6 +322,7 @@ internal sealed class ShareLinkService : IShareLinkService
         if (!ShareLinkStatusResolver.IsEditable(link.RevokedAt))
         {
             return OperationResult<ShareLinkCreatedDto>.Conflict(
+                ErrorCodes.LinkRevoked,
                 "This link has been revoked. Create a new one instead.");
         }
 
@@ -364,7 +371,7 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (lookup.Failure is not null)
         {
-            return new OperationResult<bool>(lookup.FailureOutcome, false, lookup.Failure);
+            return OperationResult<bool>.Failed(lookup.FailureOutcome, lookup.Failure);
         }
 
         ShareLink link = lookup.Link!;
@@ -406,7 +413,7 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (link is null)
         {
-            return ShareLinkLookup.Failed(OperationOutcome.NotFound, "No such share link.");
+            return ShareLinkLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchShareLink, "No such share link.");
         }
 
         // The device is looked up from the link and fed back through the authorizer,
@@ -421,7 +428,7 @@ internal sealed class ShareLinkService : IShareLinkService
 
         if (deviceId is null)
         {
-            return ShareLinkLookup.Failed(OperationOutcome.NotFound, "No such share link.");
+            return ShareLinkLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchShareLink, "No such share link.");
         }
 
         DeviceAccessContext? caller = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
@@ -430,13 +437,14 @@ internal sealed class ShareLinkService : IShareLinkService
         {
             // The caller cannot see the device, so a link on it is none of their
             // business — and answering "forbidden" would confirm that it exists.
-            return ShareLinkLookup.Failed(OperationOutcome.NotFound, "No such share link.");
+            return ShareLinkLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchShareLink, "No such share link.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return ShareLinkLookup.Failed(
                 OperationOutcome.Forbidden,
+                ErrorCodes.NoPermissionManageSharing,
                 "You do not have permission to manage sharing for this device.");
         }
 
@@ -446,7 +454,7 @@ internal sealed class ShareLinkService : IShareLinkService
     /// <summary>
     /// Checks a requested window against the rules that keep a share temporary.
     ///
-    /// Returns the message rather than a typed result so that create and update,
+    /// Returns the error rather than a typed result so that create and update,
     /// which produce differently-typed results, can enforce one set of rules. An
     /// edit is held to exactly the same limits as a creation — otherwise the
     /// ceiling on a window would be avoidable by creating a short link and then
@@ -455,24 +463,28 @@ internal sealed class ShareLinkService : IShareLinkService
     /// <param name="validFrom">Start of the window (UTC).</param>
     /// <param name="validUntil">End of the window (UTC).</param>
     /// <param name="nowUtc">The current instant.</param>
-    /// <returns>A message for the caller, or null when the window is acceptable.</returns>
-    private string? ValidateWindow(DateTime validFrom, DateTime validUntil, DateTime nowUtc)
+    /// <returns>The failure to report, or null when the window is acceptable.</returns>
+    private ServiceError? ValidateWindow(DateTime validFrom, DateTime validUntil, DateTime nowUtc)
     {
         if (validUntil <= validFrom)
         {
-            return "The end of the sharing window must be after its start.";
+            return new ServiceError(
+                ErrorCodes.WindowEndBeforeStart,
+                "The end of the sharing window must be after its start.");
         }
 
         if (validUntil <= nowUtc)
         {
-            return "That sharing window has already passed.";
+            return new ServiceError(ErrorCodes.WindowPassed, "That sharing window has already passed.");
         }
 
         // Measured from the start rather than from now, so a window scheduled for
         // next month is bounded by its own length and not by how far off it is.
         if (validUntil - validFrom > TimeSpan.FromDays(_options.MaxWindowDays))
         {
-            return "That sharing window is longer than a share link is allowed to cover.";
+            return new ServiceError(
+                ErrorCodes.WindowTooLong,
+                "That sharing window is longer than a share link is allowed to cover.");
         }
 
         return null;

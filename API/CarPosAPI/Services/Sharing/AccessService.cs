@@ -49,12 +49,13 @@ internal sealed class AccessService : IAccessService
 
         if (caller is null)
         {
-            return OperationResult<IReadOnlyList<AccessDto>>.NotFound("No such device.");
+            return OperationResult<IReadOnlyList<AccessDto>>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return OperationResult<IReadOnlyList<AccessDto>>.Forbidden(
+                ErrorCodes.NoPermissionManageSharing,
                 "You do not have permission to manage sharing for this device.");
         }
 
@@ -89,12 +90,13 @@ internal sealed class AccessService : IAccessService
 
         if (caller is null)
         {
-            return OperationResult<AccessDto>.NotFound("No such device.");
+            return OperationResult<AccessDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return OperationResult<AccessDto>.Forbidden(
+                ErrorCodes.NoPermissionShare,
                 "You do not have permission to share this device.");
         }
 
@@ -104,7 +106,7 @@ internal sealed class AccessService : IAccessService
 
         if (!targetExists)
         {
-            return OperationResult<AccessDto>.NotFound("No such user.");
+            return OperationResult<AccessDto>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         CapabilitySet capabilities = CapabilitySet.FromRequest(
@@ -124,6 +126,7 @@ internal sealed class AccessService : IAccessService
         if (existing is not null)
         {
             return OperationResult<AccessDto>.Conflict(
+                ErrorCodes.AccessExists,
                 "That user already has access to this device. Edit their existing access instead.");
         }
 
@@ -187,7 +190,7 @@ internal sealed class AccessService : IAccessService
 
         if (lookup.Failure is not null)
         {
-            return new OperationResult<AccessDto>(lookup.FailureOutcome, null, lookup.Failure);
+            return OperationResult<AccessDto>.Failed(lookup.FailureOutcome, lookup.Failure);
         }
 
         Access grant = lookup.Grant!;
@@ -204,6 +207,7 @@ internal sealed class AccessService : IAccessService
             if (wouldOrphan)
             {
                 return OperationResult<AccessDto>.Invalid(
+                    ErrorCodes.LastSharer,
                     "This is the only account that can share this device. Give someone else sharing rights first.");
             }
         }
@@ -233,7 +237,7 @@ internal sealed class AccessService : IAccessService
 
         if (lookup.Failure is not null)
         {
-            return new OperationResult<bool>(lookup.FailureOutcome, false, lookup.Failure);
+            return OperationResult<bool>.Failed(lookup.FailureOutcome, lookup.Failure);
         }
 
         Access grant = lookup.Grant!;
@@ -241,6 +245,7 @@ internal sealed class AccessService : IAccessService
         if (grant.CanShare && await IsLastSharerAsync(grant, cancellationToken))
         {
             return OperationResult<bool>.Invalid(
+                ErrorCodes.LastSharer,
                 "This is the only account that can share this device. Give someone else sharing rights first.");
         }
 
@@ -274,7 +279,7 @@ internal sealed class AccessService : IAccessService
 
         if (grant is null)
         {
-            return GrantLookup.Failed(OperationOutcome.NotFound, "No such access grant.");
+            return GrantLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchAccessGrant, "No such access grant.");
         }
 
         // The device id is looked up from the grant, then fed back through the
@@ -289,7 +294,7 @@ internal sealed class AccessService : IAccessService
 
         if (deviceId is null)
         {
-            return GrantLookup.Failed(OperationOutcome.NotFound, "No such access grant.");
+            return GrantLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchAccessGrant, "No such access grant.");
         }
 
         DeviceAccessContext? caller = await _authorizer.ResolveAsync(userId, deviceId, cancellationToken);
@@ -298,13 +303,14 @@ internal sealed class AccessService : IAccessService
         {
             // The caller cannot see the device at all, so the grant on it is none of
             // their business — and saying "forbidden" would confirm it exists.
-            return GrantLookup.Failed(OperationOutcome.NotFound, "No such access grant.");
+            return GrantLookup.Failed(OperationOutcome.NotFound, ErrorCodes.NoSuchAccessGrant, "No such access grant.");
         }
 
         if (!caller.Permissions.CanShare)
         {
             return GrantLookup.Failed(
                 OperationOutcome.Forbidden,
+                ErrorCodes.NoPermissionManageSharing,
                 "You do not have permission to manage sharing for this device.");
         }
 

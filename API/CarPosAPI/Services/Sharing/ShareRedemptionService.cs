@@ -86,18 +86,21 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
         if (link.RevokedAt.HasValue)
         {
             return OperationResult<ShareRedemption>.NotFound(
+                ErrorCodes.LinkWithdrawn,
                 "This link has been withdrawn by the person who shared it.");
         }
 
         if (nowUtc > link.ValidUntil)
         {
             return OperationResult<ShareRedemption>.NotFound(
+                ErrorCodes.LinkExpired,
                 "This link has expired. Ask for a new one if you still need access.");
         }
 
         if (nowUtc < link.ValidFrom)
         {
             return OperationResult<ShareRedemption>.NotFound(
+                ErrorCodes.LinkNotActiveYet,
                 "This link is not active yet. It starts working at the time it was shared for.");
         }
 
@@ -165,6 +168,7 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
         }
 
         return OperationResult<ShareRedemption>.Forbidden(
+            ErrorCodes.WrongShareCode,
             "That code is not right. Check it and try again.");
     }
 
@@ -172,17 +176,23 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
     /// Phrases a cooldown for somebody who is probably retyping a code off a phone.
     /// </summary>
     /// <param name="remaining">How long is left on the lock.</param>
-    /// <returns>A message safe to show, naming only a duration.</returns>
-    private static string DescribeCooldown(TimeSpan remaining)
+    /// <returns>A refusal safe to show, naming only a duration.</returns>
+    private static ServiceError DescribeCooldown(TimeSpan remaining)
     {
         // Rounded up, so "try again in 1 minute" is never advice to try again and be
         // refused. Minutes only: a share page has no business counting seconds at
         // somebody.
         int minutes = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
 
-        return minutes == 1
+        string detail = minutes == 1
             ? "Too many wrong codes. Try again in about a minute."
             : $"Too many wrong codes. Try again in about {minutes} minutes.";
+
+        // Named `count` because it picks the plural form in the translation.
+        return new ServiceError(
+            ErrorCodes.ShareCodeCooldown,
+            detail,
+            new Dictionary<string, object> { ["count"] = minutes });
     }
 
     /// <summary>
@@ -203,6 +213,7 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
     private static OperationResult<ShareRedemption> NoSuchLink()
     {
         return OperationResult<ShareRedemption>.NotFound(
+            ErrorCodes.LinkInvalid,
             "This link is not valid. Check that you opened the whole address you were sent.");
     }
 

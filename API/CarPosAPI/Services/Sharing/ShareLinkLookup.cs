@@ -17,12 +17,12 @@ namespace CarPosAPI.Services.Sharing;
 /// </summary>
 /// <param name="Link">The link being addressed, when the lookup succeeded. Tracked, so callers may mutate it.</param>
 /// <param name="Caller">The caller's own context on the link's device, when it succeeded.</param>
-/// <param name="Failure">A message for the caller, when it did not.</param>
+/// <param name="Failure">The failure to report to the caller, when it did not.</param>
 /// <param name="FailureOutcome">Which failure it was; meaningless unless <paramref name="Failure"/> is set.</param>
 internal sealed record ShareLinkLookup(
     ShareLink? Link,
     DeviceAccessContext? Caller,
-    string? Failure,
+    ServiceError? Failure,
     OperationOutcome FailureOutcome)
 {
     /// <summary>Builds a successful lookup.</summary>
@@ -36,10 +36,11 @@ internal sealed record ShareLinkLookup(
 
     /// <summary>Builds a failed lookup.</summary>
     /// <param name="outcome">Which kind of failure.</param>
+    /// <param name="code">One of <see cref="ErrorCodes"/>.</param>
     /// <param name="detail">Message for the caller.</param>
     /// <returns>A lookup carrying the failure.</returns>
-    public static ShareLinkLookup Failed(OperationOutcome outcome, string detail)
+    public static ShareLinkLookup Failed(OperationOutcome outcome, string code, string detail)
     {
-        return new ShareLinkLookup(null, null, detail, outcome);
+        return new ShareLinkLookup(null, null, new ServiceError(code, detail), outcome);
     }
 }

@@ -1,4 +1,5 @@
 using CarPosAPI.Dtos;
+using CarPosAPI.Middleware;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Devices;
@@ -319,12 +320,20 @@ public sealed class DevicesController : ApiControllerBase
         // The service reports "the broker would not take it" as a successful call with
         // a false value, because nothing about the stored settings changed. It is still
         // not what the operator asked for, so it must not be dressed up as a 204.
-        return result.Value
-            ? NoContent()
-            : Problem(
-                title: "Broker unavailable",
-                detail: "The settings are saved, but the broker could not be reached to publish them. "
-                    + "They will be sent automatically once the connection is restored.",
-                statusCode: StatusCodes.Status503ServiceUnavailable);
+        if (result.Value)
+        {
+            return NoContent();
+        }
+
+        ObjectResult unavailable = Problem(
+            title: "Broker unavailable",
+            detail: "The settings are saved, but the broker could not be reached to publish them. "
+                + "They will be sent automatically once the connection is restored.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        ((ProblemDetails)unavailable.Value!).Extensions[ProblemCodeDefaults.CodeKey] =
+            ErrorCodes.BrokerUnavailable;
+
+        return unavailable;
     }
 }

@@ -1,3 +1,4 @@
+using CarPosAPI.Middleware;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using Microsoft.AspNetCore.Mvc;
@@ -86,6 +87,24 @@ public abstract class ApiControllerBase : ControllerBase
         // result.Detail is written for the end user by the service layer, so it is
         // safe to surface verbatim — no exception messages, SQL or stack traces
         // ever reach it.
-        return Problem(title: title, detail: result.Detail, statusCode: statusCode);
+        ObjectResult response = Problem(title: title, detail: result.Detail, statusCode: statusCode);
+
+        // The code is what a translating client keys on, the params are what its
+        // sentence fills in. Both come from the service, under the same rule as
+        // Detail. Set after Problem() so they replace the status-based default code
+        // ProblemCodeDefaults put there while the body was being built.
+        ProblemDetails problem = (ProblemDetails)response.Value!;
+
+        if (result.Code is not null)
+        {
+            problem.Extensions[ProblemCodeDefaults.CodeKey] = result.Code;
+        }
+
+        if (result.Parameters is not null && result.Parameters.Count > 0)
+        {
+            problem.Extensions[ProblemCodeDefaults.ParamsKey] = result.Parameters;
+        }
+
+        return response;
     }
 }

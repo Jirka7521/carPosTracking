@@ -108,6 +108,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             && !await ProfileBelongsAsync(device.Id, request.FallbackProfileId.Value, cancellationToken))
         {
             return OperationResult<DeviceScheduleStateDto>.Invalid(
+                ErrorCodes.FallbackProfileNotOwned,
                 "The fallback profile does not belong to this device.");
         }
 
@@ -117,6 +118,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             // defined answer, and the device would keep whatever it last happened to be
             // given — the exact behaviour a schedule exists to remove.
             return OperationResult<DeviceScheduleStateDto>.Invalid(
+                ErrorCodes.FallbackProfileRequired,
                 "Choose a fallback profile before enabling the schedule. It is what the "
                 + "device runs at any time no rule covers.");
         }
@@ -167,7 +169,9 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (usedSlots.Count >= ScheduleRules.MaxProfilesPerDevice)
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"This device already has the maximum of {ScheduleRules.MaxProfilesPerDevice} profiles.");
+                ErrorCodes.TooManyProfiles,
+                $"This device already has the maximum of {ScheduleRules.MaxProfilesPerDevice} profiles.",
+                new Dictionary<string, object> { ["max"] = ScheduleRules.MaxProfilesPerDevice });
         }
 
         int slot = LowestFreeSlot(usedSlots);
@@ -175,7 +179,9 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (await NameTakenAsync(device.Id, name, exceptProfileId: null, cancellationToken))
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"This device already has a profile called \"{name}\".");
+                ErrorCodes.DuplicateProfileName,
+                $"This device already has a profile called \"{name}\".",
+                new Dictionary<string, object> { ["name"] = name });
         }
 
         DateTime now = DateTime.UtcNow;
@@ -231,13 +237,15 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 cancellationToken);
         if (profile is null)
         {
-            return OperationResult<DeviceScheduleStateDto>.NotFound("No such profile.");
+            return OperationResult<DeviceScheduleStateDto>.NotFound(ErrorCodes.NoSuchProfile, "No such profile.");
         }
 
         if (await NameTakenAsync(device.Id, name, profileId, cancellationToken))
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"This device already has a profile called \"{name}\".");
+                ErrorCodes.DuplicateProfileName,
+                $"This device already has a profile called \"{name}\".",
+                new Dictionary<string, object> { ["name"] = name });
         }
 
         profile.Name = name;
@@ -278,7 +286,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 cancellationToken);
         if (profile is null)
         {
-            return OperationResult<DeviceScheduleStateDto>.NotFound("No such profile.");
+            return OperationResult<DeviceScheduleStateDto>.NotFound(ErrorCodes.NoSuchProfile, "No such profile.");
         }
 
         // Checked here rather than left to the foreign key, so the answer is a sentence
@@ -289,13 +297,17 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (referencingRules > 0)
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"\"{profile.Name}\" is used by {referencingRules} rule(s). Delete or repoint them first.");
+                ErrorCodes.ProfileInUse,
+                $"\"{profile.Name}\" is used by {referencingRules} rule(s). Delete or repoint them first.",
+                new Dictionary<string, object> { ["name"] = profile.Name, ["count"] = referencingRules });
         }
 
         if (device.ConfigScheduleFallbackProfileId == profileId)
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"\"{profile.Name}\" is this schedule's fallback profile. Choose a different one first.");
+                ErrorCodes.ProfileIsFallback,
+                $"\"{profile.Name}\" is this schedule's fallback profile. Choose a different one first.",
+                new Dictionary<string, object> { ["name"] = profile.Name });
         }
 
         _context.DeviceConfigProfiles.Remove(profile);
@@ -327,6 +339,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (!await ProfileBelongsAsync(device.Id, request.ProfileId, cancellationToken))
         {
             return OperationResult<DeviceScheduleStateDto>.Invalid(
+                ErrorCodes.ProfileNotOwned,
                 "That profile does not belong to this device.");
         }
 
@@ -335,7 +348,9 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (existingCount >= ScheduleRules.MaxRulesPerDevice)
         {
             return OperationResult<DeviceScheduleStateDto>.Conflict(
-                $"This device already has the maximum of {ScheduleRules.MaxRulesPerDevice} rules.");
+                ErrorCodes.TooManyRules,
+                $"This device already has the maximum of {ScheduleRules.MaxRulesPerDevice} rules.",
+                new Dictionary<string, object> { ["max"] = ScheduleRules.MaxRulesPerDevice });
         }
 
         _context.DeviceConfigScheduleRules.Add(new DeviceConfigScheduleRule
@@ -379,12 +394,13 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 cancellationToken);
         if (rule is null)
         {
-            return OperationResult<DeviceScheduleStateDto>.NotFound("No such rule.");
+            return OperationResult<DeviceScheduleStateDto>.NotFound(ErrorCodes.NoSuchRule, "No such rule.");
         }
 
         if (!await ProfileBelongsAsync(device.Id, request.ProfileId, cancellationToken))
         {
             return OperationResult<DeviceScheduleStateDto>.Invalid(
+                ErrorCodes.ProfileNotOwned,
                 "That profile does not belong to this device.");
         }
 
@@ -421,7 +437,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 cancellationToken);
         if (rule is null)
         {
-            return OperationResult<DeviceScheduleStateDto>.NotFound("No such rule.");
+            return OperationResult<DeviceScheduleStateDto>.NotFound(ErrorCodes.NoSuchRule, "No such rule.");
         }
 
         _context.DeviceConfigScheduleRules.Remove(rule);
@@ -448,6 +464,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         if (!device.ConfigScheduleEnabled)
         {
             return OperationResult<DeviceScheduleStateDto>.Invalid(
+                ErrorCodes.NoScheduleToResume,
                 "This device has no schedule to resume.");
         }
 
@@ -748,12 +765,13 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         DeviceAccessContext? access = await AuthorizeAsync(userId, deviceId, cancellationToken);
         if (access is null)
         {
-            return OperationResult<Device>.NotFound("No such device.");
+            return OperationResult<Device>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<Device>.Forbidden(
+                ErrorCodes.NoPermissionChangeSettings,
                 "You do not have permission to change this device's settings.");
         }
 
@@ -763,12 +781,13 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             // so scheduling settings for it would be theatre. Invalid rather than
             // NotFound, because the caller can see it and pretending otherwise confuses.
             return OperationResult<Device>.Invalid(
+                ErrorCodes.ScheduleDeviceDeleted,
                 "This device has been deleted, so its schedule can no longer be changed.");
         }
 
         Device? device = await LoadDeviceAsync(access.DeviceRowId, cancellationToken);
         return device is null
-            ? OperationResult<Device>.NotFound("No such device.")
+            ? OperationResult<Device>.NotFound(ErrorCodes.NoSuchDevice, "No such device.")
             : OperationResult<Device>.Success(device);
     }
 
@@ -904,19 +923,19 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             profile.ConfigCheckSeconds);
     }
 
-    /// <summary>Re-types a failed gate result as a state result, keeping outcome and detail.</summary>
+    /// <summary>Re-types a failed gate result as a state result, keeping outcome, detail and code.</summary>
     /// <param name="gate">The failed authorisation result.</param>
     /// <returns>The same failure, typed for the caller's signature.</returns>
     private static OperationResult<DeviceScheduleStateDto> Propagate(OperationResult<Device> gate)
     {
-        return new OperationResult<DeviceScheduleStateDto>(gate.Outcome, null, gate.Detail);
+        return new OperationResult<DeviceScheduleStateDto>(gate.Outcome, null, gate.Detail, gate.Code, gate.Parameters);
     }
 
     /// <summary>The 404 every unreachable device gets — never a 403, which would confirm it exists.</summary>
     /// <returns>A NotFound result.</returns>
     private static OperationResult<DeviceScheduleStateDto> NotVisible()
     {
-        return OperationResult<DeviceScheduleStateDto>.NotFound("No such device.");
+        return OperationResult<DeviceScheduleStateDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
     }
 
     /// <summary>The 403 for a caller who can see the device but not its settings.</summary>
@@ -925,6 +944,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
     private static OperationResult<DeviceScheduleStateDto> NoPermission(string verb)
     {
         return OperationResult<DeviceScheduleStateDto>.Forbidden(
+            ErrorCodes.NoPermissionSchedule,
             $"You do not have permission to {verb} this device's schedule.");
     }
 }

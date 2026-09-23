@@ -29,6 +29,8 @@
     "resumed": "Rozvrh byl obnoven.",
     "ruleAdded": "Pravidlo bylo přidáno.",
     "ruleDeleted": "Pravidlo bylo smazáno.",
+    "rulePaused": "Pravidlo bylo pozastaveno — nepoužije se, dokud jej neobnovíte.",
+    "ruleResumed": "Pravidlo bylo obnoveno.",
     "ruleSaved": "Pravidlo bylo uloženo."
   },
   "override": {
@@ -87,7 +89,9 @@
     "intro": "Vypsána v pořadí, v jakém se vyhodnocují — nižší číslo priority první. Vyhrává první pravidlo, jehož okno daný okamžik obsahuje; pokud žádné, použije se záložní profil.",
     "matchingNow": "právě odpovídá",
     "needProfile": "Nejprve vytvořte profil",
-    "prioritySummary": "priorita {{priority}}"
+    "pause": "Pozastavit",
+    "prioritySummary": "priorita {{priority}}",
+    "resume": "Obnovit"
   },
   "status": {
     "awaitingFirstPass": "Čeká se na první průchod plánovače — toto použije.",

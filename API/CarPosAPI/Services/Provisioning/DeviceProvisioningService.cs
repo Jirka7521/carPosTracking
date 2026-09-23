@@ -265,7 +265,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 
         if (!validation.IsValid)
         {
-            return OperationResult<AckKeyImportedDto>.Invalid(validation.Error!);
+            return OperationResult<AckKeyImportedDto>.Invalid(validation.Failure!);
         }
 
         // Tracked, not AsNoTracking: this one is a write.
@@ -274,7 +274,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 
         if (device is null)
         {
-            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+            return OperationResult<AckKeyImportedDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         bool isRotation = !string.IsNullOrWhiteSpace(device.AckPublicKeyPem);

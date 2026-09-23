@@ -63,7 +63,7 @@ internal sealed class AccountErasureService : IAccountErasureService
 
         if (user is null)
         {
-            return OperationResult<AccountErasureSummary>.NotFound("No such user.");
+            return OperationResult<AccountErasureSummary>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         // Proof of identity before an irreversible act. A stolen session cookie is
@@ -75,7 +75,7 @@ internal sealed class AccountErasureService : IAccountErasureService
             _logger.LogInformation(
                 "Account erasure refused for user {UserId}: password did not match",
                 userId);
-            return OperationResult<AccountErasureSummary>.Invalid("Your password is not correct.");
+            return OperationResult<AccountErasureSummary>.Invalid(ErrorCodes.WrongPassword, "Your password is not correct.");
         }
 
         // Worked out before the transaction opens, so the broker cleanup afterwards

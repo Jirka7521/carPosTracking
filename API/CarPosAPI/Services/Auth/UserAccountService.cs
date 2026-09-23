@@ -70,6 +70,7 @@ internal sealed class UserAccountService : IUserAccountService
                 StringComparison.Ordinal))
         {
             return OperationResult<User>.Invalid(
+                ErrorCodes.PrivacyPolicyChanged,
                 "The privacy policy has changed since this page was opened. Please reload and read it again before registering.");
         }
 
@@ -96,7 +97,7 @@ internal sealed class UserAccountService : IUserAccountService
             // The unique index is the only check performed — a pre-flight "does this
             // email exist?" query would both race and hand out account-existence
             // information to anyone who cared to ask.
-            return OperationResult<User>.Conflict("An account with that email address already exists.");
+            return OperationResult<User>.Conflict(ErrorCodes.EmailTaken, "An account with that email address already exists.");
         }
 
         _logger.LogInformation("Registered user {UserId}", user.Id);
@@ -126,7 +127,7 @@ internal sealed class UserAccountService : IUserAccountService
             // closes it, since a constant-time fake hash would still leak through
             // other channels.
             _logger.LogInformation("Sign-in attempt for an unknown email address");
-            return OperationResult<User>.Invalid(InvalidCredentialsMessage);
+            return OperationResult<User>.Invalid(ErrorCodes.InvalidCredentials, InvalidCredentialsMessage);
         }
 
         PasswordCheckResult check = _passwordHasher.Check(user.PasswordHash, request.Password);
@@ -134,7 +135,7 @@ internal sealed class UserAccountService : IUserAccountService
         if (check == PasswordCheckResult.Failed)
         {
             _logger.LogInformation("Failed sign-in for user {UserId}", user.Id);
-            return OperationResult<User>.Invalid(InvalidCredentialsMessage);
+            return OperationResult<User>.Invalid(ErrorCodes.InvalidCredentials, InvalidCredentialsMessage);
         }
 
         if (check == PasswordCheckResult.ValidNeedsRehash)
@@ -162,7 +163,7 @@ internal sealed class UserAccountService : IUserAccountService
             .SingleOrDefaultAsync(cancellationToken);
 
         return profile is null
-            ? OperationResult<UserProfileDto>.NotFound("No such user.")
+            ? OperationResult<UserProfileDto>.NotFound(ErrorCodes.NoSuchUser, "No such user.")
             : OperationResult<UserProfileDto>.Success(profile);
     }
 
@@ -224,7 +225,7 @@ internal sealed class UserAccountService : IUserAccountService
         {
             // 404, not 403: a 403 would confirm the id belongs to a real account,
             // which is the same enumeration hint the device endpoints refuse to give.
-            return OperationResult<UserProfileDto>.NotFound("No such user.");
+            return OperationResult<UserProfileDto>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         return await GetProfileAsync(userId, cancellationToken);
@@ -243,7 +244,7 @@ internal sealed class UserAccountService : IUserAccountService
 
         if (user is null)
         {
-            return OperationResult<UserProfileDto>.NotFound("No such user.");
+            return OperationResult<UserProfileDto>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         // Null means "leave it"; the DTO's StringLength(MinimumLength = 1) has
@@ -278,7 +279,7 @@ internal sealed class UserAccountService : IUserAccountService
 
         if (user is null)
         {
-            return OperationResult<bool>.NotFound("No such user.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         PasswordCheckResult check = _passwordHasher.Check(user.PasswordHash, request.CurrentPassword);
@@ -288,7 +289,7 @@ internal sealed class UserAccountService : IUserAccountService
             // Proof-of-identity failed. Without this gate a stolen session cookie
             // would be upgradable into permanent account takeover.
             _logger.LogInformation("Password change refused for user {UserId}: current password did not match", userId);
-            return OperationResult<bool>.Invalid("Your current password is not correct.");
+            return OperationResult<bool>.Invalid(ErrorCodes.WrongCurrentPassword, "Your current password is not correct.");
         }
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);

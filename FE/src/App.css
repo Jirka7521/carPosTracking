@@ -11,6 +11,22 @@
  *   7.  Charts tab
  *   8.  Settings tab
  *   9.  Shared UI (buttons, form fields, badges, banners, states)
+ *
+ * Breakpoints — use these three and no others:
+ *
+ *   480px   phone      stack two-column forms, drop optional chrome
+ *   768px   tablet     narrow the page gutter, shrink the map, single-column
+ *   1024px  small desk reserved; nothing needs it yet
+ *
+ * They are written out as literals because a custom property cannot be used
+ * inside a @media query — --page-max and --page-pad-x in index.css are the only
+ * part of the shell that tokenises. One rule deliberately sits outside the
+ * scale: the header compacts itself at 520px, noted where it appears.
+ *
+ * Anything that sets a width floor — min-width, a grid track minimum, a nowrap
+ * button row — is a page-widening bug on a 320px screen unless it is inside a
+ * scroll container or allowed to wrap. Check scrollWidth against innerWidth
+ * before adding one.
  * ============================================================ */
 
 /* ================================================================
@@ -37,14 +53,17 @@
   z-index: 100;
 }
 
-/* Left side: logo mark + application title */
+/* Left side: logo mark + application title.
+   Allowed to shrink (min-width: 0) so a narrow phone truncates the title
+   instead of pushing the account menu off the edge of the screen. */
 .header-brand {
   display: flex;
   align-items: center;
   gap: 12px;
   text-decoration: none;
   color: #fff;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .header-brand:hover {
@@ -66,12 +85,16 @@
   display: flex;
   flex-direction: column;
   line-height: 1.1;
+  min-width: 0;
 }
 
 .header-app-name {
   font-size: 0.9375rem;
   font-weight: 700;
   color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-faculty {
@@ -80,30 +103,103 @@
   color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Right side: signed-in user info + logout button */
+/* Right side: language picker + account menu. Never shrinks — these are the
+   controls, and the title gives way to them. */
 .header-user {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
-.header-user-name {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.8);
-  /* Hide on very narrow screens */
-}
-
+/* 520px, off the 480/768 scale on purpose. Below it the bar keeps only what a
+   phone needs: the logo, the title, the globe and the account icon. The
+   faculty line and the language's written name are the two things that can be
+   long, and between 480 and 520 they no longer fit without the 58px bar
+   overflowing. Snapping this down to 480 brings them back exactly where there
+   is no room for them. */
 @media (max-width: 520px) {
-  .header-user-name {
-    display: none;
+  .app-header {
+    padding: 0 var(--page-pad-x);
+    gap: 10px;
+  }
+
+  .header-brand {
+    gap: 8px;
+  }
+
+  .header-logo-mark {
+    width: 30px;
+    height: 30px;
   }
 
   .header-faculty {
     display: none;
   }
+
+  /* The globe alone still reads as "language"; the menu names every option. */
+  .app-header .language-menu-name {
+    display: none;
+  }
+}
+
+/* ---- Account menu ----
+ * The round person icon at the end of the header. Its popover reuses the
+ * export menu's panel and items; only the identity block at the top is new.
+ */
+.account-menu {
+  align-self: auto;
+}
+
+.account-trigger {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.account-trigger-icon {
+  display: block;
+}
+
+.account-menu .export-menu-panel {
+  min-width: 220px;
+  /* Never wider than the screen minus the header's gutters, so a long email
+     wraps instead of widening the page on a 320px phone. */
+  max-width: calc(100vw - 2 * var(--page-pad-x));
+}
+
+.account-menu .export-menu-item {
+  grid-template-columns: 16px 1fr;
+}
+
+.account-menu-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.account-menu-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.account-menu-email {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 /* ================================================================
@@ -254,7 +350,7 @@
   gap: 12px;
 }
 
-@media (max-width: 400px) {
+@media (max-width: 480px) {
   .auth-name-row {
     grid-template-columns: 1fr;
   }
@@ -294,18 +390,22 @@
  *    inline form that appears when the button is clicked.
  * ================================================================ */
 
-/* Outer page wrapper — max-width centered column */
+/* Outer page wrapper — max-width centered column.
+ * Inline padding comes from the shared token so this column, the device header
+ * and the tab bar all start at the same x. The block padding is this rule's own
+ * — the four shell rules agree on their gutter, not on their vertical rhythm. */
 .page-content {
   flex: 1;
-  padding: 28px 28px 56px;
-  max-width: 1200px;
+  padding-inline: var(--page-pad-x);
+  padding-block: 28px 56px;
+  max-width: var(--page-max);
   width: 100%;
   margin: 0 auto;
 }
 
 @media (max-width: 768px) {
   .page-content {
-    padding: 16px 16px 40px;
+    padding-block: 16px 40px;
   }
 }
 
@@ -323,10 +423,14 @@
   font-size: 1.5rem;
 }
 
-/* Responsive auto-fill grid of device cards */
+/* Responsive auto-fill grid of device cards.
+ * The min() matters: a bare 290px track is wider than the 288px a 320px phone
+ * leaves after the page gutters, so the grid pushed the page out by a couple of
+ * pixels — enough for the browser to zoom the whole document out. min() lets the
+ * track collapse to the container on screens narrower than the ideal card. */
 .device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
   gap: 20px;
 }
 
@@ -428,12 +532,17 @@
   line-height: 1.5;
 }
 
-/* Right-side cluster in the card header: battery + status pills together. */
+/* Right-side cluster in the card header: battery + status pills together.
+ * Wraps because the device page reuses this beside a long monospace device id,
+ * where three --lg pills and the title cannot share one line on a phone. The
+ * pills themselves are nowrap, so without this the cluster sets a floor on the
+ * page width and the whole document scrolls sideways. */
 .device-card-badges {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 /*
@@ -653,8 +762,9 @@
 
 /* Section above the tabs: breadcrumb + device title + status */
 .device-page-header {
-  padding: 20px 28px 0;
-  max-width: 1200px;
+  padding-inline: var(--page-pad-x);
+  padding-block: 20px 0;
+  max-width: var(--page-max);
   width: 100%;
   margin: 0 auto;
   display: flex;
@@ -664,7 +774,7 @@
 
 @media (max-width: 768px) {
   .device-page-header {
-    padding: 14px 16px 0;
+    padding-block: 14px 0;
   }
 }
 
@@ -672,6 +782,7 @@
 .breadcrumb {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -712,8 +823,9 @@
   gap: 0;
   /* 2px border matches the active tab's underline thickness */
   border-bottom: 2px solid var(--border);
-  padding: 14px 28px 0;
-  max-width: 1200px;
+  padding-inline: var(--page-pad-x);
+  padding-block: 14px 0;
+  max-width: var(--page-max);
   width: 100%;
   margin: 10px auto 0;
   overflow-x: auto;
@@ -727,7 +839,7 @@
 
 @media (max-width: 768px) {
   .device-tab-bar {
-    padding: 10px 16px 0;
+    padding-block: 10px 0;
   }
 }
 
@@ -765,15 +877,16 @@
 /* Tab content area — receives the <Outlet /> rendered child */
 .device-tab-content {
   flex: 1;
-  padding: 24px 28px 56px;
-  max-width: 1200px;
+  padding-inline: var(--page-pad-x);
+  padding-block: 24px 56px;
+  max-width: var(--page-max);
   width: 100%;
   margin: 0 auto;
 }
 
 @media (max-width: 768px) {
   .device-tab-content {
-    padding: 16px 16px 40px;
+    padding-block: 16px 40px;
   }
 }
 
@@ -832,6 +945,14 @@
 @media (max-width: 768px) {
   .map-canvas {
     height: 380px;
+  }
+
+  /* Both floors have to come down with the canvas. A 480px minimum on a phone
+     held the frame taller than the map inside it, leaving a band of empty blue
+     under the map and pushing the legend below the fold. */
+  .map-frame,
+  .map-placeholder {
+    min-height: 380px;
   }
 }
 
@@ -2002,7 +2123,7 @@
 
 /* Single-column on narrow screens — a 40-character fingerprint next to its
    label leaves no room for either. */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .provisioning-facts {
     grid-template-columns: 1fr;
     gap: 2px 0;
@@ -2807,8 +2928,13 @@
   gap: 4px;
 }
 
+/* Wraps because a share row reuses this for four buttons whose labels are whole
+   phrases ("Show link and code", cs "Zobrazit odkaz a kód") and which are
+   nowrap individually — roughly 450px of buttons with about 256px to put them
+   in at 360px. Unwrapped, that row alone widened every page it appeared on. */
 .schedule-card-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -3117,7 +3243,7 @@
   color: var(--text);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .legal-article {
     padding: 20px;
     border-radius: var(--radius);

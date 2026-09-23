@@ -64,14 +64,14 @@ internal sealed class ShareViewService : IShareViewService
 
         if (link is null || link.RevokedAt.HasValue)
         {
-            return OperationResult<SharedViewDto>.NotFound("This link is no longer available.");
+            return OperationResult<SharedViewDto>.NotFound(ErrorCodes.LinkUnavailable, "This link is no longer available.");
         }
 
         DateTime nowUtc = DateTime.UtcNow;
 
         if (nowUtc > link.ValidUntil || nowUtc < link.ValidFrom)
         {
-            return OperationResult<SharedViewDto>.NotFound("This link is no longer available.");
+            return OperationResult<SharedViewDto>.NotFound(ErrorCodes.LinkUnavailable, "This link is no longer available.");
         }
 
         ShareSessionDto session = new ShareSessionDto(
