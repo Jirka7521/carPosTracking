@@ -17,9 +17,9 @@
 
     It only READS the dev config (appsettings.Local.json, FE/public/config.js,
     the Container/*/.env files); it never writes back to them. The output is an
-    Application/ folder you copy whole to the Raspberry Pi and bring up with
-    `docker compose up -d --build`. Application/ is git-ignored because its .env
-    holds real secrets.
+    Application/ folder you copy whole to /mnt/externalSSD0/dockerScripts/MQTT/Application
+    on the Raspberry Pi and bring up there with `docker compose up -d --build`.
+    Application/ is git-ignored because its .env holds real secrets.
 
 .PARAMETER SkipSourceCopy
     Write the .env, compose file and README but skip copying api-src/ + fe-src/.
@@ -64,6 +64,10 @@ $FeContainerPort  = 80
 # wizard can warn when DNS says something different — edit the compose file, not this.
 $ApiPinnedIp = '192.168.124.5'
 $FePinnedIp  = '192.168.124.6'
+
+# Where the bundle lives on the Pi. Nothing copies it there automatically — this
+# only feeds the "Next steps" printout, so the instructions name the real path.
+$PiDeployDir = '/mnt/externalSSD0/dockerScripts/MQTT/Application'
 
 # The keys whose values must never be echoed in full.
 $SecretKeys = @('BE_PASSWORD', 'MQTT_PASSWORD', 'DEVICE_KEY_MASTER_KEY', 'JWT_SIGNING_KEY')
@@ -483,12 +487,12 @@ try {
     Write-Host ('  API in-network  {0}   (nginx proxy target + healthcheck, via the Docker alias)' -f $values['BE_URL'])
     Write-Host ''
     Write-Host 'Next steps:' -ForegroundColor Cyan
-    Write-Host '  1. Copy the whole Application/ folder to the Raspberry Pi.'
+    Write-Host ('  1. Copy the whole Application/ folder to {0} on the Raspberry Pi.' -f $PiDeployDir)
     Write-Host ('  2. Confirm {0} and {1} are free for the containers to claim - the compose file pins them.' -f $values['FE_BIND_ADDR'], $values['BE_BIND_ADDR'])
     Write-Host '  3. Make sure the MQTTpublic network + the Postgres and MQTTBroker stacks are up.'
     Write-Host '     MQTTpublic must be macvlan with a configured subnet, or the pinned addresses'
     Write-Host '     are rejected:  docker network inspect MQTTpublic --format ''{{.Driver}} {{json .IPAM.Config}}'''
-    Write-Host '  4. Inside the copied folder:  docker compose up -d --build'
+    Write-Host ('  4. cd {0} && docker compose up -d --build' -f $PiDeployDir)
     Write-Host '  See Application/README.md for the full checklist.'
     Write-Host ''
     Write-Host 'Reminder: Application/ is git-ignored - its .env holds real secrets.' -ForegroundColor DarkGray
