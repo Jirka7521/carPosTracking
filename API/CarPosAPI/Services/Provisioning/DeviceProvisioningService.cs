@@ -43,7 +43,19 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
         DeviceConfigRules.DefaultQueueMaxFixes,
         DeviceConfigRules.DefaultRetryIntervalHours,
         DeviceConfigRules.DefaultRetryMaxAgeHours,
-        DeviceConfigRules.DefaultConfigCheckSeconds);
+        DeviceConfigRules.DefaultConfigCheckSeconds,
+        DeviceConfigRules.DefaultMotionEnabled,
+        DeviceConfigRules.DefaultMotionThresholdMg,
+        DeviceConfigRules.DefaultMotionSpeedKmph,
+        DeviceConfigRules.DefaultMotionWakeWaitSeconds,
+        DeviceConfigRules.DefaultMotionStopWaitSeconds,
+        DeviceConfigRules.DefaultMovingIntervalSeconds,
+        DeviceConfigRules.DefaultMovingSleepBetween,
+        DeviceConfigRules.DefaultMovingFixTimeoutSeconds,
+        DeviceConfigRules.DefaultMovingQueueMaxFixes,
+        DeviceConfigRules.DefaultMovingRetryIntervalHours,
+        DeviceConfigRules.DefaultMovingRetryMaxAgeHours,
+        DeviceConfigRules.DefaultMovingConfigCheckSeconds);
 
     private readonly IMasterKeyProtector _protector;
     private readonly ConfigSnippetBuilder _snippetBuilder;
@@ -202,7 +214,19 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
                         revision.QueueMaxFixes,
                         revision.RetryIntervalHours,
                         revision.RetryMaxAgeHours,
-                        revision.ConfigCheckSeconds))
+                        revision.ConfigCheckSeconds,
+                        revision.MotionEnabled,
+                        revision.MotionThresholdMg,
+                        revision.MotionSpeedKmph,
+                        revision.MotionWakeWaitSeconds,
+                        revision.MotionStopWaitSeconds,
+                        revision.MovingIntervalSeconds,
+                        revision.MovingSleepBetween,
+                        revision.MovingFixTimeoutSeconds,
+                        revision.MovingQueueMaxFixes,
+                        revision.MovingRetryIntervalHours,
+                        revision.MovingRetryMaxAgeHours,
+                        revision.MovingConfigCheckSeconds))
                     .FirstOrDefault()))
             .SingleOrDefaultAsync(cancellationToken);
 

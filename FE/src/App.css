@@ -2570,6 +2570,27 @@
   margin-bottom: 8px;
 }
 
+/* Names which of the two settings sets the groups beneath it belong to. Shown
+   only while motion wake is on — with it off there is a single set and a heading
+   would be noise — and a step up from .config-group-title, so the eye reads the
+   groups as sitting inside it. */
+.config-mode-title {
+  margin: 20px 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+/* The notes about how the motion settings interact, stacked. A banner on its
+   own has no margin, which is fine inside a fieldset but leaves two in a row
+   touching. */
+.config-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
 /* A number and the unit it is entered in, on one row (DurationField). The
    combobox sits at the END of the line so the eye reads "5 minutes" left to
    right, and the number takes the slack because it is the half being edited. */

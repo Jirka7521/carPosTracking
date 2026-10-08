@@ -68,6 +68,22 @@ export const PARAMETER_ORIGINS: Readonly<Record<string, ParameterOrigin>> = {
   kSdMaxQueuedFixes: 'remote',
   kRetryIntervalHours: 'remote',
   kRetryMaxAgeHours: 'remote',
+
+  // Motion wake: the switch and its knobs, and the complete second (moving) set
+  // of the settings above. Same story — the compile-time value is the fallback,
+  // the retained settings document is what a running tracker obeys.
+  kDefaultMotionWakeEnabled: 'remote',
+  kDefaultMotionThresholdMg: 'remote',
+  kDefaultMotionSpeedKmph: 'remote',
+  kDefaultMotionWakeWaitSeconds: 'remote',
+  kDefaultMotionStopWaitSeconds: 'remote',
+  kDefaultMovingSendIntervalSeconds: 'remote',
+  kDefaultMovingSleepBetweenSends: 'remote',
+  kDefaultMovingFixTimeoutSeconds: 'remote',
+  kDefaultMovingQueueMaxFixes: 'remote',
+  kDefaultMovingRetryIntervalHours: 'remote',
+  kDefaultMovingRetryMaxAgeHours: 'remote',
+  kDefaultMovingConfigCheckSeconds: 'remote',
 }
 
 // Headings the config file does not supply itself.

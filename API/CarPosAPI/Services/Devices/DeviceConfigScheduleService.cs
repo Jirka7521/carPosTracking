@@ -197,6 +197,18 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             RetryIntervalHours = request.RetryIntervalHours,
             RetryMaxAgeHours = request.RetryMaxAgeHours,
             ConfigCheckSeconds = request.ConfigCheckSeconds,
+            MotionEnabled = request.MotionEnabled,
+            MotionThresholdMg = request.MotionThresholdMg,
+            MotionSpeedKmph = request.MotionSpeedKmph,
+            MotionWakeWaitSeconds = request.MotionWakeWaitSeconds,
+            MotionStopWaitSeconds = request.MotionStopWaitSeconds,
+            MovingIntervalSeconds = request.MovingIntervalSeconds,
+            MovingSleepBetween = request.MovingSleepBetween,
+            MovingFixTimeoutSeconds = request.MovingFixTimeoutSeconds,
+            MovingQueueMaxFixes = request.MovingQueueMaxFixes,
+            MovingRetryIntervalHours = request.MovingRetryIntervalHours,
+            MovingRetryMaxAgeHours = request.MovingRetryMaxAgeHours,
+            MovingConfigCheckSeconds = request.MovingConfigCheckSeconds,
             CreatedByUserId = userId,
             CreatedAt = now,
             UpdatedAt = now,
@@ -256,6 +268,18 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         profile.RetryIntervalHours = request.RetryIntervalHours;
         profile.RetryMaxAgeHours = request.RetryMaxAgeHours;
         profile.ConfigCheckSeconds = request.ConfigCheckSeconds;
+        profile.MotionEnabled = request.MotionEnabled;
+        profile.MotionThresholdMg = request.MotionThresholdMg;
+        profile.MotionSpeedKmph = request.MotionSpeedKmph;
+        profile.MotionWakeWaitSeconds = request.MotionWakeWaitSeconds;
+        profile.MotionStopWaitSeconds = request.MotionStopWaitSeconds;
+        profile.MovingIntervalSeconds = request.MovingIntervalSeconds;
+        profile.MovingSleepBetween = request.MovingSleepBetween;
+        profile.MovingFixTimeoutSeconds = request.MovingFixTimeoutSeconds;
+        profile.MovingQueueMaxFixes = request.MovingQueueMaxFixes;
+        profile.MovingRetryIntervalHours = request.MovingRetryIntervalHours;
+        profile.MovingRetryMaxAgeHours = request.MovingRetryMaxAgeHours;
+        profile.MovingConfigCheckSeconds = request.MovingConfigCheckSeconds;
         profile.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -823,7 +847,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Reads one profile's seven values.</summary>
+    /// <summary>Reads one profile's values, motion block included.</summary>
     /// <param name="profileId">The profile.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>The values, or null when the profile has gone.</returns>
@@ -841,7 +865,19 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 profile.QueueMaxFixes,
                 profile.RetryIntervalHours,
                 profile.RetryMaxAgeHours,
-                profile.ConfigCheckSeconds))
+                profile.ConfigCheckSeconds,
+                profile.MotionEnabled,
+                profile.MotionThresholdMg,
+                profile.MotionSpeedKmph,
+                profile.MotionWakeWaitSeconds,
+                profile.MotionStopWaitSeconds,
+                profile.MovingIntervalSeconds,
+                profile.MovingSleepBetween,
+                profile.MovingFixTimeoutSeconds,
+                profile.MovingQueueMaxFixes,
+                profile.MovingRetryIntervalHours,
+                profile.MovingRetryMaxAgeHours,
+                profile.MovingConfigCheckSeconds))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -910,7 +946,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
 
     /// <summary>Projects a profile row onto the shared settings shape.</summary>
     /// <param name="profile">The profile.</param>
-    /// <returns>Its seven values.</returns>
+    /// <returns>Its values, motion block included.</returns>
     private static DeviceConfigValuesDto ToValues(DeviceConfigProfile profile)
     {
         return new DeviceConfigValuesDto(
@@ -920,7 +956,19 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             profile.QueueMaxFixes,
             profile.RetryIntervalHours,
             profile.RetryMaxAgeHours,
-            profile.ConfigCheckSeconds);
+            profile.ConfigCheckSeconds,
+            profile.MotionEnabled,
+            profile.MotionThresholdMg,
+            profile.MotionSpeedKmph,
+            profile.MotionWakeWaitSeconds,
+            profile.MotionStopWaitSeconds,
+            profile.MovingIntervalSeconds,
+            profile.MovingSleepBetween,
+            profile.MovingFixTimeoutSeconds,
+            profile.MovingQueueMaxFixes,
+            profile.MovingRetryIntervalHours,
+            profile.MovingRetryMaxAgeHours,
+            profile.MovingConfigCheckSeconds);
     }
 
     /// <summary>Re-types a failed gate result as a state result, keeping outcome, detail and code.</summary>

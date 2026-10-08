@@ -27,10 +27,23 @@
 //  releasePinHolds() at the top of app_main() to undo step 5, before anything
 //  tries to drive those pins again.
 //
-//  Wake sources: an optional ext0 GPIO when config::kWakeGpioPin is not -1, and
-//  the RTC timer for every sleep that has a duration. sleepUntilExternalWake()
-//  is the exception - it arms ext0 ALONE, which is what makes the power switch
-//  mean "off until you turn it back on" rather than "off until the next report".
+//  Wake sources depend on WHY the device is going to sleep:
+//
+//    sleepFor()                 the RTC timer, plus - when the caller passes a
+//                               threshold - the accelerometer's activity
+//                               interrupt on ext1 (the motion wake). Never ext0:
+//                               this sleep happens with the power switch ON, so
+//                               its pin already sits at the ext0 wake level, and
+//                               ext0 is level-triggered - arming it would wake
+//                               the chip the instant it went down.
+//    sleepUntilExternalWake()   ext0 ALONE, which is what makes the power switch
+//                               mean "off until you turn it back on" rather than
+//                               "off until the next report". No accelerometer
+//                               either: off means off.
+//
+//  The accelerometer is armed as the very LAST step, after the modem is off and
+//  the card unmounted: its activity detection is AC-coupled against a reference
+//  taken at the moment it is armed, and that reference has to be a quiet sample.
 // =============================================================================
 
 #include <cstdint>
@@ -38,6 +51,7 @@
 #include "gnss/GnssModule.h"
 #include "mqtt/MqttClient.h"
 #include "sdcard/SdCard.h"
+#include "sensors/Adxl345.h"
 #include "wifi/WifiManager.h"
 
 class DeepSleepController {
@@ -48,11 +62,15 @@ class DeepSleepController {
   //   gnss          : powered down before sleep (modem + engine + antenna)
   //   card          : unmounted before sleep
   //   modemPwrKeyPin: held HIGH through the sleep so the modem stays off
-  //   wakeGpioPin   : extra ext0 wake pin, or -1 for "timer only"
+  //   wakeGpioPin   : the power switch's ext0 wake pin, or -1 for none
   //   wakeGpioLevel : the level on that pin which wakes us (0 or 1)
+  //   accel         : armed for the motion wake, or nullptr for none
+  //   motionWakePin : the accelerometer's INT1 GPIO (ext1), or -1 for none
+  //   motionLowPower: put the accelerometer in its low-power rate for the sleep
   DeepSleepController(MqttClient& mqtt, WifiManager& wifi, GnssModule& gnss,
                       SdCard& card, int modemPwrKeyPin, int wakeGpioPin,
-                      int wakeGpioLevel);
+                      int wakeGpioLevel, Adxl345* accel, int motionWakePin,
+                      bool motionLowPower);
 
   // Release the pin latches applied before the previous sleep. Call once at the
   // very start of app_main(), before any driver touches those pins - until this
@@ -60,8 +78,10 @@ class DeepSleepController {
   // pin still reads through the RTC pull ext0 latched on it.
   // Harmless on a cold boot, where there is nothing latched.
   //
-  //   wakeGpioPin : the ext0 pin to hand back from the RTC mux, or -1
-  static void releasePinHolds(int modemPwrKeyPin, int wakeGpioPin);
+  //   wakeGpioPin   : the ext0 pin to hand back from the RTC mux, or -1
+  //   motionWakePin : the ext1 pin to hand back likewise, or -1
+  static void releasePinHolds(int modemPwrKeyPin, int wakeGpioPin,
+                              int motionWakePin);
 
   // Human-readable reason this boot happened ("timer", "ext0", "power-on", ...).
   // Purely for logging, so a serial trace shows whether a wake was the scheduled
@@ -70,7 +90,13 @@ class DeepSleepController {
 
   // Quiesce everything, arm the wake sources and enter deep sleep for
   // `durationMs`. Never returns - the chip reboots when it wakes.
-  [[noreturn]] void sleepFor(uint32_t durationMs);
+  //
+  // `motionThresholdSteps` (THRESH_ACT, 62.5 mg per step) additionally arms the
+  // accelerometer as an ext1 wake source; 0 - which is never a usable threshold -
+  // means "timer only". If arming fails the device still sleeps on the timer,
+  // which is always armed here, so it can never end up with no way back.
+  [[noreturn]] void sleepFor(uint32_t durationMs,
+                             uint8_t  motionThresholdSteps = 0);
 
   // The same, but with NO timer: the device sleeps until the external signal
   // arrives. This is what the power switch uses - "off" means off until somebody
@@ -110,6 +136,11 @@ class DeepSleepController {
   static void armWakeSources(uint32_t durationMs, int wakeGpioPin,
                              int wakeGpioLevel);
 
+  // Arm the accelerometer's activity interrupt and the ext1 wake on its INT1
+  // pin. Returns false - and leaves ext1 disarmed - when there is no sensor, no
+  // pin, or either step fails; the caller's timer is then the only wake source.
+  bool armMotionWake(uint8_t thresholdSteps);
+
   // Log the last lines and enter deep sleep. Never returns.
   [[noreturn]] static void enterSleep();
 
@@ -120,4 +151,7 @@ class DeepSleepController {
   int          modemPwrKeyPin_;
   int          wakeGpioPin_;
   int          wakeGpioLevel_;
+  Adxl345*     accel_;
+  int          motionWakePin_;
+  bool         motionLowPower_;
 };

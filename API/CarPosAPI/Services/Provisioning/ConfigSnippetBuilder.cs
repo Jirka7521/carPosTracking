@@ -196,6 +196,27 @@ internal sealed class ConfigSnippetBuilder
         writer.SetNumber("kRetryMaxAgeHours", Number(settings.RetryMaxAgeHours));
         writer.SetNumber("kDefaultConfigCheckSeconds", Number(settings.ConfigCheckSeconds));
 
+        // The seven above are the STANDBY set; these are the motion-wake switch, its
+        // parameters and the MOVING copy of the seven. Rendered from the live revision
+        // for the same reason: a freshly flashed tracker should already behave as the
+        // dashboard says it does, before the retained document reaches it. The firmware
+        // keeps its own spelling for two of the moving constants
+        // (kDefaultMovingSendIntervalSeconds, kDefaultMovingSleepBetweenSends) where this
+        // API says MovingIntervalSeconds and MovingSleepBetween, so those names are the
+        // firmware's, not a typo.
+        writer.SetBool("kDefaultMotionWakeEnabled", settings.MotionEnabled);
+        writer.SetNumber("kDefaultMotionThresholdMg", Number(settings.MotionThresholdMg));
+        writer.SetNumber("kDefaultMotionSpeedKmph", Number(settings.MotionSpeedKmph));
+        writer.SetNumber("kDefaultMotionWakeWaitSeconds", Number(settings.MotionWakeWaitSeconds));
+        writer.SetNumber("kDefaultMotionStopWaitSeconds", Number(settings.MotionStopWaitSeconds));
+        writer.SetNumber("kDefaultMovingSendIntervalSeconds", Number(settings.MovingIntervalSeconds));
+        writer.SetBool("kDefaultMovingSleepBetweenSends", settings.MovingSleepBetween);
+        writer.SetNumber("kDefaultMovingFixTimeoutSeconds", Number(settings.MovingFixTimeoutSeconds));
+        writer.SetNumber("kDefaultMovingQueueMaxFixes", Number(settings.MovingQueueMaxFixes));
+        writer.SetNumber("kDefaultMovingRetryIntervalHours", Number(settings.MovingRetryIntervalHours));
+        writer.SetNumber("kDefaultMovingRetryMaxAgeHours", Number(settings.MovingRetryMaxAgeHours));
+        writer.SetNumber("kDefaultMovingConfigCheckSeconds", Number(settings.MovingConfigCheckSeconds));
+
         // --- Bounds: rendered from the API's own rules -------------------------
         // This removes the hand-sync the firmware's comment asks for ("if you change
         // one here, change it there too") for the file the dashboard hands out.
@@ -210,6 +231,17 @@ internal sealed class ConfigSnippetBuilder
         writer.SetNumber("kMaxRetryMaxAgeHours", Number(DeviceConfigRules.MaxRetryMaxAgeHours));
         writer.SetNumber("kMinConfigCheckSeconds", Number(DeviceConfigRules.MinConfigCheckSeconds));
         writer.SetNumber("kMaxConfigCheckSeconds", Number(DeviceConfigRules.MaxConfigCheckSeconds));
+
+        // The motion parameters' own bounds. The moving set has none of its own: the
+        // firmware holds it to the standby kMin/kMax constants above.
+        writer.SetNumber("kMinMotionThresholdMg", Number(DeviceConfigRules.MinMotionThresholdMg));
+        writer.SetNumber("kMaxMotionThresholdMg", Number(DeviceConfigRules.MaxMotionThresholdMg));
+        writer.SetNumber("kMinMotionSpeedKmph", Number(DeviceConfigRules.MinMotionSpeedKmph));
+        writer.SetNumber("kMaxMotionSpeedKmph", Number(DeviceConfigRules.MaxMotionSpeedKmph));
+        writer.SetNumber("kMinMotionWakeWaitSeconds", Number(DeviceConfigRules.MinMotionWakeWaitSeconds));
+        writer.SetNumber("kMaxMotionWakeWaitSeconds", Number(DeviceConfigRules.MaxMotionWakeWaitSeconds));
+        writer.SetNumber("kMinMotionStopWaitSeconds", Number(DeviceConfigRules.MinMotionStopWaitSeconds));
+        writer.SetNumber("kMaxMotionStopWaitSeconds", Number(DeviceConfigRules.MaxMotionStopWaitSeconds));
 
         // Last, so it sits above the template's own header rather than inside it: the
         // firmware file opens by explaining it is the committed example, which is no

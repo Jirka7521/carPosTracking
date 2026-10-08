@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// ScheduleProfileEditor — a name plus the seven settings.
+// ScheduleProfileEditor — a name plus the device settings.
 //
 // The body is ConfigValuesFields, the same controls the manual settings form
 // uses, on purpose: a profile IS a set of device settings, and an editor that
@@ -34,6 +34,18 @@ const DEFAULT_VALUES: DeviceConfigValuesDto = {
   retryIntervalHours: 24,
   retryMaxAgeHours: 168,
   configCheckSeconds: 3600,
+  motionEnabled: false,
+  motionThresholdMg: 63,
+  motionSpeedKmph: 3,
+  motionWakeWaitSeconds: 240,
+  motionStopWaitSeconds: 600,
+  movingIntervalSeconds: 10,
+  movingSleepBetween: false,
+  movingFixTimeoutSeconds: 180,
+  movingQueueMaxFixes: 20000,
+  movingRetryIntervalHours: 24,
+  movingRetryMaxAgeHours: 168,
+  movingConfigCheckSeconds: 3600,
 }
 
 export type ScheduleProfileEditorProps = {

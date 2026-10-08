@@ -2,6 +2,7 @@ using System.Text.Json;
 using CarPosAPI.Data;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
+using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -280,7 +281,8 @@ internal sealed class MqttConfigPublisher : IConfigPublisher
                             configVersion.QueueMaxFixes,
                             configVersion.RetryIntervalHours,
                             configVersion.RetryMaxAgeHours,
-                            configVersion.ConfigCheckSeconds)))
+                            configVersion.ConfigCheckSeconds,
+                            DeviceMotionDocumentFactory.Create(configVersion))))
                 .ToListAsync(cancellationToken);
 
             pendingBundles = await _bundleBuilder.BuildAllAsync(context, cancellationToken);

@@ -69,7 +69,8 @@ reuse.
   a garage still empties its card.
 - ⚙️ **Remote settings over MQTT**: the reporting interval, the
   power-down-between-reports flag, the GNSS lock timeout, the undelivered-fix cap,
-  the retry policy and the settings re-check interval are all pushed from the
+  the retry policy and the settings re-check interval — plus the
+  [motion-wake](#motion-wake) block — are all pushed from the
   broker on a retained config topic, validated, clamped, and cached on the SD card
   so they survive a reboot with no network. An **awake device applies a change
   within a second** — it blocks on an event group that the arriving message itself
@@ -79,6 +80,12 @@ reuse.
 - 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
+- 🚗 **Motion wake**: the ADXL345's activity interrupt wakes the sleeping ESP32
+  when the car starts to move, and the device then reports on a **second, faster
+  set of the seven reporting settings** until the car has stood still for a
+  while. AC-coupled on all three axes, so it works however the sensor is
+  mounted. Off by default; with it off the device behaves exactly as it did
+  before. See [Motion wake](#motion-wake).
 - 🧾 **Boot log**: one line per boot on the SD card — reset reason, boot counter,
   free heap — and the recent history printed to serial at start-up, so an
   unexplained restart can be diagnosed after the fact. Because RTC memory
@@ -140,6 +147,9 @@ src/
 │   ├── Dht22.h/.cpp            ← RMT-based one-wire driver for the DHT22
 │   └── AmbientWindowSampler.h/.cpp← Read every 2 s all cycle; publish the median
 │
+├── motion/
+│   └── MotionTracker.h/.cpp    ← Motion wake: STANDBY / CHECKING / MOVING, and which settings apply
+│
 ├── status/
 │   ├── StatusLed.h/.cpp        ← One LED: a mode (off/blink/on) → a pin level
 │   └── StatusLeds.h/.cpp       ← The two indicators + the blink task
@@ -157,10 +167,12 @@ src/
 │   └── FixForwarder.h/.cpp  ← Publish-now-or-store; flush the backlog, lock or not
 │
 ├── settings/
-│   ├── DeviceSettings.h/.cpp   ← The seven runtime knobs, validated & clamped
+│   ├── DeviceSettings.h/.cpp   ← The settings in force: version + standby set + motion block
+│   ├── ModeSettings.h/.cpp     ← The seven reporting knobs of ONE mode, validated & clamped
+│   ├── MotionSettings.h/.cpp   ← The motion block: wake threshold, timings, the moving set
 │   ├── SettingsCodec.h/.cpp    ← DeviceSettings ⇄ the config JSON (one format)
 │   ├── SettingsStore.h/.cpp    ← Cache them, in the clear, on the SD card
-│   ├── SettingsApplier.h/.cpp  ← Push the storage settings into the two queues
+│   ├── SettingsApplier.h/.cpp  ← Push the storage settings into the two queues, never losing data
 │   ├── RemoteSettings.h/.cpp   ← Subscribe to the config topic; apply & persist
 │   ├── UpdateSignal.h/.cpp     ← One wake-up shared by both retained-topic watchers
 │   ├── ScheduleBundle.h/.cpp   ← The profiles + weekly windows this device switches on
@@ -234,7 +246,7 @@ test:
 | `NmeaParser` | Count satellites per constellation from `GSV` sentences. |
 | `GnssModule` | The friendly API: configure, read a fix, manage power, debug. |
 | `FixAverager` | Discard the first fix after a lock; publish the mean of the next three readings. |
-| `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g). |
+| `Adxl345` | I2C driver: configure the ADXL345 and return one X/Y/Z sample (g); arm, poll and clear its activity interrupt (the motion-wake line). |
 | `AdcSampler` | The single owner of ADC1: claims pins, serves raw counts and calibrated millivolts. |
 | `BatteryMonitor` | Charging detection (GPIO35, via `AdcSampler`) — the single source of that verdict — plus the fallback pack % (Li-ion curve over the modem's `AT+CBC`). |
 | `BatteryWindowSampler` | Sample the pack every `kBatteryWindowSampleMs` on its own task and hold the raw counts until the report takes them. |
@@ -251,11 +263,14 @@ test:
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; flush the card as a burst whenever the link is up — no position lock needed. |
-| `DeviceSettings` | Hold a *valid* interval + sleep flag; clamp anything out of range. |
+| `DeviceSettings` | Hold the *valid* settings in force — version, the standby set and the motion block; clamp anything out of range. |
+| `ModeSettings` | One mode's seven reporting values, with their bounds. Used twice: standby and moving. |
+| `MotionSettings` | The motion block: on/off, wake threshold (mg → sensor steps), speed, the two windows, and the moving set. |
+| `MotionTracker` | The motion-wake state machine (STANDBY / CHECKING / MOVING): which set is in force, whether a fix is published, what survives a deep sleep. |
 | `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
 | `SettingsStore` | Cache the settings on the card; fall back to defaults when unreadable. |
 | `RemoteSettings` | Subscribe to the config topic; validate, apply and persist what arrives. |
-| `DeepSleepController` | Quiesce MQTT/WiFi/modem/card in order, arm the wake sources, sleep. |
+| `DeepSleepController` | Quiesce MQTT/WiFi/modem/card in order, arm the wake sources (timer, power switch, accelerometer), sleep. |
 
 ---
 
@@ -276,7 +291,7 @@ peripherals here are what gets added to it.
    │ GND ─────┼──────┤ GND                               │      │      │       │
    │ SDA ─────┼──────┤ 21  (I2C data)                    │      │      │       │
    │ SCL ─────┼──────┤ 22  (I2C clock)                   │      │      │       │
-   │ INT1 ────┼──────┤ 32  (RTC-capable: future ext1)    │      │      │       │
+   │ INT1 ────┼──────┤ 32  (motion wake, ext1 any-high)  │      │      │       │
    │ INT2 ────┼──────┤ 34  (input-only: awake-time use)  │      │      │       │
    │ CS ──3V3 │      │                                   │      │      │       │
    │ SDO ─GND │      │                                   │      │      │       │
@@ -312,7 +327,7 @@ peripherals here are what gets added to it.
 | Peripheral | Pin | Notes |
 |---|---|---|
 | ADXL345 SDA / SCL | `21` / `22` | I2C. The GY-291 carries its own bus pull-ups; the firmware enables the internal ones too. |
-| ADXL345 INT1 | `32` | Reserved. RTC-capable, so a future motion wake can use **ext1** on it. |
+| ADXL345 INT1 | `32` | **Motion wake.** The sensor's activity interrupt: push-pull, active high, and RTC-capable, so **ext1** (any-high) can wake the sleeping chip on it. No pull resistor is fitted — the firmware sets an RTC pulldown for the day the sensor is missing. See [Motion wake](#motion-wake). |
 | ADXL345 INT2 | `34` | Reserved. Input-only, so awake-time interrupts only — which is all a second INT line needs to be. |
 | Power switch | `33` | To **GND**. Internal pull-up, ext0 wake. |
 | Yellow LED (GNSS) | `18` | Anode via series resistor; cathode to GND. **Active high.** |
@@ -348,7 +363,8 @@ through a push-pull output, so a switch sharing `33` would have read "closed"
 forever. `34` is a good home for it rather than a consolation prize — an
 interrupt line is an input, `34` is input-only (which is exactly why nothing else
 wanted it), and it needs no pull resistor because the sensor drives it. Both INT
-lines stay wired and usable. Two `static_assert`s in `Config.h` make sure the
+lines stay wired and usable — INT1 is now the [motion wake](#motion-wake) line,
+INT2 is still free. Two `static_assert`s in `Config.h` make sure the
 switch can never be configured back onto either of them.
 
 `18`, `19` and `23` are the remaining plain GPIOs with no strapping role. `23`
@@ -419,7 +435,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kI2cSdaPin` / `kI2cSclPin` | `21` / `22` | I2C data / clock GPIOs |
 | `kI2cClockHz` | `400000` | I2C bus speed (fast mode) |
 | `kAdxlI2cAddress` | `0x53` | ADXL345 address (CS→3V3, SDO→GND) |
-| `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `34` | INT pins — reserved, interrupts not used yet. INT2 moved off `33` to free it for the power switch; see [Wiring](#wiring) |
+| `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `34` | INT pins. INT1 carries the activity interrupt for the [motion wake](#motion-wake) (`kMotionWakePin`); INT2 is reserved. INT2 moved off `33` to free it for the power switch; see [Wiring](#wiring) |
 | **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
 | `kAccelSampleIntervalMs` | `500` | How often the sensor is sampled while peak tracking is on |
 | **`kDht22Enabled`** | `true` | **Enable/disable the DHT22 ambient sensor** (see [Ambient temperature and humidity](#ambient-temperature-and-humidity)) |
@@ -498,9 +514,23 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSdBootLogPath` | `/sdcard/boot.log` | One line per boot (**plaintext**) |
 | `kSdMaxBootLogLines` | `200` | Cap on the boot log; oldest lines are dropped past this |
 | `kBootLogPrintLines` | `10` | How many previous boots are printed to serial at start-up |
-| `kWakeGpioPin` | `33` | ext0 wake pin — **derived from `kPowerSwitchPin`**, not set independently |
+| `kWakeGpioPin` | `33` | ext0 wake pin — **derived from `kPowerSwitchPin`**, not set independently. Armed only for the switched-off sleep, never for a timed one (see [Wake sources](#wake-sources)) |
 | `kWakeGpioLevel` | `0` | Pin level that wakes the chip — **derived from `kPowerSwitchRunLevel`** |
 | `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
+| **`kDefaultMotionWakeEnabled`** | `false` | **Default** for `motion.enabled` — motion wake is off until switched on from the dashboard (see [Motion wake](#motion-wake)) |
+| `kDefaultMotionThresholdMg` | `63` | **Default** for `motion.threshold_mg` — wake threshold in mg, rounded to the sensor's 62.5 mg steps (`63` = step 1) |
+| `kMinMotionThresholdMg` / `kMaxMotionThresholdMg` | `63` / `2000` | Clamps on `threshold_mg`: one step up to the sensor's ±2 g range |
+| `kDefaultMotionSpeedKmph` | `3` | **Default** for `motion.speed_kmph` — a fix *strictly* faster than this counts as moving |
+| `kMinMotionSpeedKmph` / `kMaxMotionSpeedKmph` | `1` / `50` | Clamps on `speed_kmph` |
+| `kDefaultMotionWakeWaitSeconds` | `240` | **Default** for `motion.wake_wait_s` — how long a wake looks for a moving fix |
+| `kMinMotionWakeWaitSeconds` / `kMaxMotionWakeWaitSeconds` | `30` / `3600` | Clamps on `wake_wait_s` |
+| `kDefaultMotionStopWaitSeconds` | `600` | **Default** for `motion.stop_wait_s` — how long after the last moving fix the device stays in the moving set |
+| `kMinMotionStopWaitSeconds` / `kMaxMotionStopWaitSeconds` | `60` / `7200` | Clamps on `stop_wait_s` |
+| `kDefaultMovingSendIntervalSeconds` / `…SleepBetweenSends` / `…FixTimeoutSeconds` / `…QueueMaxFixes` / `…RetryIntervalHours` / `…RetryMaxAgeHours` / `…ConfigCheckSeconds` | `10` / `false` / `180` / `20000` / `24` / `168` / `3600` | **Defaults** for the seven keys of `motion.moving`. Their clamps are the standby ones above — a setting means the same in either mode |
+| `kMotionCheckPollMs` | `5000` | Gap between GNSS acquires while CHECKING for movement |
+| `kMotionActivityPollMs` | `1000` | How often an **awake** standby device reads the accelerometer's activity latch |
+| `kMotionWakeLowPowerSensor` | `true` | Drop the ADXL345 to its 25 Hz low-power rate (~40 µA instead of ~140 µA) while the ESP32 sleeps |
+| `kMotionWakePin` | `32` | ext1 wake pin — **`kAdxlInt1Pin`**; a `static_assert` keeps it off the power switch's pin |
 
 > All settings are `constexpr`, so when `kGnssDebug` is `false` the debug code
 > is removed by the compiler — zero runtime cost in production. Likewise, when
@@ -509,8 +539,9 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 > is `false` the card is never mounted.
 >
 > The reporting interval and the sleep flag are the exception: they are **not**
-> compile-time constants. The values above are only the defaults a device falls
-> back to — see [Remote settings](#remote-settings-broker--device) below.
+> compile-time constants. Neither are the motion-wake settings. The values above
+> are only the defaults a device falls back to — see
+> [Remote settings](#remote-settings-broker--device) below.
 
 ---
 
@@ -524,6 +555,11 @@ WiFi runs in **station mode** and is fully optional, handled by the standalone
   A failed connection is logged as a warning and tracking continues regardless.
 - **To disable:** set `kWifiEnabled = false`. The WiFi stack is never
   initialised and the connect code is compiled out.
+- **Device name on the network:** the tracker announces `kDeviceId` (e.g.
+  `GNSS01`) as its DHCP hostname, so that is what the router's client list
+  shows instead of the ESP-IDF default `espressif`. Change `kDeviceId` to rename
+  it (letters, digits and hyphens, max 32 characters); note that this is also
+  the device's MQTT identity.
 
 Using it directly:
 
@@ -532,7 +568,8 @@ Using it directly:
 #include "wifi/WifiManager.h"
 
 static WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
-                        config::kWifiMaxRetries);
+                        config::kDeviceId, config::kWifiMaxRetries,
+                        config::kWifiReconnectIntervalMs);
 
 wifi.begin();                                  // init NVS + WiFi stack (once)
 if (wifi.connect(config::kWifiConnectTimeoutMs)) {
@@ -958,6 +995,61 @@ one would write fix times in the clear onto a card that today leaks nothing. One
 fix is queued per reporting cycle, so the dashboard converts the count into an
 approximate span ("≈ 13.9 days at a 60 s interval") for the reader.
 
+### The `motion` block
+
+The same document carries an optional **`motion`** object: the switch for
+[Motion wake](#motion-wake), its thresholds, and a **second set of the seven
+reporting values** for while the car is driving. The seven top-level keys above
+are the **standby** set; `motion.moving` is the same seven again.
+
+```json
+{
+  "version": 8,
+  "interval_s": 900,
+  "sleep_between": true,
+  "motion": {
+    "enabled": true,
+    "threshold_mg": 63,
+    "speed_kmph": 3,
+    "wake_wait_s": 240,
+    "stop_wait_s": 600,
+    "moving": {
+      "interval_s": 10,
+      "sleep_between": false,
+      "fix_timeout_s": 180,
+      "queue_max_fixes": 20000,
+      "retry_interval_h": 24,
+      "retry_max_age_h": 168,
+      "config_check_s": 3600
+    }
+  }
+}
+```
+
+| Field | Type | Meaning | Clamped to |
+|-------|------|---------|------------|
+| `motion.enabled` | boolean | Motion wake on. **Off is the default**, and with it off the standby set is the only set and every fix is published — the device behaves exactly as it did before this block existed. | — |
+| `motion.threshold_mg` | number | Accelerometer wake threshold in milli-g. The sensor compares in **62.5 mg steps** (`THRESH_ACT`), so the firmware rounds to the nearest step: `63` is step 1, `125` step 2, `250` step 4. | `[kMinMotionThresholdMg, kMaxMotionThresholdMg]` (63–2000) |
+| `motion.speed_kmph` | number | A fix **strictly faster** than this counts as moving. | `[kMinMotionSpeedKmph, kMaxMotionSpeedKmph]` (1–50) |
+| `motion.wake_wait_s` | number | After a wake, how long to look for a moving fix before going back to standby. | `[kMinMotionWakeWaitSeconds, kMaxMotionWakeWaitSeconds]` (30–3600) |
+| `motion.stop_wait_s` | number | How long after the last moving fix the device stays in the moving set. | `[kMinMotionStopWaitSeconds, kMaxMotionStopWaitSeconds]` (60–7200) |
+| `motion.moving.*` | the seven | Same keys, same meaning and **the same bounds** as the top level. | as above |
+
+**It merges like everything else.** A partial `motion`, or a partial
+`motion.moving`, changes only the keys it carries. So an older publisher that has
+never heard of `motion` leaves the block exactly as it was (off, on a fresh
+device), and older firmware ignores the key outright — which is what keeps both
+directions compatible. A `motion` or `moving` that is not an object is logged and
+ignored. The card copy always includes the block, even while the feature is off,
+so thresholds somebody tuned are not forgotten across a reboot with no network.
+
+**Schedule profiles and the override carry it too.** They are decoded by the very
+same `SettingsCodec` (see [Device-side profile scheduling](#device-side-profile-scheduling)),
+so a "Night" profile can switch motion wake off, or give it a longer wake window,
+with no extra machinery. Adopting a change acts on it at once: switching the
+block **on** starts a check for movement, switching it **off** drops straight
+back to plain standby.
+
 ### Normally you do not publish this by hand
 
 The dashboard owns these settings: the API stores every revision, publishes the
@@ -1098,7 +1190,8 @@ silently and confirms it only once it gets a lock.
 ## Device-side profile scheduling
 
 The dashboard lets a device be given named **profiles** — a complete set of the
-seven runtime settings, called "Night", "Weekend", "Commute" — and weekly
+seven runtime settings (and the motion-wake block), called "Night", "Weekend",
+"Commute" — and weekly
 **rules** that decide which one applies when. The device evaluates those rules
 **itself**, against its own clock, from a bundle cached on the SD card.
 
@@ -1121,7 +1214,8 @@ Published **retained**, QoS 1, plaintext, to `devices/<id>/schedule`:
   "profiles": [
     { "slot": 0, "name": "Day", "interval_s": 60, "sleep_between": false,
       "fix_timeout_s": 180, "queue_max_fixes": 20000, "retry_interval_h": 24,
-      "retry_max_age_h": 168, "config_check_s": 3600 }
+      "retry_max_age_h": 168, "config_check_s": 3600,
+      "motion": { "enabled": false, "...": "..." } }
   ],
   "rules": [
     { "slot": 1, "days": 62, "start_m": 1320, "dur_m": 480, "prio": 100, "ord": 3 }
@@ -1145,11 +1239,13 @@ Published **retained**, QoS 1, plaintext, to `devices/<id>/schedule`:
 | `rules[].ord` | Tie-break rank; lower is older, and wins. |
 | `override` | Values that beat the schedule until `until`. Absent when there is none. |
 
-The seven value keys inside a profile are **deliberately identical** to the
+The value keys inside a profile — the seven, and the
+[`motion` block](#the-motion-block) — are **deliberately identical** to the
 configuration document's, so [`ScheduleCodec`](src/settings/ScheduleCodec.h) hands
 each profile object straight to `SettingsCodec::decodeObject`. One decoder, one
 set of bounds, and no second place for a profile and a config document to disagree
-about what `interval_s` means.
+about what `interval_s` means. The override takes the same keys, so it can carry
+a `motion` block as well.
 
 Two encoding choices exist to keep the device's parser free of branches it could
 get wrong: `fallback` uses `-1` rather than a JSON null, and `override` is
@@ -1336,9 +1432,15 @@ every cycle. The order matters, and it owns it:
    follows `kModemPwrKeyActiveLow`). During deep sleep the digital IO matrix is
    powered down and pins float; a floating PWRKEY reads as a pulse and would
    switch the modem straight back on — undoing everything step 3 just achieved.
+6. **Accelerometer** — only with [motion wake](#motion-wake) on and the car
+   parked: arm the ADXL345's activity interrupt and the ext1 wake on its INT1
+   pin, **last of all**. Its activity detection is AC-coupled against a reference
+   taken at the moment it is armed, so that moment should be the quietest one —
+   modem off, card unmounted, nothing drawing current.
 
 `releasePinHolds()` undoes step 5 at the top of `app_main()`, before any driver
-touches those pins again.
+touches those pins again. It also hands the ext0 and ext1 pads back from the RTC
+mux, so nothing reads the switch through a latched pull.
 
 ### It reboots, it does not resume
 
@@ -1355,27 +1457,291 @@ something the firmware can work around.
 
 ### Wake sources
 
-The **RTC timer** is always armed, for `interval_s` minus the time already spent
-since the position was captured — so the cadence stays steady no matter how long
-publishing took, rather than drifting later every cycle. If no fix was obtained
-this cycle, a fresh full interval is started instead (otherwise a device that
-just spent `kFixAcquireTimeoutSeconds` finding no satellites would be "late" the
-moment it gave up, and would reboot-retry in a tight, battery-eating loop).
+The **RTC timer** is always armed for a timed sleep, for `interval_s` (of the set
+in force) minus the time already spent since the position was captured — so the
+cadence stays steady no matter how long publishing took, rather than drifting
+later every cycle. If no fix was obtained this cycle, a fresh full interval is
+started instead (otherwise a device that just spent `kFixAcquireTimeoutSeconds`
+finding no satellites would be "late" the moment it gave up, and would
+reboot-retry in a tight, battery-eating loop).
 
-An **external GPIO** (ext0) can wake the device early — an ignition sense or a
-motion line, say. It is off by default:
+Two **external GPIOs** can wake the device as well, and which of them is armed
+depends on **why** it is going to sleep:
 
-```cpp
-constexpr int kWakeGpioPin   = 33;  // -1 disables it; 32/33 are free & RTC-capable
-constexpr int kWakeGpioLevel = 1;   // wake when the pin reads HIGH
+| Sleep | Timer | ext0 — power switch (`33`) | ext1 — accelerometer INT1 (`32`) |
+|---|---|---|---|
+| Between reports (`sleep_between`), motion wake off | yes | **no** | no |
+| Between reports, motion wake on, **STANDBY** | yes | **no** | yes — any-high |
+| Between reports, motion wake on, **MOVING** | yes | **no** | no — a moving car would trip it at once ([why](#moving-and-sleeping-between-reports)) |
+| Switched off (power switch open) | **no** | yes | no — off means off |
+
+**ext0 is the power switch's.** `kWakeGpioPin` and `kWakeGpioLevel` are derived
+from `kPowerSwitchPin` and `kPowerSwitchRunLevel` rather than set independently:
+ext0 is one piece of hardware and cannot serve two signals. The matching internal
+pull (down for level `1`, up for level `0`) is held through the sleep so a
+floating input cannot wake the device at random.
+
+**Timed sleeps never arm ext0.** They used to, at the switch's *run* level, and
+that is a trap: a timed sleep happens with the switch **on**, so the pin is
+already sitting at the run level — and ext0 is *level*-triggered. The chip woke
+the instant it went down, which turned every `sleep_between` cycle into an
+immediate reboot. A timed sleep now arms the timer (plus ext1 in STANDBY) and
+nothing else. A switch thrown off during one is not missed: checkpoint 0 catches
+it on the next wake (see [Power switch](#power-switch)).
+
+**ext1 is the accelerometer's.** With [motion wake](#motion-wake) on and the car
+parked, `sleepFor()` is handed a wake threshold and arms the ADXL345's activity
+interrupt, then ext1 on its INT1 pin (`kMotionWakePin`, GPIO 32) in
+`ESP_EXT1_WAKEUP_ANY_HIGH` mode — INT1 idles LOW and is active high. An RTC
+pulldown is requested on the pin for the day the sensor is not there; a floating
+ext1 pin would otherwise wake the device at random. If the sensor cannot be
+armed the device still sleeps on the timer, which is always armed, so it can
+never end up with no way back. Pins 34–39 are input-only with no internal pulls,
+so a wake line there would need an external resistor.
+
+`DeepSleepController::wakeCauseName()` reports which source fired (`timer`,
+`ext0 GPIO`, `ext1 GPIO`), so the serial log — and the [boot log](#boot-log) —
+tell you whether a wake was scheduled, the switch, or motion.
+
+---
+
+## Motion wake
+
+A tracker that reports every few minutes while the car is parked wastes battery;
+one that reports every few minutes while the car is *driving* loses the track.
+Motion wake gives the device **two sets of the seven reporting settings** and lets
+the car choose between them — slow, and asleep, while parked; fast while driving.
+The ADXL345's **activity interrupt** is what wakes it when the car pulls away.
+
+The threshold and the timings come from recorded fixes of the owner's own car and
+are derived in [`docs/MOTION-WAKE-THRESHOLDS.md`](../docs/MOTION-WAKE-THRESHOLDS.md),
+under one rule: **a missed trip is worse than a false wake**. Every default sits on
+the sensitive side of that analysis.
+
+It is **off by default** (`motion.enabled`, defaulting to
+`kDefaultMotionWakeEnabled`), because it changes how the device sleeps and should
+be switched on deliberately. With it off nothing below applies: the standby set is
+the only set, every fix is published and the accelerometer is never armed. It
+needs `kAdxlEnabled`; with no working sensor the timer still wakes the device, so
+motion mode degrades to "look for movement every interval" rather than failing.
+
+### Two sets of settings
+
+| Set | Where it comes from | In force |
+|---|---|---|
+| **Standby** | the config document's top-level keys — `interval_s`, `sleep_between`, … | while the car is parked |
+| **Moving** | `motion.moving` — the same seven keys, see [The `motion` block](#the-motion-block) | while checking for movement, and while driving |
+
+One class, [`ModeSettings`](src/settings/ModeSettings.h), serves both, with the
+same bounds: that is what stops a setting from quietly meaning one thing parked
+and another moving. [`MotionTracker`](src/motion/MotionTracker.h) is the only
+thing that decides which set is in force; everything else asks it. A sensible
+pairing is a long standby interval with `sleep_between` on, and a short moving
+interval with it off — the defaults for the moving set are 10 s, awake.
+
+### The state machine
+
+```
+                  [1] any wake                 [3] a fast fix
+  ┌─────────────┐ ───────────▶ ┌─────────────┐ ───────────▶ ┌─────────────┐
+  │   STANDBY   │              │  CHECKING   │              │   MOVING    │◀─┐
+  │ standby set │ ◀─────────── │ moving set  │              │ moving set  │──┘ [5]
+  └─────▲───────┘ [2] expires  └─────────────┘              └──────┬──────┘
+        │         (wake_wait_s)                                    │
+        └──────────────────────────────────────────────────────────┘
+                 [4] stop_wait_s passes with no fast fix
 ```
 
-Set the pin and it arms itself; the matching internal pull (down for level `1`,
-up for level `0`) is held through the sleep so a floating input cannot wake the
-device at random. Pins 2, 4, 13, 14, 15, 26 and 27 are already taken by the modem
-and the card, and 34–39 are input-only with no internal pulls (they need an
-external resistor). `DeepSleepController::wakeCauseName()` reports which source
-fired, so the serial log tells you whether a wake was scheduled or external.
+| | Transition |
+|---|---|
+| **[1]** | **Any wake from standby**: the accelerometer, the RTC timer, a power-on or reset, the power switch coming back on — or, for a device that stayed awake, its activity latch reading as set. Switching motion wake on in the settings does the same. Every one starts a *check*; none is trusted on its own to mean "moving". |
+| **[2]** | The wake window (`wake_wait_s`) closes without a fast fix. A false wake — a door, someone leaning on the car — costs one window and no more. |
+| **[3]** | A fix whose speed is **strictly greater** than `speed_kmph`. (A standby report that happens to see one goes straight to MOVING as well — the safety net for a trip the accelerometer missed. Not drawn.) |
+| **[4]** | `stop_wait_s` passes since the last fast fix. |
+| **[5]** | Every further fast fix pushes that deadline out to now + `stop_wait_s`. A fix with **no position** (tunnel, garage) renews nothing, so a device that loses the sky eventually settles — and the accelerometer wakes it again if the car is in fact still moving. |
+
+- **STANDBY** runs the standby set. Asleep (standby `sleep_between` on) it has two
+  wake sources: the RTC timer at the standby interval, and the accelerometer.
+  Awake, it polls the accelerometer — see below.
+- **CHECKING** runs the moving set but **never deep-sleeps**: the point of a check
+  is to watch the receiver, and sleeping would throw away the lock it has just
+  acquired. It acquires, waits `kMotionCheckPollMs` (5 s) and acquires again, for
+  up to `wake_wait_s` counted from the wake itself, so boot, modem start-up and a
+  cold GNSS start are all inside the window. The fix timeout is capped to what is
+  left of it (never below one `kFixPollStepMs`): a lock arriving after the window
+  has closed could not change the decision, it would only keep the device awake.
+- **MOVING** runs the moving set and publishes every fix. If `moving.sleep_between`
+  is on it deep-sleeps between reports — on the timer only; see
+  [Moving and sleeping between reports](#moving-and-sleeping-between-reports).
+
+### What gets published
+
+| State | Published |
+|---|---|
+| STANDBY | every fix with a position, exactly as before motion wake existed |
+| CHECKING | **only the first fix of the check** — it says where the car is and carries the battery reading. The rest only watch the speed. |
+| MOVING | every fix with a position, slow ones at a traffic light included |
+
+Two refinements. A fix faster than `speed_kmph` is **always** published, even if
+the check's first fix has already gone out — it is the first report of the trip.
+And a fix held back during a check is not a report, so it does not anchor the
+reporting interval either (the log says `Fix while checking for movement: … km/h
+- not published.`). A cycle that finds no position publishes nothing in any
+state, as always.
+
+The reason is one report per *wake*, not one per poll: a parked car checked every
+few seconds for four minutes would otherwise queue dozens of near-identical
+reports for a wake that found nothing.
+
+### Awake in STANDBY: polling
+
+With standby `sleep_between` off the device never sleeps, so INT1 wakes nothing —
+no one is listening on the pin while the chip is up. Instead the interval wait
+**reads the accelerometer's activity latch** (`INT_SOURCE`) every
+`kMotionActivityPollMs` (1 s) over I2C. That is one register read a second, riding
+the loop that already wakes this often for the power switch.
+
+The interrupt is armed once, at rest, at the normal 100 Hz rate, and re-armed only
+when the threshold changes or a trip has intervened: it is disarmed the moment the
+device leaves STANDBY, so the next standby takes a fresh at-rest reference rather
+than one from before the car moved. Activity cuts the wait short and the device
+goes straight to an acquire — which is where the check begins. Note that this
+mode saves nothing on the battery; it only reacts faster than the interval would.
+The accelerometer pays for itself when standby `sleep_between` is on.
+
+### Asleep in STANDBY
+
+`DeepSleepController::sleepFor()` is handed the wake threshold and, after the modem
+is off and the card unmounted, arms the accelerometer **as the very last step**. The
+activity detection is **AC-coupled** on X, Y and Z: it compares against a reference
+sample taken at the moment it is armed, so gravity and any parking slope cancel
+out on whichever axis points down, and the sensor can be mounted any way up. That
+reference should be a quiet sample, hence the order.
+
+- The threshold is set in **mg** and rounded to the nearest of the sensor's
+  62.5 mg steps (`THRESH_ACT`), clamped to 1–255 — `0` is the value the datasheet
+  warns misbehaves. The default `63` is step 1, the most sensitive setting the
+  data supports.
+- The hardware compares per axis, not the vector magnitude, so a diagonal mounting
+  sees a little less of a given push: at step 1 the effective threshold is
+  0.0625–0.108 g depending on the mount. The analysis covers this.
+- While the ESP32 sleeps the sensor drops to its 25 Hz low-power rate
+  (`kMotionWakeLowPowerSensor`): about 40 µA instead of 140 µA, and 25 Hz still
+  sees a car start.
+- On the next boot `Adxl345::begin()` clears the latched interrupt — INT1 stays
+  high until `INT_SOURCE` is read — and puts the sensor back to 100 Hz.
+- If the sensor cannot be armed the device sleeps on the timer alone and says so.
+
+### Moving and sleeping between reports
+
+With `moving.sleep_between` on, MOVING deep-sleeps between reports on the **timer
+only**. The accelerometer is *not* armed: a moving car would trip it the moment it
+was armed, turning every sleep into an instant reboot.
+
+The stop window has to survive that reboot, and neither obvious clock can carry
+it. `esp_timer` restarts at zero on wake, and the wall clock *jumps* when
+`DeviceClock` is first seeded from GNSS. So what crosses the sleep is not a
+timestamp but a **remainder**: the time left on the window **with the sleep about
+to be slept already subtracted**, written to RTC memory by
+`MotionTracker::prepareForSleep()` right before the sleep (with the state and a
+magic word, so a power-on's garbage is not mistaken for a record). The next boot
+adds it to its own `esp_timer` and has a deadline again.
+
+The remainder may come out negative — the window ended during the sleep. The
+window then closes after that cycle's fix, unless that fix is itself fast, which
+is exactly the check a moving device should make.
+
+**Only a timer wake resumes MOVING.** Any other cause — the power switch, a reset,
+a brown-out, the accelerometer — means something else happened and starts a fresh
+check. The record is consumed on every boot, so a stale "moving" can never
+outlive the sleep that wrote it.
+
+### Switching sets without losing data
+
+The set in force flips at every trip, and two storage settings must **not** simply
+follow it: lowering either throws data away the moment it is applied. `FixQueue`
+trims at once to a smaller cap, and `RetryQueue` abandons anything older than a
+shorter give-up age. A car that parks twice a day would delete undelivered fixes
+twice a day. So while motion wake is on,
+[`SettingsApplier`](src/settings/SettingsApplier.h) applies:
+
+| Setting | In force |
+|---|---|
+| `queue_max_fixes` | the **larger** of the standby and moving values |
+| `retry_max_age_h` | the **more lenient** of the two — `0` ("never give up") beats any number |
+| `retry_interval_h` | the value of the set in force: it only paces attempts, and a longer or shorter one loses nothing |
+
+With motion wake off the standby values apply on their own, as before.
+
+### What it costs
+
+**Timer wakes get the full window**, exactly like accelerometer wakes. That is
+deliberate — the timer is the safety net for a trip the interrupt somehow missed —
+but it is the main thing to budget for. A parked car woken by the timer finds no
+movement and stays awake, modem and GNSS on, for the whole `wake_wait_s` instead
+of the few seconds a plain report takes. At the default 240 s window and a
+15-minute standby interval that is **up to 27 % of the time awake**. False
+accelerometer wakes add to it: the analysis found about three a day at 63 mg, each
+costing up to a window — roughly 12 minutes a day.
+
+The standby interval is measured from when a check **began** (the wake), not from
+when it ended, so the standby cadence stays steady however long each check took.
+If the standby `interval_s` is no longer than `wake_wait_s`, the next report is
+already due when the window closes and the device **practically never sleeps**;
+the dashboard warns about that combination.
+
+The levers, in the order they are worth reaching for: a **longer standby
+interval**; a **higher `threshold_mg`** (125 mg catches the same trips after two
+minutes as 63 mg, with fewer false wakes — 2.2 a day against 3.1 in the analysis);
+a **shorter `wake_wait_s`**, at the price of missing a driver who sits in the car
+for minutes before pulling away, which costs one extra wake cycle but never a trip.
+
+### The power switch still wins
+
+Nothing about the switch changes, and it has priority in every state: its
+checkpoints run during CHECKING and MOVING like anywhere else. Switching off
+sleeps with **ext0 alone** — the accelerometer is never armed for it, because off
+means off. Switching back on is an ext0 wake, and like any wake from standby it
+starts a check.
+
+### How to verify on hardware
+
+The motion log lines carry the tag `Motion`. On a bench, `wake_wait_s = 30` and
+`stop_wait_s = 60` (their minimums) make a full cycle quick to watch.
+
+1. **Switch it on** — from the dashboard, or by publishing
+   `{"motion":{"enabled":true}}` retained (it merges). A device that is awake
+   logs `CHECKING for movement for up to 240s (motion wake switched on).`; one
+   that boots with it already on gives the reason for its wake instead
+   (`power-on / reset`, `timer wake`, …), and its `GNSS ready` summary line ends
+   in `motion wake: CHECKING`.
+2. **Sleep with the accelerometer armed.** Turn standby `sleep_between` on, with an
+   interval longer than the window. Expect `Sleeping for 540s or until motion;
+   modem and card going down first.`, then
+   `activity interrupt armed on INT1: step 1 (62 mg), 25 Hz low power` from
+   `Adxl345`, then `Motion wake armed on GPIO 32 (ext1, any high).` from
+   `DeepSleep`. INT1 idles LOW on a meter.
+3. **Wake it with a tap on the car.** The boot log shows `wake=ext1 GPIO`, and the
+   log says `CHECKING for movement for up to 240s (accelerometer wake).` One report
+   goes out; later fixes log `not published`; when the window closes:
+   `no fix faster than the speed limit within the wake window - CHECKING ->
+   STANDBY.` — and the device sleeps again.
+4. **Wake it with the timer** by leaving it alone for one standby interval:
+   `wake=timer`, then `CHECKING … (timer wake)` and the same full window.
+5. **Move it faster than `speed_kmph`** (a short drive): `CHECKING -> MOVING
+   (12.4 km/h).`, then a report every moving interval.
+6. **Stop.** After `stop_wait_s` with no fast fix:
+   `stationary for the whole stop window - MOVING -> STANDBY.`
+7. **With `moving.sleep_between` on**, each timer wake on a trip logs
+   `MOVING resumed after a timed sleep (NNNs of the stop window left).`, and the
+   sleep before it has no `or until motion` and no `Motion wake armed` line.
+8. **The timed-sleep fix**: after any timed sleep the boot log reads
+   `reset=DEEPSLEEP wake=timer` with a normal `prev_up=`. A run of
+   `wake=ext0 GPIO` with a tiny `prev_up=` while the switch is on would mean ext0
+   had been armed for a timed sleep again — see [Wake sources](#wake-sources).
+
+A string of `wake=ext1 GPIO` boots while the car is parked is the threshold being
+too low for where it is parked: raise `threshold_mg` (see the levers above).
 
 ---
 
@@ -1486,7 +1852,7 @@ unexplained restart shows immediately what has been happening:
 |-------|---------|
 | `#NNNN` | Boot counter. Restarts at `#0001` whenever RTC memory is cleared. |
 | `reset=` | `esp_reset_reason()` — `POWERON`, `BROWNOUT`, `PANIC`, `INT_WDT`, `TASK_WDT`, `DEEPSLEEP`, `SW`, `EXT`. |
-| `wake=` | The deep-sleep wake cause, as before (`timer`, `ext0 GPIO`, `power-on / reset`). |
+| `wake=` | The deep-sleep wake cause, as before (`timer`, `ext0 GPIO` — the power switch, `ext1 GPIO` — a [motion wake](#motion-wake), `power-on / reset`). |
 | `prev_up=` | How far the **previous** run got, in seconds. `?` when RTC memory did not survive it. |
 | `heap=` | Free heap at boot. A number that falls across boots is a leak. |
 | `bat=` | Pack millivolts at the previous run's last report. `?` when unknown. |
@@ -1498,6 +1864,7 @@ The `reset=` column is the one that matters, and `(RTC CLEARED)` is the tell:
 | Line looks like | What happened |
 |---|---|
 | `reset=DEEPSLEEP wake=timer` | Normal `sleep_between` cycling. Nothing to see. |
+| `reset=DEEPSLEEP wake=ext1 GPIO` | The accelerometer woke it: motion wake. A string of these while the car is parked means the threshold is too low for where it stands. |
 | `reset=PANIC` / `TASK_WDT` repeating | A firmware crash loop. The panic backtrace precedes it on the console. |
 | `reset=BROWNOUT` | The supply sagged past the detector. On battery this is the cell failing to deliver a current peak — see the pack note under [Troubleshooting](#troubleshooting-modem-did-not-respond-after-power-on). |
 | `reset=POWERON` **+ `(RTC CLEARED)`** | The rail actually went away: a flat pack, a tripped protection FET, a pulled connector. **Not a crash.** |
@@ -1919,7 +2286,10 @@ timed sleep uses (see [Deep sleep between reports](#deep-sleep-between-reports))
 MQTT disconnects cleanly, the radio stops, the modem goes down via `AT+CPOWD=1`
 (taking the GNSS engine and the active antenna's amplifier with it), the card
 unmounts, the LEDs go dark, and the ESP32 deep-sleeps with **ext0 as the only
-wake source** — no timer, so it stays down until the switch says otherwise.
+wake source** — no timer, so it stays down until the switch says otherwise, and
+no accelerometer either: with [motion wake](#motion-wake) on, off still means
+off. ext0 is armed for *this* sleep only; a timed `sleep_between` sleep never
+arms it (see [Wake sources](#wake-sources)).
 
 The pack's protection board and the charger are deliberately untouched: **charging
 still works with the switch off.**
@@ -1944,6 +2314,11 @@ PWRKEY pulse would switch an *already-off* modem back **on**, which is the exact
 opposite of the intent. So it probes with `isResponsive()` first and only powers
 down a modem that answers.
 
+Checkpoint 0 is also what catches a switch thrown off during a *timed* sleep.
+Those sleeps arm the timer (and, with motion wake, the accelerometer) but never
+ext0, so the chip is not woken by the switch: it comes back at the next wake,
+finds the switch open and goes straight down again.
+
 Checkpoint 2 is why
 [`GnssModule::waitForFix()`](src/gnss/GnssModule.h)'s per-poll hook returns a
 `bool`: returning `false` abandons the acquisition immediately, exactly as a
@@ -1955,8 +2330,9 @@ Two guards, because "asleep with no way back" needs a pack pull to undo:
 
 - **`static_assert`s in `Config.h`** tie `kWakeGpioPin`/`kWakeGpioLevel` to the
   switch's own pin and level (ext0 is one piece of hardware and cannot serve two
-  signals), and forbid the switch from sharing either ADXL345 INT pin — the
-  sensor drives those push-pull, so a switch there would read the accelerometer.
+  signals — the accelerometer's [motion wake](#motion-wake) uses ext1 instead),
+  and forbid the switch from sharing either ADXL345 INT pin — the sensor drives
+  those push-pull, so a switch there would read the accelerometer.
 - **A fallback timer at runtime.** If ext0 cannot be armed for any reason,
   [`DeepSleepController`](src/power/DeepSleepController.h) arms a 60 s timer
   instead and says so loudly in the log, rather than sleeping with nothing.

@@ -125,6 +125,18 @@ internal sealed class DeviceConfigRevisionWriter : IDeviceConfigRevisionWriter
                         RetryIntervalHours = values.RetryIntervalHours,
                         RetryMaxAgeHours = values.RetryMaxAgeHours,
                         ConfigCheckSeconds = values.ConfigCheckSeconds,
+                        MotionEnabled = values.MotionEnabled,
+                        MotionThresholdMg = values.MotionThresholdMg,
+                        MotionSpeedKmph = values.MotionSpeedKmph,
+                        MotionWakeWaitSeconds = values.MotionWakeWaitSeconds,
+                        MotionStopWaitSeconds = values.MotionStopWaitSeconds,
+                        MovingIntervalSeconds = values.MovingIntervalSeconds,
+                        MovingSleepBetween = values.MovingSleepBetween,
+                        MovingFixTimeoutSeconds = values.MovingFixTimeoutSeconds,
+                        MovingQueueMaxFixes = values.MovingQueueMaxFixes,
+                        MovingRetryIntervalHours = values.MovingRetryIntervalHours,
+                        MovingRetryMaxAgeHours = values.MovingRetryMaxAgeHours,
+                        MovingConfigCheckSeconds = values.MovingConfigCheckSeconds,
                         CreatedByUserId = authorUserId,
                         CreatedAt = DateTime.UtcNow,
                         Source = source,
@@ -183,7 +195,8 @@ internal sealed class DeviceConfigRevisionWriter : IDeviceConfigRevisionWriter
             values.QueueMaxFixes,
             values.RetryIntervalHours,
             values.RetryMaxAgeHours,
-            values.ConfigCheckSeconds);
+            values.ConfigCheckSeconds,
+            DeviceMotionDocumentFactory.Create(values));
     }
 
     /// <summary>Whether a stored revision already carries exactly these values.</summary>
@@ -198,6 +211,21 @@ internal sealed class DeviceConfigRevisionWriter : IDeviceConfigRevisionWriter
             && stored.QueueMaxFixes == values.QueueMaxFixes
             && stored.RetryIntervalHours == values.RetryIntervalHours
             && stored.RetryMaxAgeHours == values.RetryMaxAgeHours
-            && stored.ConfigCheckSeconds == values.ConfigCheckSeconds;
+            && stored.ConfigCheckSeconds == values.ConfigCheckSeconds
+            // Every motion value is compared too. Leaving one out would make a save that
+            // changes only it look like "unchanged": no revision, no publish, and a
+            // dashboard that says saved while the device keeps the old threshold.
+            && stored.MotionEnabled == values.MotionEnabled
+            && stored.MotionThresholdMg == values.MotionThresholdMg
+            && stored.MotionSpeedKmph == values.MotionSpeedKmph
+            && stored.MotionWakeWaitSeconds == values.MotionWakeWaitSeconds
+            && stored.MotionStopWaitSeconds == values.MotionStopWaitSeconds
+            && stored.MovingIntervalSeconds == values.MovingIntervalSeconds
+            && stored.MovingSleepBetween == values.MovingSleepBetween
+            && stored.MovingFixTimeoutSeconds == values.MovingFixTimeoutSeconds
+            && stored.MovingQueueMaxFixes == values.MovingQueueMaxFixes
+            && stored.MovingRetryIntervalHours == values.MovingRetryIntervalHours
+            && stored.MovingRetryMaxAgeHours == values.MovingRetryMaxAgeHours
+            && stored.MovingConfigCheckSeconds == values.MovingConfigCheckSeconds;
     }
 }

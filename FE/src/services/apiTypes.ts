@@ -213,7 +213,7 @@ export type DeviceCreatedDto = {
 // ---------------------------------------------------------------------------
 // Remote device settings.
 //
-// These six values are the document the API publishes — retained — to
+// These values are the document the API publishes — retained — to
 // devices/<id>/config, and the firmware caches on its SD card. Every save
 // creates a new immutable *revision*; nothing is ever edited in place. The
 // device echoes the revision number back in each position report, which is how
@@ -248,6 +248,38 @@ export type DeviceConfigValuesDto = {
   // effect at all while sleepBetween is on — a sleeping device re-reads its
   // configuration on every wake anyway.
   configCheckSeconds: number
+
+  // ---- Motion wake --------------------------------------------------------
+  // The seven values above are the STANDBY set, used while the car is parked.
+  // The twelve below add a second, complete MOVING set and the knobs that
+  // switch between the two. They are flat, like everything else here.
+
+  // Wake the sleeping tracker when the accelerometer feels the car move, and
+  // switch between the standby and moving sets. Off, the moving set is unused.
+  motionEnabled: boolean
+  // Accelerometer wake threshold in milli-g. 63 … 2000. The sensor works in
+  // 62.5 mg steps and the firmware rounds to the nearest, so 63 is step 1 —
+  // the most sensitive setting and the recommended default.
+  motionThresholdMg: number
+  // A GNSS fix counts as "moving" when its speed is strictly above this, in
+  // km/h. 1 … 50.
+  motionSpeedKmph: number
+  // After any wake from standby, how long to look for a moving fix before
+  // going back to sleep. 30 … 3600 seconds.
+  motionWakeWaitSeconds: number
+  // How long after the last moving fix the device stays in moving mode before
+  // falling back to standby. 60 … 7200 seconds.
+  motionStopWaitSeconds: number
+  // The moving set. Each mirrors the standby setting of the same name, with the
+  // same bounds; only the defaults differ (it reports every 10 s by default).
+  movingIntervalSeconds: number
+  movingSleepBetween: boolean
+  movingFixTimeoutSeconds: number
+  movingQueueMaxFixes: number
+  movingRetryIntervalHours: number
+  // 0 means "never give up", as for retryMaxAgeHours.
+  movingRetryMaxAgeHours: number
+  movingConfigCheckSeconds: number
 }
 
 // One revision, as returned by the state and history endpoints.
@@ -406,7 +438,7 @@ export type UpdateDeviceScheduleRequestDto = {
   fallbackProfileId: string | null
 }
 
-// POST/PUT .../schedule/profiles — name plus the seven values, flattened the way
+// POST/PUT .../schedule/profiles — name plus the settings values, flattened the way
 // the API's request record spells them.
 export type SaveConfigProfileRequestDto = DeviceConfigValuesDto & {
   name: string

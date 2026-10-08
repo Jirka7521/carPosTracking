@@ -247,10 +247,30 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
 
 ## Implementation notes
 
-- The wake path already exists in hardware and config: ADXL345 INT1 is on **GPIO32**
-  (RTC-capable, free) and `kWakeGpioPin` / `kWakeGpioLevel` in `Config.h` arm an ext0
-  wake. Interrupt pins are active high by default (`DATA_FORMAT` bit 5 clear), which
-  matches `kWakeGpioLevel = 1`.
+- **Implemented** in the firmware as `MotionTracker` (`ESP32/src/motion/`); how it works
+  and how to verify it on hardware is in the
+  [firmware README](../ESP32/README.md#motion-wake). The notes below are the design
+  input; where the analysis left a choice open, or the owner chose differently, the
+  choice is listed here:
+  - Moving means a GNSS speed strictly above **3 km/h**, configurable (`speed_kmph`,
+    1–50). The analysis used 5 km/h and noted that 3 km/h changes nothing material.
+  - A **timer wake gets the full wake window** (`wake_wait_s`, default 240 s), exactly like
+    an accelerometer wake, as the state machine sketch below describes. The cost is
+    covered in the README's "What it costs".
+  - **Only the first fix of a wake is published**; the rest of the window only watches the
+    speed. A fix faster than the speed limit is always published, as the first report of
+    the trip.
+  - The fast mode is a **full moving copy of all seven reporting settings**
+    (`motion.moving`), not just an interval. The defaults are a 10 s interval, awake
+    (the top of the 5–10 s range above), and the 600 s stop timeout.
+  - The threshold is set in **mg** and rounded to the nearest 62.5 mg step; the default
+    63 mg is register 1.
+- The wake path: ADXL345 INT1 is on **GPIO32** (RTC-capable). ext0 is no longer free for
+  it: `kWakeGpioPin` / `kWakeGpioLevel` are derived from the power switch, and ext0 is one
+  piece of hardware that cannot serve two signals. The motion wake therefore uses **ext1**
+  on GPIO32 (`kMotionWakePin`) in `ESP_EXT1_WAKEUP_ANY_HIGH` mode, with an RTC pulldown
+  on the pin in case the sensor is absent. Interrupt pins are active high by default
+  (`DATA_FORMAT` bit 5 clear), which is what ANY_HIGH needs.
 - ADXL345 setup for the wake source (register addresses from the datasheet, Rev. G):
   - `THRESH_ACT` (0x24) = 1 (fallback 2 if false wakes annoy).
   - `ACT_INACT_CTL` (0x27) = 0xF0 — AC-coupled activity on X, Y, Z. The AC reference is
@@ -263,7 +283,7 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
 - Do not use `TIME_INACT`/`THRESH_INACT` for the stop timeout: it maxes at 255 s and the
   frozen AC reference is unreliable during steady cruising. Keep the 600 s timer in
   firmware, driven by GNSS speed.
-- State machine sketch: **sleep** (RTC timer at the slow send interval + INT1 ext0)
+- State machine sketch: **sleep** (RTC timer at the slow send interval + INT1 ext1)
   → wake by either source → **acquiring**: if no speed > 5 km/h within 240 s → re-arm,
   sleep; else → **fast**: report every 5–10 s; when speed ≤ 5 km/h for 600 s → re-arm
   with the car at rest, sleep. Both wake sources lead to the same acquiring state, so

@@ -196,6 +196,21 @@ internal sealed class DeviceService : IDeviceService
                     RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
                     RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
                     ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
+                    // Motion wake starts off, with the firmware's own defaults behind
+                    // it, so switching it on later is one toggle rather than twelve
+                    // numbers a person has to guess.
+                    MotionEnabled = DeviceConfigRules.DefaultMotionEnabled,
+                    MotionThresholdMg = DeviceConfigRules.DefaultMotionThresholdMg,
+                    MotionSpeedKmph = DeviceConfigRules.DefaultMotionSpeedKmph,
+                    MotionWakeWaitSeconds = DeviceConfigRules.DefaultMotionWakeWaitSeconds,
+                    MotionStopWaitSeconds = DeviceConfigRules.DefaultMotionStopWaitSeconds,
+                    MovingIntervalSeconds = DeviceConfigRules.DefaultMovingIntervalSeconds,
+                    MovingSleepBetween = DeviceConfigRules.DefaultMovingSleepBetween,
+                    MovingFixTimeoutSeconds = DeviceConfigRules.DefaultMovingFixTimeoutSeconds,
+                    MovingQueueMaxFixes = DeviceConfigRules.DefaultMovingQueueMaxFixes,
+                    MovingRetryIntervalHours = DeviceConfigRules.DefaultMovingRetryIntervalHours,
+                    MovingRetryMaxAgeHours = DeviceConfigRules.DefaultMovingRetryMaxAgeHours,
+                    MovingConfigCheckSeconds = DeviceConfigRules.DefaultMovingConfigCheckSeconds,
                     CreatedByUserId = null,
                     CreatedAt = DateTime.UtcNow,
                 });

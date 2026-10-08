@@ -893,9 +893,87 @@ a dashboard can be told to fix their input, while the device *clamps*, because a
 tracker in a field has nobody to ask. Change one side and you must change the other.
 
 > **These ranges are also database check constraints.** They are interpolated into
-> `ck_device_config_versions_*` by
+> `ck_device_config_versions_*` (and `ck_device_config_profiles_*`) by
 > [`DeviceConfigVersionConfiguration`](Data/Configurations/DeviceConfigVersionConfiguration.cs),
 > so changing a bound needs a migration as well as the constant.
+
+### Motion wake
+
+The seven values above are the **standby** set — what a parked tracker runs. With
+motion wake on, the device keeps a second, **moving** set and runs that while the
+vehicle is driving: an accelerometer interrupt wakes it, it looks for a fix faster
+than `motionSpeedKmph`, and from then on it reports on the moving set until
+`motionStopWaitSeconds` have passed since the last moving fix. Twelve more values
+carry this, appended to every settings request and response:
+
+| Field | Meaning | Range | Default |
+|---|---|---|---|
+| `motionEnabled` | motion wake on; off, every other value below is stored but inert | — | false |
+| `motionThresholdMg` | accelerometer wake threshold, milli-g | 63 – 2000 | 63 |
+| `motionSpeedKmph` | a fix counts as moving when its speed is **strictly above** this | 1 – 50 | 3 |
+| `motionWakeWaitSeconds` | how long a wake may look for a moving fix before going back to sleep | 30 – 3600 | 240 |
+| `motionStopWaitSeconds` | how long after the last moving fix the device stays in moving mode | 60 – 7200 | 600 |
+| `movingIntervalSeconds` | `intervalSeconds` while moving | 5 – 86400 | 10 |
+| `movingSleepBetween` | `sleepBetween` while moving | — | false |
+| `movingFixTimeoutSeconds` | `fixTimeoutSeconds` while moving | 15 – 3600 | 180 |
+| `movingQueueMaxFixes` | `queueMaxFixes` while moving | 100 – 100000 | 20000 |
+| `movingRetryIntervalHours` | `retryIntervalHours` while moving | 1 – 720 | 24 |
+| `movingRetryMaxAgeHours` | `retryMaxAgeHours` while moving; `0` = never | 0 – 8760 | 168 |
+| `movingConfigCheckSeconds` | `configCheckSeconds` while moving | 60 – 86400 | 3600 |
+
+The moving set has **no bounds of its own**: a setting means the same thing in either
+mode, so each `moving*` value is held to its standby counterpart's range (the table
+repeats them for convenience; the constants are the standby ones in
+[`DeviceConfigRules`](Dtos/DeviceConfigRules.cs)). The defaults are the firmware's, and
+motion wake is **off** by default because it changes how the device sleeps.
+
+Two things the dashboard should say rather than leave a user to discover:
+
+- **The threshold is quantised.** The ADXL345 compares in steps of 62.5 mg and the
+  firmware rounds `motionThresholdMg` to the nearest, so 63 mg is step 1 — the most
+  sensitive setting there is, and therefore the floor.
+- **A mode switch never loses data, by two firmware rules.** The queue cap in force
+  is the **larger** of `queueMaxFixes` and `movingQueueMaxFixes`, and the rejected-fix
+  give-up age is the **more lenient** of `retryMaxAgeHours` and
+  `movingRetryMaxAgeHours` (`0` — never — beats any number). So in each of those two
+  pairs the smaller value is simply ignored while the other mode's is larger.
+
+The dashboard's request and response shapes carry these **flat and camelCase**, like
+the seven. **On the device they are nested and snake_case:** the config document gains
+a `motion` object after `config_check_s`, and the same object follows `config_check_s`
+in every schedule-bundle profile and in the override, so a schedule switch changes
+the whole motion configuration along with the standby values:
+
+```json
+{ "version": 12, "interval_s": 60, "sleep_between": false, "fix_timeout_s": 180,
+  "queue_max_fixes": 20000, "retry_interval_h": 24, "retry_max_age_h": 168,
+  "config_check_s": 3600,
+  "motion": { "enabled": false, "threshold_mg": 63, "speed_kmph": 3,
+              "wake_wait_s": 240, "stop_wait_s": 600,
+              "moving": { "interval_s": 10, "sleep_between": false, "fix_timeout_s": 180,
+                          "queue_max_fixes": 20000, "retry_interval_h": 24,
+                          "retry_max_age_h": 168, "config_check_s": 3600 } } }
+```
+
+[`DeviceConfigDocumentDto`](Dtos/DeviceConfigDocumentDto.cs),
+[`DeviceMotionDocumentDto`](Dtos/DeviceMotionDocumentDto.cs) and
+[`DeviceModeDocumentDto`](Dtos/DeviceModeDocumentDto.cs) are the wire shape, pinned by
+`DeviceConfigDocumentSerializationTests` and `ScheduleBundleSerializationTests`; they
+must match the firmware's `SettingsCodec` character for character. The one place the
+flat values become the nested object is
+[`DeviceMotionDocumentFactory`](Services/Devices/DeviceMotionDocumentFactory.cs).
+
+> **This is a breaking change for clients of the settings endpoints.** A settings
+> save and a profile create/update are **full replacements**, so
+> `PUT /api/devices/{deviceId}/config` and
+> `POST`/`PUT .../schedule/profiles` now require all twelve fields, and a client built
+> before them answers **400** until it sends them.
+>
+> **Existing data is unaffected.** The `AddMotionWakeSettings` migration backfills every
+> revision and profile with the defaults above (motion off), and deliberately does not
+> bump any device's `config_version`: nothing a device runs changes, so showing the
+> fleet as "pending" would be wrong. Each document is republished with the new
+> `motion` object at the next broker reconnect, under the same version.
 
 ### The flow
 
@@ -991,7 +1069,7 @@ Three tables and the columns that drive them:
 
 | Table / column | Holds |
 |---|---|
-| `device_config_profiles` | a name plus the same seven values, under the same CHECK constraints |
+| `device_config_profiles` | a name plus the same values — the seven standby ones and the [motion block](#motion-wake) — under the same CHECK constraints |
 | `device_config_profiles.schedule_slot` | the 0-based index the **firmware** knows this profile by; unique per device, never reused while it lives |
 | `device_config_schedule_rules` | one weekly window: `days_mask_utc`, `start_minute_utc`, `duration_minutes`, `priority`, `is_enabled` |
 | `devices.config_schedule_enabled` / `..._fallback_profile_id` | whether rules drive this device, and what applies where none matches |

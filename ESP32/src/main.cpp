@@ -13,6 +13,7 @@
 #include "gnss/GnssModule.h"
 #include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
+#include "motion/MotionTracker.h"
 #include "mqtt/AckWatcher.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/TelemetryPublisher.h"
@@ -101,9 +102,10 @@ extern "C" void app_main(void) {
   // before any driver touches those pins: until it does, PWRKEY is frozen and
   // the modem could never be pulsed back on, and the power switch still reads
   // through the RTC pull that ext0 latched onto it. On a cold boot there is
-  // nothing latched and both are no-ops.
+  // nothing latched and all three are no-ops.
   DeepSleepController::releasePinHolds(config::kModemPwrKeyPin,
-                                       config::kWakeGpioPin);
+                                       config::kWakeGpioPin,
+                                       config::kMotionWakePin);
 
   ESP_LOGI(TAG, "Car position tracker starting (wake cause: %s).",
            DeepSleepController::wakeCauseName());
@@ -147,7 +149,7 @@ extern "C" void app_main(void) {
   // Only the bring-up below is gated on the feature flag; disconnect() on an
   // un-begun manager is a no-op.
   static WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
-                          config::kWifiMaxRetries,
+                          config::kDeviceId, config::kWifiMaxRetries,
                           config::kWifiReconnectIntervalMs);
   if (config::kWifiEnabled) {
     if (wifi.begin() && wifi.connect(config::kWifiConnectTimeoutMs)) {
@@ -243,11 +245,18 @@ extern "C" void app_main(void) {
   static DeviceClock deviceClock(config::kClockTrustSeconds);
   deviceClock.begin();
 
+  // Parked, checking or driving? Decided here, from the wake cause and RTC
+  // memory, because it picks which of the two reporting sets the rest of this
+  // boot runs - and with motion wake off it is inert and the standby set is the
+  // only one. See MotionTracker.h for the state machine.
+  static MotionTracker motion;
+  motion.begin(settings);
+
   // Pushes the storage-related settings into the two queues. Applied here for
   // the cached document, and again every time a new one arrives, so the queues
   // are never running limits the server has already superseded.
   static SettingsApplier settingsApplier(fixQueue, retryQueue);
-  settingsApplier.apply(settings);
+  settingsApplier.apply(settings, motion.activeMode(settings));
 
   static SerialPort serial(config::kModemUartPort, config::kModemTxPin,
                            config::kModemRxPin, config::kModemBaudRate);
@@ -486,23 +495,26 @@ extern "C" void app_main(void) {
   // so this usually resolves to the config document and the first real schedule
   // evaluation happens after the first fix below.
   settings = selector.resolve();
-  settingsApplier.apply(settings);
+  motion.update(settings);
+  settingsApplier.apply(settings, motion.activeMode(settings));
 
   // Owns the ordered shutdown for the sleep_between path. Only ever used when
   // that setting is on, but wiring it here keeps the loop below free of the
-  // details.
-  static DeepSleepController sleeper(mqtt, wifi, gnss, sdCard,
-                                     config::kModemPwrKeyPin,
-                                     config::kWakeGpioPin,
-                                     config::kWakeGpioLevel);
+  // details. The accelerometer is handed over for the motion wake, which it
+  // arms as the last thing before a standby sleep.
+  static DeepSleepController sleeper(
+      mqtt, wifi, gnss, sdCard, config::kModemPwrKeyPin, config::kWakeGpioPin,
+      config::kWakeGpioLevel, config::kAdxlEnabled ? &accel : nullptr,
+      config::kMotionWakePin, config::kMotionWakeLowPowerSensor);
 
   ESP_LOGI(TAG,
            "GNSS ready. Reporting every %us (sleep between: %s, settings v%u, "
-           "config re-check every %us).",
+           "config re-check every %us, motion wake: %s).",
            (unsigned)settings.intervalSeconds(),
            settings.sleepBetweenSends() ? "yes" : "no",
            (unsigned)settings.version(),
-           (unsigned)settings.configCheckSeconds());
+           (unsigned)settings.configCheckSeconds(),
+           motion.enabled() ? MotionTracker::stateName(motion.state()) : "off");
 
   // The fix currently being polled. Hoisted out of the loop so the per-poll hook
   // below can read the UTC time of the poll that has just happened, and so the
@@ -511,6 +523,12 @@ extern "C" void app_main(void) {
   // into a report: CgnsinfParser resets the struct on every successful read, and
   // nothing is published unless waitForFix() reported a fix from such a read.
   GnssFix fix;
+
+  // THRESH_ACT the accelerometer's activity interrupt is currently armed with
+  // while the device is AWAKE in standby, or 0 when it is not armed. Tracked so
+  // the interval wait arms it once rather than every second, and re-arms it only
+  // when the threshold changes or a trip has intervened.
+  uint8_t activityArmedSteps = 0;
 
   // Hook run after every fix poll - fix or no fix, every kFixPollStepMs. It does
   // three things:
@@ -571,7 +589,8 @@ extern "C" void app_main(void) {
     // being seeded a moment ago can change the answer all by itself, with
     // nothing having been delivered.
     settings = selector.resolve();
-    settingsApplier.apply(settings);
+    motion.update(settings);
+    settingsApplier.apply(settings, motion.activeMode(settings));
 
     if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
@@ -597,6 +616,27 @@ extern "C" void app_main(void) {
     return true;  // keep waiting for the fix
   };
 
+  // How long one cycle lasts: the short check poll while looking for movement,
+  // otherwise the report interval of whichever set is in force - standby or
+  // moving. With motion wake off that is always the standby interval, i.e.
+  // exactly what this loop used before motion wake existed.
+  std::function<int64_t()> cycleIntervalUs = [&settings]() -> int64_t {
+    if (motion.isChecking()) {
+      return static_cast<int64_t>(config::kMotionCheckPollMs) * 1000LL;
+    }
+    return static_cast<int64_t>(
+               motion.activeMode(settings).intervalSeconds()) *
+           1000000LL;
+  };
+
+  // Whether this cycle ends in a deep sleep: the set in force says so - except
+  // while checking, which never sleeps. The whole point of a check is to watch
+  // the receiver, and sleeping would throw away the lock it has just acquired.
+  std::function<bool()> sleepsBetween = [&settings]() -> bool {
+    return !motion.isChecking() &&
+           motion.activeMode(settings).sleepBetweenSends();
+  };
+
   while (true) {
     // ---- Checkpoint 1: still switched on? -----------------------------------
     // Cheap, and it covers the case checkpoint 0 cannot: the switch flicked off
@@ -609,6 +649,17 @@ extern "C" void app_main(void) {
 
     statusLeds.setGnss(StatusLed::Mode::Blink);
 
+    // Out of awake standby - a check or a trip has begun, or motion wake has been
+    // switched off: stand the activity interrupt down, so the next standby
+    // re-arms it against a fresh at-rest reference rather than one taken before
+    // the car moved.
+    const bool inStandbyWatch =
+        motion.enabled() && motion.state() == MotionTracker::State::Standby;
+    if (activityArmedSteps != 0 && !inStandbyWatch) {
+      accel.disarmActivity();
+      activityArmedSteps = 0;
+    }
+
     // Before committing to an acquire that may burn kFixAcquireTimeoutSeconds
     // and come back empty-handed, give anything already on the card its chance:
     // this is the first thing that runs after a cold boot or a deep-sleep wake,
@@ -619,14 +670,30 @@ extern "C" void app_main(void) {
 
     // The acquire budget is a runtime setting: on a device that reports rarely
     // it is worth chasing a lock for minutes, while one reporting every 30 s
-    // must give up quickly or it would never get to the wait at all.
+    // must give up quickly or it would never get to the wait at all. It comes
+    // from whichever set is in force - standby or moving.
+    //
+    // While checking for movement it is also capped at what is left of the wake
+    // window: a lock that arrives after the window has closed could not change
+    // the decision any more, it would only keep the device awake. Never below
+    // one poll step, so even the last moments of a window get a real look.
     //
     // `fix` comes back AVERAGED: the averager discards the fix the acquisition
     // produced and returns the mean of the readings that follow it. Everything
     // downstream - the payload, the copy stored on the card - is therefore
     // working from the same averaged position.
-    bool haveFix = averager.acquire(fix, settings.fixTimeoutSeconds() * 1000,
-                                    config::kFixPollStepMs, onEachPoll);
+    uint32_t fixTimeoutMs = motion.activeMode(settings).fixTimeoutSeconds() * 1000;
+    if (motion.isChecking()) {
+      const int64_t windowMs = motion.msUntilDeadline();
+      const int64_t capMs    = windowMs > static_cast<int64_t>(config::kFixPollStepMs)
+                                   ? windowMs
+                                   : static_cast<int64_t>(config::kFixPollStepMs);
+      if (capMs < static_cast<int64_t>(fixTimeoutMs)) {
+        fixTimeoutMs = static_cast<uint32_t>(capMs);
+      }
+    }
+    bool haveFix = averager.acquire(fix, fixTimeoutMs, config::kFixPollStepMs,
+                                    onEachPoll);
 
     // ---- Checkpoint 2: did the acquire end because we were switched off? ----
     // acquire() reports a caller-requested abort exactly as it reports a
@@ -755,7 +822,18 @@ extern "C" void app_main(void) {
                (unsigned)sample.battery.millivolts);
     }
 
-    if (haveFix) {
+    // Does this fix go out? With motion wake off: whenever there is one, as
+    // always. With it on, MotionTracker also uses the fix to move its state on -
+    // a fast one starts or extends a trip - and holds back every fix of a check
+    // but the first, so a parked car is reported once per wake, not every few
+    // seconds while it is being watched. `publish` implies `haveFix`.
+    const bool publish = motion.onFix(settings, haveFix, fix.speedKmph);
+    if (haveFix && !publish) {
+      ESP_LOGI(TAG, "Fix while checking for movement: %.1f km/h - not published.",
+               fix.speedKmph);
+    }
+
+    if (publish) {
       if (config::kAdxlEnabled) {
         // With peak tracking on, report the strongest reading of the interval
         // that has just ended and start a fresh window. takePeak() returns false
@@ -821,14 +899,29 @@ extern "C" void app_main(void) {
     // apply() is a no-op when nothing changed, so this costs nothing on the
     // common path and is simpler than tracking who took the message.
     settings = selector.resolve();
-    settingsApplier.apply(settings);
+    motion.update(settings);
+    settingsApplier.apply(settings, motion.activeMode(settings));
 
-    // Where this interval is measured from. With no fix there is nothing to
+    // Close a motion window whose deadline has passed - a check that found no
+    // movement, or a trip that has stood still for the whole stop window. Asked
+    // only now, after this cycle's fix has had its say, so a fast fix landing
+    // right at the deadline still counts.
+    if (motion.evaluate()) {
+      settingsApplier.apply(settings, motion.activeMode(settings));
+    }
+
+    // Where this interval is measured from. With no report there is nothing to
     // measure from, so we start a fresh interval here instead - otherwise a
     // device that has just burned its whole acquire budget finding no satellites
     // would be already "late" and would retry (or reboot) in a tight,
-    // battery-eating loop.
-    const int64_t anchorUs = haveFix ? fixCapturedUs : esp_timer_get_time();
+    // battery-eating loop. A fix held back during a check is not a report, so it
+    // does not anchor anything either.
+    int64_t anchorUs = publish ? fixCapturedUs : esp_timer_get_time();
+
+    // ...except right after a check has ended in standby: then the standby
+    // interval runs from the moment the check BEGAN, i.e. from the wake, so a
+    // parked car keeps its standby cadence however long each check took.
+    motion.takeCheckAnchor(anchorUs);
 
     // Staying awake: wait out the rest of the interval, but *interruptibly*.
     //
@@ -843,9 +936,19 @@ extern "C" void app_main(void) {
     // it past what has already elapsed and the next report goes out at once;
     // lengthen it and the wait simply extends. No extra acquire, no extra
     // airtime - the change is adopted, the rhythm is not disturbed.
+    //
+    // With motion wake the same holds for the set in force: a trip ending
+    // mid-wait swaps the moving interval for the standby one, and the loop
+    // re-times against it exactly as it would for a config change.
     while (config::kMqttEnabled) {
-      const int64_t intervalUs =
-          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
+      // A motion window may have run out while we waited. Closing it here, not
+      // only after the next acquire, is what makes a trip end on time.
+      if (motion.evaluate()) {
+        settingsApplier.apply(settings, motion.activeMode(settings));
+        motion.takeCheckAnchor(anchorUs);
+      }
+
+      const int64_t intervalUs  = cycleIntervalUs();
       const int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
 
       // Interval elapsed, or we have just been told to sleep - either way this
@@ -854,7 +957,7 @@ extern "C" void app_main(void) {
       // The threshold is a millisecond rather than zero because the wait below is
       // expressed in ticks: a sub-millisecond remainder rounds to "no wait at
       // all", and looping on it would spin the CPU until the clock caught up.
-      if (remainingUs < 1000 || settings.sleepBetweenSends()) {
+      if (remainingUs < 1000 || sleepsBetween()) {
         break;
       }
 
@@ -863,7 +966,9 @@ extern "C" void app_main(void) {
       // chunk boundary is one wake-up and one SUBSCRIBE - the entire ongoing
       // cost of the periodic check.
       const int64_t checkUs =
-          static_cast<int64_t>(settings.configCheckSeconds()) * 1000000LL;
+          static_cast<int64_t>(
+              motion.activeMode(settings).configCheckSeconds()) *
+          1000000LL;
       int64_t chunkUs = (checkUs > 0 && checkUs < remainingUs) ? checkUs
                                                               : remainingUs;
 
@@ -893,6 +998,31 @@ extern "C" void app_main(void) {
         }
       }
 
+      // ...nor past the end of a motion window, so the evaluate() at the top of
+      // the next pass closes a check or a trip on time.
+      const int64_t windowMs = motion.msUntilDeadline();
+      if (windowMs >= 0 && windowMs * 1000LL < chunkUs) {
+        chunkUs = windowMs * 1000LL;
+      }
+
+      // ...nor past the next look at the accelerometer, while AWAKE in standby
+      // with motion wake on. Asleep, INT1 wakes the chip by itself; awake, nothing
+      // listens to that pin, so the latch is polled instead. Armed once, at rest -
+      // and re-armed only when the threshold changes or a trip has intervened.
+      const bool watchActivity = config::kAdxlEnabled && motion.enabled() &&
+                                 motion.state() == MotionTracker::State::Standby;
+      if (watchActivity) {
+        const uint8_t steps = settings.motion().thresholdSteps();
+        if (activityArmedSteps != steps) {
+          activityArmedSteps = accel.armActivity(steps, false) ? steps : 0;
+        }
+        const int64_t activityUs =
+            static_cast<int64_t>(config::kMotionActivityPollMs) * 1000LL;
+        if (activityArmedSteps != 0 && activityUs < chunkUs) {
+          chunkUs = activityUs;
+        }
+      }
+
       // ---- Checkpoint 3: switched off while waiting out the interval? -------
       if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
         statusLeds.allOff();
@@ -901,8 +1031,17 @@ extern "C" void app_main(void) {
 
       if (selector.waitForChange(static_cast<uint32_t>(chunkUs / 1000))) {
         settings = selector.current();
-        settingsApplier.apply(settings);
+        motion.update(settings);
+        settingsApplier.apply(settings, motion.activeMode(settings));
         continue;  // re-time against the settings we have just adopted
+      }
+
+      // The car may have started moving while we waited. If so, the wait is
+      // over: go straight into an acquire, which is where the check begins.
+      if (watchActivity && activityArmedSteps != 0 && accel.takeActivity()) {
+        motion.onActivity(settings);
+        settingsApplier.apply(settings, motion.activeMode(settings));
+        break;
       }
 
       // Nothing was delivered within the chunk - but the chunk may have ended
@@ -910,7 +1049,8 @@ extern "C" void app_main(void) {
       // is what actually performs the switch on a device that stays awake.
       const DeviceSettings previous = settings;
       settings                      = selector.resolve();
-      settingsApplier.apply(settings);
+      motion.update(settings);
+      settingsApplier.apply(settings, motion.activeMode(settings));
       if (settings != previous) {
         continue;  // the schedule just moved us; re-time against the new interval
       }
@@ -918,7 +1058,7 @@ extern "C" void app_main(void) {
       // Ask the broker to re-send the retained documents if the re-check is due;
       // it self-paces, so this is a no-op on a chunk that ended for any other
       // reason.
-      selector.resyncIfDue(settings.configCheckSeconds());
+      selector.resyncIfDue(motion.activeMode(settings).configCheckSeconds());
     }
 
     // Deep sleep narrows what peak tracking can see: the chip is powered down
@@ -926,7 +1066,7 @@ extern "C" void app_main(void) {
     // (the acquire plus the publish), not across the whole interval. Worth
     // saying once - it is a surprising result, not a fault - but not worth
     // overriding the server's setting for.
-    if (config::kAccelPeakEnabled && settings.sleepBetweenSends()) {
+    if (config::kAccelPeakEnabled && sleepsBetween()) {
       static bool warnedSleepingPeak = false;
       if (!warnedSleepingPeak) {
         ESP_LOGW(TAG,
@@ -936,12 +1076,11 @@ extern "C" void app_main(void) {
       }
     }
 
-    if (settings.sleepBetweenSends()) {
+    if (sleepsBetween()) {
       // Power everything down and deep-sleep the rest of the interval. This does
       // not return: the chip reboots on wake and app_main() runs again from the
       // top, which is why every cycle re-reads the settings and re-subscribes.
-      const int64_t intervalUs =
-          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
+      const int64_t intervalUs = cycleIntervalUs();
       const int64_t minSleepUs =
           static_cast<int64_t>(config::kMinDeepSleepMs) * 1000LL;
       int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
@@ -972,15 +1111,21 @@ extern "C" void app_main(void) {
       if (remainingUs < minSleepUs) {
         remainingUs = minSleepUs;
       }
+      const uint32_t sleepMs = static_cast<uint32_t>(remainingUs / 1000);
       statusLeds.allOff();
-      sleeper.sleepFor(static_cast<uint32_t>(remainingUs / 1000));
+
+      // Tell the next wake what it needs to know (the rest of a trip's stop
+      // window), then sleep. In standby the accelerometer is armed as a second
+      // wake source; on a trip it is not - a moving car would trip it at once,
+      // turning every timed sleep into an instant reboot.
+      motion.prepareForSleep(sleepMs);
+      sleeper.sleepFor(sleepMs, motion.sleepWakeSteps(settings));
     }
 
     // MQTT disabled at compile time: there is no config to wait for, so fall
     // back to a plain delay for whatever is left of the interval.
     if (!config::kMqttEnabled) {
-      const int64_t intervalUs =
-          static_cast<int64_t>(settings.intervalSeconds()) * 1000000LL;
+      const int64_t intervalUs  = cycleIntervalUs();
       const int64_t remainingUs = intervalUs - (esp_timer_get_time() - anchorUs);
       if (remainingUs > 0) {
         vTaskDelay(pdMS_TO_TICKS(static_cast<uint32_t>(remainingUs / 1000)));

@@ -26,16 +26,21 @@ static constexpr uint32_t kFallbackWakeMs = 60000;
 DeepSleepController::DeepSleepController(MqttClient& mqtt, WifiManager& wifi,
                                          GnssModule& gnss, SdCard& card,
                                          int modemPwrKeyPin, int wakeGpioPin,
-                                         int wakeGpioLevel)
+                                         int wakeGpioLevel, Adxl345* accel,
+                                         int motionWakePin, bool motionLowPower)
     : mqtt_(mqtt),
       wifi_(wifi),
       gnss_(gnss),
       card_(card),
       modemPwrKeyPin_(modemPwrKeyPin),
       wakeGpioPin_(wakeGpioPin),
-      wakeGpioLevel_(wakeGpioLevel) {}
+      wakeGpioLevel_(wakeGpioLevel),
+      accel_(accel),
+      motionWakePin_(motionWakePin),
+      motionLowPower_(motionLowPower) {}
 
-void DeepSleepController::releasePinHolds(int modemPwrKeyPin, int wakeGpioPin) {
+void DeepSleepController::releasePinHolds(int modemPwrKeyPin, int wakeGpioPin,
+                                          int motionWakePin) {
   // Undo the latch applied before the previous sleep. Until this runs the pad
   // ignores the GPIO driver entirely, so Sim7000Modem::powerOn() would drive
   // PWRKEY into a pin that refuses to move and the modem would never start.
@@ -46,6 +51,17 @@ void DeepSleepController::releasePinHolds(int modemPwrKeyPin, int wakeGpioPin) {
   // And hand the ext0 pad back from the RTC mux, or the first read of the power
   // switch comes through a latched pull and means nothing.
   PowerSwitch::releaseRtcHold(wakeGpioPin);
+
+  // Likewise the ext1 pad, which a motion sleep left in the RTC mux with its
+  // pulldown on. Nothing reads it digitally while awake - the activity latch is
+  // polled over I2C - but a pad left half-owned by the RTC is a trap for whoever
+  // does one day. Harmless when nothing was armed.
+  if (motionWakePin >= 0) {
+    const gpio_num_t motionPin = static_cast<gpio_num_t>(motionWakePin);
+    if (rtc_gpio_is_valid_gpio(motionPin)) {
+      rtc_gpio_deinit(motionPin);
+    }
+  }
 }
 
 const char* DeepSleepController::wakeCauseName() {
@@ -155,14 +171,68 @@ void DeepSleepController::enterSleep() {
   esp_deep_sleep_start();  // never returns; the chip reboots on wake
 }
 
-void DeepSleepController::sleepFor(uint32_t durationMs) {
-  ESP_LOGI(TAG, "Sleeping for %us; modem and card going down first.",
-           (unsigned)(durationMs / 1000));
+void DeepSleepController::sleepFor(uint32_t durationMs,
+                                   uint8_t  motionThresholdSteps) {
+  ESP_LOGI(TAG, "Sleeping for %us%s; modem and card going down first.",
+           (unsigned)(durationMs / 1000),
+           motionThresholdSteps > 0 ? " or until motion" : "");
 
   shutdownPeripherals();
   holdModemOff(modemPwrKeyPin_);
-  armWakeSources(durationMs, wakeGpioPin_, wakeGpioLevel_);
+
+  // Last of all, with the modem off and the card unmounted: the accelerometer
+  // takes its AC reference at this moment, so it should be the quietest one.
+  if (motionThresholdSteps > 0) {
+    armMotionWake(motionThresholdSteps);
+  }
+
+  // The timer only - never ext0. This sleep happens with the power switch ON,
+  // i.e. with its pin already at the ext0 wake level, and ext0 is level-
+  // triggered: arming it here used to wake the chip the instant it went down,
+  // which turned every sleep_between cycle into an immediate reboot. A switch
+  // turned off mid-sleep is caught by checkpoint 0 on the next wake instead.
+  armWakeSources(durationMs, -1, wakeGpioLevel_);
   enterSleep();
+}
+
+bool DeepSleepController::armMotionWake(uint8_t thresholdSteps) {
+  if (accel_ == nullptr || motionWakePin_ < 0) {
+    return false;
+  }
+  const gpio_num_t pin = static_cast<gpio_num_t>(motionWakePin_);
+  if (!rtc_gpio_is_valid_gpio(pin)) {
+    ESP_LOGE(TAG, "GPIO %d is not RTC-capable - motion wake NOT armed.",
+             motionWakePin_);
+    return false;
+  }
+
+  // Sensor first: if it cannot be armed, INT1 will never rise, and arming ext1
+  // on a dead line would only advertise a wake source that does not exist.
+  if (!accel_->armActivity(thresholdSteps, motionLowPower_)) {
+    ESP_LOGW(TAG, "accelerometer not armed - sleeping on the timer alone.");
+    return false;
+  }
+
+  const esp_err_t err =
+      esp_sleep_enable_ext1_wakeup_io(1ULL << motionWakePin_,
+                                      ESP_EXT1_WAKEUP_ANY_HIGH);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "ext1 wake on GPIO %d failed: %s", motionWakePin_,
+             esp_err_to_name(err));
+    return false;
+  }
+
+  // INT1 is push-pull and active high, so it needs no pull while the sensor is
+  // there. The pulldown is for the day it is not: a floating ext1 pin would wake
+  // the device at random. Internal pulls only survive deep sleep while the RTC
+  // peripheral domain is powered, hence the explicit request.
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+  rtc_gpio_pullup_dis(pin);
+  rtc_gpio_pulldown_en(pin);
+
+  ESP_LOGI(TAG, "Motion wake armed on GPIO %d (ext1, any high).",
+           motionWakePin_);
+  return true;
 }
 
 void DeepSleepController::sleepUntilExternalWake() {

@@ -12,6 +12,7 @@
 //
 //  Typical lifecycle:
 //      WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
+//                       config::kDeviceId,
 //                       config::kWifiMaxRetries,
 //                       config::kWifiReconnectIntervalMs);
 //      wifi.begin();                               // init the WiFi stack
@@ -51,12 +52,16 @@ class WifiManager {
   // object. With Config.h that is automatic (they are constexpr globals).
   //   ssid                : network name to join
   //   password            : network password ("" for an open network)
+  //   hostname            : name this device announces to the network (DHCP),
+  //                         i.e. what the router's client list shows instead of
+  //                         the ESP-IDF default "espressif". Letters, digits and
+  //                         hyphens only, at most 32 characters.
   //   maxRetries          : fast association attempts in one burst before the
   //                         burst is considered failed
   //   reconnectIntervalMs : after a failed burst, gap between background
   //                         reconnect bursts (until an IP is obtained)
-  WifiManager(const char* ssid, const char* password, int maxRetries,
-              uint32_t reconnectIntervalMs);
+  WifiManager(const char* ssid, const char* password, const char* hostname,
+              int maxRetries, uint32_t reconnectIntervalMs);
 
   // Initialise the WiFi stack in station mode: NVS flash, the default event
   // loop, the network interface and the esp_wifi driver. Call once before
@@ -91,6 +96,7 @@ class WifiManager {
 
   const char* ssid_;
   const char* password_;
+  const char* hostname_;
   int         maxRetries_;
   uint32_t    reconnectIntervalMs_;
 

@@ -6,12 +6,13 @@ namespace CarPosAPI.Dtos;
 /// One profile as it appears inside <see cref="DeviceScheduleBundleDto"/>.
 ///
 /// <para>
-/// The seven value keys are <b>deliberately identical</b> to those of
-/// <see cref="DeviceConfigDocumentDto"/>. That is not incidental tidiness: it lets the
-/// firmware's <c>ScheduleCodec</c> hand each profile object straight to the existing
-/// <c>SettingsCodec::decode</c>, so a profile is parsed, range-clamped and defaulted by
-/// exactly the same code that handles the retained config document. One decoder, one
-/// set of bounds, no second place for the two to drift apart.
+/// The seven value keys, and the <c>motion</c> block after them, are <b>deliberately
+/// identical</b> to those of <see cref="DeviceConfigDocumentDto"/>. That is not
+/// incidental tidiness: it lets the firmware's <c>ScheduleCodec</c> hand each profile
+/// object straight to the existing <c>SettingsCodec::decode</c>, so a profile is
+/// parsed, range-clamped and defaulted by exactly the same code that handles the
+/// retained config document. One decoder, one set of bounds, no second place for the
+/// two to drift apart.
 /// </para>
 ///
 /// <para>
@@ -31,6 +32,7 @@ namespace CarPosAPI.Dtos;
 /// <param name="RetryIntervalHours">Hours between attempts on a rejected fix.</param>
 /// <param name="RetryMaxAgeHours">Hours before a rejected fix is abandoned; 0 = never.</param>
 /// <param name="ConfigCheckSeconds">Seconds between the device's periodic re-checks.</param>
+/// <param name="Motion">The profile's motion block, after <c>config_check_s</c> as in <see cref="DeviceConfigDocumentDto"/>.</param>
 public sealed record ScheduleBundleProfileDto(
     [property: JsonPropertyName("slot")] int Slot,
     [property: JsonPropertyName("name")] string Name,
@@ -40,4 +42,5 @@ public sealed record ScheduleBundleProfileDto(
     [property: JsonPropertyName("queue_max_fixes")] int QueueMaxFixes,
     [property: JsonPropertyName("retry_interval_h")] int RetryIntervalHours,
     [property: JsonPropertyName("retry_max_age_h")] int RetryMaxAgeHours,
-    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds);
+    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds,
+    [property: JsonPropertyName("motion")] DeviceMotionDocumentDto Motion);

@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// ConfigValuesFields — the seven remote settings as a set of form controls.
+// ConfigValuesFields — the remote settings as a set of form controls.
 //
 // Extracted from DeviceConfigSection when schedules arrived and gave it a second
-// caller: a schedule PROFILE holds exactly the same seven values, under exactly
+// caller: a schedule PROFILE holds exactly the same values, under exactly
 // the same bounds, and an editor for one that looked or behaved differently from
 // the settings panel would be a second thing to learn for no reason.
 //
@@ -13,6 +13,14 @@
 // profile editor is nearly none. Sharing the controls without sharing that logic
 // is the whole point of the split.
 //
+// What it renders is a composition. With motion wake off there is one set of
+// seven settings and the form looks exactly as it always did. With it on there
+// are two complete sets — STANDBY (parked) and MOVING — around the motion
+// settings that decide when the device passes from one to the other, plus the
+// notes about how those interact. The sets are ModeValuesFields, the motion
+// settings are MotionWakeFields; this file only arranges them and says what is
+// worth warning about.
+//
 // `seedKey` is passed straight through to each DurationField's `key`. Changing
 // it remounts them, which is how a field re-picks the unit that suits a value
 // the server just handed us; leaving it alone is how a reader's chosen unit
@@ -21,27 +29,12 @@
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
+import { formatInteger } from '../i18n/format'
 import type { DeviceConfigValuesDto } from '../services/apiTypes'
-import {
-  CONFIG_FIELD_LABEL_KEYS,
-  CONFIG_LIMITS,
-  describeHours,
-  describeSeconds,
-  estimateQueueSpan,
-} from '../utils/deviceConfig'
-import type { TimeUnit } from '../utils/timeUnits'
-import { DurationField } from './DurationField'
-
-// The settings the API stores as whole seconds. Hours is the coarsest unit any
-// of them reaches — the highest ceiling here is 24 h — so days would only ever
-// render as a fraction.
-const SECOND_UNITS: readonly TimeUnit[] = ['seconds', 'minutes', 'hours']
-
-// The two retry settings, stored as whole hours. Minutes is offered because a
-// retry interval is something people say in minutes; DurationField's step keeps
-// such a value landing on a whole hour, which is all the wire can carry.
-const HOUR_UNITS: readonly TimeUnit[] = ['minutes', 'hours', 'days']
+import { MOVING_KEYS, STANDBY_KEYS, describeSeconds } from '../utils/deviceConfig'
+import { ModeValuesFields } from './ModeValuesFields'
+import { MotionWakeFields } from './MotionWakeFields'
 
 export type ConfigValuesFieldsProps = {
   values: DeviceConfigValuesDto
@@ -76,179 +69,92 @@ export function ConfigValuesFields({
     return renderPendingNote ? renderPendingNote(key) : null
   }
 
+  // The device stays awake for up to the whole wait window after EVERY wake, and
+  // a timer wake is a wake. A wait at least as long as the standby interval
+  // therefore leaves no gap in which to sleep. Only worth saying when standby is
+  // meant to sleep at all — an awake standby has nothing to lose here.
+  const isWakeWindowTooLong: boolean =
+    values.motionEnabled &&
+    values.sleepBetween &&
+    values.intervalSeconds <= values.motionWakeWaitSeconds
+
+  // An awake standby device has no interrupt to wait for; see the note's text.
+  const isStandbyAwake: boolean = values.motionEnabled && !values.sleepBetween
+
+  // The firmware keeps the LARGER of the two caps, in both modes, so that
+  // switching mode can never be what deletes a queued fix.
+  const queueCap: number = Math.max(values.queueMaxFixes, values.movingQueueMaxFixes)
+  const isQueueCapMerged: boolean =
+    values.motionEnabled && values.queueMaxFixes !== values.movingQueueMaxFixes
+
   return (
     <>
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.reporting')}</legend>
+      {/* Only named while there is a second set to tell it apart from. */}
+      {values.motionEnabled ? (
+        <h4 className="config-mode-title">{t('config.mode.standby')}</h4>
+      ) : null}
 
-        <div className="config-grid">
-          <DurationField
-            key={`interval-${seedKey}`}
-            id={`${idPrefix}-interval`}
-            label={t(CONFIG_FIELD_LABEL_KEYS.intervalSeconds)}
-            value={values.intervalSeconds}
-            baseUnit="seconds"
-            units={SECOND_UNITS}
-            min={CONFIG_LIMITS.intervalSeconds.min}
-            max={CONFIG_LIMITS.intervalSeconds.max}
-            onChange={(value) => onChange('intervalSeconds', value)}
-            // Recomputed from the input being typed, not from the saved value —
-            // the point is to read back what you are entering, and it stays in
-            // seconds whatever unit was picked, because seconds is what actually
-            // goes on the wire.
-            hint={t('config.everyDuration', { duration: describeSeconds(values.intervalSeconds) })}
-            pendingNote={pendingNote('intervalSeconds')}
-            required
-          />
+      <ModeValuesFields
+        values={values}
+        keys={STANDBY_KEYS}
+        onChange={onChange}
+        seedKey={seedKey}
+        disabled={disabled}
+        pendingNote={pendingNote}
+        idPrefix={idPrefix}
+      />
+
+      <MotionWakeFields
+        values={values}
+        onChange={onChange}
+        seedKey={seedKey}
+        disabled={disabled}
+        pendingNote={pendingNote}
+        idPrefix={idPrefix}
+      />
+
+      {isWakeWindowTooLong || isStandbyAwake || isQueueCapMerged ? (
+        <div className="config-notes">
+          {isWakeWindowTooLong ? (
+            <div className="banner banner--warning" role="status">
+              {t('config.motionWakeWindowWarning', {
+                wait: describeSeconds(values.motionWakeWaitSeconds),
+                interval: describeSeconds(values.intervalSeconds),
+              })}
+            </div>
+          ) : null}
+
+          {isStandbyAwake ? (
+            <div className="banner banner--info" role="status">
+              {t('config.motionPollingNote')}
+            </div>
+          ) : null}
+
+          {isQueueCapMerged ? (
+            <div className="banner banner--info" role="status">
+              {t('config.motionQueueCapNote', {
+                cap: t('config.fixesCount', { count: queueCap, value: formatInteger(queueCap) }),
+              })}
+            </div>
+          ) : null}
         </div>
-      </fieldset>
+      ) : null}
 
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.power')}</legend>
+      {values.motionEnabled ? (
+        <>
+          <h4 className="config-mode-title">{t('config.mode.moving')}</h4>
 
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={values.sleepBetween}
-            onChange={(event) => onChange('sleepBetween', event.target.checked)}
+          <ModeValuesFields
+            values={values}
+            keys={MOVING_KEYS}
+            onChange={onChange}
+            seedKey={seedKey}
+            disabled={disabled}
+            pendingNote={pendingNote}
+            idPrefix={`${idPrefix}-moving`}
           />
-          <span>{t(CONFIG_FIELD_LABEL_KEYS.sleepBetween)}</span>
-        </label>
-        <p className="hint">{t('config.sleepBetweenHint')}</p>
-        {pendingNote('sleepBetween')}
-      </fieldset>
-
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.gnss')}</legend>
-
-        <div className="config-grid">
-          <DurationField
-            key={`fix-timeout-${seedKey}`}
-            id={`${idPrefix}-fix-timeout`}
-            label={t('config.fixTimeoutLabel')}
-            value={values.fixTimeoutSeconds}
-            baseUnit="seconds"
-            units={SECOND_UNITS}
-            min={CONFIG_LIMITS.fixTimeoutSeconds.min}
-            max={CONFIG_LIMITS.fixTimeoutSeconds.max}
-            onChange={(value) => onChange('fixTimeoutSeconds', value)}
-            hint={describeSeconds(values.fixTimeoutSeconds)}
-            pendingNote={pendingNote('fixTimeoutSeconds')}
-            required
-          />
-        </div>
-        <p className="hint">{t('config.fixTimeoutHint')}</p>
-      </fieldset>
-
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.queue')}</legend>
-
-        <div className="config-grid">
-          <div className="form-field">
-            <label className="form-label" htmlFor={`${idPrefix}-queue-max`}>
-              {t('config.queueMaxLabel')}
-            </label>
-            <input
-              id={`${idPrefix}-queue-max`}
-              className="form-input"
-              style={{ width: 'auto' }}
-              type="number"
-              min={CONFIG_LIMITS.queueMaxFixes.min}
-              max={CONFIG_LIMITS.queueMaxFixes.max}
-              step={100}
-              value={values.queueMaxFixes}
-              onChange={(event) => onChange('queueMaxFixes', Number(event.target.value))}
-              required
-            />
-            <span className="hint">
-              {estimateQueueSpan(values.queueMaxFixes, values.intervalSeconds)}
-            </span>
-            {pendingNote('queueMaxFixes')}
-          </div>
-        </div>
-        <p className="hint">{t('config.queueMaxHint')}</p>
-      </fieldset>
-
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.rejected')}</legend>
-
-        <div className="config-grid">
-          <DurationField
-            key={`retry-interval-${seedKey}`}
-            id={`${idPrefix}-retry-interval`}
-            label={t('config.retryIntervalLabel')}
-            value={values.retryIntervalHours}
-            baseUnit="hours"
-            units={HOUR_UNITS}
-            min={CONFIG_LIMITS.retryIntervalHours.min}
-            max={CONFIG_LIMITS.retryIntervalHours.max}
-            onChange={(value) => onChange('retryIntervalHours', value)}
-            hint={describeHours(values.retryIntervalHours)}
-            pendingNote={pendingNote('retryIntervalHours')}
-            required
-          />
-
-          <DurationField
-            key={`retry-max-age-${seedKey}`}
-            id={`${idPrefix}-retry-max-age`}
-            // The "0 = never" stays in the label rather than moving into the
-            // unit combobox: it is a sentinel, not a duration, and nothing about
-            // the unit makes it readable.
-            label={t('config.retryMaxAgeLabel')}
-            value={values.retryMaxAgeHours}
-            baseUnit="hours"
-            units={HOUR_UNITS}
-            min={CONFIG_LIMITS.retryMaxAgeHours.min}
-            max={CONFIG_LIMITS.retryMaxAgeHours.max}
-            onChange={(value) => onChange('retryMaxAgeHours', value)}
-            hint={
-              values.retryMaxAgeHours === 0
-                ? t('config.retryForever')
-                : describeHours(values.retryMaxAgeHours)
-            }
-            pendingNote={pendingNote('retryMaxAgeHours')}
-            required
-          />
-        </div>
-        <p className="hint">{t('config.rejectedHint')}</p>
-      </fieldset>
-
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.updates')}</legend>
-
-        {/* <Trans> rather than t(): the sentence carries a <strong> in the
-            middle of it, and splitting it into three keys would leave the
-            translator with fragments that cannot be reordered. */}
-        <p className="hint">
-          <Trans i18nKey="config.updatesHint" ns="settings" components={{ strong: <strong /> }} />
-        </p>
-
-        <div className="config-grid">
-          <DurationField
-            key={`config-check-${seedKey}`}
-            id={`${idPrefix}-config-check`}
-            label={t('config.configCheckLabel')}
-            value={values.configCheckSeconds}
-            baseUnit="seconds"
-            units={SECOND_UNITS}
-            min={CONFIG_LIMITS.configCheckSeconds.min}
-            max={CONFIG_LIMITS.configCheckSeconds.max}
-            onChange={(value) => onChange('configCheckSeconds', value)}
-            hint={describeSeconds(values.configCheckSeconds)}
-            pendingNote={pendingNote('configCheckSeconds')}
-            required
-          />
-        </div>
-
-        {/* Deliberately loud when sleep is on: without this, lowering the
-            re-check interval looks like a way to make a sleeping tracker pick
-            changes up sooner, and it is not. */}
-        {values.sleepBetween ? (
-          <div className="banner banner--info" role="status">
-            {t('config.configCheckSleepNote')}
-          </div>
-        ) : null}
-      </fieldset>
+        </>
+      ) : null}
     </>
   )
 }

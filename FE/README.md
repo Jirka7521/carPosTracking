@@ -451,6 +451,38 @@ as 3 minutes. Where the chosen unit is finer than storage (minutes on an
 hours-based field) the input's `step` keeps the value landing on something
 storable.
 
+### Motion wake: two sets of settings
+
+Ticking **Wake on motion** (`motionEnabled`) lets the tracker's accelerometer wake
+it from deep sleep when the car starts to move, and gives it a second, complete
+copy of the seven reporting settings — the **moving** set (`movingIntervalSeconds`,
+`movingSleepBetween`, …) — to run while driving. The original seven become the
+**standby (parked)** set. All twelve new values are flat fields on
+`DeviceConfigValuesDto`, saved in the same revision as everything else, and the
+schedule's profile editor shows them too: a profile holds the same values.
+
+- **What the tracker does with them.** After any wake from standby — the
+  accelerometer or the standby timer — it looks for a GNSS fix for up to
+  `motionWakeWaitSeconds` and publishes only the first. A fix strictly faster than
+  `motionSpeedKmph` switches it to moving; otherwise it goes back to sleep. Moving,
+  it falls back to standby once no fix has been above that speed for
+  `motionStopWaitSeconds`.
+- **The threshold is entered in mg, but the sensor counts in 62.5 mg steps.** The
+  firmware rounds to the nearest, `clamp(round(mg / 62.5), 1, 255)`, and the form
+  shows where the typed value lands (`motionThresholdStep` in
+  [`utils/deviceConfig.ts`](src/utils/deviceConfig.ts)). 63 mg is step 1 — 62.5 mg,
+  the most sensitive setting and the recommended default.
+- **A mode switch never deletes data.** The firmware keeps the larger of the two
+  queue caps, and the more lenient rejected-fix give-up age (0 = never), whichever
+  mode is running. The form says so when the two queue caps differ.
+
+On the page, [`ConfigValuesFields`](src/components/ConfigValuesFields.tsx) composes
+[`ModeValuesFields`](src/components/ModeValuesFields.tsx) — the seven controls,
+rendered once for the standby keys and once for the moving keys (`STANDBY_KEYS` /
+`MOVING_KEYS`, with the moving ids prefixed `…-moving-`) — around
+[`MotionWakeFields`](src/components/MotionWakeFields.tsx). Only the checkbox shows
+while motion wake is off, so the form is the one it always was.
+
 ---
 
 ## Registering a device

@@ -108,6 +108,118 @@ public static class DeviceConfigRules
     public const int DefaultConfigCheckSeconds = 3600;
 
     /// <summary>
+    /// Factory default for motion wake. Off, because enabling it changes how the
+    /// device sleeps (a second wake source, and a different set of settings while the
+    /// vehicle is driving), so it is something a person switches on deliberately from
+    /// the dashboard rather than something a freshly provisioned tracker does unasked.
+    /// </summary>
+    public const bool DefaultMotionEnabled = false;
+
+    /// <summary>
+    /// Minimum wake threshold, in milli-g. The ADXL345 compares in steps of 62.5 mg
+    /// and the firmware rounds the value to the nearest step, so 63 mg is step 1 —
+    /// the most sensitive setting the sensor offers. The floor is that one step
+    /// because a threshold of 0 is the value the datasheet warns misbehaves.
+    /// </summary>
+    public const int MinMotionThresholdMg = 63;
+
+    /// <summary>
+    /// Maximum wake threshold, in milli-g: the sensor's +/-2 g range, beyond which a
+    /// reading cannot change by much more and the device would simply never wake.
+    /// </summary>
+    public const int MaxMotionThresholdMg = 2000;
+
+    /// <summary>
+    /// Factory default wake threshold, in milli-g. The most sensitive step — see
+    /// <see cref="MinMotionThresholdMg"/> — taken from the firmware's analysis of real
+    /// drives (<c>docs/MOTION-WAKE-THRESHOLDS.md</c>).
+    /// </summary>
+    public const int DefaultMotionThresholdMg = 63;
+
+    /// <summary>
+    /// Minimum speed, in km/h, above which a fix counts as moving. Never 0: a parked
+    /// GNSS receiver reports 0-3 km/h of jitter, so a floor of 0 would let a stationary
+    /// car look as if it were driving and keep the device awake for ever.
+    /// </summary>
+    public const int MinMotionSpeedKmph = 1;
+
+    /// <summary>Maximum speed, in km/h, that still counts as moving — a policy bound, far above any crawl.</summary>
+    public const int MaxMotionSpeedKmph = 50;
+
+    /// <summary>
+    /// Factory default moving speed, in km/h. A fix counts as moving when its speed is
+    /// <em>strictly above</em> this, which clears the receiver's parked jitter.
+    /// </summary>
+    public const int DefaultMotionSpeedKmph = 3;
+
+    /// <summary>Minimum seconds a wake may look for a moving fix before going back to sleep.</summary>
+    public const int MinMotionWakeWaitSeconds = 30;
+
+    /// <summary>Maximum seconds a wake may look for a moving fix (1 h).</summary>
+    public const int MaxMotionWakeWaitSeconds = 3600;
+
+    /// <summary>
+    /// Factory default wake wait, in seconds (4 min). Long enough to cover a cold GNSS
+    /// start and a driver who gets in and pulls away a few minutes later.
+    /// </summary>
+    public const int DefaultMotionWakeWaitSeconds = 240;
+
+    /// <summary>
+    /// Minimum seconds the device stays in moving mode after the last moving fix. Mirrors
+    /// the firmware's floor; below a minute even one red light could end a trip.
+    /// </summary>
+    public const int MinMotionStopWaitSeconds = 60;
+
+    /// <summary>Maximum seconds the device stays in moving mode after the last moving fix (2 h).</summary>
+    public const int MaxMotionStopWaitSeconds = 7200;
+
+    /// <summary>
+    /// Factory default stop wait, in seconds (10 min). The elbow of the firmware's
+    /// analysed stop durations: shorter costs a fresh wake at many traffic stops,
+    /// longer only burns awake time.
+    /// </summary>
+    public const int DefaultMotionStopWaitSeconds = 600;
+
+    // The MOVING set. Its accepted ranges are deliberately NOT repeated here: a setting
+    // means the same thing in either mode, so a moving value is validated against the
+    // standby Min*/Max* constants above and only its default differs.
+    //
+    // Two firmware rules keep a mode switch from losing data, and the dashboard should
+    // say so rather than leave the user to discover them: the queue cap in force is the
+    // LARGER of the standby and moving values, and the rejected-fix give-up age is the
+    // more lenient one (0, meaning never, beats any number).
+
+    /// <summary>
+    /// Factory default reporting cadence while moving, in seconds. Much tighter than the
+    /// standby 60 s, because a track is only worth having if the vehicle is sampled
+    /// often enough to follow its turns.
+    /// </summary>
+    public const int DefaultMovingIntervalSeconds = 10;
+
+    /// <summary>
+    /// Factory default for deep-sleeping between reports while moving. Off: at a 10 s
+    /// cadence a sleep/wake cycle costs a cold fix and a TLS handshake each time and
+    /// saves almost nothing, and a moving vehicle is the one case where power is not
+    /// the constraint.
+    /// </summary>
+    public const bool DefaultMovingSleepBetween = false;
+
+    /// <summary>Factory default GNSS acquire budget while moving, in seconds.</summary>
+    public const int DefaultMovingFixTimeoutSeconds = 180;
+
+    /// <summary>Factory default size of the undelivered-fix queue while moving.</summary>
+    public const int DefaultMovingQueueMaxFixes = 20000;
+
+    /// <summary>Factory default retry pacing while moving, in hours.</summary>
+    public const int DefaultMovingRetryIntervalHours = 24;
+
+    /// <summary>Factory default give-up age while moving, in hours (7 days); 0 would mean never.</summary>
+    public const int DefaultMovingRetryMaxAgeHours = 168;
+
+    /// <summary>Factory default configuration re-check interval while moving, in seconds (1 h).</summary>
+    public const int DefaultMovingConfigCheckSeconds = 3600;
+
+    /// <summary>
     /// Version number every device's first configuration row is created with.
     /// Versions are per device and strictly increasing; there is no version 0.
     /// </summary>

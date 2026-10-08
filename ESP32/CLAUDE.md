@@ -65,8 +65,10 @@ src/
 │               BatteryMethods / BatteryReporter / ChargerWatcher
 │               BootJournal / DeepSleepController
 ├── sensors/    Adxl345 / AccelPeakTracker  ← ADXL345 accelerometer
+├── motion/     MotionTracker           ← motion wake: standby / checking / moving
 ├── sdcard/     SdCard / FixQueue / RetryQueue / QueueIndex / FixForwarder
-├── settings/   DeviceSettings / SettingsStore / SettingsCodec / SettingsApplier
+├── settings/   DeviceSettings / ModeSettings / MotionSettings
+│               SettingsStore / SettingsCodec / SettingsApplier
 │               RemoteSettings          ← the broker-supplied runtime config
 └── util/       ScopedLock              ← small shared helpers
 ```

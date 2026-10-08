@@ -36,9 +36,10 @@ DeviceSettings SettingsStore::load(const DeviceSettings& defaults) const {
   }
 
   settings.clampToLimits();
-  ESP_LOGI(TAG, "loaded settings: interval=%us sleep_between=%s",
+  ESP_LOGI(TAG, "loaded settings: interval=%us sleep_between=%s motion=%s",
            (unsigned)settings.intervalSeconds(),
-           settings.sleepBetweenSends() ? "yes" : "no");
+           settings.sleepBetweenSends() ? "yes" : "no",
+           settings.motion().enabled() ? "on" : "off");
   return settings;
 }
 

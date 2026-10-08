@@ -67,6 +67,67 @@ public sealed class DeviceConfigVersion
     /// </summary>
     public int ConfigCheckSeconds { get; set; }
 
+    // The motion block. The seven values above are the STANDBY set — what the device
+    // runs while parked — and the Moving* values below are a full second copy of the
+    // same seven for while it is driving. Everything here travels in the document's
+    // nested "motion" object; see Dtos.DeviceMotionDocumentDto.
+
+    /// <summary>
+    /// Whether motion wake is on. Off by default: it changes how the device sleeps
+    /// (an accelerometer wake source, and the Moving* set while driving), so it is
+    /// switched on deliberately. While off, every other motion value is carried but
+    /// inert.
+    /// </summary>
+    public bool MotionEnabled { get; set; }
+
+    /// <summary>
+    /// Accelerometer wake threshold, in milli-g. The ADXL345 compares in 62.5 mg steps
+    /// and the firmware rounds this to the nearest one (63 mg = step 1, the most
+    /// sensitive).
+    /// </summary>
+    public int MotionThresholdMg { get; set; }
+
+    /// <summary>
+    /// A fix counts as moving when its GNSS speed is strictly above this, in km/h. Not
+    /// 0: a parked receiver reports 0-3 km/h of jitter.
+    /// </summary>
+    public int MotionSpeedKmph { get; set; }
+
+    /// <summary>How long a wake may look for a moving fix before going back to sleep, in seconds.</summary>
+    public int MotionWakeWaitSeconds { get; set; }
+
+    /// <summary>How long after the last moving fix the device stays in moving mode, in seconds.</summary>
+    public int MotionStopWaitSeconds { get; set; }
+
+    /// <summary>Seconds between position reports while moving.</summary>
+    public int MovingIntervalSeconds { get; set; }
+
+    /// <summary>Whether the device deep-sleeps between reports while moving.</summary>
+    public bool MovingSleepBetween { get; set; }
+
+    /// <summary>How long the device chases a GNSS lock while moving, in seconds.</summary>
+    public int MovingFixTimeoutSeconds { get; set; }
+
+    /// <summary>
+    /// Undelivered-fix queue cap while moving. The cap in force on the device is the
+    /// LARGER of this and <see cref="QueueMaxFixes"/>, so a mode switch never trims
+    /// fixes the other mode was still allowed to hold.
+    /// </summary>
+    public int MovingQueueMaxFixes { get; set; }
+
+    /// <summary>Hours between attempts on a fix this API rejected, while moving.</summary>
+    public int MovingRetryIntervalHours { get; set; }
+
+    /// <summary>
+    /// Hours after which a still-rejected fix is abandoned, while moving; 0 means
+    /// never. The age in force on the device is the more lenient of this and
+    /// <see cref="RetryMaxAgeHours"/> (0 beats any number).
+    /// </summary>
+    public int MovingRetryMaxAgeHours { get; set; }
+
+    /// <summary>How often an awake device re-asks the broker for this document while moving, in seconds.</summary>
+    public int MovingConfigCheckSeconds { get; set; }
+
     /// <summary>
     /// Who saved this revision. Null for the row seeded by the migration and for rows
     /// created alongside a device, neither of which has a human author to name.

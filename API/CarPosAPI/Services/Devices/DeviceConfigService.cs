@@ -298,7 +298,8 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                         configVersion.QueueMaxFixes,
                         configVersion.RetryIntervalHours,
                         configVersion.RetryMaxAgeHours,
-                        configVersion.ConfigCheckSeconds)))
+                        configVersion.ConfigCheckSeconds,
+                        DeviceMotionDocumentFactory.Create(configVersion))))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (publication is null)
@@ -418,7 +419,19 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                 configVersion.QueueMaxFixes,
                 configVersion.RetryIntervalHours,
                 configVersion.RetryMaxAgeHours,
-                configVersion.ConfigCheckSeconds),
+                configVersion.ConfigCheckSeconds,
+                configVersion.MotionEnabled,
+                configVersion.MotionThresholdMg,
+                configVersion.MotionSpeedKmph,
+                configVersion.MotionWakeWaitSeconds,
+                configVersion.MotionStopWaitSeconds,
+                configVersion.MovingIntervalSeconds,
+                configVersion.MovingSleepBetween,
+                configVersion.MovingFixTimeoutSeconds,
+                configVersion.MovingQueueMaxFixes,
+                configVersion.MovingRetryIntervalHours,
+                configVersion.MovingRetryMaxAgeHours,
+                configVersion.MovingConfigCheckSeconds),
             configVersion.CreatedAt,
             _context.Users
                 .Where(user => user.Id == configVersion.CreatedByUserId)
@@ -440,7 +453,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
 
     /// <summary>Strips the request down to the values the revision writer takes.</summary>
     /// <param name="request">The submitted settings.</param>
-    /// <returns>The same seven values, without the acknowledgement flag.</returns>
+    /// <returns>The same settings, without the acknowledgement flag.</returns>
     private static DeviceConfigValuesDto ToValues(UpdateDeviceConfigRequestDto request)
     {
         return new DeviceConfigValuesDto(
@@ -450,6 +463,18 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             request.QueueMaxFixes,
             request.RetryIntervalHours,
             request.RetryMaxAgeHours,
-            request.ConfigCheckSeconds);
+            request.ConfigCheckSeconds,
+            request.MotionEnabled,
+            request.MotionThresholdMg,
+            request.MotionSpeedKmph,
+            request.MotionWakeWaitSeconds,
+            request.MotionStopWaitSeconds,
+            request.MovingIntervalSeconds,
+            request.MovingSleepBetween,
+            request.MovingFixTimeoutSeconds,
+            request.MovingQueueMaxFixes,
+            request.MovingRetryIntervalHours,
+            request.MovingRetryMaxAgeHours,
+            request.MovingConfigCheckSeconds);
     }
 }

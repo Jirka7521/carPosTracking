@@ -122,8 +122,9 @@ constexpr uint32_t kFixAverageStepMs      = 1000;
 //  Set kAdxlEnabled to `false` to skip the sensor entirely; the driver is then
 //  compiled out and the accel fields are simply absent from the payload.
 //
-//  INT1/INT2 are physically wired (GPIO32/33) but unused for now - reserved for a
-//  future motion/tap interrupt that could wake the device early.
+//  INT1 (GPIO32) is the motion-wake line - the activity interrupt that wakes a
+//  sleeping device when the car starts moving; see "Motion wake" at the end of
+//  this file. INT2 (GPIO34) is wired but unused.
 // -----------------------------------------------------------------------------
 constexpr bool kAdxlEnabled = true;
 
@@ -132,15 +133,15 @@ constexpr int      kI2cSclPin      = 22;      // ESP32 SCL -> ADXL345 SCL
 constexpr uint32_t kI2cClockHz     = 400000;  // 400 kHz fast-mode I2C
 constexpr uint8_t  kAdxlI2cAddress = 0x53;    // CS->3V3, SDO->GND
 
-// The two interrupt outputs. Still unused by this firmware, still wired, and
-// both usable the day something wants them. INT2 sits on 34 rather than the 33
+// The two interrupt outputs. INT1 carries the activity interrupt for the motion
+// wake (kMotionWakePin); INT2 is still unused. INT2 sits on 34 rather than the 33
 // it used to, because GPIO33 is the only free pin with an internal pull-up AND
 // RTC capability, which is what the power switch needs - and the ADXL drives its
 // INT pins push-pull, so a switch sharing 33 would have read "closed" forever.
 //
 // Neither needs a pull resistor: the sensor drives them, it does not open-drain
 // them. 34 is input-only, which is all an interrupt line ever is.
-constexpr int kAdxlInt1Pin = 32;  // reserved; RTC-capable, so ext1 can wake on it
+constexpr int kAdxlInt1Pin = 32;  // motion wake; RTC-capable, so ext1 wakes on it
 constexpr int kAdxlInt2Pin = 34;  // reserved; input-only, awake-time use only
 
 // -----------------------------------------------------------------------------
@@ -388,6 +389,10 @@ constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 //      retry_max_age_h  give up on a rejected fix older than this (0 = never)
 //      config_check_s   how often an AWAKE device asks the broker to re-send
 //                       this document (a backstop - see kDefaultConfigCheckSeconds)
+//      motion           the motion-wake block: { "enabled", "threshold_mg",
+//                       "speed_kmph", "wake_wait_s", "stop_wait_s", "moving": {
+//                       the seven keys above, for while the car is driving } } -
+//                       see "Motion wake" at the end of this file
 //
 //  Every key is optional: the decoder merges what it finds into the settings
 //  already in force, so a document carrying only "interval_s" changes only that.
@@ -863,10 +868,15 @@ constexpr uint32_t kDht22SampleIntervalMs = 2000;  // sensor floor; do not lower
 //                          held through sleep.
 //
 // This is now the POWER SWITCH's pin and is derived from it below - ext0 is one
-// piece of hardware and cannot serve two signals. A motion wake from the
-// accelerometer would therefore use ext1 on kAdxlInt1Pin (32), which is
-// RTC-capable and idles LOW, so ESP_EXT1_WAKEUP_ANY_HIGH is the mode; ext0 and
-// ext1 can be armed together.
+// piece of hardware and cannot serve two signals. The motion wake from the
+// accelerometer therefore uses ext1 on kAdxlInt1Pin (32) - see kMotionWakePin
+// below - which is RTC-capable and idles LOW, so ESP_EXT1_WAKEUP_ANY_HIGH is the
+// mode; ext0 and ext1 can be armed together.
+//
+// ext0 is armed ONLY for the switched-off sleep, never for a timed one. A timed
+// sleep happens with the switch ON, i.e. with the pin already sitting at the run
+// level - and ext0 is level-triggered, so arming it there would wake the chip
+// the instant it went down.
 //
 // For the record, the full picture on this board: 2, 13, 14, 15 are the card,
 // 4, 26, 27 the modem, 21/22 the I2C bus, 35/36 the sense inputs, 25 the modem's
@@ -896,5 +906,101 @@ static_assert(!kPowerSwitchEnabled || kPowerSwitchPin != kAdxlInt2Pin,
 // there is no time left to sleep, but bouncing straight back through a reboot
 // would be worse than pausing briefly first.
 constexpr uint32_t kMinDeepSleepMs = 1000;
+
+// -----------------------------------------------------------------------------
+//  Motion wake (accelerometer wake + separate moving / standby settings).
+//
+//  With motion wake on, the device runs one of TWO sets of the seven runtime
+//  settings: STANDBY (the top-level config document - interval_s, sleep_between
+//  and the rest) while the car is parked, and MOVING (the document's
+//  "motion.moving" object) while it is driving. MotionTracker owns the switch:
+//
+//      STANDBY   runs the standby set. Asleep (standby sleep_between), it has
+//                TWO wake sources: the RTC timer at the standby interval, and the
+//                ADXL345 activity interrupt on INT1 (ext1 on kMotionWakePin).
+//                Awake, it polls the same interrupt every kMotionActivityPollMs.
+//      CHECKING  entered on every wake from standby - accelerometer, timer or
+//                power-on alike. Stays awake for up to wake_wait_s, acquiring
+//                GNSS every kMotionCheckPollMs and publishing only the FIRST fix.
+//                A fix faster than speed_kmph moves on to MOVING; otherwise the
+//                device goes back to STANDBY.
+//      MOVING    runs the moving set and publishes every fix. Each fix faster than
+//                speed_kmph pushes the deadline out to now + stop_wait_s; once it
+//                passes, back to STANDBY.
+//
+//  All of these are runtime settings (the "motion" object of the config document,
+//  cached on the card like every other setting, and carried by every schedule
+//  profile). The values here are only the defaults for a device that has never
+//  been told otherwise, taken from docs/MOTION-WAKE-THRESHOLDS.md. The feature is
+//  OFF by default: it changes how the device sleeps, so it is switched on
+//  deliberately from the dashboard.
+//
+//  Requires kAdxlEnabled. Without a working accelerometer the timer still wakes
+//  the device, so motion mode degrades to "look for movement every interval".
+// -----------------------------------------------------------------------------
+constexpr bool kDefaultMotionWakeEnabled = false;
+
+// Wake threshold, in milli-g. The ADXL345 compares in steps of 62.5 mg
+// (THRESH_ACT), so the value is rounded to the nearest step: 63 mg is step 1, the
+// most sensitive setting the data supports. The floor is that one step -
+// THRESH_ACT = 0 is the value the datasheet warns misbehaves - and the ceiling is
+// the sensor's +/-2 g range, beyond which a reading cannot change by much more.
+constexpr uint32_t kDefaultMotionThresholdMg = 63;
+constexpr uint32_t kMinMotionThresholdMg     = 63;
+constexpr uint32_t kMaxMotionThresholdMg     = 2000;
+
+// A fix counts as MOVING when its GNSS speed is strictly above this. Not zero: a
+// parked receiver reports 0-3 km/h of jitter, which would keep the device awake.
+constexpr uint32_t kDefaultMotionSpeedKmph = 3;
+constexpr uint32_t kMinMotionSpeedKmph     = 1;
+constexpr uint32_t kMaxMotionSpeedKmph     = 50;
+
+// How long a wake may look for a moving fix before going back to sleep. Covers a
+// cold GNSS start, and a driver who gets in and pulls away a few minutes later.
+constexpr uint32_t kDefaultMotionWakeWaitSeconds = 240;
+constexpr uint32_t kMinMotionWakeWaitSeconds     = 30;
+constexpr uint32_t kMaxMotionWakeWaitSeconds     = 3600;
+
+// How long after the LAST moving fix the device stays in moving mode. Ten
+// minutes is the elbow of the analysed stop durations: shorter costs a fresh wake
+// at many traffic stops, longer only burns awake time.
+constexpr uint32_t kDefaultMotionStopWaitSeconds = 600;
+constexpr uint32_t kMinMotionStopWaitSeconds     = 60;
+constexpr uint32_t kMaxMotionStopWaitSeconds     = 7200;
+
+// The MOVING set's defaults. Its accepted ranges are the standby ones above
+// (kMin/kMaxSendIntervalSeconds and friends) - a setting means the same thing in
+// either mode. Two rules keep a mode switch from losing data, both applied by
+// SettingsApplier: the queue cap in force is the LARGER of the two, and the
+// rejected-fix give-up age the more lenient (0 = never beats any number).
+constexpr uint32_t kDefaultMovingSendIntervalSeconds = 10;
+constexpr bool     kDefaultMovingSleepBetweenSends   = false;
+constexpr uint32_t kDefaultMovingFixTimeoutSeconds   = 180;
+constexpr uint32_t kDefaultMovingQueueMaxFixes       = 20000;
+constexpr uint32_t kDefaultMovingRetryIntervalHours  = 24;
+constexpr uint32_t kDefaultMovingRetryMaxAgeHours    = 168;
+constexpr uint32_t kDefaultMovingConfigCheckSeconds  = 3600;
+
+// Gap between GNSS acquires while CHECKING. Short on purpose: the receiver is
+// already running, and the whole point of the window is to catch the car pulling
+// away. Fixes taken here are not published (only the first one is), so this
+// costs no airtime.
+constexpr uint32_t kMotionCheckPollMs = 5000;
+
+// How often an AWAKE standby device reads the accelerometer's activity latch. One
+// I2C read a second; the wait loop already wakes this often for the power switch.
+constexpr uint32_t kMotionActivityPollMs = 1000;
+
+// Drop the ADXL345 to its 25 Hz low-power rate while the ESP32 sleeps: about
+// 40 uA instead of 140 uA, and 25 Hz still sees a car start. Restored on wake.
+constexpr bool kMotionWakeLowPowerSensor = true;
+
+// The ext1 wake pin: the ADXL345's INT1 line. Push-pull and active HIGH
+// (DATA_FORMAT INT_INVERT clear), so ext1 wakes on ANY_HIGH, and an RTC pulldown
+// keeps the pin quiet should the sensor ever be absent. ext0 belongs to the
+// power switch - see kWakeGpioPin above.
+constexpr int kMotionWakePin = kAdxlInt1Pin;
+static_assert(!kPowerSwitchEnabled || kMotionWakePin != kPowerSwitchPin,
+              "the motion wake pin cannot be the power switch pin");
 
 }  // namespace config

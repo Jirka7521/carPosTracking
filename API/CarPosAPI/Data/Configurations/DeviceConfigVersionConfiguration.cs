@@ -47,6 +47,39 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
                     "ck_device_config_versions_config_check_s",
                     $"config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
                 table.HasCheckConstraint(
+                    "ck_device_config_versions_motion_threshold_mg",
+                    $"motion_threshold_mg BETWEEN {DeviceConfigRules.MinMotionThresholdMg} AND {DeviceConfigRules.MaxMotionThresholdMg}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_motion_speed_kmph",
+                    $"motion_speed_kmph BETWEEN {DeviceConfigRules.MinMotionSpeedKmph} AND {DeviceConfigRules.MaxMotionSpeedKmph}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_motion_wake_wait_s",
+                    $"motion_wake_wait_s BETWEEN {DeviceConfigRules.MinMotionWakeWaitSeconds} AND {DeviceConfigRules.MaxMotionWakeWaitSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_motion_stop_wait_s",
+                    $"motion_stop_wait_s BETWEEN {DeviceConfigRules.MinMotionStopWaitSeconds} AND {DeviceConfigRules.MaxMotionStopWaitSeconds}");
+
+                // The moving set is held to the standby set's bounds: a setting means
+                // the same thing in either mode, so there is nothing to bound twice.
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_interval_s",
+                    $"moving_interval_s BETWEEN {DeviceConfigRules.MinIntervalSeconds} AND {DeviceConfigRules.MaxIntervalSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_fix_timeout_s",
+                    $"moving_fix_timeout_s BETWEEN {DeviceConfigRules.MinFixTimeoutSeconds} AND {DeviceConfigRules.MaxFixTimeoutSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_queue_max_fixes",
+                    $"moving_queue_max_fixes BETWEEN {DeviceConfigRules.MinQueueMaxFixes} AND {DeviceConfigRules.MaxQueueMaxFixes}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_retry_interval_h",
+                    $"moving_retry_interval_h BETWEEN {DeviceConfigRules.MinRetryIntervalHours} AND {DeviceConfigRules.MaxRetryIntervalHours}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_retry_max_age_h",
+                    $"moving_retry_max_age_h BETWEEN {DeviceConfigRules.MinRetryMaxAgeHours} AND {DeviceConfigRules.MaxRetryMaxAgeHours}");
+                table.HasCheckConstraint(
+                    "ck_device_config_versions_moving_config_check_s",
+                    $"moving_config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
+                table.HasCheckConstraint(
                     "ck_device_config_versions_version",
                     $"version >= {DeviceConfigRules.InitialVersion}");
             });
@@ -99,6 +132,81 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
         builder.Property(configVersion => configVersion.ConfigCheckSeconds)
             .HasColumnName("config_check_s")
             .HasDefaultValue(DeviceConfigRules.DefaultConfigCheckSeconds)
+            .IsRequired();
+
+        // The motion block. Every column carries a default so the migration backfills
+        // existing revisions with the same values a new device gets, and so a
+        // hand-written INSERT that predates the feature still produces a valid revision
+        // with motion switched off. The Moving* defaults are the firmware's, not copies
+        // of the standby ones: the whole point of the second set is that it differs.
+        builder.Property(configVersion => configVersion.MotionEnabled)
+            .HasColumnName("motion_enabled")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionEnabled)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MotionThresholdMg)
+            .HasColumnName("motion_threshold_mg")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionThresholdMg)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MotionSpeedKmph)
+            .HasColumnName("motion_speed_kmph")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionSpeedKmph)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MotionWakeWaitSeconds)
+            .HasColumnName("motion_wake_wait_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionWakeWaitSeconds)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MotionStopWaitSeconds)
+            .HasColumnName("motion_stop_wait_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionStopWaitSeconds)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingIntervalSeconds)
+            .HasColumnName("moving_interval_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingIntervalSeconds)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingSleepBetween)
+            .HasColumnName("moving_sleep_between")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingSleepBetween)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingFixTimeoutSeconds)
+            .HasColumnName("moving_fix_timeout_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingFixTimeoutSeconds)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingQueueMaxFixes)
+            .HasColumnName("moving_queue_max_fixes")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingQueueMaxFixes)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingRetryIntervalHours)
+            .HasColumnName("moving_retry_interval_h")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryIntervalHours)
+            .IsRequired();
+
+        // The sentinel is set explicitly, and for this column only. EF decides whether a
+        // value on an INSERT was "set" by comparing it with the property's sentinel,
+        // which is the CLR default (0) unless told otherwise — and when it was not set,
+        // the column is left out of the INSERT so the database default applies. Here
+        // 0 is a real, chosen value ("never give up on a rejected fix") that differs
+        // from the default of 168, so without this a revision saved with 0 would be
+        // stored as 168: the dashboard says never, the device is told a week, and no
+        // error appears anywhere. Every other column here has a floor above 0 or a
+        // default equal to its CLR default, so the usual sentinel is harmless for them.
+        builder.Property(configVersion => configVersion.MovingRetryMaxAgeHours)
+            .HasColumnName("moving_retry_max_age_h")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
+            .HasSentinel(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
+            .IsRequired();
+
+        builder.Property(configVersion => configVersion.MovingConfigCheckSeconds)
+            .HasColumnName("moving_config_check_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingConfigCheckSeconds)
             .IsRequired();
 
         builder.Property(configVersion => configVersion.CreatedByUserId)

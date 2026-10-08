@@ -130,7 +130,19 @@ internal sealed class ScheduleReconciler : IScheduleReconciler
                         profile.QueueMaxFixes,
                         profile.RetryIntervalHours,
                         profile.RetryMaxAgeHours,
-                        profile.ConfigCheckSeconds)))
+                        profile.ConfigCheckSeconds,
+                        profile.MotionEnabled,
+                        profile.MotionThresholdMg,
+                        profile.MotionSpeedKmph,
+                        profile.MotionWakeWaitSeconds,
+                        profile.MotionStopWaitSeconds,
+                        profile.MovingIntervalSeconds,
+                        profile.MovingSleepBetween,
+                        profile.MovingFixTimeoutSeconds,
+                        profile.MovingQueueMaxFixes,
+                        profile.MovingRetryIntervalHours,
+                        profile.MovingRetryMaxAgeHours,
+                        profile.MovingConfigCheckSeconds)))
                 .ToListAsync(cancellationToken))
             .ToDictionary(profile => profile.ProfileId);
 
