@@ -12,6 +12,9 @@ namespace CarPosAPI.Dtos;
 /// (a required field missing is a rejection; an optional sensor field missing is
 /// simply stored as null) rather than a serializer crash. This DTO carries
 /// location data (personal data) — it must never be logged.
+/// Firmware built before the DHT22 was removed still sends <c>ambient_temp_c</c> and
+/// <c>humidity_pct</c>; the ingest deserializer skips unknown members, so those fixes
+/// are stored as normal and the two fields are simply dropped.
 /// </summary>
 /// <param name="Device">Device id claimed inside the encrypted payload; must match the topic.</param>
 /// <param name="LatitudeDeg">Latitude in decimal degrees (+N/−S).</param>
@@ -24,18 +27,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="AccelYG">Instantaneous Y-axis acceleration in g (optional).</param>
 /// <param name="AccelZG">Instantaneous Z-axis acceleration in g (optional).</param>
 /// <param name="TempC">Modem die temperature in °C from AT+CPMUTEMP (optional).</param>
-/// <param name="AmbientTempC">
-/// Ambient air temperature in °C from the device's DHT22, medianed over the awake
-/// window (optional). Deliberately distinct from <paramref name="TempC"/>, which is and
-/// remains the modem's own die temperature: they are different quantities measured by
-/// different parts, so the ambient reading was given its own name rather than changing
-/// what an existing field means.
-/// </param>
-/// <param name="HumidityPct">
-/// Relative humidity in percent from the same DHT22 frame (optional). The firmware emits
-/// this and <paramref name="AmbientTempC"/> together or not at all — one sensor frame
-/// produces both.
-/// </param>
 /// <param name="SettingsVersion">
 /// Revision of the settings document the device was running when it took this fix
 /// (optional — absent on firmware that predates remote settings, and on a device that
@@ -66,8 +57,6 @@ public sealed record PositionPayloadDto(
     [property: JsonPropertyName("accel_y_g")] double? AccelYG = null,
     [property: JsonPropertyName("accel_z_g")] double? AccelZG = null,
     [property: JsonPropertyName("temp_c")] double? TempC = null,
-    [property: JsonPropertyName("ambient_temp_c")] double? AmbientTempC = null,
-    [property: JsonPropertyName("humidity_pct")] double? HumidityPct = null,
     [property: JsonPropertyName("settings_version")] int? SettingsVersion = null,
     [property: JsonPropertyName("profile_slot")] int? ProfileSlot = null,
     [property: JsonPropertyName("sched_v")] int? ScheduleVersion = null);

@@ -816,34 +816,6 @@ constexpr uint32_t kPowerSwitchDebounceMs = 100;
 constexpr uint32_t kPowerSwitchPollMs = 1000;
 
 // -----------------------------------------------------------------------------
-//  DHT22 / AM2302 ambient temperature and humidity.
-//
-//  Cabin climate, sampled for the whole awake window and published as the MEDIAN
-//  of those readings - the same treatment the pack voltage gets, minus the
-//  outlier trim (see AmbientWindowSampler.h for why trimming air temperature
-//  would be deleting the signal).
-//
-//  THE 2 SECOND CADENCE IS THE SENSOR'S, not a tuning choice. The DHT22 samples
-//  its own element that slowly and returns a stale frame if polled faster, so
-//  this cannot be lowered to join the 0.5 s battery/accelerometer cadence no
-//  matter how the value is set - Dht22 clamps it. The same floor covers the ~2 s
-//  warm-up after power-on, which is why the first report of a deep-sleep cycle
-//  usually carries no ambient fields at all.
-//
-//  The pin must be OUTPUT-capable: the host starts every exchange by pulling the
-//  line down, so the input-only 34-39 cannot serve. It also needs a 4.7k pull-up
-//  to 3V3 - already fitted on a 3-pin breakout module, needed as a discrete part
-//  on a bare 4-pin sensor. The ESP32's own ~45k internal pull-up is too weak for
-//  anything but a very short lead and is deliberately not used.
-//
-//  Published as ambient_temp_c / humidity_pct - NOT temp_c, which is the modem's
-//  own die temperature and has meant that since the field existed.
-// -----------------------------------------------------------------------------
-constexpr bool     kDht22Enabled          = true;
-constexpr int      kDht22DataPin          = 23;
-constexpr uint32_t kDht22SampleIntervalMs = 2000;  // sensor floor; do not lower
-
-// -----------------------------------------------------------------------------
 //  Deep sleep (only used when the "sleep_between" setting is on).
 //
 //  Between reports the modem is powered right down - which also cuts the GNSS
@@ -881,9 +853,9 @@ constexpr uint32_t kDht22SampleIntervalMs = 2000;  // sensor floor; do not lower
 // For the record, the full picture on this board: 2, 13, 14, 15 are the card,
 // 4, 26, 27 the modem, 21/22 the I2C bus, 35/36 the sense inputs, 25 the modem's
 // DTR, 12 the onboard LED, 16/17 the WROVER's PSRAM and 6-11 the flash. 18/19
-// are the status LEDs, 23 the DHT22, 32/34 the ADXL interrupts, 33 the switch.
-// That leaves 39. Note that 34-39 are input-only with no internal pull
-// resistors, so anything there needs an external one.
+// are the status LEDs, 32/34 the ADXL interrupts, 33 the switch. That leaves 23
+// and 39. Note that 34-39 are input-only with no internal pull resistors, so
+// anything there needs an external one.
 constexpr int kWakeGpioPin   = kPowerSwitchEnabled ? kPowerSwitchPin : -1;
 constexpr int kWakeGpioLevel = kPowerSwitchEnabled ? kPowerSwitchRunLevel : 1;
 

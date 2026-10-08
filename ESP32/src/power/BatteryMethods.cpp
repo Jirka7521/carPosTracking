@@ -100,8 +100,8 @@ bool BatteryMethods::sample(BatteryMethodsSample& out) {
 }
 
 uint32_t BatteryMethods::medianOf(uint32_t* values, std::size_t n) {
-  // The reduction itself lives in util/Statistics.h, shared with the ambient
-  // window sampler - same insertion sort, same even-count rule, one copy.
+  // The reduction itself lives in util/Statistics.h - insertion sort, and the
+  // even-count rule.
   return statistics::medianOf(values, n);
 }
 

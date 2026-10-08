@@ -29,8 +29,6 @@
 #include "power/PowerSwitch.h"
 #include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
-#include "sensors/AmbientWindowSampler.h"
-#include "sensors/Dht22.h"
 #include "status/StatusLed.h"
 #include "status/StatusLeds.h"
 #include "sdcard/FixForwarder.h"
@@ -61,8 +59,7 @@ static const char* TAG = "main";
 // hot-car cut-off.
 static void debugPrintSensors(const BatteryStatus& battery,
                               const AccelSample& accel,
-                              const ModemHealth& modem,
-                              const AmbientSample& ambient) {
+                              const ModemHealth& modem) {
   printf("---------------- SENSORS ----------------\n");
   if (!battery.valid) {
     printf("  Battery        : n/a (disabled / read failed)\n");
@@ -84,15 +81,6 @@ static void debugPrintSensors(const BatteryStatus& battery,
     printf("  Modem temp     : %.1f C\n", modem.temperatureC);
   } else {
     printf("  Modem temp     : n/a (unavailable)\n");
-  }
-
-  // The DHT22's air reading, labelled apart from the modem die temperature
-  // above so the two are never mistaken for each other on the console either.
-  if (ambient.valid) {
-    printf("  Ambient        : %.1f C, %.1f %%RH\n", ambient.temperatureC,
-           ambient.humidityPct);
-  } else {
-    printf("  Ambient        : n/a (disabled / warming up / read failed)\n");
   }
   printf("-----------------------------------------\n\n");
 }
@@ -304,31 +292,6 @@ extern "C" void app_main(void) {
     } else if (!accelPeak.start()) {
       ESP_LOGW(TAG, "accelerometer peak tracking failed to start.");
     }
-  }
-
-  // Ambient temperature and humidity from the DHT22, on its own task. It runs at
-  // the sensor's own 2 s floor rather than the 0.5 s the pack and accelerometer
-  // share - the part physically cannot go faster (see Dht22.h) - and the report
-  // carries the MEDIAN of whatever it collected while the device was awake.
-  //
-  // Optional in the same sense as everything else here: a sensor that is absent
-  // or still warming up leaves the two fields out of the payload rather than
-  // holding up the cycle.
-  static Dht22 dht22(config::kDht22Enabled ? config::kDht22DataPin : -1,
-                     config::kDht22SampleIntervalMs);
-  static AmbientWindowSampler ambientWindow(dht22,
-                                            config::kDht22SampleIntervalMs);
-  bool ambientReady = false;
-  if (config::kDht22Enabled) {
-    if (!dht22.begin()) {
-      ESP_LOGW(TAG, "DHT22 unavailable - ambient fields will be omitted.");
-    } else if (!ambientWindow.start()) {
-      ESP_LOGW(TAG, "DHT22 sampling task failed to start.");
-    } else {
-      ambientReady = true;
-    }
-  } else {
-    ESP_LOGI(TAG, "DHT22 disabled in Config.h.");
   }
 
   // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
@@ -605,12 +568,7 @@ extern "C" void app_main(void) {
       if (config::kAdxlEnabled) {
         accel.read(accelSample);
       }
-      // The ambient reading is NOT re-read here: the DHT22 has its own 2 s
-      // floor and its own task, so asking it again from this hook would only
-      // ever be refused. The blank line in the debug block is honest - it says
-      // the console has no fresher reading than the window already holds.
-      AmbientSample ambientSample;
-      debugPrintSensors(batteryStatus, accelSample, modemHealth, ambientSample);
+      debugPrintSensors(batteryStatus, accelSample, modemHealth);
     }
 
     return true;  // keep waiting for the fix
@@ -849,16 +807,6 @@ extern "C" void app_main(void) {
         // only the temperature is left here. Published as temp_c when it
         // succeeds, and only ever for a fix we are about to send.
         sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
-      }
-
-      // Close the ambient window and take its median. Like the accelerometer
-      // peak above, taking it RESETS the window, so this belongs here - once per
-      // report - rather than anywhere that runs per poll. A false return means
-      // the window was empty (sensor absent, or an awake period shorter than the
-      // DHT22's first conversion), which leaves sample.ambient invalid and the
-      // two fields simply absent from the payload.
-      if (ambientReady) {
-        ambientWindow.takeMedian(sample.ambient);
       }
 
       // Checkpoint this run in RTC memory so the NEXT boot's journal line can

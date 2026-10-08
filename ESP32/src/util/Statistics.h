@@ -3,20 +3,17 @@
 // =============================================================================
 //  Statistics.h  -  The one median this firmware computes.
 // -----------------------------------------------------------------------------
-//  Two subsystems reduce a window of readings to a single published number: the
-//  battery path (raw ADC counts, via BatteryMethods) and the ambient path
-//  (DHT22 temperature and humidity, via AmbientWindowSampler). They aggregate
-//  different types over different cadences, but the reduction is the same one,
-//  so it lives here once rather than being written twice and drifting.
+//  The battery path (raw ADC counts, via BatteryMethods) reduces a window of
+//  readings to a single published number. The reduction lives here, apart from
+//  the battery code, so any future window sampler reuses it rather than writing
+//  a second copy that drifts.
 //
 //  Insertion sort on purpose: these windows are a few hundred entries at most,
 //  are already nearly sorted by the time anything trims them, and the algorithm
 //  beats anything cleverer at that size with none of the code.
 //
-//  Header-only and templated because the two callers differ only in element
-//  type - uint32_t counts on one side, float degrees on the other - and a
-//  template is cheaper than either duplicating the body or forcing everything
-//  through a double.
+//  Header-only and templated so the element type is the caller's choice -
+//  uint32_t counts today - rather than forcing everything through a double.
 // =============================================================================
 
 #include <cstddef>

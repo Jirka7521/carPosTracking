@@ -91,11 +91,6 @@ reuse.
   unexplained restart can be diagnosed after the fact. Because RTC memory
   survives a reset but not a lost rail, it separates **"it crashed"** from
   **"it lost power"**, which the serial console alone never could.
-- 🌡️ **DHT22 ambient temperature and humidity**: cabin climate read every 2 s
-  for the whole awake window and published as the **median** of those readings,
-  as `ambient_temp_c` / `humidity_pct` — deliberately separate from `temp_c`,
-  which is and remains the modem's own die temperature. See
-  [Ambient temperature and humidity](#ambient-temperature-and-humidity).
 - 💡 **Two status LEDs**: yellow for the GNSS hunt, green for WiFi — blinking
   while working, solid when done, dark when the subsystem is off. See
   [Status LEDs](#status-leds).
@@ -142,10 +137,7 @@ src/
 ├── sensors/
 │   ├── AccelData.h             ← Plain AccelSample struct (X/Y/Z in g)
 │   ├── Adxl345.h/.cpp          ← I2C driver for the ADXL345 accelerometer
-│   ├── AccelPeakTracker.h/.cpp ← Per-axis peak of the interval, on its own task
-│   ├── AmbientData.h           ← Plain AmbientSample struct (°C + %RH)
-│   ├── Dht22.h/.cpp            ← RMT-based one-wire driver for the DHT22
-│   └── AmbientWindowSampler.h/.cpp← Read every 2 s all cycle; publish the median
+│   └── AccelPeakTracker.h/.cpp ← Per-axis peak of the interval, on its own task
 │
 ├── motion/
 │   └── MotionTracker.h/.cpp    ← Motion wake: STANDBY / CHECKING / MOVING, and which settings apply
@@ -277,7 +269,7 @@ test:
 ## Wiring
 
 Everything below hangs off a **LilyGO TTGO T-SIM7000G** (ESP32-WROVER-B). The
-modem, the microSD slot and the battery sense are on the board already; the four
+modem, the microSD slot and the battery sense are on the board already; the three
 peripherals here are what gets added to it.
 
 ```
@@ -314,13 +306,6 @@ peripherals here are what gets added to it.
    │ ──▶|──[R]├──────┤ 19  (WiFi status)                 │                     │
    │          ├──────┼───────────────────────────────────┼─────────────────────┘
    └──────────┘      │                                   │
-                     │                                   │
-   DHT22 (3-pin)     │                                   │
-   ┌──────────┐      │                                   │
-   │ VCC ─────┼──────┤ 3V3                               │
-   │ DATA ────┼──────┤ 23  (one-wire, 4.7k pull-up)      │
-   │ GND ─────┼──────┤ GND                               │
-   └──────────┘      │                                   │
                      └───────────────────────────────────┘
 ```
 
@@ -332,16 +317,13 @@ peripherals here are what gets added to it.
 | Power switch | `33` | To **GND**. Internal pull-up, ext0 wake. |
 | Yellow LED (GNSS) | `18` | Anode via series resistor; cathode to GND. **Active high.** |
 | Green LED (WiFi) | `19` | Anode via series resistor; cathode to GND. **Active high.** |
-| DHT22 DATA | `23` | Needs a 4.7 kΩ pull-up to 3V3 — already fitted on a 3-pin module. |
 
 **No discrete resistors are needed** for the build this was written for: the
-switch uses the ESP32's internal pull-up, the LEDs are pre-wired 3 V parts with
-the resistor already in the lead, and the DHT22 is a 3-pin breakout with its
-pull-up on the PCB. With bare parts instead, fit **1 kΩ** per LED (≈1.3 mA — use
-470 Ω if the unit sits behind smoked plastic, and never share one resistor
-between two LEDs, because the lower-Vf one takes the current and the other stays
-dark) and **4.7 kΩ** from the DHT22's DATA line to 3V3. The ESP32's own ~45 kΩ
-internal pull-up is too weak for the DHT22 on anything but a very short lead.
+switch uses the ESP32's internal pull-up, and the LEDs are pre-wired 3 V parts
+with the resistor already in the lead. With bare LEDs instead, fit **1 kΩ** per
+LED (≈1.3 mA — use 470 Ω if the unit sits behind smoked plastic, and never share
+one resistor between two LEDs, because the lower-Vf one takes the current and the
+other stays dark).
 
 ### Why these pins, and what had to move
 
@@ -367,10 +349,8 @@ lines stay wired and usable — INT1 is now the [motion wake](#motion-wake) line
 INT2 is still free. Two `static_assert`s in `Config.h` make sure the
 switch can never be configured back onto either of them.
 
-`18`, `19` and `23` are the remaining plain GPIOs with no strapping role. `23`
-goes to the DHT22 specifically because the sensor's host pulls the line down to
-start every exchange, so it needs an **output-capable** pin — which rules out
-`34`/`39`. After all this, `39` is the only pin left free.
+`18`, `19` and `23` are the remaining plain GPIOs with no strapping role; the
+status LEDs take `18` and `19`. After all this, `23` and `39` are left free.
 
 ---
 
@@ -438,9 +418,6 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kAdxlInt1Pin` / `kAdxlInt2Pin` | `32` / `34` | INT pins. INT1 carries the activity interrupt for the [motion wake](#motion-wake) (`kMotionWakePin`); INT2 is reserved. INT2 moved off `33` to free it for the power switch; see [Wiring](#wiring) |
 | **`kAccelPeakEnabled`** | `false` | **Report the strongest per-axis reading of the interval instead of one instantaneous sample** (see below) |
 | `kAccelSampleIntervalMs` | `500` | How often the sensor is sampled while peak tracking is on |
-| **`kDht22Enabled`** | `true` | **Enable/disable the DHT22 ambient sensor** (see [Ambient temperature and humidity](#ambient-temperature-and-humidity)) |
-| `kDht22DataPin` | `23` | One-wire DATA pin. Must be **output-capable** — the host drives the start pulse |
-| `kDht22SampleIntervalMs` | `2000` | How often the sensor is read. **The part's own floor** — lower values are clamped back up |
 | **`kStatusLedsEnabled`** | `true` | **Enable/disable both status LEDs** (see [Status LEDs](#status-leds)) |
 | `kGnssLedPin` / `kWifiLedPin` | `18` / `19` | Yellow (GNSS) and green (WiFi) indicator pins; `-1` drops one |
 | `kStatusLedActiveHigh` | `true` | `true` = a HIGH level lights the LED (anode to the pin) |
@@ -605,22 +582,14 @@ sensor fields; the field names match the API's `PositionPayloadDto` exactly:
 {"device":"GNSS01","latitude_deg":50.08,"longitude_deg":14.42,
  "speed_kmph":0.0,"altitude_m":210.0,"time_utc":"2026-07-23T10:00:00Z",
  "battery_pct":87,"accel_x_g":0.01,"accel_y_g":-0.02,"accel_z_g":0.99,
- "temp_c":31.0,"ambient_temp_c":21.4,"humidity_pct":47.2}
+ "temp_c":31.0}
 ```
 
-`battery_pct` (`0` = charging), `accel_x/y/z_g`, `temp_c` (modem die temperature
-in °C) and the `ambient_temp_c` / `humidity_pct` pair are **omitted** when their
-sensor is disabled or a read failed, so an older decoder still parses the six
-location fields it knows. The raw pack millivolts are **not** on the wire — they
-stay on the serial console as a curve-calibration aid only.
-
-> **`temp_c` and `ambient_temp_c` are two different things.** `temp_c` is the
-> SIM7000's own die temperature (`AT+CPMUTEMP`) — the reading that explains a
-> hot-car cut-off. `ambient_temp_c` is the air, from the DHT22. The ambient pair
-> got its own names rather than taking over `temp_c` precisely so that neither
-> the firmware nor an existing database column silently changed meaning.
-> `ambient_temp_c` and `humidity_pct` are emitted together or not at all: one
-> sensor frame produces both.
+`battery_pct` (`0` = charging), `accel_x/y/z_g` and `temp_c` (modem die
+temperature in °C) are **omitted** when their sensor is disabled or a read
+failed, so an older decoder still parses the six location fields it knows. The
+raw pack millivolts are **not** on the wire — they stay on the serial console as
+a curve-calibration aid only.
 
 `battery_pct` is produced by [`BatteryReporter`](src/power/BatteryReporter.h)
 from the measurement described under [Battery measurement](#battery-measurement)
@@ -1776,7 +1745,6 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
   Battery        : 87 % (3892 mV)
   Accel X/Y/Z    : 0.01 / -0.02 / 0.99 g
   Modem temp     : 31.0 C
-  Ambient        : n/a (disabled / warming up / read failed)
 -----------------------------------------
 ```
 
@@ -1788,13 +1756,6 @@ deliberately **not** published — or `charging (sentinel 0)` while the charger 
 connected, or `n/a` when the monitor is disabled or a read failed; `Accel X/Y/Z`
 shows the raw ADXL345 sample in g, or `n/a`; `Modem temp` is the modem die
 temperature (published as `temp_c`), or `n/a` when unavailable.
-
-`Ambient` is the DHT22's air reading, and it is **always `n/a` in this block** —
-deliberately. The sensor has its own 2 s floor and its own sampling task, so
-asking it again from a per-poll hook would only ever be refused; the reading that
-gets published is the median of that task's window, taken once per report. The
-line is there so the two temperatures are labelled apart on the console the same
-way they are on the wire, not as a live readout.
 
 Once a lock arrives, three more **GNSS FIX** blocks follow about a second apart
 with **no satellite table between them** — that is the averaging burst, which
@@ -2158,67 +2119,6 @@ so [`AdcSampler`](src/power/AdcSampler.h) guards its conversions and its pin
 table too, and the sampler's reservoir takes a lock of its own. Nothing else in
 the firmware became concurrent — the delivery path is still driven entirely from
 the main task.
-
----
-
-## Ambient temperature and humidity
-
-A **DHT22 (AM2302)** on `kDht22DataPin` reports the air the unit is actually
-sitting in, published as `ambient_temp_c` and `humidity_pct`.
-
-Every report carries the **median** of every reading taken since the previous
-one, not one instantaneous sample — the same treatment the pack voltage gets, and
-for a related reason: a single frame that decodes cleanly can still be wrong, and
-the middle of a dozen readings is not.
-
-```
-  boot / deep-sleep wake                                      publish
-     │                                                           │
-     │  *        *        *        *        *        *        *  │
-     │  one reading every kDht22SampleIntervalMs (2 s)            │
-     └───────────────────────────────────────────────────────────┘
-                                                   takeMedian() → window reset
-```
-
-There is deliberately **no outlier trim**, which is where this differs from the
-battery path. The pack window is trimmed because a SIM7000 transmit burst drags
-the rail down for tens of milliseconds and those samples are measurement
-artefacts. Air temperature has no equivalent — a reading that differs from its
-neighbours is usually the air actually changing, and deleting it would be
-deleting the signal. The median alone rejects what needs rejecting, and a
-genuinely corrupt frame never gets this far because its checksum already failed.
-
-**Why 2 s and not 0.5 s.** The accelerometer and the pack are both sampled every
-500 ms; the DHT22 is not, and cannot be. The part samples its own sensing element
-about once every two seconds and returns a stale frame — or nothing at all — if
-polled faster, so [`Dht22`](src/sensors/Dht22.h) enforces that floor internally
-and **clamps `kDht22SampleIntervalMs` up** if it is set lower. The same rule
-covers the roughly two seconds the sensor needs after power-on before its first
-conversion exists, which is why **the first report after a deep-sleep wake
-usually carries no ambient fields at all**. That is the honest answer rather than
-a defect: on a sleeping device there was no sensor running to ask.
-
-**Why the driver uses RMT.** The DHT22 encodes each bit in the *length* of a high
-pulse — about 26 µs means 0, about 70 µs means 1 — and a whole 40-bit frame takes
-roughly 5 ms. Timing that on the CPU means either polling in a tight loop, where
-one FreeRTOS pre-emption or WiFi interrupt lands mid-pulse and corrupts the
-frame, or disabling interrupts for the full 5 ms on a device whose radio is up
-and whose MQTT session is live. Neither is acceptable here, so the RMT peripheral
-captures the pulse train in hardware and the CPU decodes it afterwards at its
-leisure.
-
-One subtlety worth knowing if you touch that driver: the exchange *starts* with
-the host pulling the line low for more than a millisecond, which a receive-only
-RMT channel cannot do. The pad is therefore left in open-drain input+output mode
-after the channel claims it, so the CPU can still pull it down while the
-peripheral keeps watching, and the receive is armed **before** the start pulse is
-driven. That means the captured stream also contains the host's own pulse and the
-sensor's 80/80 µs response, which the decoder skips by counting back and taking
-the **last 40 symbols**.
-
-DHT11 was considered and rejected. Its range is 0–50 °C and 20–90 %RH with 1 °
-resolution — a parked car goes outside that in both directions, in most of
-Europe, most years.
 
 ---
 

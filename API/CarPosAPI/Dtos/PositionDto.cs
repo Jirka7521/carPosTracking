@@ -28,14 +28,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="TemperatureC">
 /// Modem die temperature in °C at the fix, or null when the device reported none.
 /// </param>
-/// <param name="AmbientTemperatureC">
-/// Ambient air temperature in °C at the fix from the device's DHT22, or null when it
-/// reported none. A different quantity from <paramref name="TemperatureC"/>, which is
-/// the modem's own die temperature.
-/// </param>
-/// <param name="HumidityPct">
-/// Relative humidity in percent at the fix, or null when the device reported none.
-/// </param>
 public sealed record PositionDto(
     long Id,
     string DeviceId,
@@ -49,6 +41,4 @@ public sealed record PositionDto(
     double? AccelXG,
     double? AccelYG,
     double? AccelZG,
-    double? TemperatureC,
-    double? AmbientTemperatureC,
-    double? HumidityPct);
+    double? TemperatureC);
