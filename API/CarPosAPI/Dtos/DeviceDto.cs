@@ -27,14 +27,23 @@ namespace CarPosAPI.Dtos;
 /// <param name="DeactivatedAt">When it was soft-deleted (UTC); null while active.</param>
 /// <param name="LastSeenAt">
 /// When the last accepted fix from this device arrived (UTC), or null if it has
-/// never reported. The firmware sends no heartbeat or last-will, so this is the
-/// only liveness signal that exists.
+/// never reported. One of two liveness signals — see <paramref name="LastOnlineAt"/>.
 /// </param>
 /// <param name="LastBatteryPct">
 /// Battery state of charge from this device's most recent fix (0–100), or null
 /// when it has never reported or reported no battery. The value 0 is the
 /// "charging" sentinel, which the dashboard renders as charging. This lets the
 /// device grid show a battery level at a glance without loading its positions.
+/// </param>
+/// <param name="LastOnlineAt">
+/// When the device last announced a new broker connection (UTC), or null when it
+/// never has (firmware without status messages). Together with
+/// <paramref name="LastSeenAt"/> it answers "has it come back since
+/// <paramref name="LastOfflineEvent"/>?" — whichever is later counts.
+/// </param>
+/// <param name="LastOfflineEvent">
+/// The most recent time the device went offline and why, or null when it never has
+/// (or its firmware predates status messages). Drives the dashboard's status badge.
 /// </param>
 /// <param name="AccessCounts">
 /// How many accounts and live share links can currently see this device. Two
@@ -51,5 +60,7 @@ public sealed record DeviceDto(
     DateTime? DeactivatedAt,
     DateTime? LastSeenAt,
     int? LastBatteryPct,
+    DateTime? LastOnlineAt,
+    DeviceOfflineEventDto? LastOfflineEvent,
     DeviceAccessCountsDto AccessCounts,
     DevicePermissionsDto Permissions);

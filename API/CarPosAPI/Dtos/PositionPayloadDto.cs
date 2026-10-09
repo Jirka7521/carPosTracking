@@ -12,6 +12,10 @@ namespace CarPosAPI.Dtos;
 /// (a required field missing is a rejection; an optional sensor field missing is
 /// simply stored as null) rather than a serializer crash. This DTO carries
 /// location data (personal data) — it must never be logged.
+/// Firmware built before the DHT22 was removed still sends <c>ambient_temp_c</c> and
+/// <c>humidity_pct</c>, and firmware built before the modem temperature was removed
+/// still sends <c>temp_c</c>; the ingest deserializer skips unknown members, so those
+/// fixes are stored as normal and the extra fields are simply dropped.
 /// </summary>
 /// <param name="Device">Device id claimed inside the encrypted payload; must match the topic.</param>
 /// <param name="LatitudeDeg">Latitude in decimal degrees (+N/−S).</param>
@@ -23,7 +27,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="AccelXG">Instantaneous X-axis acceleration in g (optional).</param>
 /// <param name="AccelYG">Instantaneous Y-axis acceleration in g (optional).</param>
 /// <param name="AccelZG">Instantaneous Z-axis acceleration in g (optional).</param>
-/// <param name="TempC">Modem die temperature in °C from AT+CPMUTEMP (optional).</param>
 /// <param name="SettingsVersion">
 /// Revision of the settings document the device was running when it took this fix
 /// (optional — absent on firmware that predates remote settings, and on a device that
@@ -53,7 +56,6 @@ public sealed record PositionPayloadDto(
     [property: JsonPropertyName("accel_x_g")] double? AccelXG = null,
     [property: JsonPropertyName("accel_y_g")] double? AccelYG = null,
     [property: JsonPropertyName("accel_z_g")] double? AccelZG = null,
-    [property: JsonPropertyName("temp_c")] double? TempC = null,
     [property: JsonPropertyName("settings_version")] int? SettingsVersion = null,
     [property: JsonPropertyName("profile_slot")] int? ProfileSlot = null,
     [property: JsonPropertyName("sched_v")] int? ScheduleVersion = null);

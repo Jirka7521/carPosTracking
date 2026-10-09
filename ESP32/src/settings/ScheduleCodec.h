@@ -11,14 +11,17 @@
 //      "profiles": [ { "slot": 0, "name": "Day", "interval_s": 60,
 //                      "sleep_between": false, "fix_timeout_s": 180,
 //                      "queue_max_fixes": 20000, "retry_interval_h": 24,
-//                      "retry_max_age_h": 168, "config_check_s": 3600 } ],
+//                      "retry_max_age_h": 168, "config_check_s": 3600,
+//                      "motion": { ...as in the config document... } } ],
 //      "rules":    [ { "slot": 1, "days": 62, "start_m": 1320, "dur_m": 480,
 //                      "prio": 100, "ord": 3 } ],
-//      "override": { "until": "2026-09-06T22:00:00Z", ...the seven values... } }
+//      "override": { "until": "2026-09-06T22:00:00Z", ...the same values... } }
 //
-//  The seven value keys inside a profile are DELIBERATELY the same as the config
-//  document's, so each profile object is handed straight to SettingsCodec:
-//  one decoder, one set of bounds, no second place for the two to drift.
+//  The value keys inside a profile - the seven and the "motion" block - are
+//  DELIBERATELY the same as the config document's, so each profile object is
+//  handed straight to SettingsCodec: one decoder, one set of bounds, no second
+//  place for the two to drift. That is also why a profile can carry its own
+//  motion settings (a night profile with motion wake off, say) for free.
 //
 //  Two differences from SettingsCodec worth knowing:
 //

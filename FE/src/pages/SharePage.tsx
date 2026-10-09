@@ -48,6 +48,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { formatDateTime } from '../i18n/format'
 import { parseApiTimestamp } from '../utils/dates'
 import { describeError } from '../utils/errors'
+import { grantBrowserMapsConsent, hasBrowserMapsConsent, revokeBrowserMapsConsent } from '../utils/mapsConsent'
 import { ApiError } from '../services/apiClient'
 
 // Matches DevicePage: one timer for the page, thirty seconds.
@@ -89,6 +90,16 @@ export function SharePage() {
   // arriving by link as far as the URL can tell, so that re-prompted for a code the
   // browser had already earned the right to skip.
   const [loadToken, setLoadToken] = useState<number>(1)
+
+  // The visitor's "always load maps", kept in a cookie on this browser — they
+  // have no account to keep it on. Withdrawing it is offered right here, because
+  // there is no profile page for a visitor to go and find it on (GDPR Art. 7(3):
+  // as easy to withdraw as to give).
+  const [hasStandingMapsConsent, setHasStandingMapsConsent] = useState<boolean>(hasBrowserMapsConsent)
+  const [wasMapsConsentRevoked, setWasMapsConsentRevoked] = useState<boolean>(false)
+  // Bumped on withdrawal so the map is unmounted and the prompt comes back at
+  // once, rather than "stop" quietly meaning "from the next visit".
+  const [mapEpoch, setMapEpoch] = useState<number>(0)
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
 
@@ -198,6 +209,19 @@ export function SharePage() {
     setNeedsOriginalLink(tokenRef.current === null)
   }
 
+  function handleGrantMapsConsent(): void {
+    grantBrowserMapsConsent()
+    setHasStandingMapsConsent(true)
+    setWasMapsConsentRevoked(false)
+  }
+
+  function handleRevokeMapsConsent(): void {
+    revokeBrowserMapsConsent()
+    setHasStandingMapsConsent(false)
+    setWasMapsConsentRevoked(true)
+    setMapEpoch((current) => current + 1)
+  }
+
   return (
     <div className="legal-page">
       <header className="legal-header">
@@ -304,10 +328,21 @@ export function SharePage() {
 
         <div className="share-view-toolbar">
           <RefreshToolbar autoRefresh={refresh} isLoading={isLoading} />
+          {hasStandingMapsConsent && hasGoogleMapsKey() ? (
+            <button type="button" className="btn btn-quiet btn-sm" onClick={handleRevokeMapsConsent}>
+              {t('share:visitor.mapsConsentRevoke')}
+            </button>
+          ) : null}
           <button type="button" className="btn btn-quiet btn-sm" onClick={handleLeave}>
             {t('share:visitor.leave')}
           </button>
         </div>
+
+        {wasMapsConsentRevoked ? (
+          <p className="form-message form-message--success" role="status">
+            {t('share:visitor.mapsConsentRevoked')}
+          </p>
+        ) : null}
 
         {error !== null && (
           <div className="banner banner--error">
@@ -324,11 +359,16 @@ export function SharePage() {
           /* The maps-consent gate inside DeviceMap applies to a visitor exactly
              as it does to an account holder: no request reaches Google until
              they choose. That is the whole reason this page reuses the
-             component rather than drawing its own map. */
+             component rather than drawing its own map. Only where "always" is
+             remembered differs — a cookie on this browser, not an account. */
           <DeviceMap
+            key={mapEpoch}
             positions={positions}
             apiKey={runtimeConfig.googleMapsApiKey}
             fitToken={0}
+            hasStandingConsent={hasStandingMapsConsent}
+            onGrantStandingConsent={handleGrantMapsConsent}
+            consentScope="browser"
           />
         ) : (
           <div className="error-state">

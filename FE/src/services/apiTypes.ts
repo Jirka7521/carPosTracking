@@ -64,14 +64,21 @@ export type DeviceDto = {
   createdAt: string
   deactivatedAt: string | null
   // When the last accepted fix arrived, or null if the device has never
-  // reported. The firmware sends no heartbeat, so this is the only liveness
-  // signal that exists.
+  // reported. One of two liveness signals — see lastOnlineAt.
   lastSeenAt: string | null
   // Battery state of charge from this device's most recent fix (0–100), or null
   // when it has never reported one. The value 0 is the "charging" sentinel — the
   // UI shows it as charging rather than as a flat battery. Lets the device grid
   // display a battery level without loading positions.
   lastBatteryPct: number | null
+  // When the device last announced a new broker connection, or null when it
+  // never has (firmware without status messages). Unlike lastSeenAt it moves even
+  // when no fix follows — a tracker in a garage is still online.
+  lastOnlineAt: string | null
+  // The most recent time the device went offline, and why — or null when it
+  // never has. Whether it has since come back is answered by comparing against
+  // lastOnlineAt / lastSeenAt; see utils/deviceEvents.ts resolveLinkState.
+  lastOfflineEvent: DeviceOfflineEventDto | null
   // How many accounts and live share links can see this device right now. Always
   // present, and people is always at least 1.
   accessCounts: DeviceAccessCountsDto
@@ -102,10 +109,92 @@ export type PositionDto = {
   accelXG: number | null
   accelYG: number | null
   accelZG: number | null
-  // Modem die temperature at this fix in °C, or null when the device sent none
-  // (older firmware, or the SIM7000 AT+CPMUTEMP command unsupported). A proxy for
-  // how hot the tracker is running — a hot-car cut-off shows up here.
-  temperatureC: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Device connection history — GET /api/devices/{deviceId}/events
+//
+// The tracker says why it goes offline (and the broker says it for the tracker,
+// through its Last Will, when it cannot); after a reboot it says why it
+// restarted. The API stores each as an event and decides how much it matters.
+// ---------------------------------------------------------------------------
+
+// Why a device went offline. 'sleep' is the regular sleep between reports,
+// 'sleepNoMotion' a sleep because the car was found parked (motion wake armed).
+// 'connectionLost' is the Last Will — published by the broker when a session
+// died without a goodbye (crash, power cut, lost link).
+export type DeviceOfflineReason =
+  | 'sleep'
+  | 'sleepNoMotion'
+  | 'powerOff'
+  | 'batteryLow'
+  | 'error'
+  | 'connectionLost'
+
+// Why a device restarted, as it reported once it was back. Ordinary deep-sleep
+// wakes are 'wake' events instead.
+export type DeviceRestartReason = 'powerOn' | 'powerLoss' | 'crash'
+
+// What woke a device from deep sleep: its regular timer, the accelerometer
+// (the car moved), or the power switch being turned back on.
+export type DeviceWakeReason = 'timer' | 'accelerometer' | 'powerSwitch'
+
+// One step of the device's motion-wake state machine. 'checking' / 'activity' /
+// 'motionOn' start a check for movement (after a wake, on a jolt while awake,
+// or because motion wake was switched on); 'moving' is a fast fix; 'noMotion'
+// ends a check with the car parked, 'stopped' ends a trip; 'motionOff' is
+// motion wake switched off.
+export type DeviceMotionReason =
+  | 'checking'
+  | 'activity'
+  | 'motionOn'
+  | 'moving'
+  | 'noMotion'
+  | 'stopped'
+  | 'motionOff'
+
+export type DeviceEventReason =
+  | DeviceOfflineReason
+  | DeviceRestartReason
+  | DeviceWakeReason
+  | DeviceMotionReason
+
+export type DeviceEventKind = 'offline' | 'restart' | 'wake' | 'motion'
+
+// Decided by the API alone, lowest first. 'normal' is expected behaviour (a
+// planned sleep), 'alert' needs attention (low battery), 'error' is a fault.
+export type DeviceEventSeverity = 'normal' | 'alert' | 'error'
+
+// The latest offline event, carried on every DeviceDto for the status badge.
+export interface DeviceOfflineEventDto {
+  reason: DeviceOfflineReason
+  severity: DeviceEventSeverity
+  // When it went offline — the server's receive time for a live goodbye, the
+  // device's clock for one it kept on its SD card while out of range.
+  occurredAt: string
+  // How long the device expected to be away, when it said (a planned sleep).
+  sleepSeconds: number | null
+}
+
+// One row of the Events tab.
+export interface DeviceEventDto {
+  id: number
+  kind: DeviceEventKind
+  reason: DeviceEventReason
+  severity: DeviceEventSeverity
+  // When it happened — the event's time, which the list is ordered by. Equal
+  // to receivedAt for a live message; earlier for one that waited on the
+  // device's SD card while it was out of range.
+  occurredAt: string
+  // When the server received it.
+  receivedAt: string
+  // The device's own clock at the time, when it trusted one.
+  deviceTime: string | null
+  // Battery percent the device last knew; 0 is the "charging" sentinel.
+  batteryPct: number | null
+  sleepSeconds: number | null
+  // A short machine code qualifying an error, e.g. 'gnss_init'.
+  detail: string | null
 }
 
 // One row in GET /api/access?deviceId=X — the four capability flags a user
@@ -205,7 +294,7 @@ export type DeviceCreatedDto = {
 // ---------------------------------------------------------------------------
 // Remote device settings.
 //
-// These six values are the document the API publishes — retained — to
+// These values are the document the API publishes — retained — to
 // devices/<id>/config, and the firmware caches on its SD card. Every save
 // creates a new immutable *revision*; nothing is ever edited in place. The
 // device echoes the revision number back in each position report, which is how
@@ -240,6 +329,34 @@ export type DeviceConfigValuesDto = {
   // effect at all while sleepBetween is on — a sleeping device re-reads its
   // configuration on every wake anyway.
   configCheckSeconds: number
+
+  // ---- Motion wake --------------------------------------------------------
+  // intervalSeconds, sleepBetween and fixTimeoutSeconds above are the STANDBY
+  // set, used while the car is parked; the other four above apply in both
+  // modes. The eight below add a MOVING copy of those three and the knobs that
+  // switch between the two. They are flat, like everything else here.
+
+  // Wake the sleeping tracker when the accelerometer feels the car move, and
+  // switch between the standby and moving sets. Off, the moving set is unused.
+  motionEnabled: boolean
+  // Accelerometer wake threshold in milli-g. 63 … 2000. The sensor works in
+  // 62.5 mg steps and the firmware rounds to the nearest, so 63 is step 1 —
+  // the most sensitive setting. The default 188 is step 3 (187.5 mg).
+  motionThresholdMg: number
+  // A GNSS fix counts as "moving" when its speed is strictly above this, in
+  // km/h. 1 … 50.
+  motionSpeedKmph: number
+  // After any wake from standby, how long to look for a moving fix before
+  // going back to sleep. 30 … 3600 seconds.
+  motionWakeWaitSeconds: number
+  // How long after the last moving fix the device stays in moving mode before
+  // falling back to standby. 60 … 7200 seconds.
+  motionStopWaitSeconds: number
+  // The moving set. Each mirrors the standby setting of the same name, with the
+  // same bounds; only the defaults differ (it reports every 30 s by default).
+  movingIntervalSeconds: number
+  movingSleepBetween: boolean
+  movingFixTimeoutSeconds: number
 }
 
 // One revision, as returned by the state and history endpoints.
@@ -398,7 +515,7 @@ export type UpdateDeviceScheduleRequestDto = {
   fallbackProfileId: string | null
 }
 
-// POST/PUT .../schedule/profiles — name plus the seven values, flattened the way
+// POST/PUT .../schedule/profiles — name plus the settings values, flattened the way
 // the API's request record spells them.
 export type SaveConfigProfileRequestDto = DeviceConfigValuesDto & {
   name: string
@@ -465,6 +582,19 @@ export interface PrivacyPolicyDto {
   controllerContactEmail: string
 }
 
+// GET / PUT /api/me/maps-consent — the account's standing agreement to load the
+// Google map. Both null when there is none. Not on UserProfileDto, which is also
+// handed to other users.
+export interface MapsConsentDto {
+  version: string | null
+  grantedAt: string | null
+}
+
+// PUT /api/me/maps-consent — the prompt version the person was shown.
+export interface MapsConsentGrantRequestDto {
+  version: string
+}
+
 // DELETE /api/me — permanent account erasure. The password is proof of
 // identity: a stolen session cookie must not be enough to destroy an account.
 export interface DeleteAccountRequestDto {
@@ -483,11 +613,15 @@ export interface AccountErasureResultDto {
   // grant handed to another person, a share link is not left standing: nobody
   // would remain who could revoke one.
   shareLinksDeleted: number
+  // Connection-history rows erased with the deleted devices.
+  deviceEventsDeleted: number
 }
 
-// DELETE /api/devices/{deviceId}/positions — erases a location history.
+// DELETE /api/devices/{deviceId}/positions — erases a location history, and the
+// device's connection events over the same range with it.
 export interface PositionErasureResultDto {
   deletedCount: number
+  deletedEventCount: number
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +665,6 @@ export interface ShareLinkDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
   status: ShareLinkStatus
   createdAt: string
   revokedAt: string | null
@@ -553,7 +686,6 @@ export interface ShareLinkCreateRequestDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }
 
 // The 201 body, and the only time the two secrets exist outside the creator's
@@ -584,11 +716,10 @@ export interface ShareSessionDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }
 
 // One fix as a visitor sees it. Compare PositionDto: no id, no deviceId, no
-// receivedAt, no altitude, no accelerometer. The three optional fields are null
+// receivedAt, no altitude, no accelerometer. The two optional fields are null
 // unless the creator opted in.
 export interface SharedPositionDto {
   timestamp: string
@@ -596,7 +727,6 @@ export interface SharedPositionDto {
   longitude: number
   speedKmph: number | null
   batteryPct: number | null
-  temperatureC: number | null
 }
 
 // GET /api/shares/view — the share and its fixes in one response, so a reload
@@ -618,5 +748,4 @@ export interface ShareLinkUpdateRequestDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }

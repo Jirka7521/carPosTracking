@@ -36,15 +36,30 @@ public sealed class ConfigSnippetBuilderTests
     /// Settings deliberately different from every factory default, so a test asserting
     /// that a rendered default came from the device's own configuration cannot pass by
     /// accidentally matching <see cref="DeviceConfigRules"/>.
+    ///
+    /// <para>
+    /// <c>RetryMaxAgeHours</c> is 0 — "never give up", the one value that is meaningful
+    /// at its floor, and so the one a careless renderer would be most likely to drop or
+    /// replace with a default. <c>MotionEnabled</c> and <c>SleepBetween</c> are false
+    /// because both factory defaults are now on.
+    /// </para>
     /// </summary>
     private static readonly DeviceConfigValuesDto s_settings = new DeviceConfigValuesDto(
         IntervalSeconds: 300,
-        SleepBetween: true,
+        SleepBetween: false,
         FixTimeoutSeconds: 240,
         QueueMaxFixes: 5000,
         RetryIntervalHours: 12,
-        RetryMaxAgeHours: 72,
-        ConfigCheckSeconds: 1800);
+        RetryMaxAgeHours: 0,
+        ConfigCheckSeconds: 1800,
+        MotionEnabled: false,
+        MotionThresholdMg: 125,
+        MotionSpeedKmph: 5,
+        MotionWakeWaitSeconds: 300,
+        MotionStopWaitSeconds: 1200,
+        MovingIntervalSeconds: 15,
+        MovingSleepBetween: true,
+        MovingFixTimeoutSeconds: 120);
 
     /// <summary>
     /// Every constant <see cref="ConfigSnippetBuilder"/> rewrites, paired with the
@@ -74,6 +89,9 @@ public sealed class ConfigSnippetBuilderTests
         ("kTelemetryTopic", "\"devices/GNSS01\""),
         ("kConfigTopic", "\"devices/GNSS01/config\""),
         ("kAckTopic", "\"devices/GNSS01/ack\""),
+        // The Last Will names this topic, so a miss here is worse than misrouted
+        // status messages: Mosquitto may refuse the CONNECT outright.
+        ("kStatusTopic", "\"devices/GNSS01/status\""),
         ("kMqttBrokerUri", $"\"{BrokerUri}\""),
         ("kMqttUsername", "\"GNSS01\""),
         ("kMqttClientId", "\"GNSS01\""),
@@ -87,12 +105,24 @@ public sealed class ConfigSnippetBuilderTests
 
         // This device's live settings as the compile-time defaults.
         ("kDefaultSendIntervalSeconds", "300"),
-        ("kDefaultSleepBetweenSends", "true"),
+        ("kDefaultSleepBetweenSends", "false"),
         ("kFixAcquireTimeoutSeconds", "240"),
         ("kSdMaxQueuedFixes", "5000"),
         ("kRetryIntervalHours", "12"),
-        ("kRetryMaxAgeHours", "72"),
+        ("kRetryMaxAgeHours", "0"),
         ("kDefaultConfigCheckSeconds", "1800"),
+
+        // The motion block: the wake switch and its parameters, then the MOVING copy of
+        // interval, sleep and fix timeout. The firmware spells two of the moving names
+        // its own way.
+        ("kDefaultMotionWakeEnabled", "false"),
+        ("kDefaultMotionThresholdMg", "125"),
+        ("kDefaultMotionSpeedKmph", "5"),
+        ("kDefaultMotionWakeWaitSeconds", "300"),
+        ("kDefaultMotionStopWaitSeconds", "1200"),
+        ("kDefaultMovingSendIntervalSeconds", "15"),
+        ("kDefaultMovingSleepBetweenSends", "true"),
+        ("kDefaultMovingFixTimeoutSeconds", "120"),
 
         // Bounds, read from the API's own rules rather than repeated as literals —
         // what is being checked here is that the anchor matched at all, not that
@@ -108,6 +138,14 @@ public sealed class ConfigSnippetBuilderTests
         ("kMaxRetryMaxAgeHours", $"{DeviceConfigRules.MaxRetryMaxAgeHours}"),
         ("kMinConfigCheckSeconds", $"{DeviceConfigRules.MinConfigCheckSeconds}"),
         ("kMaxConfigCheckSeconds", $"{DeviceConfigRules.MaxConfigCheckSeconds}"),
+        ("kMinMotionThresholdMg", $"{DeviceConfigRules.MinMotionThresholdMg}"),
+        ("kMaxMotionThresholdMg", $"{DeviceConfigRules.MaxMotionThresholdMg}"),
+        ("kMinMotionSpeedKmph", $"{DeviceConfigRules.MinMotionSpeedKmph}"),
+        ("kMaxMotionSpeedKmph", $"{DeviceConfigRules.MaxMotionSpeedKmph}"),
+        ("kMinMotionWakeWaitSeconds", $"{DeviceConfigRules.MinMotionWakeWaitSeconds}"),
+        ("kMaxMotionWakeWaitSeconds", $"{DeviceConfigRules.MaxMotionWakeWaitSeconds}"),
+        ("kMinMotionStopWaitSeconds", $"{DeviceConfigRules.MinMotionStopWaitSeconds}"),
+        ("kMaxMotionStopWaitSeconds", $"{DeviceConfigRules.MaxMotionStopWaitSeconds}"),
     ];
 
     /// <summary>Builds a file for a real generated key, as the service does.</summary>
@@ -140,6 +178,7 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Equal("devices/GNSS01", builder.TelemetryTopicFor(DeviceId));
         Assert.Equal("devices/GNSS01/config", builder.ConfigTopicFor(DeviceId));
         Assert.Equal("devices/GNSS01/ack", builder.AckTopicFor(DeviceId));
+        Assert.Equal("devices/GNSS01/status", builder.StatusTopicFor(DeviceId));
     }
 
     [Fact]
@@ -152,6 +191,7 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Contains("constexpr char kTelemetryTopic[] = \"devices/GNSS01\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kConfigTopic[] = \"devices/GNSS01/config\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kAckTopic[] = \"devices/GNSS01/ack\";", snippet, StringComparison.Ordinal);
+        Assert.Contains("constexpr char kStatusTopic[] = \"devices/GNSS01/status\";", snippet, StringComparison.Ordinal);
         Assert.Contains($"constexpr char kMqttBrokerUri[] = \"{BrokerUri}\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kReceiverPublicKeyPem[] =", snippet, StringComparison.Ordinal);
         Assert.Contains("rendered 2026-07-22T10:15:00Z", snippet, StringComparison.Ordinal);
@@ -453,12 +493,72 @@ public sealed class ConfigSnippetBuilderTests
         (string snippet, string _) = BuildSnippet();
 
         Assert.Contains("kDefaultSendIntervalSeconds = 300;", snippet, StringComparison.Ordinal);
-        Assert.Contains("kDefaultSleepBetweenSends   = true;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultSleepBetweenSends   = false;", snippet, StringComparison.Ordinal);
         Assert.Contains("kFixAcquireTimeoutSeconds = 240;", snippet, StringComparison.Ordinal);
         Assert.Contains("kSdMaxQueuedFixes = 5000;", snippet, StringComparison.Ordinal);
         Assert.Contains("kRetryIntervalHours = 12;", snippet, StringComparison.Ordinal);
-        Assert.Contains("kRetryMaxAgeHours = 72;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kRetryMaxAgeHours = 0;", snippet, StringComparison.Ordinal);
         Assert.Contains("kDefaultConfigCheckSeconds = 1800;", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RendersTheMotionSettingsAsTheCompileTimeDefaults()
+    {
+        // The motion block is read by the firmware before the broker has replayed
+        // anything, so a tracker flashed from this file must already hold the motion
+        // switch, its parameters and the MOVING copy of interval, sleep and fix timeout
+        // as the dashboard shows them. Spaces match the example's column alignment, which is kept.
+        (string snippet, string _) = BuildSnippet();
+
+        Assert.Contains("constexpr bool kDefaultMotionWakeEnabled = false;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMotionThresholdMg = 125;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMotionSpeedKmph = 5;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMotionWakeWaitSeconds = 300;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMotionStopWaitSeconds = 1200;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMovingSendIntervalSeconds = 15;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMovingSleepBetweenSends   = true;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultMovingFixTimeoutSeconds   = 120;", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RendersTheMotionBoundsFromTheApisOwnRules()
+    {
+        // Same reason as the standby bounds below: the firmware clamps to these and the
+        // API rejects outside them, so both must read the one set of numbers.
+        (string snippet, string _) = BuildSnippet();
+
+        Assert.Contains(
+            $"kMinMotionThresholdMg     = {DeviceConfigRules.MinMotionThresholdMg};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMaxMotionThresholdMg     = {DeviceConfigRules.MaxMotionThresholdMg};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMinMotionSpeedKmph     = {DeviceConfigRules.MinMotionSpeedKmph};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMaxMotionSpeedKmph     = {DeviceConfigRules.MaxMotionSpeedKmph};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMinMotionWakeWaitSeconds     = {DeviceConfigRules.MinMotionWakeWaitSeconds};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMaxMotionWakeWaitSeconds     = {DeviceConfigRules.MaxMotionWakeWaitSeconds};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMinMotionStopWaitSeconds     = {DeviceConfigRules.MinMotionStopWaitSeconds};",
+            snippet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"kMaxMotionStopWaitSeconds     = {DeviceConfigRules.MaxMotionStopWaitSeconds};",
+            snippet,
+            StringComparison.Ordinal);
     }
 
     [Fact]

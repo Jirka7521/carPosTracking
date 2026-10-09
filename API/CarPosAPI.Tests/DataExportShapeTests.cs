@@ -88,6 +88,8 @@ public sealed class DataExportShapeTests
             "Person",
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             "2026-09-06",
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            "2026-10-09",
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         DeviceExportRow device = new DeviceExportRow(
@@ -97,6 +99,7 @@ public sealed class DataExportShapeTests
             true,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             null,
+            null,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         ShareLinkExportRow shareLink = new ShareLinkExportRow(
@@ -105,7 +108,6 @@ public sealed class DataExportShapeTests
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
             "latestOnly",
-            false,
             false,
             false,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),

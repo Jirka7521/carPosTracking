@@ -67,6 +67,47 @@ public sealed class DeviceConfigVersion
     /// </summary>
     public int ConfigCheckSeconds { get; set; }
 
+    // The motion block. Interval, sleep and fix timeout above are the STANDBY set —
+    // what the device runs while parked — and the Moving* values below are a second
+    // copy of those three for while it is driving. The queue, retry and re-check values
+    // above have no moving copy: they apply in both modes. Everything here travels in
+    // the document's nested "motion" object; see Dtos.DeviceMotionDocumentDto.
+
+    /// <summary>
+    /// Whether motion wake is on. On by default: an accelerometer wake source, and the
+    /// Moving* set while driving, is what a freshly provisioned tracker is for. While
+    /// off, every other motion value is carried but inert.
+    /// </summary>
+    public bool MotionEnabled { get; set; }
+
+    /// <summary>
+    /// Accelerometer wake threshold, in milli-g. The ADXL345 compares in 62.5 mg steps
+    /// and the firmware rounds this to the nearest one (63 mg = step 1, the most
+    /// sensitive).
+    /// </summary>
+    public int MotionThresholdMg { get; set; }
+
+    /// <summary>
+    /// A fix counts as moving when its GNSS speed is strictly above this, in km/h. Not
+    /// 0: a parked receiver reports 0-3 km/h of jitter.
+    /// </summary>
+    public int MotionSpeedKmph { get; set; }
+
+    /// <summary>How long a wake may look for a moving fix before going back to sleep, in seconds.</summary>
+    public int MotionWakeWaitSeconds { get; set; }
+
+    /// <summary>How long after the last moving fix the device stays in moving mode, in seconds.</summary>
+    public int MotionStopWaitSeconds { get; set; }
+
+    /// <summary>Seconds between position reports while moving.</summary>
+    public int MovingIntervalSeconds { get; set; }
+
+    /// <summary>Whether the device deep-sleeps between reports while moving.</summary>
+    public bool MovingSleepBetween { get; set; }
+
+    /// <summary>How long the device chases a GNSS lock while moving, in seconds.</summary>
+    public int MovingFixTimeoutSeconds { get; set; }
+
     /// <summary>
     /// Who saved this revision. Null for the row seeded by the migration and for rows
     /// created alongside a device, neither of which has a human author to name.

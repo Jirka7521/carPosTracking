@@ -25,9 +25,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="AccelXG">X-axis acceleration in g at the fix, or null when absent.</param>
 /// <param name="AccelYG">Y-axis acceleration in g at the fix, or null when absent.</param>
 /// <param name="AccelZG">Z-axis acceleration in g at the fix, or null when absent.</param>
-/// <param name="TemperatureC">
-/// Modem die temperature in °C at the fix, or null when the device reported none.
-/// </param>
 public sealed record PositionDto(
     long Id,
     string DeviceId,
@@ -40,5 +37,4 @@ public sealed record PositionDto(
     int? BatteryPct,
     double? AccelXG,
     double? AccelYG,
-    double? AccelZG,
-    double? TemperatureC);
+    double? AccelZG);

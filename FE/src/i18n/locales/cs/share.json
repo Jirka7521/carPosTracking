@@ -25,7 +25,6 @@
     "from": "Sdíleno od",
     "includeBattery": "Baterii",
     "includeSpeed": "Rychlost",
-    "includeTemperature": "Teplotu",
     "labelField": "Jak se to bude příjemci zobrazovat",
     "labelHint": "Nepovinné. Když necháte prázdné, použije se název zařízení. Je to jediný název, který se příjemce dozví — identifikátor zařízení nikdy nevidí.",
     "labelPlaceholder": "Auto",
@@ -98,6 +97,8 @@
     "noPositions": "Za toto období zatím nejsou zaznamenané žádné polohy.",
     "loadFailed": "Sdílené polohy se nepodařilo načíst.",
     "leave": "Zavřít sdílení",
+    "mapsConsentRevoke": "Přestat načítat mapy automaticky",
+    "mapsConsentRevoked": "Hotovo. Mapa se před načtením znovu zeptá.",
     "privacyNote": "Toto vidíte proto, že to s vámi někdo na omezenou dobu sdílel. Nic o vás se nezaznamenává."
   }
 }

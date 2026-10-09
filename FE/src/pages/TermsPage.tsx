@@ -25,8 +25,9 @@
 // docs/ carries a pointer, not a second copy.
 // ---------------------------------------------------------------------------
 
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { LegalPageShell } from '../components/LegalPageShell'
+import { GOOGLE_MAPS_TERMS_URL, GOOGLE_PRIVACY_POLICY_URL } from '../utils/mapsConsent'
 
 export function TermsPage() {
   const { t } = useTranslation('legal')
@@ -92,7 +93,19 @@ export function TermsPage() {
 
       <section className="legal-section">
         <h2>{t('legalNotice.sections.thirdParty.title')}</h2>
-        <p>{t('legalNotice.sections.thirdParty.p1')}</p>
+        {/* Google's terms are linked rather than paraphrased: the Maps Platform
+            requires that whoever uses an embedded map is bound by them, and a
+            summary here would bind nobody to anything. */}
+        <p>
+          <Trans
+            i18nKey="legalNotice.sections.thirdParty.p1"
+            ns="legal"
+            components={{
+              terms: <a href={GOOGLE_MAPS_TERMS_URL} target="_blank" rel="noopener noreferrer" />,
+              privacy: <a href={GOOGLE_PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" />,
+            }}
+          />
+        </p>
         <p>{t('legalNotice.sections.thirdParty.p2')}</p>
       </section>
 

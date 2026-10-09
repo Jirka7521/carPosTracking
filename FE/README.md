@@ -223,6 +223,7 @@ FE/
 │   │   ├── FirmwareParameterTable.tsx  Read-only reference of every firmware parameter
 │   │   ├── PermissionBadges.tsx   Badge row showing canRead/canDelete/canShare/canModifySettings
 │   │   ├── BatteryBadge.tsx       Battery level pill (⚡ when charging; 0 = charging sentinel)
+│   │   ├── DeviceLinkBadge.tsx    Connection pill: Online, or offline and why (Sleeping, Battery low, Connection lost…)
 │   │   ├── DurationField.tsx      Number input plus a seconds/minutes/hours combobox — stores canonical units
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
@@ -239,6 +240,7 @@ FE/
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
+│   │   ├── DeviceEventsTab.tsx    Events tab — device history: offline and why, restarts, wakes, motion steps
 │   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config, sharing, delete
 │   ├── services/
 │   │   ├── apiClient.ts           All fetch calls; cookies + CSRF header
@@ -247,6 +249,7 @@ FE/
 │   └── utils/
 │       ├── dates.ts               Date/time formatting helpers
 │       ├── devices.ts             Device label fallback (customName → displayName → deviceId)
+│       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
 │       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
@@ -283,7 +286,8 @@ FE/
 | `/profile` | protected | Edit first/last name, change password, and the privacy controls: export your data, revoke map consent, delete your account |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
-| `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, temperature, acceleration over time |
+| `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
+| `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
@@ -362,10 +366,25 @@ token in the path rather than the fragment.
 `maps.googleapis.com` until the viewer agrees. Loading the Maps API tells Google
 the viewer's IP, browser and — through the viewport — roughly where the tracked
 vehicle is, so the tab shows a placeholder with "load once" and "always load"
-until somebody chooses. The standing answer lives in `localStorage` under
-`carpos.mapsConsent` ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)) and is
-revocable from `/profile`. It is per-browser on purpose: it is a preference of
-the person looking at the screen, not a property of the account.
+until somebody chooses. The prompt links the Google Maps Additional Terms of
+Service and Google's Privacy Policy, which the Maps Platform requires end users
+to be pointed to. "Load once" stores nothing. Where "always" is remembered
+depends on who is looking — the caller decides and hands `DeviceMap` the answer
+(`hasStandingConsent`, `onGrantStandingConsent`, `consentScope`):
+
+- **Signed in** — on the account, through `GET`/`PUT`/`DELETE /api/me/maps-consent`
+  ([`hooks/useAccountMapsConsent.ts`](src/hooks/useAccountMapsConsent.ts)), so one
+  "always" covers every device the user signs in on, and the prompt says so.
+  Revocable from `/profile`.
+- **Share-link visitor** — in the `carpos_maps_consent` cookie
+  ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)): 180 days, scoped to
+  `<base>/share` so it never rides along on `/api` calls. Revocable on the share
+  page itself, since a visitor has no profile.
+
+Both store the prompt's version (`MAPS_CONSENT_VERSION`); bump it when the
+prompt's wording changes materially and everyone is asked again. The old
+per-browser `carpos.mapsConsent` localStorage key is deleted at start-up and not
+carried over — it was given for one browser, not for an account.
 
 ---
 
@@ -391,9 +410,55 @@ so there is one countdown however many controls are on screen, and pressing
 Refresh anywhere advances all of it. The Home page runs its own, for the battery
 and last-fix on the device cards.
 
+**One range per page, too.** A tab is unmounted as soon as you leave it, so
+`DevicePage` also owns the reader's view choices and hands them down the same
+way: the date range (one window for Map, Positions, Charts and Events), the
+table's sort and page size, the ticked chart series and the events filter. Pick
+"Past hour" on the map and the table, charts and events show the same hour; sort
+the table by speed and it is still sorted when you come back. They live in
+memory only, so leaving the device page or reloading starts from the defaults
+again.
+
 Deliberately **not** refreshed: the firmware-configuration panel (an on-demand
 block holding a key, and re-rendering it under the reader would be hostile) and
 the access roster (it changes when a person changes it).
+
+### Online, offline, and why
+
+The tracker announces each new connection and says why before it goes offline
+(a planned sleep, the power switch, a low battery, an error); when it drops
+without a word, the broker publishes its Last Will — "connection lost" — for it.
+The API stores those as events and hands each device's latest offline event and
+last online time out with the device list.
+
+[`DeviceLinkBadge`](src/components/DeviceLinkBadge.tsx) turns that into one pill
+on the card and in the device header, and the rules live in one place,
+[`utils/deviceEvents.ts`](src/utils/deviceEvents.ts):
+
+- **Online** when the device's online time *or* its last fix is newer than its
+  last offline event — both, so a lost online message cannot leave a reporting
+  tracker looking offline.
+- **Offline, with the reason**, coloured by the severity the API assigned (grey
+  for a sleep or switch-off, amber for an alert, red for an error), always with a
+  word as well. A sleep also says when the tracker should be back.
+- **Overdue** when a sleeping tracker is more than five minutes past that time —
+  the one case the dashboard judges itself, because only it knows "now". "Now" is
+  sampled on each device reload, so the badge changes on the page's refresh
+  cadence, never mid-render.
+- **Nothing at all** for firmware that sends no status messages, exactly as the
+  battery pill behaves for a device without the sensor.
+
+The tracker also reports every wake from deep sleep (timer, accelerometer, power
+switch), every motion-wake step (checking for movement, moving, parked, stopped)
+and whether a sleep was on the interval or because the car was parked. Events
+said out of WiFi range wait on its SD card and arrive in a burst later; each one
+carries `occurredAt`, so the badge and the list place it when it happened, not
+when it arrived. Both kinds of sleep read "Sleeping" on the badge.
+
+The **Events** tab lists the history behind it, newest first by `occurredAt`,
+sharing the date range with the other tabs, plus a filter for alerts and errors
+only — a tracker that sleeps between reports logs several routine events every
+cycle.
 
 ### The settings form under a refresh
 
@@ -450,6 +515,54 @@ Changing the unit changes nothing but the display — 180 seconds simply re-read
 as 3 minutes. Where the chosen unit is finer than storage (minutes on an
 hours-based field) the input's `step` keeps the value landing on something
 storable.
+
+### Motion wake: two sets of settings
+
+Choosing **React to motion wake-up** in the form's settings-mode switch
+(`motionEnabled`; the other answer is **Same settings all the time**) lets the tracker's accelerometer wake
+it from deep sleep when the car starts to move, and gives it a second copy of the
+three settings that differ by mode — the **moving** set (`movingIntervalSeconds`,
+`movingSleepBetween`, `movingFixTimeoutSeconds`) — to run while driving. The
+original three become the **standby (parked)** set; the queue, retry and re-check
+settings have **one value for both modes**. All eight new values are flat fields on
+`DeviceConfigValuesDto`, saved in the same revision as everything else, and the
+schedule's profile editor shows them too: a profile holds the same values. It is
+the default for a new device and a new profile.
+
+- **What the tracker does with them.** After any wake from standby — the
+  accelerometer or the standby timer — it looks for a GNSS fix for up to
+  `motionWakeWaitSeconds` and publishes only the first. A fix strictly faster than
+  `motionSpeedKmph` switches it to moving; otherwise it goes back to sleep. Moving,
+  it falls back to standby once no fix has been above that speed for
+  `motionStopWaitSeconds`.
+- **The threshold is entered in mg, but the sensor counts in 62.5 mg steps.** The
+  firmware rounds to the nearest, `clamp(round(mg / 62.5), 1, 255)`, and the form
+  shows where the typed value lands (`motionThresholdStep` in
+  [`utils/deviceConfig.ts`](src/utils/deviceConfig.ts)). 63 mg is step 1 — 62.5 mg,
+  the most sensitive setting; the default 188 mg is step 3 (187.5 mg).
+- **A mode switch never deletes data.** The queue cap and the rejected-fix give-up
+  age are shared by both modes (`SHARED_KEYS`), so parking can never be what trims
+  the queue. The queue's span hint gives both figures — parked and moving — because
+  one cap covers two reporting intervals.
+
+On the page, [`ConfigValuesFields`](src/components/ConfigValuesFields.tsx) opens with
+[`ConfigModeSwitch`](src/components/ConfigModeSwitch.tsx) — the two modes as radio
+cards — and composes [`ModeValuesFields`](src/components/ModeValuesFields.tsx) — the
+three per-mode controls, rendered once for the standby keys and once for the moving
+keys (`STANDBY_KEYS` / `MOVING_KEYS`, with the moving ids prefixed `…-moving-`) —
+after [`MotionWakeFields`](src/components/MotionWakeFields.tsx), and then
+[`SharedValuesFields`](src/components/SharedValuesFields.tsx) — the queue, retry and
+re-check groups, once, in a **Both modes** block. With motion wake off only the
+standby set and the shared groups show, without a block around them.
+
+Every group of the form is a [`ConfigCollapsible`](src/components/ConfigCollapsible.tsx):
+a `<details>` that folds to its title and a one-line summary of the values
+(`describeReportingSummary` in [`utils/deviceConfig.ts`](src/utils/deviceConfig.ts)
+for interval · sleep). Reporting and power, the motion knobs and the standby block
+start open; the rest start folded. A group opens itself when it holds a change the
+device has not applied yet (and shows ⚠ in its header), and when a field inside fails
+browser validation — a closed `<details>` cannot be focused, so Save would otherwise
+silently do nothing. The schedule's profile cards tag profiles that react to motion.
 
 ---
 

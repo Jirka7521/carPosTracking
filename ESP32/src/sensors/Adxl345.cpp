@@ -15,6 +15,25 @@ constexpr uint8_t kRegDataX0      = 0x32;  // first of the 6 data bytes (X,Y,Z)
 constexpr uint8_t kDevIdValue   = 0xE5;   // expected DEVID
 constexpr uint8_t kPowerCtlMeasure = 0x08;  // D3 = Measure mode
 constexpr uint8_t kDataFormatFullRes = 0x08;  // D3 = FULL_RES, range bits 00 = +/-2g
+// D5 (INT_INVERT) stays clear in that value, so INT1 is ACTIVE HIGH - which is
+// what the ext1 ANY_HIGH wake expects.
+
+// Activity interrupt (motion wake). Values from docs/MOTION-WAKE-THRESHOLDS.md.
+constexpr uint8_t kRegThreshAct   = 0x24;  // activity threshold, 62.5 mg/LSB
+constexpr uint8_t kRegActInactCtl = 0x27;  // activity axes + AC/DC coupling
+constexpr uint8_t kRegBwRate      = 0x2C;  // output rate + LOW_POWER bit
+constexpr uint8_t kRegIntEnable   = 0x2E;  // which interrupts are live
+constexpr uint8_t kRegIntMap      = 0x2F;  // bit set = INT2, clear = INT1
+constexpr uint8_t kRegIntSource   = 0x30;  // latched sources; reading clears
+
+// Bit 7 = AC-coupled activity, bits 6-4 = X, Y, Z take part. AC coupling is what
+// makes it orientation-free: DC would compare against gravity itself.
+constexpr uint8_t kActAcXyz       = 0xF0;
+constexpr uint8_t kIntActivity    = 0x10;  // the ACTIVITY bit in the three above
+constexpr uint8_t kIntMapAllInt1  = 0x00;  // every source routed to INT1
+constexpr uint8_t kBwRate100Hz    = 0x0A;  // the power-on default, normal power
+constexpr uint8_t kBwRateLp25Hz   = 0x18;  // LOW_POWER (bit 4) + rate code 25 Hz
+constexpr uint8_t kMinThreshSteps = 1;     // THRESH_ACT = 0 misbehaves
 
 // In full-resolution mode the scale is a fixed 256 LSB per g, so one raw count
 // is 1/256 g regardless of the +/- range. See the header note.
@@ -76,6 +95,13 @@ bool Adxl345::begin() {
     return false;
   }
 
+  // 4b. Undo a motion wake: the interrupt that woke us is still latched and the
+  //     sensor may still be at its low-power sleep rate. Not fatal if it fails -
+  //     reads work either way, and the next arm rewrites every register it uses.
+  if (!disarmActivityUnlocked()) {
+    ESP_LOGW(TAG, "could not clear the ADXL345 activity interrupt");
+  }
+
   // 5. Arm the read lock. Created last, so it only exists on a sensor that is
   //    actually usable. A failure here is not fatal: read() still works, just
   //    without serialisation, which is no worse than before this class had a
@@ -117,6 +143,68 @@ bool Adxl345::read(AccelSample& out) {
   out.zG    = zCounts / kCountsPerG;
   out.valid = true;
   return true;
+}
+
+bool Adxl345::armActivity(uint8_t thresholdSteps, bool lowPower) {
+  if (!ready_) {
+    return false;
+  }
+  ScopedLock guard(lock_);
+
+  const uint8_t steps =
+      thresholdSteps < kMinThreshSteps ? kMinThreshSteps : thresholdSteps;
+
+  // The order matters. Interrupts go off first so nothing fires half-configured;
+  // the axis/coupling register is cycled through 0 so the AC reference is taken
+  // afresh; the stale latch is read away; and the enable comes LAST, because
+  // that is the moment the reference sample - "at rest" - is taken.
+  uint8_t source = 0;
+  const bool ok =
+      writeRegister(kRegIntEnable, 0x00) &&
+      writeRegister(kRegBwRate, lowPower ? kBwRateLp25Hz : kBwRate100Hz) &&
+      writeRegister(kRegThreshAct, steps) &&
+      writeRegister(kRegActInactCtl, 0x00) &&
+      writeRegister(kRegActInactCtl, kActAcXyz) &&
+      writeRegister(kRegIntMap, kIntMapAllInt1) &&
+      readRegisters(kRegIntSource, &source, 1) &&
+      writeRegister(kRegIntEnable, kIntActivity);
+  if (!ok) {
+    ESP_LOGW(TAG, "could not arm the ADXL345 activity interrupt");
+    return false;
+  }
+
+  ESP_LOGI(TAG, "activity interrupt armed on INT1: step %u (%u mg)%s",
+           (unsigned)steps, (unsigned)(steps * 125 / 2),
+           lowPower ? ", 25 Hz low power" : "");
+  return true;
+}
+
+bool Adxl345::takeActivity() {
+  if (!ready_) {
+    return false;
+  }
+  ScopedLock guard(lock_);
+
+  uint8_t source = 0;
+  if (!readRegisters(kRegIntSource, &source, 1)) {
+    return false;
+  }
+  return (source & kIntActivity) != 0;
+}
+
+bool Adxl345::disarmActivity() {
+  if (!ready_) {
+    return false;
+  }
+  ScopedLock guard(lock_);
+  return disarmActivityUnlocked();
+}
+
+bool Adxl345::disarmActivityUnlocked() {
+  uint8_t source = 0;
+  return writeRegister(kRegIntEnable, 0x00) &&
+         readRegisters(kRegIntSource, &source, 1) &&
+         writeRegister(kRegBwRate, kBwRate100Hz);
 }
 
 bool Adxl345::writeRegister(uint8_t reg, uint8_t value) {

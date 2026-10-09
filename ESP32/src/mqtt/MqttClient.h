@@ -21,6 +21,7 @@
 // =============================================================================
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -38,13 +39,27 @@ class MqttClient {
 
   // Borrows all string arguments (does not copy) - they must outlive this
   // object. With Config.h that is automatic (they are constexpr globals).
-  //   uri      : broker URI, e.g. "wss://broker.example:443/mqtt"
-  //   username : broker login name ("" if the broker needs none)
-  //   password : broker login password ("" if none)
-  //   clientId : MQTT client id shown in the broker's logs
+  //   uri              : broker URI, e.g. "wss://broker.example:443/mqtt"
+  //   username         : broker login name ("" if the broker needs none)
+  //   password         : broker login password ("" if none)
+  //   clientId         : MQTT client id shown in the broker's logs
+  //   keepaliveSeconds : MQTT keep-alive; also sets how soon the broker gives
+  //                      up on a silent session and fires the Last Will
+  //                      (~1.5x this). 0 keeps the esp-mqtt default (120 s).
   MqttClient(const char* uri, const char* username, const char* password,
-             const char* clientId);
+             const char* clientId, uint16_t keepaliveSeconds);
   ~MqttClient();
+
+  // Register the Last Will: the message the BROKER publishes on our behalf if
+  // the session dies without a clean DISCONNECT (crash, brown-out, lost link).
+  // A clean stop() makes the broker discard it, so a planned sleep never fires
+  // it. Call before begin() - the will travels in the CONNECT packet, and the
+  // same one is re-sent on every automatic reconnect. Published QoS 2, not
+  // retained. `topic` is borrowed; `payload` is copied.
+  //
+  // Returns false (and registers nothing) when the payload would not fit the
+  // outbound buffer the CONNECT packet must fit in - see the .cpp.
+  bool setLastWill(const char* topic, const std::string& payload);
 
   // Initialise and start the client. It then connects (and auto-reconnects) in
   // the background. Returns true if the client started; use isConnected() to
@@ -58,6 +73,12 @@ class MqttClient {
 
   // True while we currently have a live connection to the broker.
   bool isConnected() const;
+
+  // How many times the client has connected since begin(). A change tells a
+  // caller on another task that a NEW session started (PresenceReporter uses
+  // it to announce "online" once per connection) without a callback that would
+  // run on the esp-mqtt event task.
+  uint32_t connectCount() const { return connectCount_; }
 
   // Add a callback that receives every subscribed message. Install handlers
   // before begin() so a retained message cannot arrive before there is one.
@@ -118,9 +139,21 @@ class MqttClient {
   const char* username_;
   const char* password_;
   const char* clientId_;
+  uint16_t    keepaliveSeconds_;
+
+  // The Last Will, applied by begin(); empty topic means "none". esp-mqtt copies
+  // both into its own config at init, so these only need to live until then -
+  // kept as members anyway, which costs nothing and leaves no lifetime to reason
+  // about.
+  const char* willTopic_;
+  std::string willPayload_;
 
   esp_mqtt_client_handle_t client_;     // underlying esp-mqtt handle
   volatile bool            connected_;  // updated from the event callback
+
+  // Incremented on every MQTT_EVENT_CONNECTED (event task), read by the main
+  // task through connectCount(). A plain word: one writer, aligned 32-bit reads.
+  volatile uint32_t        connectCount_;
 
   // Message id of the most recent broker-acked publish (MQTT_EVENT_PUBLISHED),
   // written from the event callback and polled by publishConfirmed(). -1 means

@@ -18,6 +18,32 @@ namespace CarPosAPI.Tests;
 /// </summary>
 public class ScheduleBundleSerializationTests
 {
+    /// <summary>
+    /// The profile's motion block: the firmware defaults with motion switched on. Built
+    /// from the DTO constructors directly rather than through the factory, so these
+    /// tests state the wire contract independently of the code that fills it in.
+    /// </summary>
+    private static readonly DeviceMotionDocumentDto s_profileMotion = new DeviceMotionDocumentDto(
+        true,
+        63,
+        3,
+        240,
+        600,
+        new DeviceModeDocumentDto(10, false, 180));
+
+    /// <summary>
+    /// The override's motion block, with every value different from
+    /// <see cref="s_profileMotion"/> so that the two blocks cannot be mistaken for one
+    /// another in the serialized text.
+    /// </summary>
+    private static readonly DeviceMotionDocumentDto s_overrideMotion = new DeviceMotionDocumentDto(
+        false,
+        125,
+        5,
+        300,
+        900,
+        new DeviceModeDocumentDto(20, true, 120));
+
     /// <summary>Builds a bundle with one profile and one rule.</summary>
     /// <param name="withOverride">Whether to attach an override.</param>
     /// <returns>The bundle.</returns>
@@ -25,7 +51,7 @@ public class ScheduleBundleSerializationTests
     {
         List<ScheduleBundleProfileDto> profiles = new List<ScheduleBundleProfileDto>
         {
-            new ScheduleBundleProfileDto(0, "Night", 300, true, 180, 20000, 24, 168, 3600),
+            new ScheduleBundleProfileDto(0, "Night", 300, true, 180, 20000, 24, 168, 3600, s_profileMotion),
         };
 
         List<ScheduleBundleRuleDto> rules = new List<ScheduleBundleRuleDto>
@@ -37,7 +63,7 @@ public class ScheduleBundleSerializationTests
             ? new ScheduleBundleOverrideDto(
                 ScheduleBundleBuilder.FormatDeviceInstant(
                     new DateTime(2026, 9, 6, 22, 0, 0, DateTimeKind.Utc)),
-                30, false, 180, 20000, 24, 168, 3600)
+                30, false, 180, 20000, 24, 168, 3600, s_overrideMotion)
             : null;
 
         return new DeviceScheduleBundleDto(7, true, 0, profiles, rules, liveOverride);
@@ -74,6 +100,57 @@ public class ScheduleBundleSerializationTests
         Assert.Contains("\"retry_interval_h\":24", json);
         Assert.Contains("\"retry_max_age_h\":168", json);
         Assert.Contains("\"config_check_s\":3600", json);
+    }
+
+    [Fact]
+    public void AProfileCarriesItsMotionBlockAfterConfigCheckWithTheExactKeys()
+    {
+        string json = JsonSerializer.Serialize(
+            Sample(withOverride: false), DeviceScheduleBundleDto.SerializerOptions);
+
+        // The motion block rides inside every profile so that a schedule switch changes
+        // the whole motion configuration along with the standby values, and the firmware
+        // hands the profile object to the same SettingsCodec::decode that reads the
+        // retained config document — so the block must follow config_check_s and be
+        // spelled exactly as that decoder expects. Asserted as one string, order
+        // included, because a reordered key is not a failure anyone would see on the
+        // device.
+        Assert.Contains(
+            "\"config_check_s\":3600,\"motion\":{"
+                + "\"enabled\":true,\"threshold_mg\":63,\"speed_kmph\":3,"
+                + "\"wake_wait_s\":240,\"stop_wait_s\":600,"
+                + "\"moving\":{\"interval_s\":10,\"sleep_between\":false,\"fix_timeout_s\":180}}",
+            json,
+            StringComparison.Ordinal);
+
+        // And the individual keys by name, so a rename fails with a message that says
+        // which key rather than a diff of two long strings.
+        Assert.Contains("\"motion\":{", json);
+        Assert.Contains("\"enabled\":true", json);
+        Assert.Contains("\"threshold_mg\":63", json);
+        Assert.Contains("\"speed_kmph\":3", json);
+        Assert.Contains("\"wake_wait_s\":240", json);
+        Assert.Contains("\"stop_wait_s\":600", json);
+        Assert.Contains("\"moving\":{", json);
+    }
+
+    [Fact]
+    public void AnOverrideCarriesItsOwnMotionBlockAfterConfigCheck()
+    {
+        string json = JsonSerializer.Serialize(
+            Sample(withOverride: true), DeviceScheduleBundleDto.SerializerOptions);
+
+        // The override beats the schedule wholesale, so it has to carry the motion
+        // block too: otherwise a manual save on a scheduled device would switch the
+        // standby values and quietly leave the previous profile's motion settings
+        // running underneath them.
+        Assert.Contains(
+            "\"config_check_s\":3600,\"motion\":{"
+                + "\"enabled\":false,\"threshold_mg\":125,\"speed_kmph\":5,"
+                + "\"wake_wait_s\":300,\"stop_wait_s\":900,"
+                + "\"moving\":{\"interval_s\":20,\"sleep_between\":true,\"fix_timeout_s\":120}}",
+            json,
+            StringComparison.Ordinal);
     }
 
     [Fact]

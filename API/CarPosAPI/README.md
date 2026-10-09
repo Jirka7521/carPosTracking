@@ -39,6 +39,17 @@ ESP32 ──(WSS, QoS 2)──► Mosquitto ──(WSS, QoS 2)──► MqttInge
                                                             │
   ESP32 ◄──(encrypted ack)── Mosquitto ◄─────────── MqttAckPublisher
         devices/GNSS01/ack             stored[] / rejected[] per envelope id
+
+ESP32 ──(WSS, QoS 2)──► Mosquitto ──(WSS, QoS 2)──► MqttIngestService
+   devices/GNSS01/status    devices/+/status                │
+   online / offline+reason                                  ▼
+   + the Last Will, published                      StatusIngestPipeline
+   by the BROKER on a dead session      device lookup → decode → decrypt
+                                        → validate + classify → write
+                                                            │
+                                                            ▼
+                                        PostgreSQL (device_events,
+                                        devices.last_online_at)
 ```
 
 Key properties:
@@ -79,6 +90,70 @@ Key properties:
 - **Single instance only.** The persistent session is keyed by the MQTT client
   id — two instances would kick each other off the broker.
 
+## Device status — why a tracker went offline
+
+Each device says why it is leaving, what woke it and how its motion wake moved on,
+and the broker says it for the device when it cannot. Everything arrives on
+`devices/<id>/status`, sealed in the same envelope as a fix (so the broker still
+sees only ciphertext), as a JSON array — one envelope for a live message, many for
+a burst the device kept on its SD card while out of range. The decrypted payload is
+`Dtos/DeviceStatusPayloadDto`:
+
+| Message | When | Stored as (`device_events`) |
+|---|---|---|
+| `{"type":"offline","reason":"sleep","sleep_s":300}` | before a deep sleep on the reporting interval | `offline` / `sleep` / **normal** |
+| `… "reason":"sleep_no_motion"` | before a deep sleep because the car was found parked (motion wake armed) | `offline` / `sleepNoMotion` / **normal** |
+| `… "reason":"power_off"` | the power switch was turned off | `offline` / `powerOff` / **normal** |
+| `… "reason":"battery_low"` | the pack fell below the firmware's cut-off | `offline` / `batteryLow` / **alert** |
+| `… "reason":"error","detail":"gnss_init"` | a fault the firmware caught itself | `offline` / `error` / **error** |
+| `… "reason":"connection_lost"` | the **Last Will** — published by the broker ~1.5× the keep-alive after a session dies without a goodbye (crash, power cut, lost link) | `offline` / `connectionLost` / **error** |
+| `{"type":"online","reset_reason":"PANIC"}` | first connection after a boot | `restart` / `crash` / **error** (also `INT_WDT`, `TASK_WDT`, `WDT`, `SW`) |
+| `… "reset_reason":"BROWNOUT"` | | `restart` / `powerLoss` / **alert** |
+| `… "reset_reason":"POWERON"` | | `restart` / `powerOn` / **normal** |
+| `{"type":"online"}` (or `DEEPSLEEP`, `EXT`) | every other connection | no row — only `devices.last_online_at` moves |
+| `{"type":"wake","reason":"timer"}` | woke from deep sleep on its timer | `wake` / `timer` / **normal** |
+| `… "reason":"accelerometer"` / `"power_switch"` | woke because the car moved / the switch was turned on | `wake` / `accelerometer` / `powerSwitch` / **normal** |
+| `{"type":"motion","reason":"checking"}` | the boot began a check for movement | `motion` / `checking` / **normal** |
+| `… "reason":"activity"` / `"motion_on"` | a check began on a jolt while awake / because motion wake was switched on | `motion` / `activity` / `motionOn` / **normal** |
+| `… "reason":"moving"` | a fast fix — the trip started | `motion` / `moving` / **normal** |
+| `… "reason":"no_motion"` / `"stopped"` | a check found the car parked / a trip ended | `motion` / `noMotion` / `stopped` / **normal** |
+| `… "reason":"motion_off"` | motion wake was switched off | `motion` / `motionOff` / **normal** |
+
+Optional fields everywhere: `time_utc` (only while the device trusts its clock),
+`battery_pct` (0 = charging), `sleep_s`, `detail`. A bad optional field is dropped
+to null; an unknown `type` or `reason`, or a payload whose `device` does not match
+the topic, rejects the message. `wake` and `motion` never move
+`devices.last_online_at`: they may describe something that happened hours ago.
+
+- **Severity is decided here, never on the device** —
+  [`Services/Ingest/DeviceEventClassifier.cs`](Services/Ingest/DeviceEventClassifier.cs)
+  is the only mapping, pinned by `DeviceEventClassifierTests`. Re-judging a reason
+  is an API deploy, not a reflash of every tracker.
+- **The event time is `occurred_at`.** Normally the server's receive time — the
+  Last Will is sealed when the device connects and published whenever the broker
+  gives up on it, so it carries no clock, and a live message is published at the
+  moment it describes. But offline, wake and motion events said out of range wait
+  on the device's card and arrive late, so when `time_utc` is more than two minutes
+  before the receive time (`DeviceStatusWriter.ReplayThreshold` — beyond transit
+  and clock drift) the device's clock is the event's time instead, never later than
+  the receive time. The Events tab, its range filter, the badge's latest-offline
+  pick, range erasure and the export all go by `occurred_at`; `received_at` and
+  `device_time` are kept beside it.
+- **No dedupe, no API ack.** A status message has no natural identity — the Last
+  Will is legitimately the same bytes after every reconnect within one boot. The
+  device clears its card on the broker's QoS-2 ack alone: this API's persistent
+  session keeps the message through an outage, and a rejection is final. A QoS-2
+  redelivery after a crash between commit and PUBREC, or a burst the device
+  re-sends because the broker's ack never reached it, can repeat rows; that is
+  accepted.
+- **"Online" is two signals.** `devices.last_online_at` (set by online messages, even
+  when no fix follows) and `devices.last_seen_at` (set by positions). The dashboard
+  treats a device as back when either is newer than its last offline event, so a lost
+  online message cannot leave it looking offline.
+- **The broker ACL must let each device WRITE its status topic** — see
+  [One-time server setup](#mosquitto--ingest-account--acl--persistence). Mosquitto
+  checks the will topic against it too, so deploy the ACL before firmware that sets one.
+
 ## Configuration
 
 [`appsettings.json`](appsettings.json) is committed and **secret-free**, and
@@ -103,6 +178,13 @@ Delivery acks are configured under the same `Mqtt` section, all non-secret:
 | `Mqtt:AckQos` | `1` | At-least-once is right: verdicts are keyed by envelope id, so a duplicate ack is idempotent. |
 | `Mqtt:AckPublishTimeoutSeconds` | `5` | Bounds the publish. The ack is sent from inside the message handler MQTTnet awaits, so an unbounded wait for a PUBACK could stall ingest behind its own reply. |
 
+The two subscriptions are configured beside them:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Mqtt:TopicFilter` | `devices/+` | Position batches. One id segment, so no `devices/x/…` topic ever matches it. |
+| `Mqtt:StatusTopicFilter` | `devices/+/status` | Status messages and Last Wills (see [Device status](#device-status--why-a-tracker-went-offline)). A second filter rather than `devices/#`, which would also deliver this API's own `/ack`, `/config` and `/schedule` publishes back to it. |
+
 `Jwt:SigningKey` has no default and no fallback: anyone holding it can mint a
 session for any account, so a deployment without a real one refuses to start.
 Rotating it invalidates every active session, which is the intended effect.
@@ -115,7 +197,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-09-13` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-10-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -309,16 +391,18 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   `battery_pct` (nullable, 0–100 with `0` = *charging*), `accel_x_g`/`accel_y_g`/
   `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample, or the strongest
   per-axis reading of the reporting interval when the device runs with
-  `kAccelPeakEnabled`) and `temperature_c`
-  (nullable, °C from the modem's `AT+CPMUTEMP`, [-40, 125] — the sensor that
-  explains a hot-car cut-off; all sensor columns CHECK-constrained),
+  `kAccelPeakEnabled`; all sensor columns CHECK-constrained; the modem
+  temperature column `temperature_c` was dropped by migration
+  `RemoveModemTemperature`),
   **UNIQUE (device_id, fix_time)** (the dedupe key), and a database-generated
   `location geography(Point,4326)` column + GIST index (derived from lat/lon —
   the app needs no spatial dependency). The sensor columns are nullable because
   older firmware and sensor-disabled devices omit them.
 - **users** — `id` (int identity PK), `email` (unique, stored lower-cased),
   `password_hash` (PBKDF2 via ASP.NET Core's `PasswordHasher`), `first_name`,
-  `last_name`, `created_at`.
+  `last_name`, `created_at`, and `maps_consent_version`/`maps_consent_granted_at`
+  (the account's standing consent to load the Google map — both null when there
+  is none, cleared on withdrawal; migration `AddMapsConsent`).
 - **accesses** — the entire authorisation model: one row per (user, device)
   with `can_read`/`can_delete`/`can_share`/`can_modify_settings`, `granted_by`
   for audit, and `is_active` for soft revocation. The unique index is
@@ -404,7 +488,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
-| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions` and `accessCounts` |
+| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
 | `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
@@ -423,10 +507,14 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
-| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions; needs `CanDelete`. Returns `{ deletedCount }` |
+| `GET /api/devices/{deviceId}/events?from=&to=&minSeverity=&limit=` | the device's history (offline reasons, notable restarts, wakes, motion steps), newest first. `minSeverity` = `normal`/`alert`/`error` keeps that and worse (anything else → 400); `limit` default 200, max 1000; `from`/`to` bound the event's time (`occurredAt`) |
+| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions **and its connection events** over the same range; needs `CanDelete`. Returns `{ deletedCount, deletedEventCount }` |
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
 | `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
+| `GET /api/me/maps-consent` | the caller's standing agreement to load the Google map: `{ version, grantedAt }`, both null when there is none. Deliberately not on the profile DTO, which other users also receive |
+| `PUT /api/me/maps-consent` | record "Always load maps" for the account. Body `{ version }` — the dashboard's prompt version; the server stamps the time. Returns the stored agreement |
+| `DELETE /api/me/maps-consent` | withdraw it (GDPR Art. 7(3)); clears both columns. 204 either way |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /api/shares?deviceId=` | temporary share links on a device, live and dead; needs `CanShare`. **Never returns a link's secrets** |
 | `POST /api/shares` | mint a share link (201). **The only response that ever carries the link and its code** — neither is recoverable afterwards |
@@ -447,9 +535,19 @@ answer with an empty body (401, 403, a 404 from an unmatched route, 405, 429).
 | Field | Meaning |
 |---|---|
 | `status`, `title` | the status code and a short, generic summary |
-| `detail` | written for the end user. Never an exception message, SQL, or a stack trace |
+| `detail` | written for the end user, in English. Never an exception message, SQL, or a stack trace |
+| `code` | stable machine-readable name of the failure (`noSuchDevice`, `profileInUse`, …) — see `Services/Common/ErrorCodes.cs`. This is what the frontend translates, so a client must key on it, never on `detail` |
+| `params` | only when the message mentions values: the values by name, e.g. `{ "name": "Night", "count": 2 }`. `count` selects the plural form |
 | `traceId` | correlation id for this one request — quote it when reporting a fault and it finds the matching log line |
 | `errors` | on a 400 from DataAnnotations only: field name → messages |
+
+`code` is on **every** error: a service failure sets its own, and a response the
+framework builds (the DataAnnotations 400 → `validationFailed`, a bare 401/403/404/
+405/429, a 413/431, a 500) gets a generic one from its status
+(`Middleware/ProblemCodeDefaults.cs`). The `detail` wording may change freely; a
+code may not, because the frontend's `errors:api.<code>` translations are keyed on
+it — **a new code needs its English and Czech text in
+`FE/src/i18n/locales/*/errors.json` in the same change.**
 
 A 500 always says the same thing (`"The server encountered an error. Please try
 again later."`) whatever actually failed. The exception behind it — message,
@@ -648,7 +746,9 @@ ignores `PositionQueryService.MaxPositionsPerQuery`: that 1000-row cap protects
 the dashboard, and a truncated export is not portability. It must never emit a
 password hash or a device private key — the two entities that carry secrets,
 `User` and `Device`, are projected into `*ExportRow` records that have no field
-to leak, and `DataExportShapeTests` pins that down.
+to leak, and `DataExportShapeTests` pins that down. Each device also carries its
+complete `statusEvents[]` (offline, restarts, wakes, motion steps — in the order
+they happened), streamed the same way.
 
 **`DELETE /api/me` really deletes.** It is the one place in this codebase that
 breaks the "records are never physically removed" rule the rest of it follows,
@@ -657,8 +757,13 @@ movements is not erasure by any reading of Art. 17. What survives is deliberatel
 impersonal: a grant this account handed to somebody else stays (that other user
 still has access) with `granted_by` nulled, and configuration revisions stay with
 `created_by_user_id` nulled. A device nobody else could see is deleted outright,
-positions and all, and its retained `config`/`schedule` messages are cleared off
-the broker — a retained message outlives the row it came from.
+positions and connection events and all, and its retained `config`/`schedule`
+messages are cleared off the broker — a retained message outlives the row it came
+from.
+
+`device_events` follows the positions everywhere: never pruned automatically, erased
+by the same two paths, and over the same range by `DELETE …/positions` — it records
+when the vehicle was in use just as surely as the trail does.
 
 Positions are **never** deleted automatically. There is no retention job and no
 TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
@@ -702,6 +807,8 @@ of `constexpr` lines for
     "deactivatedAt": null,
     "lastSeenAt": null,
     "lastBatteryPct": null,
+    "lastOnlineAt": null,
+    "lastOfflineEvent": null,
     "accessCounts": { "people": 1, "activeLinks": 0 },
     "permissions": { "canRead": true, "canDelete": true, "canShare": true, "canModifySettings": true }
   },
@@ -864,13 +971,13 @@ no reflash and without the device being online at the time:
 
 | Field | Meaning | Range | Default |
 |---|---|---|---|
-| `intervalSeconds` | seconds between position reports | 5 – 86400 | 60 |
+| `intervalSeconds` | seconds between position reports (the **standby** interval while motion wake is on) | 5 – 86400 | 1200 |
 | `sleepBetween` | deep-sleep + modem power-down between reports | — | false |
 | `fixTimeoutSeconds` | how long to chase a GNSS lock before giving up on a cycle | 15 – 900 | 180 |
-| `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 100000 | 20000 |
-| `retryIntervalHours` | hours between attempts on a rejected fix | 1 – 720 | 24 |
-| `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never | 0 – 8760 | 168 |
-| `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 3600 |
+| `queueMaxFixes` | undelivered fixes the SD queue may hold — in either mode | 100 – 100000 | 20000 |
+| `retryIntervalHours` | hours between attempts on a rejected fix — in either mode | 1 – 720 | 24 |
+| `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never — in either mode | 0 – 8760 | 168 |
+| `configCheckSeconds` | how often an **awake** device re-asks for this document — in either mode | 60 – 86400 | 3600 |
 
 The bounds live in [`Dtos/DeviceConfigRules.cs`](Dtos/DeviceConfigRules.cs) and
 **mirror the firmware's clamps** in `ESP32/src/config/Config.h`. The two sides
@@ -879,9 +986,94 @@ a dashboard can be told to fix their input, while the device *clamps*, because a
 tracker in a field has nobody to ask. Change one side and you must change the other.
 
 > **These ranges are also database check constraints.** They are interpolated into
-> `ck_device_config_versions_*` by
+> `ck_device_config_versions_*` (and `ck_device_config_profiles_*`) by
 > [`DeviceConfigVersionConfiguration`](Data/Configurations/DeviceConfigVersionConfiguration.cs),
 > so changing a bound needs a migration as well as the constant.
+
+### Motion wake
+
+`intervalSeconds`, `sleepBetween` and `fixTimeoutSeconds` above are the **standby**
+set — what a parked tracker runs. With motion wake on, the device keeps a second,
+**moving** copy of those three and runs that while the vehicle is driving: an
+accelerometer interrupt wakes it, it looks for a fix faster than `motionSpeedKmph`,
+and from then on it reports on the moving set until `motionStopWaitSeconds` have
+passed since the last moving fix. The other four values above — the queue, both retry
+settings and the config re-check — are **shared by both modes** and have no moving
+copy. Eight more values carry this, appended to every settings request and response:
+
+| Field | Meaning | Range | Default |
+|---|---|---|---|
+| `motionEnabled` | motion wake on; off, every other value below is stored but inert | — | true |
+| `motionThresholdMg` | accelerometer wake threshold, milli-g | 63 – 2000 | 188 |
+| `motionSpeedKmph` | a fix counts as moving when its speed is **strictly above** this | 1 – 50 | 3 |
+| `motionWakeWaitSeconds` | how long a wake may look for a moving fix before going back to sleep | 30 – 3600 | 600 |
+| `motionStopWaitSeconds` | how long after the last moving fix the device stays in moving mode | 60 – 7200 | 900 |
+| `movingIntervalSeconds` | `intervalSeconds` while moving | 5 – 86400 | 30 |
+| `movingSleepBetween` | `sleepBetween` while moving | — | false |
+| `movingFixTimeoutSeconds` | `fixTimeoutSeconds` while moving | 15 – 3600 | 180 |
+
+The moving set has **no bounds of its own**: a setting means the same thing in either
+mode, so each `moving*` value is held to its standby counterpart's range (the table
+repeats them for convenience; the constants are the standby ones in
+[`DeviceConfigRules`](Dtos/DeviceConfigRules.cs)). The defaults are the firmware's, and
+motion wake is **on** by default: a new tracker reports every 30 s while driving and
+every 20 min while parked.
+
+Two things the dashboard should say rather than leave a user to discover:
+
+- **The threshold is quantised.** The ADXL345 compares in steps of 62.5 mg and the
+  firmware rounds `motionThresholdMg` to the nearest, so 63 mg is step 1 — the most
+  sensitive setting there is, and therefore the floor. The default 188 is step 3
+  (187.5 mg), stored as the step the sensor actually uses.
+- **A mode switch never loses data.** The queue cap and the rejected-fix give-up age
+  are shared by both modes, so parking can never be what trims the queue or abandons
+  a rejected fix.
+
+The dashboard's request and response shapes carry these **flat and camelCase**, like
+the seven above. **On the device they are nested and snake_case:** the config document gains
+a `motion` object after `config_check_s`, and the same object follows `config_check_s`
+in every schedule-bundle profile and in the override, so a schedule switch changes
+the whole motion configuration along with the standby values:
+
+```json
+{ "version": 12, "interval_s": 1200, "sleep_between": true, "fix_timeout_s": 180,
+  "queue_max_fixes": 20000, "retry_interval_h": 24, "retry_max_age_h": 168,
+  "config_check_s": 3600,
+  "motion": { "enabled": true, "threshold_mg": 188, "speed_kmph": 3,
+              "wake_wait_s": 600, "stop_wait_s": 900,
+              "moving": { "interval_s": 30, "sleep_between": false, "fix_timeout_s": 180 } } }
+```
+
+[`DeviceConfigDocumentDto`](Dtos/DeviceConfigDocumentDto.cs),
+[`DeviceMotionDocumentDto`](Dtos/DeviceMotionDocumentDto.cs) and
+[`DeviceModeDocumentDto`](Dtos/DeviceModeDocumentDto.cs) are the wire shape, pinned by
+`DeviceConfigDocumentSerializationTests` and `ScheduleBundleSerializationTests`; they
+must match the firmware's `SettingsCodec` character for character. The one place the
+flat values become the nested object is
+[`DeviceMotionDocumentFactory`](Services/Devices/DeviceMotionDocumentFactory.cs).
+
+> **This is a breaking change for clients of the settings endpoints.** A settings
+> save and a profile create/update are **full replacements**, so
+> `PUT /api/devices/{deviceId}/config` and
+> `POST`/`PUT .../schedule/profiles` now require all eight motion fields, and a client built
+> before them answers **400** until it sends them.
+>
+> **Existing data is unaffected.** The `AddMotionWakeSettings` migration backfills every
+> revision and profile with the defaults of the time (motion off), and deliberately does not
+> bump any device's `config_version`: nothing a device runs changes, so showing the
+> fleet as "pending" would be wrong. Each document is republished with the new
+> `motion` object at the next broker reconnect, under the same version.
+>
+> **Shared storage settings (`ShareStorageSettingsAcrossMotionModes`).** The moving
+> copies of the queue cap, both retry settings and the config re-check were removed
+> again: the migration drops the four `moving_*` columns (and their CHECKs) from
+> `device_config_versions` and `device_config_profiles`, so any moving value that
+> differed from the standby one is **lost** and the standby value applies in both
+> modes. It also moves the column defaults to the new factory defaults above; rows
+> already stored keep their values, so no existing device changes behaviour. Deploy
+> this API **before** applying the migration — the previous build's INSERTs name the
+> dropped columns. A client still sending `movingQueueMaxFixes` and friends is not
+> rejected: unknown members are ignored.
 
 ### The flow
 
@@ -977,7 +1169,7 @@ Three tables and the columns that drive them:
 
 | Table / column | Holds |
 |---|---|
-| `device_config_profiles` | a name plus the same seven values, under the same CHECK constraints |
+| `device_config_profiles` | a name plus the same values — the seven standby ones and the [motion block](#motion-wake) — under the same CHECK constraints |
 | `device_config_profiles.schedule_slot` | the 0-based index the **firmware** knows this profile by; unique per device, never reused while it lives |
 | `device_config_schedule_rules` | one weekly window: `days_mask_utc`, `start_minute_utc`, `duration_minutes`, `priority`, `is_enabled` |
 | `devices.config_schedule_enabled` / `..._fallback_profile_id` | whether rules drive this device, and what applies where none matches |
@@ -1242,6 +1434,12 @@ mosquitto_passwd -b /mosquitto/config/passwords carpos-api '<password>'
 #   user GNSS01
 #   topic read devices/GNSS01/config
 #   topic read devices/GNSS01/schedule
+#
+# Each device WRITES its own status topic - its online/offline messages and its
+# Last Will, which Mosquitto checks against this same rule. The ingest account
+# already reads it through devices/#:
+#   user GNSS01
+#   topic write devices/GNSS01/status
 ```
 
 **Verify actual delivery, not just the SUBACK** — this broker once granted a
@@ -1252,6 +1450,11 @@ mosquitto_sub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u carpos-api -P '<pa
 mosquitto_pub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u GNSS01 -P '<device password>' -t 'devices/GNSS01' -q 2 -m '[]'
 # The subscriber must print the message. (An empty array is consumed and logged
 # as invalid by the API — harmless as a probe.)
+
+# The status topic the same way - including as the device's account, which is the
+# grant its Last Will depends on:
+mosquitto_sub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u carpos-api -P '<password>' -t 'devices/+/status' -q 2 -v &
+mosquitto_pub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u GNSS01 -P '<device password>' -t 'devices/GNSS01/status' -q 2 -m '[]'
 ```
 
 ### PostgreSQL — TLS for remote connections
@@ -1283,7 +1486,8 @@ connection string).
 ## Verification checklist (end to end)
 
 1. Startup without secrets fails fast with a clear message; with secrets it
-   logs "Connected to MQTT broker … Subscribed to devices/+ at QoS 2".
+   logs "Connected to MQTT broker … Subscribed to devices/+ and devices/+/status
+   at QoS 2".
 2. `\d positions` (psql) shows the CHECKs, the unique index and the generated
    `location` column + GIST index; the `BE` role can DML but not DDL.
 3. Publish a captured device envelope to `devices/GNSS01` → one row appears
@@ -1308,6 +1512,13 @@ connection string).
 9. Repeat with the dashboard's fields filled in and a generated ack key — that is
    the file an operator actually flashes, and it exercises the browser-side
    substitution as well as this renderer.
+10. With status-capable firmware: a sleeping device adds `wake`/`timer`, its
+    motion steps and an `offline`/`sleep` (or `sleepNoMotion`) row to
+    `device_events` per cycle and moves `devices.last_online_at` on every wake;
+    pulling its power mid-session adds `offline`/`connectionLost` about 1.5× its
+    keep-alive later (the Last Will); `GET /api/devices/GNSS01/events?minSeverity=alert`
+    returns only the latter. Events from a drive out of WiFi range arrive in a burst
+    on return, each row's `occurred_at` placed when it happened.
 
 ## Roadmap (later phases)
 

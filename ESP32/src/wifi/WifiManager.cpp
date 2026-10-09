@@ -16,14 +16,16 @@ static const char* TAG = "WifiManager";
 static constexpr EventBits_t kConnectedBit = BIT0;  // Got an IP address
 static constexpr EventBits_t kFailedBit    = BIT1;  // Gave up after retries
 
-WifiManager::WifiManager(const char* ssid, const char* password, int maxRetries,
+WifiManager::WifiManager(const char* ssid, const char* password,
+                         const char* hostname, int maxRetries,
                          uint32_t reconnectIntervalMs)
     : ssid_(ssid),
       password_(password),
+      hostname_(hostname),
       maxRetries_(maxRetries),
       reconnectIntervalMs_(reconnectIntervalMs),
       initialised_(false),
-      connected_(false),
+      linkState_(LinkState::Off),
       retryCount_(0),
       events_(nullptr),
       reconnectTimer_(nullptr) {}
@@ -48,7 +50,17 @@ bool WifiManager::begin() {
   // 2. Network interface + default event loop + the station netif object.
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
-  esp_netif_create_default_wifi_sta();
+  esp_netif_t* staNetif = esp_netif_create_default_wifi_sta();
+
+  // The hostname is what the DHCP request announces, so it is what the router's
+  // client list shows. It has to be set before the driver starts (DHCP runs on
+  // link-up); otherwise the lwIP default "espressif" goes out. A failure here is
+  // cosmetic, so it is logged rather than treated as a failed bring-up.
+  esp_err_t host = esp_netif_set_hostname(staNetif, hostname_);
+  if (host != ESP_OK) {
+    ESP_LOGW(TAG, "Could not set hostname \"%s\": %s", hostname_,
+             esp_err_to_name(host));
+  }
 
   // 3. Bring up the WiFi driver with default resource sizes.
   wifi_init_config_t initConfig = WIFI_INIT_CONFIG_DEFAULT();
@@ -82,7 +94,8 @@ bool WifiManager::begin() {
   ESP_ERROR_CHECK(esp_timer_create(&timerArgs, &reconnectTimer_));
 
   initialised_ = true;
-  ESP_LOGI(TAG, "WiFi stack initialised (SSID \"%s\").", ssid_);
+  ESP_LOGI(TAG, "WiFi stack initialised (SSID \"%s\", hostname \"%s\").", ssid_,
+           hostname_);
   return true;
 }
 
@@ -94,7 +107,7 @@ bool WifiManager::connect(uint32_t timeoutMs) {
 
   // Fresh attempt: clear previous result bits and the retry counter.
   retryCount_ = 0;
-  connected_  = false;
+  linkState_  = LinkState::Connecting;
   xEventGroupClearBits(events_, kConnectedBit | kFailedBit);
 
   ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid_);
@@ -119,7 +132,11 @@ bool WifiManager::connect(uint32_t timeoutMs) {
   return false;
 }
 
-bool WifiManager::isConnected() const { return connected_; }
+bool WifiManager::isConnected() const {
+  return linkState_ == LinkState::Connected;
+}
+
+WifiManager::LinkState WifiManager::linkState() const { return linkState_; }
 
 void WifiManager::disconnect() {
   if (!initialised_) {
@@ -129,7 +146,7 @@ void WifiManager::disconnect() {
   esp_timer_stop(reconnectTimer_);  // Stop background reconnects first.
   esp_wifi_disconnect();
   esp_wifi_stop();
-  connected_ = false;
+  linkState_ = LinkState::Off;
 }
 
 void WifiManager::eventHandler(void* arg, const char* eventBase,
@@ -138,12 +155,13 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
 
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_START) {
     // Driver is up - kick off the association.
+    self->linkState_ = LinkState::Connecting;
     esp_wifi_connect();
     return;
   }
 
   if (eventBase == WIFI_EVENT && eventId == WIFI_EVENT_STA_DISCONNECTED) {
-    self->connected_ = false;
+    self->linkState_ = LinkState::Connecting;
     if (self->retryCount_ < self->maxRetries_) {
       // Still inside the current fast burst: retry immediately.
       ++self->retryCount_;
@@ -168,7 +186,7 @@ void WifiManager::eventHandler(void* arg, const char* eventBase,
   if (eventBase == IP_EVENT && eventId == IP_EVENT_STA_GOT_IP) {
     auto* event = static_cast<ip_event_got_ip_t*>(eventData);
     ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
-    self->connected_  = true;
+    self->linkState_  = LinkState::Connected;
     self->retryCount_ = 0;
     esp_timer_stop(self->reconnectTimer_);  // Connected - cancel any pending retry.
     xEventGroupSetBits(self->events_, kConnectedBit);

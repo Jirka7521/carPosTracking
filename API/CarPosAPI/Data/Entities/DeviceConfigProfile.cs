@@ -83,6 +83,35 @@ public sealed class DeviceConfigProfile
     /// <summary>How often an awake device asks the broker to re-send its configuration, in seconds.</summary>
     public int ConfigCheckSeconds { get; set; }
 
+    // The motion block, column for column what DeviceConfigVersion carries (see there
+    // for the full reasoning on each): interval, sleep and fix timeout above are the
+    // STANDBY set and the Moving* values are a second copy of those three for while the
+    // vehicle is driving. The other four values above apply in both modes.
+
+    /// <summary>Whether motion wake is on. On by default; while off the other motion values are inert.</summary>
+    public bool MotionEnabled { get; set; }
+
+    /// <summary>Accelerometer wake threshold, in milli-g (the ADXL345 compares in 62.5 mg steps).</summary>
+    public int MotionThresholdMg { get; set; }
+
+    /// <summary>A fix counts as moving when its GNSS speed is strictly above this, in km/h.</summary>
+    public int MotionSpeedKmph { get; set; }
+
+    /// <summary>How long a wake may look for a moving fix before going back to sleep, in seconds.</summary>
+    public int MotionWakeWaitSeconds { get; set; }
+
+    /// <summary>How long after the last moving fix the device stays in moving mode, in seconds.</summary>
+    public int MotionStopWaitSeconds { get; set; }
+
+    /// <summary>Seconds between position reports while moving.</summary>
+    public int MovingIntervalSeconds { get; set; }
+
+    /// <summary>Whether the device deep-sleeps between reports while moving.</summary>
+    public bool MovingSleepBetween { get; set; }
+
+    /// <summary>How long the device chases a GNSS lock while moving, in seconds.</summary>
+    public int MovingFixTimeoutSeconds { get; set; }
+
     /// <summary>Who created it. Null when the author's account has since been removed.</summary>
     public int? CreatedByUserId { get; set; }
 

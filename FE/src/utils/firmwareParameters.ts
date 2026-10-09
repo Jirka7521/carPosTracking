@@ -44,6 +44,7 @@ export const PARAMETER_ORIGINS: Readonly<Record<string, ParameterOrigin>> = {
   kTelemetryTopic: 'device',
   kConfigTopic: 'device',
   kAckTopic: 'device',
+  kStatusTopic: 'device',
   kMqttBrokerUri: 'device',
   kMqttUsername: 'device',
   kMqttClientId: 'device',
@@ -68,6 +69,18 @@ export const PARAMETER_ORIGINS: Readonly<Record<string, ParameterOrigin>> = {
   kSdMaxQueuedFixes: 'remote',
   kRetryIntervalHours: 'remote',
   kRetryMaxAgeHours: 'remote',
+
+  // Motion wake: the switch and its knobs, and the second (moving) copy of
+  // interval, sleep and fix timeout above. Same story — the compile-time value is the fallback,
+  // the retained settings document is what a running tracker obeys.
+  kDefaultMotionWakeEnabled: 'remote',
+  kDefaultMotionThresholdMg: 'remote',
+  kDefaultMotionSpeedKmph: 'remote',
+  kDefaultMotionWakeWaitSeconds: 'remote',
+  kDefaultMotionStopWaitSeconds: 'remote',
+  kDefaultMovingSendIntervalSeconds: 'remote',
+  kDefaultMovingSleepBetweenSends: 'remote',
+  kDefaultMovingFixTimeoutSeconds: 'remote',
 }
 
 // Headings the config file does not supply itself.

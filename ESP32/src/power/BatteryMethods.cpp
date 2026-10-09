@@ -1,6 +1,7 @@
 #include "power/BatteryMethods.h"
 
 #include "esp_log.h"
+#include "util/Statistics.h"
 
 static const char* TAG = "BatteryMethods";
 
@@ -28,6 +29,13 @@ static constexpr std::size_t kCurveCount = sizeof(kCurve) / sizeof(kCurve[0]);
 // the pack after the divider: below the ADC's own noise, so it never widens a
 // window that the data itself has already opened.
 static constexpr uint32_t kMinMadCounts = 2;
+
+// The boot spot check: a short burst rather than a window, because it runs with
+// nothing else powered and has to answer before anything is. Sixteen conversions
+// a few milliseconds apart are plenty for a median on a quiet rail and keep the
+// check to well under a tenth of a second.
+static constexpr std::size_t kSpotSamples = 16;
+static constexpr uint32_t    kSpotGapMs   = 5;
 
 BatteryMethods::BatteryMethods(AdcSampler& adc, BatteryWindowSampler& window,
                                float vbatDivider, uint32_t madFactor,
@@ -61,6 +69,23 @@ bool BatteryMethods::sample(BatteryMethodsSample& out) {
     return false;
   }
 
+  return score(taken, out);
+}
+
+bool BatteryMethods::spotSample(BatteryMethodsSample& out) {
+  out = BatteryMethodsSample();
+
+  std::size_t taken = 0;
+  if (!window_.sampleNow(values_, kSpotSamples, kSpotGapMs, taken) ||
+      taken == 0) {
+    ESP_LOGW(TAG, "spot check: no ADC conversions succeeded");
+    return false;
+  }
+
+  return score(taken, out);
+}
+
+bool BatteryMethods::score(std::size_t taken, BatteryMethodsSample& out) {
   // ---------------------------------------------------------------------------
   // 2. Delete the droop, then take the median. This is the one place where the
   //    window stops describing what the RAIL did while we were awake and starts
@@ -99,16 +124,9 @@ bool BatteryMethods::sample(BatteryMethodsSample& out) {
 }
 
 uint32_t BatteryMethods::medianOf(uint32_t* values, std::size_t n) {
-  for (std::size_t i = 1; i < n; ++i) {
-    const uint32_t key = values[i];
-    std::size_t    j   = i;
-    while (j > 0 && values[j - 1] > key) {
-      values[j] = values[j - 1];
-      --j;
-    }
-    values[j] = key;
-  }
-  return (n % 2) ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
+  // The reduction itself lives in util/Statistics.h - insertion sort, and the
+  // even-count rule.
+  return statistics::medianOf(values, n);
 }
 
 std::size_t BatteryMethods::rejectOutliers(uint32_t* values, std::size_t n,

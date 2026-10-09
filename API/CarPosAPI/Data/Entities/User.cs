@@ -60,4 +60,28 @@ public sealed class User
     /// created before acknowledgement was recorded.
     /// </summary>
     public DateTime? PrivacyPolicyAcceptedAt { get; set; }
+
+    /// <summary>
+    /// Version of the "load the Google map?" prompt this account agreed to with
+    /// "Always load maps", or null when there is no standing agreement.
+    ///
+    /// This is the one Art. 6(1)(a) consent in the system — loading the map tells
+    /// Google LLC the viewer's IP and, through the viewport, roughly where the
+    /// vehicle is. It lives on the account so a person who said yes once is not
+    /// asked again on every browser they sign in on; the prompt says so before they
+    /// press the button, which is what lets one answer speak for every device.
+    ///
+    /// The version is the prompt's, not the policy's: the text lives in the
+    /// dashboard, and the dashboard treats an answer to an older wording as no
+    /// answer at all. Withdrawing sets this and <see cref="MapsConsentGrantedAt"/>
+    /// back to null — no history is kept, because nothing relies on a consent once
+    /// it has been withdrawn.
+    /// </summary>
+    public string? MapsConsentVersion { get; set; }
+
+    /// <summary>
+    /// When <see cref="MapsConsentVersion"/> was agreed to (UTC). Null whenever the
+    /// version is — the pair is the Art. 7(1) record that the person consented.
+    /// </summary>
+    public DateTime? MapsConsentGrantedAt { get; set; }
 }

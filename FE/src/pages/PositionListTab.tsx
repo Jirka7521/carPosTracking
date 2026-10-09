@@ -5,8 +5,8 @@
 // so the most recent fix is at the top until the reader sorts otherwise.
 //
 // Features:
-//   • Date range pickers matching those on the Map tab — chosen once on mount
-//     and changed only by the user; a refresh re-runs the same query
+//   • Date range pickers sharing one range with the other tabs (DevicePage
+//     holds it), changed only by the user; a refresh re-runs the same query
 //   • "Refresh" button and an auto-refresh toggle, neither of which resets the
 //     page the user is on
 //   • Click any column header to sort by it; click again to reverse
@@ -38,12 +38,12 @@ import { fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { CsvDelimiter } from '../utils/csv'
 import { buildCsv, CSV_DELIMITERS, isCsvDelimiter } from '../utils/csv'
 import type { DateRange } from '../utils/dates'
-import { datetimeLocalToIso, getDefaultDateRange, parseApiTimestamp } from '../utils/dates'
+import { datetimeLocalToIso, parseApiTimestamp } from '../utils/dates'
 import { downloadTextFile } from '../utils/downloadTextFile'
 import { describeError } from '../utils/errors'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
+export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
 
 // Ceiling on how far a "load the rest so I can sort it" walk will go, matching
 // the Charts and Map tabs. Fifty sequential requests is already a long wait; a
@@ -66,11 +66,10 @@ type SortKey =
   | 'accelXG'
   | 'accelYG'
   | 'accelZG'
-  | 'temperatureC'
 
 type SortDir = 'asc' | 'desc'
 
-type Sort = { key: SortKey; dir: SortDir }
+export type Sort = { key: SortKey; dir: SortDir }
 
 // Whether a sort happens to be the order the API already returns rows in.
 //
@@ -103,7 +102,6 @@ const COLUMNS = [
   { key: 'accelXG',        labelKey: 'device:positions.column.accelX' },
   { key: 'accelYG',        labelKey: 'device:positions.column.accelY' },
   { key: 'accelZG',        labelKey: 'device:positions.column.accelZ' },
-  { key: 'temperatureC',   labelKey: 'device:positions.column.temperature' },
 ] as const satisfies readonly { key: SortKey; labelKey: string }[]
 
 // The single number a row is ranked by, or null when it has none to rank —
@@ -161,12 +159,6 @@ function formatBattery(value: number | null): string {
     : i18n.t('common:battery.percent', { value })
 }
 
-// Format the modem die temperature (°C) for the table, or an em dash when the
-// device sent no reading (older firmware or the sensor unsupported).
-function formatTemperature(value: number | null): string {
-  return value === null ? i18n.t('common:states.none') : `${formatNumber(value, 1)} °C`
-}
-
 // Formats an API timestamp to a readable local date/time string.
 function formatTimestamp(value: string): string {
   const parsed = parseApiTimestamp(value)
@@ -177,7 +169,7 @@ function formatTimestamp(value: string): string {
 
 // The header row, and with it the column order of the file. The keys of COLUMNS
 // are already the API's own field names and already carry their units
-// (speedKmph, altitudeMeters, temperatureC), which is exactly what belongs at
+// (speedKmph, altitudeMeters), which is exactly what belongs at
 // the top of a column something is going to compute on.
 //
 // "charging" is the one column with no counterpart on screen. A batteryPct of 0
@@ -242,7 +234,20 @@ export function PositionListTab() {
   // bumps a token to re-run the query below and never touches the date range —
   // and because the header's battery and last-fix hang off the same token,
   // pressing Refresh here can never leave the two disagreeing.
-  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
+  //
+  // The range, the sort and the page size are the device page's as well: this
+  // tab is unmounted whenever the reader looks at another one, and a table that
+  // forgot its order on every visit would have to be re-sorted every time.
+  const {
+    device,
+    autoRefresh: refresh,
+    dateRange,
+    setDateRange,
+    positionSort: sort,
+    setPositionSort: setSort,
+    positionPageSize: pageSize,
+    setPositionPageSize: setPageSize,
+  } = useOutletContext<DevicePageContext>()
 
   // Every position fetched SO FAR, newest-first — not necessarily the whole
   // range. More chunks are appended to the old end as the reader needs them.
@@ -257,10 +262,6 @@ export function PositionListTab() {
   // A chunk fetch triggered by paging or sorting, as opposed to the initial
   // load. Keeps the table on screen while it runs.
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false)
-
-  // Date range controls. Computed once, on mount — from here on only the two
-  // inputs change it, so a reload can never move the window under the user.
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
 
   // Which separator the exported CSV uses, and whether an export is running.
   // The choice is read back from storage on mount: a reader whose spreadsheet
@@ -286,18 +287,10 @@ export function PositionListTab() {
   const exportMenuRef = useRef<HTMLDivElement | null>(null)
   const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
 
-  // Current page index (0-based)
-  const [page, setPage]         = useState<number>(0)
-  const [pageSize, setPageSize] = useState<PageSize>(25)
-
-  // Which column the table is ordered by. Seeded to the order the API already
-  // returns, so the first render is exactly what it was before sorting existed.
-  // This is a view preference, so it deliberately survives a refresh tick and a
-  // switch to another device — only the reader changes it.
-  const [sort, setSort] = useState<Sort>({
-    key: 'timestamp',
-    dir: 'desc',
-  })
+  // Current page index (0-based). Local, unlike the page size: the rows are
+  // fetched afresh on every visit, so the page the reader left means nothing
+  // on the next one.
+  const [page, setPage] = useState<number>(0)
 
   // ---- Loading bookkeeping ----
   // Chunk loading is driven by button clicks as well as by the effect, and both
@@ -883,7 +876,6 @@ export function PositionListTab() {
                       <td className="position-coord">{formatAccel(position.accelXG)}</td>
                       <td className="position-coord">{formatAccel(position.accelYG)}</td>
                       <td className="position-coord">{formatAccel(position.accelZG)}</td>
-                      <td className="position-coord">{formatTemperature(position.temperatureC)}</td>
                     </tr>
                   )
                 })}

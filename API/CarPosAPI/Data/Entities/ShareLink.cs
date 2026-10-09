@@ -150,14 +150,6 @@ public sealed class ShareLink
     public bool IncludeBattery { get; set; }
 
     /// <summary>
-    /// Whether the temperature travels with each fix. Off by default, and chosen
-    /// separately from <see cref="IncludeBattery"/>. These were one flag until
-    /// 2026-09-14, which meant a creator who only wanted to show that the tracker
-    /// still had charge had to disclose the cabin temperature to do it.
-    /// </summary>
-    public bool IncludeTemperature { get; set; }
-
-    /// <summary>
     /// When the creator revoked the link, or null while it stands.
     ///
     /// Revocation is a soft stamp, like every other deactivation in this schema:

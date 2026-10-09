@@ -34,10 +34,10 @@ std::string TelemetryPublisher::buildPayloadJson(
   cJSON_AddNumberToObject(root, "altitude_m", fix.position.altitudeMeters);
   cJSON_AddStringToObject(root, "time_utc", isoTime);
 
-  // Battery, accelerometer and modem temperature only when their reading is
-  // valid, so a failed or disabled sensor leaves the field absent rather than
-  // sending a bogus 0. Battery is reported as a percent only - the raw pack
-  // millivolts stay on the serial console (see BatteryData.h), never the wire.
+  // Battery and accelerometer only when their reading is valid, so a failed or
+  // disabled sensor leaves the field absent rather than sending a bogus 0.
+  // Battery is reported as a percent only - the raw pack millivolts stay on the
+  // serial console (see BatteryData.h), never the wire.
   if (sample.battery.valid) {
     cJSON_AddNumberToObject(root, "battery_pct", sample.battery.percent);
   }
@@ -45,9 +45,6 @@ std::string TelemetryPublisher::buildPayloadJson(
     cJSON_AddNumberToObject(root, "accel_x_g", sample.accel.xG);
     cJSON_AddNumberToObject(root, "accel_y_g", sample.accel.yG);
     cJSON_AddNumberToObject(root, "accel_z_g", sample.accel.zG);
-  }
-  if (sample.modem.valid) {
-    cJSON_AddNumberToObject(root, "temp_c", sample.modem.temperatureC);
   }
 
   // Which settings document this sample was taken under. Omitted when we have

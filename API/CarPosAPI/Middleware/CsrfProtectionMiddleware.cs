@@ -1,4 +1,5 @@
 using CarPosAPI.Options;
+using CarPosAPI.Services.Common;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -118,6 +119,10 @@ internal sealed class CsrfProtectionMiddleware
             Status = StatusCodes.Status403Forbidden,
             Title = "Invalid CSRF token",
             Detail = "The request could not be verified. Reload the page and try again.",
+            Extensions =
+            {
+                [ProblemCodeDefaults.CodeKey] = ErrorCodes.CsrfInvalid,
+            },
         };
 
         // Written through IProblemDetailsService rather than serialised directly so

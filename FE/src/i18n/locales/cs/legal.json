@@ -45,7 +45,7 @@
         "title": "Ukončení"
       },
       "thirdParty": {
-        "p1": "Mapy vykresluje Google Maps JavaScript API, které se načte teprve poté, co k tomu dáte souhlas. Provoz se k serveru dostává přes Cloudflare. Obojí popisují zásady ochrany osobních údajů.",
+        "p1": "Mapy vykresluje Google Maps JavaScript API, které se načte teprve poté, co k tomu dáte souhlas. Jakmile se načte, vztahují se na vaše používání mapy také <terms>Dodatečné smluvní podmínky Map Google</terms> a <privacy>Zásady ochrany soukromí Google</privacy>. Provoz se k serveru dostává přes Cloudflare. Obojí popisují zásady ochrany osobních údajů.",
         "p2": "Zbytek je otevřený software používaný podle vlastních licencí.",
         "title": "Součásti třetích stran"
       },
@@ -75,7 +75,7 @@
     "controllerLabel": "Správce",
     "sections": {
       "accountData": {
-        "p1": "Protože jste si založili účet: vaše e-mailová adresa, která je zároveň přihlašovací identitou; jméno a příjmení, viditelné lidem, se kterými sdílíte zařízení; heslo, uložené výhradně jako solený otisk PBKDF2 a nikdy v čitelné podobě; kdy byl účet založen; a kterou verzi podmínek a těchto zásad jste přijali a kdy.",
+        "p1": "Protože jste si založili účet: vaše e-mailová adresa, která je zároveň přihlašovací identitou; jméno a příjmení, viditelné lidem, se kterými sdílíte zařízení; heslo, uložené výhradně jako solený otisk PBKDF2 a nikdy v čitelné podobě; kdy byl účet založen; kterou verzi podmínek a těchto zásad jste přijali a kdy; a pokud jste zvolili, že se mapa Google má načítat vždy, s jakou verzí této otázky jste souhlasili a kdy. Odvoláním tohoto souhlasu se obojí smaže.",
         "title": "Údaje o účtu"
       },
       "changes": {
@@ -96,18 +96,19 @@
       },
       "cookies": {
         "p1": "Nejsou zde žádné reklamní ani analytické cookies, a proto ani žádná cookie lišta: není k čemu dávat souhlas nad rámec toho, co je nezbytné, a toho, co si zvolíte sami.",
-        "p2": "Dvě cookies: vaše přihlášení, které nepřečte žádný skript, a token proti CSRF. Tři místní předvolby uložené v prohlížeči: jazyk, oddělovač pro export CSV a to, zda jste povolili načtení mapy. Místní předvolby nikdy neopustí váš prohlížeč. Vymazáním dat webu se všechny odstraní.",
+        "p2": "Nejvýše čtyři cookies. Po přihlášení: vaše přihlášení, které nepřečte žádný skript, a token proti CSRF. U odkazu pro sdílení: relace daného odkazu, kterou rovněž nepřečte žádný skript a která trvá jen po dobu platnosti odkazu; a jen pokud tam zvolíte, že se mapa má načítat vždy, cookie, která si tuto volbu pamatuje šest měsíců. Obsahuje pouze verzi otázky, na kterou jste odpověděli, a nic na serveru ji nečte ani nezaznamenává. Dvě místní předvolby uložené v prohlížeči: jazyk a oddělovač pro export CSV. Místní předvolby nikdy neopustí váš prohlížeč. Vymazáním dat webu se všechny odstraní.",
         "title": "Cookies a úložiště prohlížeče"
       },
       "legalBasis": {
         "p1": "Vše, co pro vás tento systém dělá, stojí na plnění smlouvy, kterou jste uzavřeli přijetím podmínek užití a založením účtu (čl. 6 odst. 1 písm. b): provoz vašeho účtu, přihlašování, ukládání a zobrazování historie polohy sledovače, který provozujete, a sdílení zařízení s lidmi, které si zvolíte.",
         "p2": "Bezpečnostní opatření, tedy hašování hesel, ochrana proti CSRF a omezení počtu přihlášení, exportů a výmazů, stojí na oprávněném zájmu udržet cizí lidi mimo vaše data (čl. 6 odst. 1 písm. f).",
-        "p3": "Jediné, co stojí na souhlasu (čl. 6 odst. 1 písm. a), je načtení mapy Google, a proto se na něj přehled ptá zvlášť a vaši odpověď si pamatuje. Souhlas můžete kdykoli odvolat v profilu a stojí vás to jen mapu.",
+        "p3": "Jediné, co stojí na souhlasu (čl. 6 odst. 1 písm. a), je načtení mapy Google, a proto se na něj přehled ptá zvlášť. Zvolíte-li, že se má načítat vždy, uloží se tato odpověď k vašemu účtu a platí na každém zařízení, kde se přihlásíte; návštěvníkovi, který přišel přes odkaz pro sdílení, se místo toho zapamatuje v cookie v jeho vlastním prohlížeči. Souhlas můžete kdykoli odvolat v profilu nebo na stránce sdílení a stojí vás to jen mapu.",
         "title": "Proč a na jakém právním základě"
       },
       "locationData": {
-        "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie, teplota a identifikátor zařízení.",
+        "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie a identifikátor zařízení.",
         "p2": "Historie polohy popisuje, kde vozidlo, a tedy obvykle i člověk, bylo, kdy a jak se jelo. Podle toho se s ní zachází: souřadnice se nikdy nezapisují do žádného logu.",
+        "p3": "Každý sledovač navíc hlásí stav svého připojení: kdy se připojí, kdy přejde do režimu offline a proč (plánovaný spánek, vypnutí, slabá baterie, chyba) a kdy se restartuje po pádu nebo výpadku napájení. Pokud se odpojí bez ohlášení, nahlásí to za něj zprostředkující broker. Tyto záznamy ukazují, kdy se vozidlo používalo, proto se uchovávají, exportují a mažou stejně jako polohy.",
         "title": "Poloha a telemetrie vozidla"
       },
       "notCollected": {
@@ -122,7 +123,7 @@
       },
       "recipients": {
         "p1": "Lidé, se kterými zařízení sdílíte, vidí jeho polohy a telemetrii a také vaše jméno a e-mailovou adresu. Ten, komu pošlete dočasný odkaz, vidí jen to, co daný odkaz zpřístupňuje, a nic o vás. Obojí jste udělili vy a obojí můžete kdykoli zrušit v nastavení zařízení.",
-        "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu. Google sídlí ve Spojených státech a předání se opírá o jeho certifikaci podle rámce EU-US Data Privacy Framework.",
+        "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu, nebo na stránce sdílení, pokud si prohlížíte odkaz pro sdílení. Načtená mapa se poskytuje podle <terms>Dodatečných smluvních podmínek Map Google</terms> a s tím, co Google obdrží, nakládá podle <privacy>Zásad ochrany soukromí Google</privacy>. Google sídlí ve Spojených státech a předání se opírá o jeho certifikaci podle rámce EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Rovněž sídlí ve Spojených státech a je rovněž certifikován podle rámce EU-US Data Privacy Framework. Žádní další příjemci neexistují. Nic se neprodává.",
         "title": "Kdo další data vidí"
       },
@@ -135,7 +136,7 @@
       "rights": {
         "p1": "Přístup a přenositelnost (čl. 15 a 20): Profil, pak Exportovat moje data, stáhne soubor JSON se vším, co se o vás uchovává: profil, zařízení, oprávnění, názvy, historii nastavení a úplnou, nezkrácenou historii polohy každého zařízení, které smíte číst.",
         "p2": "Výmaz (čl. 17): Profil, pak Smazat můj účet, si vyžádá heslo a poté trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které jste viděli jen vy, se smaže i s celou historií polohy; zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu. Je to skutečné smazání, ne skrytý příznak. Chcete-li smazat jen historii polohy, použijte Zařízení, Nastavení, Smazat historii poloh.",
-        "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu s načítáním map Google (čl. 7 odst. 3) provedete v profilu a ničeho jiného se netýká.",
+        "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu s načítáním map Google (čl. 7 odst. 3) provedete v profilu, nebo na stránce sdílení, pokud si prohlížíte odkaz pro sdílení, a ničeho jiného se netýká.",
         "p4": "Žádosti zaslané na kontaktní adresu se vyřizují do jednoho měsíce.",
         "title": "Vaše práva"
       },
@@ -145,10 +146,10 @@
         "title": "Zabezpečení"
       },
       "shareLinks": {
-        "title": "Dočasné odkazy pro sdílení",
-        "p1": "Můžete vytvořit odkaz, který ukáže jeden tracker někomu, kdo tu nemá účet, po dobu, kterou zvolíte. Odkaz chrání dvě oddělená tajemství: neuhodnutelná adresa a kód k ní vygenerovaný, který máte poslat jinou cestou. Vy rozhodujete, jestli příjemce uvidí jen aktuální polohu, nebo celou trasu za dané období, a jestli s ní půjde i rychlost, baterie a teplota. Identifikátor zařízení se nikdy nedozví, jen název, který zvolíte.",
-        "p2": "Ukládáme zařízení, na které odkaz míří, zvolený název, období, co odkaz zpřístupňuje, kdy byl vytvořen a zrušen, kolikrát byl otevřen a kdy naposledy. Odkaz i jeho kód ukládáme v čitelné podobě, abyste si je mohli znovu zobrazit — což znamená, že kdokoli s přístupem k databázi nebo k její záloze by mohl použít odkaz, který je stále ve svém období. O člověku, který odkaz otevře, se neukládá vůbec nic — žádná IP adresa, žádné údaje o prohlížeči, žádný identifikátor.",
-        "p3": "Odkaz můžete kdykoli zrušit v nastavení zařízení a okamžitě přestane fungovat. Sám od sebe přestane fungovat také po skončení období. Záznam o tom, že odkaz existoval a byl zrušen, zůstává, aby bylo dohledatelné, komu byl přístup dán; pokud smažete svůj účet, smažou se s ním i odkazy, které jste vytvořili."
+        "p1": "Můžete vytvořit odkaz, který ukáže jeden tracker někomu, kdo tu nemá účet, po dobu, kterou zvolíte. Odkaz chrání dvě oddělená tajemství: neuhodnutelná adresa a kód k ní vygenerovaný, který máte poslat jinou cestou. Vy rozhodujete, jestli příjemce uvidí jen aktuální polohu, nebo celou trasu za dané období, a jestli s ní půjde i rychlost a baterie. Identifikátor zařízení se nikdy nedozví, jen název, který zvolíte.",
+        "p2": "Ukládáme zařízení, na které odkaz míří, zvolený název, období, co odkaz zpřístupňuje, kdy byl vytvořen a zrušen, kolikrát byl otevřen a kdy naposledy. Odkaz i jeho kód ukládáme v čitelné podobě, abyste si je mohli znovu zobrazit — což znamená, že kdokoli s přístupem k databázi nebo k její záloze by mohl použít odkaz, který je stále ve svém období. Na serveru se o člověku, který odkaz otevře, neukládá vůbec nic — žádná IP adresa, žádné údaje o prohlížeči, žádný identifikátor. Jeho vlastní prohlížeč si po dobu platnosti odkazu uchová relaci odkazu v cookie a jen pokud zvolí, že se mapa má načítat vždy, i tuto volbu v druhé cookie; obojí popisuje část o cookies níže.",
+        "p3": "Odkaz můžete kdykoli zrušit v nastavení zařízení a okamžitě přestane fungovat. Sám od sebe přestane fungovat také po skončení období. Záznam o tom, že odkaz existoval a byl zrušen, zůstává, aby bylo dohledatelné, komu byl přístup dán; pokud smažete svůj účet, smažou se s ním i odkazy, které jste vytvořili.",
+        "title": "Dočasné odkazy pro sdílení"
       },
       "sharingData": {
         "p1": "Které účty smí vidět které zařízení a s jakými oprávněními; kdo oprávnění udělil; váš soukromý název zařízení; kdy ten, kdo zařízení přidal, potvrdil, že je oprávněn vozidlo sledovat; a intervaly vzorkování a týdenní rozvrhy nastavené pro zařízení, které prozrazují, kdy je vozidlo sledováno podrobně.",

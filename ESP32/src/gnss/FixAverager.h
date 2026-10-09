@@ -53,7 +53,11 @@ class FixAverager {
   // GnssModule::waitForFix(), so this call is a drop-in replacement for it:
   // `timeoutMs` still bounds the acquisition, `pollStepMs` still paces it, and
   // `onEachRead` still runs after every acquisition poll (the caller uses it to
-  // flush the SD backlog and adopt a config that arrived mid-wait).
+  // flush the SD backlog and adopt a config that arrived mid-wait), and
+  // returning false from it still abandons the acquisition - see
+  // GnssModule::waitForFix(). The averaging burst that follows a SUCCESSFUL
+  // acquisition does not consult it: by then the fix is in hand and the burst
+  // is three seconds, so there is nothing worth aborting.
   //
   // Returns exactly what waitForFix() would have returned - true only when
   // `out` holds a real position. The averaging burst that follows a successful
@@ -64,7 +68,7 @@ class FixAverager {
   // default) on top of the acquisition. That cost is FIXED - the burst never
   // retries a bad reading - so a poor sky is no slower than a good one.
   bool acquire(GnssFix& out, uint32_t timeoutMs, uint32_t pollStepMs,
-               const std::function<void()>& onEachRead = {});
+               const std::function<bool()>& onEachRead = {});
 
  private:
   // Runs the burst: reads kFixAverageSampleCount samples, spaced

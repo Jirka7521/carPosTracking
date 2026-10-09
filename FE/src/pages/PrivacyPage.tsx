@@ -15,10 +15,11 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { LegalPageShell } from '../components/LegalPageShell'
 import { fetchPrivacyPolicy } from '../services/apiClient'
 import type { PrivacyPolicyDto } from '../services/apiTypes'
+import { GOOGLE_MAPS_TERMS_URL, GOOGLE_PRIVACY_POLICY_URL } from '../utils/mapsConsent'
 
 export function PrivacyPage() {
   const { t } = useTranslation('legal')
@@ -78,6 +79,7 @@ export function PrivacyPage() {
         <h2>{t('privacy.sections.locationData.title')}</h2>
         <p>{t('privacy.sections.locationData.p1')}</p>
         <p>{t('privacy.sections.locationData.p2')}</p>
+        <p>{t('privacy.sections.locationData.p3')}</p>
       </section>
 
       <section className="legal-section">
@@ -124,7 +126,16 @@ export function PrivacyPage() {
       <section className="legal-section">
         <h2>{t('privacy.sections.recipients.title')}</h2>
         <p>{t('privacy.sections.recipients.p1')}</p>
-        <p>{t('privacy.sections.recipients.p2')}</p>
+        <p>
+          <Trans
+            i18nKey="privacy.sections.recipients.p2"
+            ns="legal"
+            components={{
+              terms: <a href={GOOGLE_MAPS_TERMS_URL} target="_blank" rel="noopener noreferrer" />,
+              privacy: <a href={GOOGLE_PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" />,
+            }}
+          />
+        </p>
         <p>{t('privacy.sections.recipients.p3')}</p>
       </section>
 

@@ -39,6 +39,7 @@ public sealed class MeController : ApiControllerBase
     private readonly IDataExportService _dataExport;
     private readonly IAccountErasureService _erasure;
     private readonly ISessionCookieWriter _sessionCookies;
+    private readonly IMapsConsentService _mapsConsent;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="currentUser">Supplies the caller's id.</param>
@@ -47,13 +48,15 @@ public sealed class MeController : ApiControllerBase
     /// <param name="dataExport">Streams the GDPR Art. 15/20 export.</param>
     /// <param name="erasure">Performs GDPR Art. 17 account erasure.</param>
     /// <param name="sessionCookies">Expires the session once the account is gone.</param>
+    /// <param name="mapsConsent">Reads, records and withdraws the Google Maps consent.</param>
     public MeController(
         ICurrentUserAccessor currentUser,
         IUserAccountService accounts,
         IDeviceService devices,
         IDataExportService dataExport,
         IAccountErasureService erasure,
-        ISessionCookieWriter sessionCookies)
+        ISessionCookieWriter sessionCookies,
+        IMapsConsentService mapsConsent)
     {
         _currentUser = currentUser;
         _accounts = accounts;
@@ -61,6 +64,7 @@ public sealed class MeController : ApiControllerBase
         _dataExport = dataExport;
         _erasure = erasure;
         _sessionCookies = sessionCookies;
+        _mapsConsent = mapsConsent;
     }
 
     /// <summary>Returns the signed-in user's profile.</summary>
@@ -115,6 +119,61 @@ public sealed class MeController : ApiControllerBase
 
         OperationResult<bool> result =
             await _devices.SetAliasAsync(userId, deviceId, request.Alias, cancellationToken);
+
+        return result.IsSuccess ? NoContent() : Failure(result);
+    }
+
+    /// <summary>Returns the caller's standing agreement to load the Google map.</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with the agreement; both members are null when there is none.</returns>
+    [HttpGet("maps-consent")]
+    [ProducesResponseType(typeof(MapsConsentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MapsConsentDto>> GetMapsConsentAsync(CancellationToken cancellationToken)
+    {
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<MapsConsentDto> result = await _mapsConsent.GetAsync(userId, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : Failure(result);
+    }
+
+    /// <summary>
+    /// Records "Always load maps" for this account — every browser the caller signs
+    /// in on stops asking. The prompt says so before the button is pressed.
+    /// </summary>
+    /// <param name="request">The prompt version the caller was shown.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with the stored agreement.</returns>
+    [HttpPut("maps-consent")]
+    [ProducesResponseType(typeof(MapsConsentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MapsConsentDto>> GrantMapsConsentAsync(
+        [FromBody] MapsConsentGrantRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<MapsConsentDto> result =
+            await _mapsConsent.GrantAsync(userId, request.Version, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : Failure(result);
+    }
+
+    /// <summary>Withdraws the caller's standing agreement (GDPR Art. 7(3)).</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>204, whether or not there was an agreement to withdraw.</returns>
+    [HttpDelete("maps-consent")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RevokeMapsConsentAsync(CancellationToken cancellationToken)
+    {
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<bool> result = await _mapsConsent.RevokeAsync(userId, cancellationToken);
 
         return result.IsSuccess ? NoContent() : Failure(result);
     }
@@ -191,6 +250,7 @@ public sealed class MeController : ApiControllerBase
             summary.PositionsDeleted,
             summary.GrantsDeleted,
             summary.GrantsAnonymised,
-            summary.ShareLinksDeleted));
+            summary.ShareLinksDeleted,
+            summary.DeviceEventsDeleted));
     }
 }

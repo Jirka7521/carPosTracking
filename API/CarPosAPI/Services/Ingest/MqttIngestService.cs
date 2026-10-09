@@ -26,6 +26,11 @@ namespace CarPosAPI.Services.Ingest;
 /// occupies one of the broker's ~20 in-flight slots until reconnect, so every
 /// failure is either consumed (poison) or answered with a deliberate
 /// disconnect-and-redeliver cycle (database outage).
+///
+/// Two filters, two pipelines: position batches on <c>devices/&lt;id&gt;</c> go to
+/// <see cref="IIngestPipeline"/>, the devices' status messages and Last Wills on
+/// <c>devices/&lt;id&gt;/status</c> go to <see cref="IStatusIngestPipeline"/>. Both
+/// share the one connection, the one sequential handler and the same ack contract.
 /// </summary>
 internal sealed class MqttIngestService : BackgroundService
 {
@@ -38,6 +43,7 @@ internal sealed class MqttIngestService : BackgroundService
     private readonly MqttOptions _mqttOptions;
     private readonly IngestOptions _ingestOptions;
     private readonly IIngestPipeline _pipeline;
+    private readonly IStatusIngestPipeline _statusPipeline;
     private readonly IAckPublisher _ackPublisher;
     private readonly IConfigPublisher _configPublisher;
     private readonly MqttConnectionState _state;
@@ -55,7 +61,8 @@ internal sealed class MqttIngestService : BackgroundService
     /// <summary>Creates the service.</summary>
     /// <param name="mqttOptions">Broker connection settings.</param>
     /// <param name="ingestOptions">Retry/pause tuning.</param>
-    /// <param name="pipeline">The message processing pipeline.</param>
+    /// <param name="pipeline">The position message processing pipeline.</param>
+    /// <param name="statusPipeline">The status-topic processing pipeline.</param>
     /// <param name="ackPublisher">Given the live client so the pipeline can reply to devices.</param>
     /// <param name="configPublisher">Given the live client so settings can be published retained.</param>
     /// <param name="state">Shared connection state for health reporting.</param>
@@ -64,6 +71,7 @@ internal sealed class MqttIngestService : BackgroundService
         IOptions<MqttOptions> mqttOptions,
         IOptions<IngestOptions> ingestOptions,
         IIngestPipeline pipeline,
+        IStatusIngestPipeline statusPipeline,
         IAckPublisher ackPublisher,
         IConfigPublisher configPublisher,
         MqttConnectionState state,
@@ -72,6 +80,7 @@ internal sealed class MqttIngestService : BackgroundService
         _mqttOptions = mqttOptions.Value;
         _ingestOptions = ingestOptions.Value;
         _pipeline = pipeline;
+        _statusPipeline = statusPipeline;
         _ackPublisher = ackPublisher;
         _configPublisher = configPublisher;
         _state = state;
@@ -274,12 +283,19 @@ internal sealed class MqttIngestService : BackgroundService
 
         // Always resubscribe — idempotent, and sessionPresent must not be trusted
         // blindly (a broker restart without persistence silently forgets us).
+        //
+        // Both filters in one SUBSCRIBE, both at QoS 2 end to end: the device publishes
+        // fixes, status messages and its Last Will at 2, and subscribing lower would
+        // downgrade delivery and multiply duplicates.
         MqttClientSubscribeOptions subscribeOptions = new MqttClientSubscribeOptionsBuilder()
             .WithTopicFilter(
                 new MqttTopicFilterBuilder()
                     .WithTopic(_mqttOptions.TopicFilter)
-                    // QoS 2 end to end: the device publishes at 2; subscribing lower
-                    // would downgrade delivery and multiply duplicates.
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.ExactlyOnce)
+                    .Build())
+            .WithTopicFilter(
+                new MqttTopicFilterBuilder()
+                    .WithTopic(_mqttOptions.StatusTopicFilter)
                     .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.ExactlyOnce)
                     .Build())
             .Build();
@@ -292,9 +308,11 @@ internal sealed class MqttIngestService : BackgroundService
                 // Reachable but wrong: almost always a broker-ACL problem. Known
                 // failure mode of this broker (2026-07-03): SUBACK can even succeed
                 // while delivery is silently filtered — see README verification steps.
+                // Each result item names its own filter, so a status-only ACL gap is
+                // told apart from a broken telemetry subscription.
                 _logger.LogError(
                     "Subscription to {TopicFilter} was not granted QoS 2 (result: {ResultCode}) — check broker ACL for user {Username}",
-                    _mqttOptions.TopicFilter,
+                    item.TopicFilter.Topic,
                     item.ResultCode,
                     _mqttOptions.Username);
             }
@@ -302,7 +320,10 @@ internal sealed class MqttIngestService : BackgroundService
 
         _state.SetConnected(true);
         _reconnectDelaySeconds = _mqttOptions.ReconnectMinDelaySeconds;
-        _logger.LogInformation("Subscribed to {TopicFilter} at QoS 2", _mqttOptions.TopicFilter);
+        _logger.LogInformation(
+            "Subscribed to {TopicFilter} and {StatusTopicFilter} at QoS 2",
+            _mqttOptions.TopicFilter,
+            _mqttOptions.StatusTopicFilter);
 
         // Refresh every device's retained settings document. Retained messages normally
         // outlive us on the broker, but one restarted without persistence forgets them
@@ -325,19 +346,24 @@ internal sealed class MqttIngestService : BackgroundService
         {
             if (eventArgs.ApplicationMessage.Retain)
             {
-                // Devices publish telemetry with retain=0; a retained message here
-                // means someone published junk manually. Consume and ignore it.
+                // Devices publish telemetry, status and their Last Will with retain=0;
+                // a retained message here means someone published junk manually.
+                // Consume and ignore it.
                 _logger.LogWarning(
                     "Ignoring unexpected retained message on {Topic}",
                     eventArgs.ApplicationMessage.Topic);
                 return;
             }
 
+            string topic = eventArgs.ApplicationMessage.Topic;
             byte[] payload = eventArgs.ApplicationMessage.Payload.ToArray();
-            IngestOutcome outcome = await _pipeline.ProcessAsync(
-                eventArgs.ApplicationMessage.Topic,
-                payload,
-                _stoppingToken);
+
+            // Route by topic shape. Anything that is not a status topic goes to the
+            // position pipeline, which keeps its own strict topic guard and logs and
+            // consumes whatever it does not recognise — exactly as before.
+            IngestOutcome outcome = DeviceStatusTopic.TryParseDeviceId(topic, out string? statusDeviceId)
+                ? await _statusPipeline.ProcessAsync(statusDeviceId, payload, _stoppingToken)
+                : await _pipeline.ProcessAsync(topic, payload, _stoppingToken);
 
             if (outcome == IngestOutcome.RetryableFailure)
             {

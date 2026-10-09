@@ -9,6 +9,9 @@
 // It is distinct from deleting the device, which is a SOFT delete precisely so
 // the history survives. Erasing here destroys rows and keeps the device.
 //
+// The device's connection history (when it went offline and why) goes with the
+// positions: it says when the vehicle was in use just as surely as the trail does.
+//
 // Typed confirmation rather than a second click: the two actions sit next to
 // each other in the danger zone, they are both irreversible, and the difference
 // between them is not obvious from the buttons alone.
@@ -32,6 +35,7 @@ export function ErasePositionHistory({ deviceId, onErased }: ErasePositionHistor
   const [isErasing, setIsErasing] = useState<boolean>(false)
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [erasedCount, setErasedCount] = useState<number | null>(null)
+  const [erasedEventCount, setErasedEventCount] = useState<number>(0)
 
   // Translated, so a Czech speaker is not asked to type an English word to
   // confirm something irreversible.
@@ -50,6 +54,7 @@ export function ErasePositionHistory({ deviceId, onErased }: ErasePositionHistor
       const result = await erasePositions(deviceId)
 
       setErasedCount(result.deletedCount)
+      setErasedEventCount(result.deletedEventCount)
       setConfirmation('')
       onErased?.()
     } catch (error) {
@@ -72,6 +77,11 @@ export function ErasePositionHistory({ deviceId, onErased }: ErasePositionHistor
       {erasedCount !== null ? (
         <p className="form-message form-message--success" role="status">
           {t('device:erasePositions.done', { count: erasedCount })}
+          {/* Only when there were any: firmware without status messages has no
+              connection history, and "0 events erased" would only puzzle. */}
+          {erasedEventCount > 0
+            ? ` ${t('device:erasePositions.eventsDone', { count: erasedEventCount })}`
+            : null}
         </p>
       ) : null}
 

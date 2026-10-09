@@ -167,9 +167,10 @@ if (string.IsNullOrWhiteSpace(connectionString))
 //
 // The price is that EF Core then refuses a user-initiated transaction unless it
 // runs inside the execution strategy, because it cannot know how to replay one it
-// did not open. The three places that begin a transaction wrap themselves in
+// did not open. Every place that begins a transaction wraps itself in
 // CreateExecutionStrategy().ExecuteAsync accordingly: DeviceService.CreateAsync,
-// DeviceConfigRevisionWriter and AccountErasureService.
+// DeviceConfigRevisionWriter, AccountErasureService, PositionErasureService and
+// DeviceStatusWriter.
 const int DatabaseRetryAttempts = 3;
 const int DatabaseRetryMaxDelaySeconds = 5;
 
@@ -210,6 +211,11 @@ builder.Services.AddSingleton<IAckPublisher, MqttAckPublisher>();
 // settings are published on the one broker connection this application owns.
 builder.Services.AddSingleton<IConfigPublisher, MqttConfigPublisher>();
 builder.Services.AddSingleton<IIngestPipeline, IngestPipeline>();
+// The status topic's pipeline: same singletons upstream (registry, codec, crypto), its
+// own validator and writer downstream. Fed by the same hosted service, routed by topic.
+builder.Services.AddSingleton<DeviceStatusValidator>();
+builder.Services.AddSingleton<IDeviceStatusWriter, DeviceStatusWriter>();
+builder.Services.AddSingleton<IStatusIngestPipeline, StatusIngestPipeline>();
 builder.Services.AddSingleton<MqttConnectionState>();
 builder.Services.AddHostedService<MqttIngestService>();
 
@@ -251,6 +257,7 @@ builder.Services.AddScoped<IDeviceAccessAuthorizer, DeviceAccessAuthorizer>();
 builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
+builder.Services.AddScoped<IDeviceEventQueryService, DeviceEventQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
 
 // Temporary share links. The two stateless helpers are shared; the three services
@@ -274,6 +281,7 @@ builder.Services.AddScoped<IShareViewService, ShareViewService>();
 builder.Services.AddScoped<IPositionErasureService, PositionErasureService>();
 builder.Services.AddScoped<IDataExportService, DataExportService>();
 builder.Services.AddScoped<IAccountErasureService, AccountErasureService>();
+builder.Services.AddScoped<IMapsConsentService, MapsConsentService>();
 
 // ---------------------------------------------------------------------------
 // Settings schedules. The evaluator is pure arithmetic over a set of rules — no
@@ -510,12 +518,20 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
 // server, not the build, not the caller. It is also what the logging provider
 // stamps on the matching log line, which is the whole point — it turns "the site
 // broke this morning" into a single grep.
+//
+// The same hook gives every response an error `code` the frontend translates,
+// derived from the status wherever the producer did not set a specific one — see
+// ProblemCodeDefaults.
 // ---------------------------------------------------------------------------
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails((ProblemDetailsOptions options) =>
     options.CustomizeProblemDetails = (ProblemDetailsContext context) =>
+    {
         context.ProblemDetails.Extensions["traceId"] =
-            Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+            Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+
+        ProblemCodeDefaults.Apply(context.ProblemDetails);
+    });
 
 // A BackgroundService that throws stops the whole host by default, which would
 // mean an MQTT fault taking the REST API down with it — the opposite of what the

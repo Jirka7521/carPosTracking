@@ -2,6 +2,7 @@ using System.Globalization;
 using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
+using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Ingest;
 using Microsoft.EntityFrameworkCore;
 
@@ -201,7 +202,8 @@ internal sealed class ScheduleBundleBuilder
                 profile.QueueMaxFixes,
                 profile.RetryIntervalHours,
                 profile.RetryMaxAgeHours,
-                profile.ConfigCheckSeconds))
+                profile.ConfigCheckSeconds,
+                DeviceMotionDocumentFactory.Create(profile)))
             .ToList();
 
         // The ordinal is a dense rank over (CreatedAt, Id) — precisely the pair
@@ -332,6 +334,7 @@ internal sealed class ScheduleBundleBuilder
             inForce.QueueMaxFixes,
             inForce.RetryIntervalHours,
             inForce.RetryMaxAgeHours,
-            inForce.ConfigCheckSeconds);
+            inForce.ConfigCheckSeconds,
+            DeviceMotionDocumentFactory.Create(inForce));
     }
 }

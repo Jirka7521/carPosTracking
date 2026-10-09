@@ -4,9 +4,8 @@
 
 namespace {
 
-// Pin `value` into [low, high]. A free helper in an anonymous namespace rather
-// than std::clamp so the file stays dependency-free and the intent is obvious
-// at the call sites below, which are otherwise six near-identical lines.
+// Same helper as ModeSettings.cpp, kept file-local for the same reason: the
+// call sites read better with it than with std::clamp and a cast.
 uint32_t clampRange(uint32_t value, uint32_t low, uint32_t high) {
   if (value < low) {
     return low;
@@ -21,25 +20,23 @@ uint32_t clampRange(uint32_t value, uint32_t low, uint32_t high) {
 
 DeviceSettings::DeviceSettings()
     : version_(0),  // 0 = no server revision yet; see the header
-      intervalSeconds_(config::kDefaultSendIntervalSeconds),
-      sleepBetweenSends_(config::kDefaultSleepBetweenSends),
-      fixTimeoutSeconds_(config::kFixAcquireTimeoutSeconds),
+      standby_(ModeSettings::standbyDefaults()),
+      // The shared knobs' defaults are the constants they replace at runtime,
+      // and live in Config.h with the subsystem they belong to.
       queueMaxFixes_(config::kSdMaxQueuedFixes),
       retryIntervalHours_(config::kRetryIntervalHours),
       retryMaxAgeHours_(config::kRetryMaxAgeHours),
-      configCheckSeconds_(config::kDefaultConfigCheckSeconds) {}
+      configCheckSeconds_(config::kDefaultConfigCheckSeconds),
+      motion_() {}
 
 void DeviceSettings::clampToLimits() {
-  // Clamp rather than reject: a typo in the broker's config should degrade to
-  // the nearest sane value, not leave the device unable to report at all.
-  intervalSeconds_   = clampRange(intervalSeconds_,
-                                  config::kMinSendIntervalSeconds,
-                                  config::kMaxSendIntervalSeconds);
-  fixTimeoutSeconds_ = clampRange(fixTimeoutSeconds_,
-                                  config::kMinFixTimeoutSeconds,
-                                  config::kMaxFixTimeoutSeconds);
-  queueMaxFixes_     = clampRange(queueMaxFixes_, config::kMinQueueMaxFixes,
-                                  config::kMaxQueueMaxFixes);
+  // Each set owns its own bounds; the shared knobs are this class's own.
+  standby_.clampToLimits();
+  motion_.clampToLimits();
+
+  // Clamp rather than reject, exactly like the per-mode knobs.
+  queueMaxFixes_      = clampRange(queueMaxFixes_, config::kMinQueueMaxFixes,
+                                   config::kMaxQueueMaxFixes);
   retryIntervalHours_ = clampRange(retryIntervalHours_,
                                    config::kMinRetryIntervalHours,
                                    config::kMaxRetryIntervalHours);
@@ -56,11 +53,10 @@ void DeviceSettings::clampToLimits() {
 
 bool DeviceSettings::operator==(const DeviceSettings& other) const {
   // version_ is deliberately excluded - see the banner in the header.
-  return intervalSeconds_ == other.intervalSeconds_ &&
-         sleepBetweenSends_ == other.sleepBetweenSends_ &&
-         fixTimeoutSeconds_ == other.fixTimeoutSeconds_ &&
+  return standby_ == other.standby_ &&
          queueMaxFixes_ == other.queueMaxFixes_ &&
          retryIntervalHours_ == other.retryIntervalHours_ &&
          retryMaxAgeHours_ == other.retryMaxAgeHours_ &&
-         configCheckSeconds_ == other.configCheckSeconds_;
+         configCheckSeconds_ == other.configCheckSeconds_ &&
+         motion_ == other.motion_;
 }

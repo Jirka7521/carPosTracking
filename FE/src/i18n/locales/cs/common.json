@@ -14,6 +14,10 @@
     "summary_one": "Přístup má {{count}} osoba",
     "summary_other": "Přístup má {{count}} osob"
   },
+  "account": {
+    "menu": "Nabídka účtu",
+    "profile": "Účet a profil"
+  },
   "actions": {
     "cancel": "Zrušit",
     "copied": "Zkopírováno",
@@ -80,11 +84,25 @@
     "change": "Změnit jazyk",
     "heading": "Jazyk"
   },
+  "link": {
+    "online": "Online",
+    "onlineTitle": "Připojeno — naposledy aktivní {{when}}",
+    "overdue": "Nehlásí se",
+    "overdueTitle": "Mělo se vrátit do {{time}} a od té doby se neozvalo",
+    "reason": {
+      "batteryLow": "Slabá baterie",
+      "connectionLost": "Spojení ztraceno",
+      "error": "Chyba",
+      "powerOff": "Vypnuto",
+      "sleep": "Spí"
+    },
+    "sinceTitle": "Offline od {{when}}",
+    "sleepTitle": "Spí od {{since}}, návrat kolem {{time}}"
+  },
   "nav": {
     "home": "Přejít na domovskou stránku",
     "legal": "Přečíst podmínky užití",
-    "privacy": "Přečíst zásady ochrany osobních údajů",
-    "profile": "Upravit profil"
+    "privacy": "Přečíst zásady ochrany osobních údajů"
   },
   "onOff": {
     "off": "vypnuto",

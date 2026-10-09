@@ -3,7 +3,8 @@
 //
 // Renders:
 //   • A sticky top navigation bar with the app logo mark,
-//     application title, signed-in user's name, and logout button.
+//     application title, language picker, and the account menu (profile
+//     link and sign out).
 //   • An <Outlet /> where React Router mounts the active page.
 //   • A standing footer saying this is a non-commercial test project, with
 //     links to the privacy policy and the legal notice. The flex column and
@@ -14,15 +15,14 @@
 // its own tab bar (e.g. the device page has Map / Positions / Settings).
 // ============================================================
 
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useAuth } from '../auth/useAuth'
 import { assetUrl } from '../services/runtimeConfig'
+import { AccountMenu } from './AccountMenu'
 import { LanguageMenu } from './LanguageMenu'
 import { SiteFooter } from './SiteFooter'
 
 export function AppLayout() {
-  const { currentUser, logout } = useAuth()
   const { t } = useTranslation('common')
 
   return (
@@ -47,33 +47,10 @@ export function AppLayout() {
           </div>
         </Link>
 
-        {/* Right: language picker + display name + profile link + logout */}
+        {/* Right: language picker + account menu (profile, sign out) */}
         <div className="header-user">
           <LanguageMenu />
-
-          {currentUser ? (
-            /* The name is a link to the profile page so the user can click it
-               to edit their name or change their password. */
-            <NavLink
-              to="/profile"
-              className="header-user-name"
-              aria-label={t('nav.profile')}
-              style={{ textDecoration: 'none', cursor: 'pointer' }}
-            >
-              {currentUser.firstName} {currentUser.lastName}
-            </NavLink>
-          ) : null}
-
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            // Logging out is a round-trip now — the API has to expire the
-            // session cookies, since this code cannot touch them itself.
-            onClick={() => void logout()}
-            aria-label={t('actions.signOut')}
-          >
-            {t('actions.signOut')}
-          </button>
+          <AccountMenu />
         </div>
       </header>
 

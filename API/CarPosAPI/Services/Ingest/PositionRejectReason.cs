@@ -49,7 +49,4 @@ internal enum PositionRejectReason
     /// credentials must not write rows for another device.
     /// </summary>
     DeviceMismatch,
-
-    /// <summary>temp_c present but non-finite or outside [-40, 125] °C.</summary>
-    TemperatureOutOfRange,
 }

@@ -30,10 +30,14 @@ namespace CarPosAPI.Dtos;
 /// <param name="IntervalSeconds">Seconds between position reports.</param>
 /// <param name="SleepBetween">Deep-sleep between reports.</param>
 /// <param name="FixTimeoutSeconds">GNSS acquire budget in seconds.</param>
-/// <param name="QueueMaxFixes">Undelivered-fix queue cap.</param>
-/// <param name="RetryIntervalHours">Hours between attempts on a rejected fix.</param>
-/// <param name="RetryMaxAgeHours">Hours before a rejected fix is abandoned; 0 = never.</param>
-/// <param name="ConfigCheckSeconds">Seconds between the device's periodic re-checks.</param>
+/// <param name="QueueMaxFixes">Undelivered-fix queue cap, in either mode.</param>
+/// <param name="RetryIntervalHours">Hours between attempts on a rejected fix, in either mode.</param>
+/// <param name="RetryMaxAgeHours">Hours before a rejected fix is abandoned, in either mode; 0 = never.</param>
+/// <param name="ConfigCheckSeconds">Seconds between the device's periodic re-checks, in either mode.</param>
+/// <param name="Motion">
+/// The motion block. Interval, sleep and fix timeout above are the STANDBY set; this
+/// carries the motion-wake parameters and a MOVING copy of those three.
+/// </param>
 public sealed record DeviceConfigDocumentDto(
     [property: JsonPropertyName("version")] int Version,
     [property: JsonPropertyName("interval_s")] int IntervalSeconds,
@@ -42,4 +46,5 @@ public sealed record DeviceConfigDocumentDto(
     [property: JsonPropertyName("queue_max_fixes")] int QueueMaxFixes,
     [property: JsonPropertyName("retry_interval_h")] int RetryIntervalHours,
     [property: JsonPropertyName("retry_max_age_h")] int RetryMaxAgeHours,
-    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds);
+    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds,
+    [property: JsonPropertyName("motion")] DeviceMotionDocumentDto Motion);

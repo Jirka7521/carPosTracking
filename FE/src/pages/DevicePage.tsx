@@ -4,7 +4,7 @@
 // This component is mounted at /device/:deviceId — where :deviceId is the
 // tracker's MQTT identity, e.g. "GNSS01" — and renders:
 //   1. A breadcrumb "← Devices / <device name>"
-//   2. A four-tab bar: Map · Positions · Charts · Settings
+//   2. A five-tab bar: Map · Positions · Charts · Events · Settings
 //   3. An <Outlet /> where the active tab component is rendered
 //
 // It loads the device from the API on mount and passes the result
@@ -26,18 +26,33 @@
 // header beside it stale. There is exactly one countdown per device page, and
 // whichever control you press advances all of it.
 //
+// It owns the reader's view choices as well: the date range, the table's sort
+// and page size, the ticked chart series and the events filter. A tab is
+// unmounted the moment you leave it, so anything it kept itself would reset on
+// every switch; held here, a range picked on the map is the range the table
+// shows, and a sorted table is still sorted when you come back to it. They live
+// in memory only, so leaving the device page starts the next visit fresh.
+//
 // Child tabs access the shared context using:
 //   const { device, reloadDevice } = useOutletContext<DevicePageContext>()
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchMyDevices } from '../services/apiClient'
 import type { DeviceDto } from '../services/apiTypes'
+import type { DateRange } from '../utils/dates'
+import { getDefaultDateRange } from '../utils/dates'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
+import type { SeriesKey } from '../utils/telemetry'
+import { DEFAULT_CHART_SERIES } from '../utils/telemetry'
+import type { PageSize, Sort } from './PositionListTab'
+import type { SeverityFilter } from './DeviceEventsTab'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { AccessCountBadge } from '../components/AccessCountBadge'
+import { DeviceLinkBadge } from '../components/DeviceLinkBadge'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import { describeError } from '../utils/errors'
@@ -70,6 +85,20 @@ export type DevicePageContext = {
   // True while a background reload of the device is in flight — for a tab that
   // renders its own refresh button and wants the spinner to agree.
   isRefreshingDevice: boolean
+
+  // The reader's view choices, shared by every tab and kept across switches —
+  // see the banner above. The range is one window for all of them; the rest
+  // belong to a single tab but outlive its unmounting.
+  dateRange: DateRange
+  setDateRange: Dispatch<SetStateAction<DateRange>>
+  positionSort: Sort
+  setPositionSort: Dispatch<SetStateAction<Sort>>
+  positionPageSize: PageSize
+  setPositionPageSize: Dispatch<SetStateAction<PageSize>>
+  chartSeries: readonly SeriesKey[]
+  setChartSeries: Dispatch<SetStateAction<readonly SeriesKey[]>>
+  eventFilter: SeverityFilter
+  setEventFilter: Dispatch<SetStateAction<SeverityFilter>>
 }
 
 export function DevicePage() {
@@ -84,6 +113,23 @@ export function DevicePage() {
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // ---- View choices shared by the tabs ----
+  // The range is computed once, when the device page opens — from then on only
+  // the reader changes it, so a reload can never move the window under them.
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
+
+  // Seeded to the order the API already returns, so the table's first render is
+  // exactly what it was before sorting existed. Like the rest of these it
+  // survives a refresh tick and a switch to another device — only the reader
+  // changes it.
+  const [positionSort, setPositionSort] = useState<Sort>({
+    key: 'timestamp',
+    dir: 'desc',
+  })
+  const [positionPageSize, setPositionPageSize] = useState<PageSize>(25)
+  const [chartSeries, setChartSeries] = useState<readonly SeriesKey[]>(DEFAULT_CHART_SERIES)
+  const [eventFilter, setEventFilter] = useState<SeverityFilter>('all')
 
   // Which device is actually on screen. It is what separates a first load —
   // which may show the spinner and may blank the page with an error — from a
@@ -216,6 +262,11 @@ export function DevicePage() {
                 by the refresh control beside it. */}
             <BatteryBadge value={device.lastBatteryPct} large />
 
+            {/* Connected, or offline and why ("Sleeping", "Battery low",
+                "Connection lost" …), refreshed with the rest of the header.
+                The Events tab holds the history behind it. */}
+            <DeviceLinkBadge device={device} large />
+
             <span
               className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
             >
@@ -253,6 +304,13 @@ export function DevicePage() {
         </NavLink>
 
         <NavLink
+          to="events"
+          className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
+        >
+          📡 {t('device:tabs.events')}
+        </NavLink>
+
+        <NavLink
           to="settings"
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
@@ -272,6 +330,16 @@ export function DevicePage() {
           updateDevice: (patch) => setDevice((d) => d ? { ...d, ...patch } : d),
           autoRefresh: refresh,
           isRefreshingDevice: isRefreshing,
+          dateRange,
+          setDateRange,
+          positionSort,
+          setPositionSort,
+          positionPageSize,
+          setPositionPageSize,
+          chartSeries,
+          setChartSeries,
+          eventFilter,
+          setEventFilter,
         } satisfies DevicePageContext} />
       </div>
     </div>

@@ -53,11 +53,19 @@ public sealed class Device
     public string? AckPublicKeyPem { get; set; }
 
     /// <summary>
-    /// When the last accepted message from this device arrived (UTC). The firmware
-    /// sends no LWT or heartbeat, so this is the only "device is alive" signal the
-    /// frontend will ever get.
+    /// When the last accepted position message from this device arrived (UTC). One of
+    /// two "device is alive" signals, beside <see cref="LastOnlineAt"/>; the reason a
+    /// device went quiet lives in <see cref="DeviceEvent"/>.
     /// </summary>
     public DateTime? LastSeenAt { get; set; }
+
+    /// <summary>
+    /// When the device last announced a new broker connection on its status topic
+    /// (UTC), or null when it never has — firmware older than status messages. Set
+    /// even when no fix follows (a device that cannot see the sky is still online),
+    /// which is exactly what <see cref="LastSeenAt"/> cannot say.
+    /// </summary>
+    public DateTime? LastOnlineAt { get; set; }
 
     /// <summary>
     /// The revision of <see cref="DeviceConfigVersion"/> this device is <em>meant</em>

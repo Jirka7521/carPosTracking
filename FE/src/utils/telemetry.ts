@@ -22,7 +22,6 @@ export type SeriesKey =
   | 'speedKmph'
   | 'altitudeMeters'
   | 'batteryPct'
-  | 'temperatureC'
   | 'accelXG'
   | 'accelYG'
   | 'accelZG'
@@ -30,7 +29,7 @@ export type SeriesKey =
 
 // Series sharing a unit share a single Y axis — that is the whole reason the
 // unit is modelled explicitly rather than baked into the label.
-export type SeriesUnit = 'km/h' | 'm' | '%' | '°C' | 'g'
+export type SeriesUnit = 'km/h' | 'm' | '%' | 'g'
 
 export type SeriesDef = {
   key:      SeriesKey
@@ -53,7 +52,6 @@ export type ChartRow = {
   speedKmph:      number | null
   altitudeMeters: number | null
   batteryPct:     number | null
-  temperatureC:   number | null
   accelXG:        number | null
   accelYG:        number | null
   accelZG:        number | null
@@ -66,7 +64,7 @@ export type ChartRow = {
 // The order Y axes are laid out in, alternating left / right. Fixed rather than
 // derived from click order so the layout is a pure function of the selection:
 // ticking the same boxes always produces the same chart.
-export const UNIT_ORDER = ['km/h', 'm', '%', '°C', 'g'] as const
+export const UNIT_ORDER = ['km/h', 'm', '%', 'g'] as const
 
 // The palette avoids red entirely: this app reserves red for danger and delete
 // (see index.css), so a red line would read as an alarm. Speed takes the app's
@@ -78,12 +76,16 @@ export const SERIES: readonly SeriesDef[] = [
   { key: 'speedKmph',      labelKey: 'device:charts.series.speedKmph',      unit: 'km/h', color: '#0065BD', decimals: 1 },
   { key: 'altitudeMeters', labelKey: 'device:charts.series.altitudeMeters', unit: 'm',    color: '#9085E9', decimals: 0 },
   { key: 'batteryPct',     labelKey: 'device:charts.series.batteryPct',     unit: '%',    color: '#199E70', decimals: 0 },
-  { key: 'temperatureC',   labelKey: 'device:charts.series.temperatureC',   unit: '°C',   color: '#EB6834', decimals: 1 },
   { key: 'accelXG',        labelKey: 'device:charts.series.accelXG',        unit: 'g',    color: '#C06FD0', decimals: 2 },
   { key: 'accelYG',        labelKey: 'device:charts.series.accelYG',        unit: 'g',    color: '#EDA100', decimals: 2 },
   { key: 'accelZG',        labelKey: 'device:charts.series.accelZG',        unit: 'g',    color: '#B5651D', decimals: 2 },
   { key: 'accelMagG',      labelKey: 'device:charts.series.accelMagG',      unit: 'g',    color: '#00A3A3', decimals: 2 },
 ]
+
+// Speed and battery on first paint: "is it moving" and "is the tracker alive"
+// are the two questions worth answering without being asked, and the pair
+// demonstrates the two-axis behaviour without a wall of lines.
+export const DEFAULT_CHART_SERIES: readonly SeriesKey[] = ['speedKmph', 'batteryPct']
 
 // Total acceleration √(x² + y² + z²). Undefined unless all three axes were
 // reported for this fix — a missing axis would silently understate the result,
@@ -126,7 +128,6 @@ export function toChartRows(positions: readonly PositionDto[]): ChartRow[] {
       // `charging` carries the fact into the tooltip.
       batteryPct:     position.batteryPct === 0 ? null : position.batteryPct,
       charging:       position.batteryPct === 0,
-      temperatureC:   position.temperatureC,
       accelXG:        position.accelXG,
       accelYG:        position.accelYG,
       accelZG:        position.accelZG,
@@ -248,7 +249,7 @@ export function decimateChartRows(
 
 // Which series actually carry a reading in the loaded rows. Used to disable a
 // checkbox rather than hide it, so a series the device is not currently
-// reporting (modem temperature, say) is visibly absent rather than mysteriously
+// reporting (the accelerometer, say) is visibly absent rather than mysteriously
 // missing — and comes back on its own once the hardware reports again.
 export function availableSeriesKeys(rows: readonly ChartRow[]): Set<SeriesKey> {
   return new Set(

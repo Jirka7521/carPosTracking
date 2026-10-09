@@ -37,6 +37,13 @@ static constexpr int kMqttOutBufferBytes = 2048;
 // were small ack and settings messages.
 static constexpr int kMqttInBufferBytes = 4096;
 
+// Room the CONNECT packet needs besides the will payload: fixed header, protocol
+// name, client id, username, password and the will topic, each length-prefixed.
+// The credentials here are ~100 B and the topic ~25 B, so 512 B is a wide margin.
+// esp-mqtt builds CONNECT in the outbound buffer alone - it cannot fragment it -
+// so a will that does not fit would make every connect attempt fail.
+static constexpr std::size_t kConnectOverheadBytes = 512;
+
 // One place to render the heap situation for a failed publish. Free heap alone
 // does not explain an allocation failure - a fragmented heap can report plenty
 // free and still refuse a contiguous request - so the largest free block is
@@ -49,13 +56,17 @@ void MqttClient::logPublishFailure(const char* what, std::size_t payloadBytes) {
 }
 
 MqttClient::MqttClient(const char* uri, const char* username,
-                       const char* password, const char* clientId)
+                       const char* password, const char* clientId,
+                       uint16_t keepaliveSeconds)
     : uri_(uri),
       username_(username),
       password_(password),
       clientId_(clientId),
+      keepaliveSeconds_(keepaliveSeconds),
+      willTopic_(nullptr),
       client_(nullptr),
       connected_(false),
+      connectCount_(0),
       lastAckedMsgId_(-1) {}
 
 MqttClient::~MqttClient() {
@@ -71,6 +82,27 @@ void MqttClient::stop() {
   esp_mqtt_client_stop(client_);
   connected_ = false;
   ESP_LOGI(TAG, "MQTT client stopped.");
+}
+
+bool MqttClient::setLastWill(const char* topic, const std::string& payload) {
+  if (topic == nullptr || topic[0] == '\0' || payload.empty()) {
+    return false;
+  }
+  if (client_ != nullptr) {
+    // The will rides in CONNECT, which begin() has already configured.
+    ESP_LOGW(TAG, "setLastWill after begin() - ignored");
+    return false;
+  }
+  if (payload.size() + kConnectOverheadBytes >
+      static_cast<std::size_t>(kMqttOutBufferBytes)) {
+    ESP_LOGW(TAG, "last will of %u B does not fit the %d B CONNECT buffer - "
+                  "connecting without one", (unsigned)payload.size(),
+             kMqttOutBufferBytes);
+    return false;
+  }
+  willTopic_   = topic;
+  willPayload_ = payload;
+  return true;
 }
 
 bool MqttClient::begin() {
@@ -98,6 +130,25 @@ bool MqttClient::begin() {
   }
   if (clientId_ != nullptr && clientId_[0] != '\0') {
     cfg.credentials.client_id = clientId_;
+  }
+
+  // Keep-alive decides how quickly a dead session is noticed: the broker allows
+  // 1.5x this before it drops the client and publishes the Last Will. It must
+  // stay at or under the broker's max_keepalive, or a 3.1.1 CONNECT is refused.
+  if (keepaliveSeconds_ > 0) {
+    cfg.session.keepalive = keepaliveSeconds_;
+  }
+
+  // The Last Will. QoS 2 to match the API's subscription on the status topic,
+  // not retained - a stale "connection lost" replayed to every later subscriber
+  // would contradict the device being back. msg_len is set explicitly so the
+  // payload is copied as bytes rather than measured as a C string.
+  if (willTopic_ != nullptr) {
+    cfg.session.last_will.topic   = willTopic_;
+    cfg.session.last_will.msg     = willPayload_.data();
+    cfg.session.last_will.msg_len = static_cast<int>(willPayload_.size());
+    cfg.session.last_will.qos     = 2;
+    cfg.session.last_will.retain  = 0;
   }
 
   client_ = esp_mqtt_client_init(&cfg);
@@ -255,6 +306,9 @@ void MqttClient::eventHandler(void* arg, esp_event_base_t /*base*/,
   switch (static_cast<esp_mqtt_event_id_t>(eventId)) {
     case MQTT_EVENT_CONNECTED:
       self->connected_ = true;
+      // Counted, not announced: the "online" status message is published from
+      // the main task, which notices the count change - see PresenceReporter.
+      self->connectCount_ = self->connectCount_ + 1;
       ESP_LOGI(TAG, "connected to broker");
       // Re-arm every subscription on each connect. A clean-session broker drops
       // them on disconnect, and after a deep-sleep wake this is a brand new

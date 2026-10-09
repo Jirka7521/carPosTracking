@@ -41,6 +41,13 @@ export const CONFIG_LIMITS = {
   retryIntervalHours: { min: 1, max: 720 },
   retryMaxAgeHours: { min: 0, max: 8760 },
   configCheckSeconds: { min: 60, max: 86400 },
+  motionThresholdMg: { min: 63, max: 2000 },
+  motionSpeedKmph: { min: 1, max: 50 },
+  motionWakeWaitSeconds: { min: 30, max: 3600 },
+  motionStopWaitSeconds: { min: 60, max: 7200 },
+  // The moving set is bounded exactly like the standby set it mirrors.
+  movingIntervalSeconds: { min: 5, max: 86400 },
+  movingFixTimeoutSeconds: { min: 15, max: 3600 },
 } as const
 
 // Every editable key, in the order the form and the pending table present them.
@@ -54,7 +61,52 @@ export const CONFIG_FIELD_ORDER: readonly (keyof DeviceConfigValuesDto)[] = [
   'retryIntervalHours',
   'retryMaxAgeHours',
   'configCheckSeconds',
+  'motionEnabled',
+  'motionThresholdMg',
+  'motionSpeedKmph',
+  'motionWakeWaitSeconds',
+  'motionStopWaitSeconds',
+  'movingIntervalSeconds',
+  'movingSleepBetween',
+  'movingFixTimeoutSeconds',
 ]
+
+// The three settings that differ per operating mode, as a map from the role a
+// setting plays to the key that holds it. With motion wake there are two
+// copies — standby and moving — and ModeValuesFields renders either one from
+// the same JSX by being handed one of these maps. Typing each role as the pair
+// of keys it can be stops a caller asking a mode for a setting it does not
+// have; it cannot stop a map that mixes the two modes, which is why there are
+// only these two and nothing else builds one.
+export type ModeKeys = {
+  interval: 'intervalSeconds' | 'movingIntervalSeconds'
+  sleepBetween: 'sleepBetween' | 'movingSleepBetween'
+  fixTimeout: 'fixTimeoutSeconds' | 'movingFixTimeoutSeconds'
+}
+
+export const STANDBY_KEYS: ModeKeys = {
+  interval: 'intervalSeconds',
+  sleepBetween: 'sleepBetween',
+  fixTimeout: 'fixTimeoutSeconds',
+}
+
+export const MOVING_KEYS: ModeKeys = {
+  interval: 'movingIntervalSeconds',
+  sleepBetween: 'movingSleepBetween',
+  fixTimeout: 'movingFixTimeoutSeconds',
+}
+
+// The four settings with ONE value for both modes: the queue cap, the two retry
+// knobs and the config re-check. They govern storage and the link rather than
+// how the car is sampled, and the firmware applies them whichever mode is in
+// force — a queue cap that followed the mode would trim the queue every time
+// the car parked. SharedValuesFields renders them, once.
+export const SHARED_KEYS = [
+  'queueMaxFixes',
+  'retryIntervalHours',
+  'retryMaxAgeHours',
+  'configCheckSeconds',
+] as const satisfies readonly (keyof DeviceConfigValuesDto)[]
 
 // Short labels used wherever a setting is named outside its own form field —
 // as translation keys rather than text, so the form, the pending table and the
@@ -70,6 +122,14 @@ export const CONFIG_FIELD_LABEL_KEYS = {
   retryIntervalHours: 'settings:config.field.retryIntervalHours',
   retryMaxAgeHours: 'settings:config.field.retryMaxAgeHours',
   configCheckSeconds: 'settings:config.field.configCheckSeconds',
+  motionEnabled: 'settings:config.field.motionEnabled',
+  motionThresholdMg: 'settings:config.field.motionThresholdMg',
+  motionSpeedKmph: 'settings:config.field.motionSpeedKmph',
+  motionWakeWaitSeconds: 'settings:config.field.motionWakeWaitSeconds',
+  motionStopWaitSeconds: 'settings:config.field.motionStopWaitSeconds',
+  movingIntervalSeconds: 'settings:config.field.movingIntervalSeconds',
+  movingSleepBetween: 'settings:config.field.movingSleepBetween',
+  movingFixTimeoutSeconds: 'settings:config.field.movingFixTimeoutSeconds',
 } as const satisfies Record<keyof DeviceConfigValuesDto, string>
 
 // Which settings differ between two revisions. Returns keys in CONFIG_FIELD_ORDER
@@ -90,25 +150,33 @@ export function formatConfigValue(
 ): string {
   switch (key) {
     case 'sleepBetween':
-      return values.sleepBetween ? i18n.t('common:onOff.on') : i18n.t('common:onOff.off')
+    case 'movingSleepBetween':
+    case 'motionEnabled':
+      return values[key] ? i18n.t('common:onOff.on') : i18n.t('common:onOff.off')
     case 'intervalSeconds':
-      return i18n.t('common:units.abbrevSeconds', { value: values.intervalSeconds })
+    case 'movingIntervalSeconds':
     case 'fixTimeoutSeconds':
-      return i18n.t('common:units.abbrevSeconds', { value: values.fixTimeoutSeconds })
+    case 'movingFixTimeoutSeconds':
+    case 'configCheckSeconds':
+    case 'motionWakeWaitSeconds':
+    case 'motionStopWaitSeconds':
+      return i18n.t('common:units.abbrevSeconds', { value: values[key] })
     case 'queueMaxFixes':
       return i18n.t('settings:config.fixesCount', {
-        count: values.queueMaxFixes,
-        value: formatInteger(values.queueMaxFixes),
+        count: values[key],
+        value: formatInteger(values[key]),
       })
     case 'retryIntervalHours':
-      return i18n.t('common:units.abbrevHours', { value: values.retryIntervalHours })
+      return i18n.t('common:units.abbrevHours', { value: values[key] })
     case 'retryMaxAgeHours':
       // 0 is not "zero hours", it is the deliberate "keep retrying forever".
-      return values.retryMaxAgeHours === 0
+      return values[key] === 0
         ? i18n.t('common:relative.never')
-        : i18n.t('common:units.abbrevHours', { value: values.retryMaxAgeHours })
-    case 'configCheckSeconds':
-      return i18n.t('common:units.abbrevSeconds', { value: values.configCheckSeconds })
+        : i18n.t('common:units.abbrevHours', { value: values[key] })
+    case 'motionThresholdMg':
+      return i18n.t('settings:config.milliG', { value: values.motionThresholdMg })
+    case 'motionSpeedKmph':
+      return i18n.t('settings:config.kilometresPerHour', { value: values.motionSpeedKmph })
   }
 }
 
@@ -128,6 +196,20 @@ export function describeSeconds(seconds: number): string {
     return describeRounded(seconds / 3600, 'hour')
   }
   return describeRounded(seconds / 86400, 'day')
+}
+
+// The "every 5 minutes · deep sleep" line a folded group of the form shows in its
+// header. Interval and sleep are what people tell one mode from another by — the
+// same reason the schedule's profile cards lead with them — and the reporting
+// group and the standby/moving blocks around it both show this, so it is built
+// once rather than worded twice.
+export function describeReportingSummary(values: DeviceConfigValuesDto, keys: ModeKeys): string {
+  return [
+    i18n.t('settings:config.everyDuration', { duration: describeSeconds(values[keys.interval]) }),
+    values[keys.sleepBetween]
+      ? i18n.t('settings:config.summary.sleepOn')
+      : i18n.t('settings:config.summary.sleepOff'),
+  ].join(' · ')
 }
 
 // Same idea for a count of hours, used by the two retry fields.
@@ -157,6 +239,74 @@ export function estimateQueueSpan(maxFixes: number, intervalSeconds: number): st
   return i18n.t('settings:config.queueSpan', {
     duration: describeSeconds(maxFixes * intervalSeconds),
   })
+}
+
+// The same estimate for a tracker with motion wake on, where the one queue cap
+// is shared by two intervals: it fills one fix per cycle of whichever set is in
+// force, so how long it lasts depends on whether the car is parked or driving.
+// Both are given rather than the worse one, because an outage while parked is
+// the common case and reading only the driving figure would undersell it.
+export function estimateQueueSpanByMode(
+  maxFixes: number,
+  standbyIntervalSeconds: number,
+  movingIntervalSeconds: number,
+): string {
+  if (!Number.isFinite(maxFixes) || maxFixes <= 0) {
+    return ''
+  }
+  if (!Number.isFinite(standbyIntervalSeconds) || standbyIntervalSeconds <= 0) {
+    return ''
+  }
+  if (!Number.isFinite(movingIntervalSeconds) || movingIntervalSeconds <= 0) {
+    return ''
+  }
+  return i18n.t('settings:config.queueSpanByMode', {
+    standby: describeSeconds(maxFixes * standbyIntervalSeconds),
+    moving: describeSeconds(maxFixes * movingIntervalSeconds),
+  })
+}
+
+// The accelerometer's wake threshold is a register counting in 62.5 mg steps, so
+// the number typed in milli-g is not the threshold the sensor ends up with: the
+// firmware rounds it to the nearest step, clamped to the register's 1 … 255.
+// 63 mg is therefore step 1 — 62.5 mg, the most sensitive setting there is.
+export const MOTION_STEP_MG = 62.5
+
+// Returns null for something that is not a number, so the hint can stay empty
+// while the field is being typed into.
+export function motionThresholdStep(mg: number): { step: number; thresholdMg: number } | null {
+  if (!Number.isFinite(mg)) {
+    return null
+  }
+  const step: number = Math.min(255, Math.max(1, Math.round(mg / MOTION_STEP_MG)))
+  return { step, thresholdMg: step * MOTION_STEP_MG }
+}
+
+// The live line under the threshold input: what the typed value actually
+// becomes on the sensor. Same job as estimateQueueSpan — turn a bare number into
+// the consequence a person cares about — and it lives here for the same reason.
+export function describeMotionThreshold(mg: number): string {
+  const resolved = motionThresholdStep(mg)
+  if (resolved === null) {
+    return ''
+  }
+  return i18n.t('settings:config.motionThresholdStep', {
+    step: resolved.step,
+    mg: formatCompact(resolved.thresholdMg, 1),
+    // A step is a multiple of 1/16 g, so four decimals is always exact.
+    g: formatCompact(resolved.thresholdMg / 1000, 4),
+  })
+}
+
+// formatNumber with the trailing zeros taken off — "125", "62.5", "0.0625" —
+// for values that are exact fractions rather than measurements.
+function formatCompact(value: number, maxDecimals: number): string {
+  for (let decimals = 0; decimals < maxDecimals; decimals += 1) {
+    if (Number(value.toFixed(decimals)) === value) {
+      return formatNumber(value, decimals)
+    }
+  }
+  return formatNumber(value, maxDecimals)
 }
 
 // One decimal place, but only when it carries information: "5 minutes", not
@@ -198,6 +348,12 @@ export function validateConfigRanges(values: DeviceConfigValuesDto): string | nu
     { key: 'retryIntervalHours', value: values.retryIntervalHours },
     { key: 'retryMaxAgeHours', value: values.retryMaxAgeHours },
     { key: 'configCheckSeconds', value: values.configCheckSeconds },
+    { key: 'motionThresholdMg', value: values.motionThresholdMg },
+    { key: 'motionSpeedKmph', value: values.motionSpeedKmph },
+    { key: 'motionWakeWaitSeconds', value: values.motionWakeWaitSeconds },
+    { key: 'motionStopWaitSeconds', value: values.motionStopWaitSeconds },
+    { key: 'movingIntervalSeconds', value: values.movingIntervalSeconds },
+    { key: 'movingFixTimeoutSeconds', value: values.movingFixTimeoutSeconds },
   ]
 
   for (const check of checks) {

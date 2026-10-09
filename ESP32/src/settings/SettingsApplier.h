@@ -19,6 +19,14 @@
 //  them anywhere would just be indirection; only the settings that live inside
 //  another object's state need applying.
 //
+//  With motion wake, which set is in force flips at every trip - but nothing
+//  this class applies follows it. The queue cap and both retry knobs are shared
+//  by the two modes (see DeviceSettings), because lowering the cap or the give-up
+//  age throws data away the moment it is applied (FixQueue trims at once;
+//  RetryQueue abandons anything older than the new age), and a car that parks
+//  twice a day would otherwise delete undelivered fixes twice a day. That is
+//  why apply() takes no mode at all.
+//
 //  Borrows its collaborators (they must outlive it), like every other class here.
 // =============================================================================
 

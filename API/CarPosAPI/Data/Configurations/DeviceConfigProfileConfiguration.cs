@@ -48,6 +48,27 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
                     "ck_device_config_profiles_config_check_s",
                     $"config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
                 table.HasCheckConstraint(
+                    "ck_device_config_profiles_motion_threshold_mg",
+                    $"motion_threshold_mg BETWEEN {DeviceConfigRules.MinMotionThresholdMg} AND {DeviceConfigRules.MaxMotionThresholdMg}");
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_motion_speed_kmph",
+                    $"motion_speed_kmph BETWEEN {DeviceConfigRules.MinMotionSpeedKmph} AND {DeviceConfigRules.MaxMotionSpeedKmph}");
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_motion_wake_wait_s",
+                    $"motion_wake_wait_s BETWEEN {DeviceConfigRules.MinMotionWakeWaitSeconds} AND {DeviceConfigRules.MaxMotionWakeWaitSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_motion_stop_wait_s",
+                    $"motion_stop_wait_s BETWEEN {DeviceConfigRules.MinMotionStopWaitSeconds} AND {DeviceConfigRules.MaxMotionStopWaitSeconds}");
+
+                // The moving set is held to the standby set's bounds: a setting means
+                // the same thing in either mode, so there is nothing to bound twice.
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_moving_interval_s",
+                    $"moving_interval_s BETWEEN {DeviceConfigRules.MinIntervalSeconds} AND {DeviceConfigRules.MaxIntervalSeconds}");
+                table.HasCheckConstraint(
+                    "ck_device_config_profiles_moving_fix_timeout_s",
+                    $"moving_fix_timeout_s BETWEEN {DeviceConfigRules.MinFixTimeoutSeconds} AND {DeviceConfigRules.MaxFixTimeoutSeconds}");
+                table.HasCheckConstraint(
                     "ck_device_config_profiles_schedule_slot",
                     $"schedule_slot BETWEEN {ScheduleRules.MinScheduleSlot} AND {ScheduleRules.MaxScheduleSlot}");
             });
@@ -114,6 +135,58 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
 
         builder.Property(profile => profile.ConfigCheckSeconds)
             .HasColumnName("config_check_s")
+            .IsRequired();
+
+        // The motion block. Unlike the seven columns above, every one of these carries
+        // a default: they were added to a table that already held profiles, and the
+        // migration needed a value to backfill them with. The Moving* defaults are the
+        // firmware's, not copies of the standby ones. Only interval, sleep and fix
+        // timeout have a moving copy; the queue, retry and re-check columns above serve
+        // both modes.
+        //
+        // The sentinel on motion_enabled is set explicitly because its default is TRUE:
+        // EF's usual sentinel (false) would leave an explicit "off" out of the INSERT and
+        // let the database default turn it back on. See DeviceConfigVersionConfiguration
+        // for the full account.
+        builder.Property(profile => profile.MotionEnabled)
+            .HasColumnName("motion_enabled")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionEnabled)
+            .HasSentinel(DeviceConfigRules.DefaultMotionEnabled)
+            .IsRequired();
+
+        builder.Property(profile => profile.MotionThresholdMg)
+            .HasColumnName("motion_threshold_mg")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionThresholdMg)
+            .IsRequired();
+
+        builder.Property(profile => profile.MotionSpeedKmph)
+            .HasColumnName("motion_speed_kmph")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionSpeedKmph)
+            .IsRequired();
+
+        builder.Property(profile => profile.MotionWakeWaitSeconds)
+            .HasColumnName("motion_wake_wait_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionWakeWaitSeconds)
+            .IsRequired();
+
+        builder.Property(profile => profile.MotionStopWaitSeconds)
+            .HasColumnName("motion_stop_wait_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMotionStopWaitSeconds)
+            .IsRequired();
+
+        builder.Property(profile => profile.MovingIntervalSeconds)
+            .HasColumnName("moving_interval_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingIntervalSeconds)
+            .IsRequired();
+
+        builder.Property(profile => profile.MovingSleepBetween)
+            .HasColumnName("moving_sleep_between")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingSleepBetween)
+            .IsRequired();
+
+        builder.Property(profile => profile.MovingFixTimeoutSeconds)
+            .HasColumnName("moving_fix_timeout_s")
+            .HasDefaultValue(DeviceConfigRules.DefaultMovingFixTimeoutSeconds)
             .IsRequired();
 
         builder.Property(profile => profile.CreatedByUserId)

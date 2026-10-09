@@ -78,7 +78,20 @@ class BatteryMethods {
   // lands in the next window rather than in the one being scored.
   bool sample(BatteryMethodsSample& out);
 
+  // Take a one-off reading NOW from a short burst, without touching the window
+  // sample() drains - for LowBatteryGuard's boot check, which has to decide
+  // whether to start up at all before anything that could load the rail is
+  // running. Scored exactly like sample() (same trim, same median, same "no
+  // battery in front of the pin" rule). Blocks for well under a second.
+  bool spotSample(BatteryMethodsSample& out);
+
  private:
+  // The shared tail of sample() and spotSample(): trim the first `taken`
+  // entries of values_, take the median, calibrate and score it. Fills `out`
+  // and returns out.valid. One copy of the pack maths, so the boot check and
+  // the published percent can never disagree about what a voltage means.
+  bool score(std::size_t taken, BatteryMethodsSample& out);
+
   // Median of `n` raw counts. Sorts `values` in place (insertion sort - the
   // window is a few hundred entries at most, already nearly sorted after a trim,
   // and it beats anything cleverer at this size).

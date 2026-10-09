@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-09-09`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-10-09`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle
@@ -29,7 +29,7 @@
 |---|---|
 | **Purpose** | Let a person create an account, sign in, and be identified to people they share a device with |
 | **Data subjects** | Registered users |
-| **Categories of data** | Email address, first and last name, salted password hash, account creation time, privacy-policy version and acceptance timestamp |
+| **Categories of data** | Email address, first and last name, salted password hash, account creation time, privacy-policy version and acceptance timestamp; if the user chose "Always load maps", the version of that prompt and when they agreed (the Art. 7(1) record of the map consent, cleared on withdrawal) |
 | **Legal basis** | Art. 6(1)(b) contract; Art. 6(1)(f) legitimate interest for the security measures |
 | **Recipients** | Other users the subject shares a device with (name and email only). Cloudflare as TLS terminator. |
 | **Third-country transfers** | Cloudflare (USA) — EU–US Data Privacy Framework |
@@ -43,12 +43,12 @@
 | **Purpose** | Record and display where a tracker-equipped vehicle has been, and how it was driven |
 | **Data subjects** | Users who operate a tracker, and any other person driving or travelling in a tracked vehicle |
 | **Controller split** | For the account holder’s own data the operator is controller. For **other drivers and passengers** the *account holder* is the controller and the operator is a **processor** acting on their instructions; the Art. 28 terms are the `yourDevices` section of the terms of use, accepted at registration and re-confirmed per device (`devices.tracking_declaration_accepted_at`). Drivers without an account are told in the privacy policy to write to the controller contact, and the request is passed to the responsible account holder. |
-| **Categories of data** | Latitude, longitude, speed, three-axis acceleration, altitude, GNSS fix time, receive time, battery percentage, temperature, device identifier — **precise geolocation and behavioural data** |
+| **Categories of data** | Latitude, longitude, speed, three-axis acceleration, altitude, GNSS fix time, receive time, battery percentage, device identifier — **precise geolocation and behavioural data**. Also the tracker's **device history** (`device_events`, `devices.last_online_at`): when it went offline and why (sleep, sleep because parked, switched off, low battery, fault, connection lost), notable restarts, every wake and its cause (timer, accelerometer, power switch), every motion-wake step (checking, moving, parked, stopped), and when it last connected — no location, but a detailed record of when the vehicle was driven and parked. Kept, exported and erased exactly like the positions. |
 | **Special categories (Art. 9)** | None intended. A location history can incidentally reveal e.g. visits to a place of worship or a clinic; the system does not seek or derive such inferences. |
 | **Legal basis** | Art. 6(1)(b) contract — storing and displaying a location history is the service the account holder accepted the terms of use to obtain. **Not** consent: consent bundled into a policy acknowledgement is not freely given or specific (Recital 43), and a basis that collapses under scrutiny would make the whole processing unlawful. |
 | **Recipients** | Users granted access to that device. Google LLC receives IP, browser data and — through the map viewport — the approximate area, **only after the viewer consents to loading the map.** Cloudflare as TLS terminator. |
 | **Third-country transfers** | Google LLC and Cloudflare, Inc. (USA) — EU–US Data Privacy Framework |
-| **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`) or by account deletion. Retention is bounded by purpose rather than by a timer: reviewing history is the purpose, so it is kept while the account holder wants it, and the erasure controls are immediate and unconditional. Stated in the policy at `/privacy`. |
+| **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`, which takes the connection history over the same range with it) or by account deletion. Retention is bounded by purpose rather than by a timer: reviewing history is the purpose, so it is kept while the account holder wants it, and the erasure controls are immediate and unconditional. Stated in the policy at `/privacy`. |
 | **Security measures** | End-to-end encryption device→backend (RSA-3072-OAEP-SHA256 + AES-256-GCM per message); device private keys encrypted at rest under a master key; coordinates never logged; per-request re-authorisation against the caller's access grant; invisible devices answer 404 not 403 |
 
 ### C. Device sharing and access control
@@ -68,7 +68,7 @@
 |---|---|
 | **Purpose** | Let a user show one tracker's position to somebody who has no account, for a window that user chooses, and withdraw it at any time |
 | **Data subjects** | Registered users (the creator); the persons whose movements the vehicle records; **recipients are not data subjects of this activity — see below** |
-| **Categories of data** | Device reference, a creator-chosen label, the validity window, what the link exposes (current position only, or the track; optionally speed, battery and temperature), revocation time, and three usage counters: times opened, last opened, consecutive wrong codes. **The link secret and the access code are stored in readable form** so the creating user can retrieve them — see the safeguards row. |
+| **Categories of data** | Device reference, a creator-chosen label, the validity window, what the link exposes (current position only, or the track; optionally speed and battery), revocation time, and three usage counters: times opened, last opened, consecutive wrong codes. **The link secret and the access code are stored in readable form** so the creating user can retrieve them — see the safeguards row. |
 | **Legal basis** | Art. 6(1)(b) contract — the user asked for the disclosure and controls its scope and duration |
 | **Recipients** | Whoever the creating user chooses to send the link and its code to. **This system does not learn, and does not record, who that is** — no IP address, no user agent, no identifier of any kind is stored for a share visitor. The counters above are the entire record that a link was used. |
 | **Retention** | The row survives revocation and expiry so that "this was shared, and withdrawn at this time" stays answerable. On account deletion the creator's links are **deleted outright** rather than anonymised: unlike a grant handed to another account, nobody would remain who could revoke one. |

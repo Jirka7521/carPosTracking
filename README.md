@@ -30,7 +30,7 @@ inside the API. The broker in the middle, and anyone who can reach it, sees ciph
 
 | Folder | What it is | Stack |
 |---|---|---|
-| **[ESP32/](ESP32/)** | Tracker firmware — GNSS fix, accelerometer, battery, SD-card store-and-forward queue, sealed MQTT publish | C++ / PlatformIO / ESP-IDF + Arduino |
+| **[ESP32/](ESP32/)** | Tracker firmware — GNSS fix, accelerometer with motion wake, battery, SD-card store-and-forward queue, sealed MQTT publish | C++ / PlatformIO / ESP-IDF + Arduino |
 | **[API/CarPosAPI/](API/CarPosAPI/)** | Backend — MQTT ingest and decryption, REST API, device provisioning, remote settings and schedules | ASP.NET Core (.NET 10), EF Core, PostgreSQL |
 | **[FE/](FE/)** | Dashboard — map, position list, telemetry charts, device settings and sharing | React 19 + Vite + TypeScript, i18next (English / Czech) |
 | **[Container/](Container/)** | The self-hosted stack — Mosquitto broker behind nginx, PostgreSQL, Cloudflare tunnel | Docker Compose |
@@ -54,6 +54,13 @@ ESP32                     Mosquitto                 CarPosAPI              Postg
 
 If the device cannot reach the broker it queues sealed fixes on its SD card and sends
 them when it can, so a drive through a dead zone is not a hole in the history.
+
+Beside the fixes, the tracker says **why it goes offline** — a planned sleep, the power
+switch, a low battery (it shuts itself down before the pack runs flat), or an error — on
+`devices/<id>/status`, sealed the same way. When it drops without a word, an MQTT **Last
+Will** makes the broker report "connection lost" for it, and after a crash or a brown-out
+it reports the reset reason once it is back. The dashboard shows the result as a status
+badge on each device and an **Events** tab with the history.
 
 ## Getting started
 

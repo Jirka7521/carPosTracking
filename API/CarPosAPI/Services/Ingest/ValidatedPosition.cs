@@ -16,7 +16,6 @@ namespace CarPosAPI.Services.Ingest;
 /// <param name="AccelXG">X-axis acceleration in g within [-16, 16], or null when absent.</param>
 /// <param name="AccelYG">Y-axis acceleration in g within [-16, 16], or null when absent.</param>
 /// <param name="AccelZG">Z-axis acceleration in g within [-16, 16], or null when absent.</param>
-/// <param name="TemperatureC">Modem die temperature in °C within [-40, 125], or null when absent.</param>
 /// <param name="SettingsVersion">
 /// Settings revision the device was running when it took this fix, or null when it
 /// sent none. Unlike every other member this is not a column of <c>positions</c>:
@@ -46,7 +45,6 @@ internal sealed record ValidatedPosition(
     double? AccelXG,
     double? AccelYG,
     double? AccelZG,
-    double? TemperatureC,
     int? SettingsVersion,
     int? ProfileSlot,
     int? ScheduleVersion);

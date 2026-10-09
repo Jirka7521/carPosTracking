@@ -163,6 +163,10 @@ namespace CarPosAPI.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<DateTime?>("LastOnlineAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_online_at");
+
                     b.Property<DateTime?>("LastSeenAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
@@ -282,6 +286,54 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("interval_s");
 
+                    b.Property<bool>("MotionEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("motion_enabled");
+
+                    b.Property<int>("MotionSpeedKmph")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(3)
+                        .HasColumnName("motion_speed_kmph");
+
+                    b.Property<int>("MotionStopWaitSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(900)
+                        .HasColumnName("motion_stop_wait_s");
+
+                    b.Property<int>("MotionThresholdMg")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(188)
+                        .HasColumnName("motion_threshold_mg");
+
+                    b.Property<int>("MotionWakeWaitSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(600)
+                        .HasColumnName("motion_wake_wait_s");
+
+                    b.Property<int>("MovingFixTimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(180)
+                        .HasColumnName("moving_fix_timeout_s");
+
+                    b.Property<int>("MovingIntervalSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30)
+                        .HasColumnName("moving_interval_s");
+
+                    b.Property<bool>("MovingSleepBetween")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("moving_sleep_between");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -333,6 +385,18 @@ namespace CarPosAPI.Data.Migrations
                             t.HasCheckConstraint("ck_device_config_profiles_fix_timeout_s", "fix_timeout_s BETWEEN 15 AND 3600");
 
                             t.HasCheckConstraint("ck_device_config_profiles_interval_s", "interval_s BETWEEN 5 AND 86400");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_motion_speed_kmph", "motion_speed_kmph BETWEEN 1 AND 50");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_motion_stop_wait_s", "motion_stop_wait_s BETWEEN 60 AND 7200");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_motion_threshold_mg", "motion_threshold_mg BETWEEN 63 AND 2000");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_motion_wake_wait_s", "motion_wake_wait_s BETWEEN 30 AND 3600");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_moving_fix_timeout_s", "moving_fix_timeout_s BETWEEN 15 AND 3600");
+
+                            t.HasCheckConstraint("ck_device_config_profiles_moving_interval_s", "moving_interval_s BETWEEN 5 AND 86400");
 
                             t.HasCheckConstraint("ck_device_config_profiles_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
 
@@ -446,6 +510,54 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("interval_s");
 
+                    b.Property<bool>("MotionEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("motion_enabled");
+
+                    b.Property<int>("MotionSpeedKmph")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(3)
+                        .HasColumnName("motion_speed_kmph");
+
+                    b.Property<int>("MotionStopWaitSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(900)
+                        .HasColumnName("motion_stop_wait_s");
+
+                    b.Property<int>("MotionThresholdMg")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(188)
+                        .HasColumnName("motion_threshold_mg");
+
+                    b.Property<int>("MotionWakeWaitSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(600)
+                        .HasColumnName("motion_wake_wait_s");
+
+                    b.Property<int>("MovingFixTimeoutSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(180)
+                        .HasColumnName("moving_fix_timeout_s");
+
+                    b.Property<int>("MovingIntervalSeconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30)
+                        .HasColumnName("moving_interval_s");
+
+                    b.Property<bool>("MovingSleepBetween")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("moving_sleep_between");
+
                     b.Property<int>("QueueMaxFixes")
                         .HasColumnType("integer")
                         .HasColumnName("queue_max_fixes");
@@ -494,6 +606,18 @@ namespace CarPosAPI.Data.Migrations
 
                             t.HasCheckConstraint("ck_device_config_versions_interval_s", "interval_s BETWEEN 5 AND 86400");
 
+                            t.HasCheckConstraint("ck_device_config_versions_motion_speed_kmph", "motion_speed_kmph BETWEEN 1 AND 50");
+
+                            t.HasCheckConstraint("ck_device_config_versions_motion_stop_wait_s", "motion_stop_wait_s BETWEEN 60 AND 7200");
+
+                            t.HasCheckConstraint("ck_device_config_versions_motion_threshold_mg", "motion_threshold_mg BETWEEN 63 AND 2000");
+
+                            t.HasCheckConstraint("ck_device_config_versions_motion_wake_wait_s", "motion_wake_wait_s BETWEEN 30 AND 3600");
+
+                            t.HasCheckConstraint("ck_device_config_versions_moving_fix_timeout_s", "moving_fix_timeout_s BETWEEN 15 AND 3600");
+
+                            t.HasCheckConstraint("ck_device_config_versions_moving_interval_s", "moving_interval_s BETWEEN 5 AND 86400");
+
                             t.HasCheckConstraint("ck_device_config_versions_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
 
                             t.HasCheckConstraint("ck_device_config_versions_retry_interval_h", "retry_interval_h BETWEEN 1 AND 720");
@@ -501,6 +625,83 @@ namespace CarPosAPI.Data.Migrations
                             t.HasCheckConstraint("ck_device_config_versions_retry_max_age_h", "retry_max_age_h BETWEEN 0 AND 8760");
 
                             t.HasCheckConstraint("ck_device_config_versions_version", "version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("BatteryPct")
+                        .HasColumnType("integer")
+                        .HasColumnName("battery_pct");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("detail");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTime?>("DeviceTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("device_time");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("severity");
+
+                    b.Property<int?>("SleepSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("sleep_seconds");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId", "OccurredAt")
+                        .HasDatabaseName("ix_device_events_device_id_occurred_at");
+
+                    b.ToTable("device_events", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_events_battery_pct", "battery_pct >= 0 AND battery_pct <= 100");
+
+                            t.HasCheckConstraint("ck_device_events_kind", "kind IN ('offline', 'restart', 'wake', 'motion')");
+
+                            t.HasCheckConstraint("ck_device_events_reason", "(kind = 'offline' AND reason IN ('sleep', 'sleepNoMotion', 'powerOff', 'batteryLow', 'error', 'connectionLost')) OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash')) OR (kind = 'wake' AND reason IN ('timer', 'accelerometer', 'powerSwitch')) OR (kind = 'motion' AND reason IN ('checking', 'activity', 'motionOn', 'moving', 'noMotion', 'stopped', 'motionOff'))");
+
+                            t.HasCheckConstraint("ck_device_events_severity", "severity IN ('normal', 'alert', 'error')");
+
+                            t.HasCheckConstraint("ck_device_events_sleep_seconds", "sleep_seconds >= 0 AND sleep_seconds <= 86400");
                         });
                 });
 
@@ -559,10 +760,6 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("speed_kmph");
 
-                    b.Property<double?>("TemperatureC")
-                        .HasColumnType("double precision")
-                        .HasColumnName("temperature_c");
-
                     b.HasKey("Id");
 
                     b.HasIndex("DeviceId", "FixTime")
@@ -586,8 +783,6 @@ namespace CarPosAPI.Data.Migrations
                             t.HasCheckConstraint("ck_positions_longitude", "longitude >= -180 AND longitude <= 180");
 
                             t.HasCheckConstraint("ck_positions_speed_kmph", "speed_kmph >= 0 AND speed_kmph <= 1000");
-
-                            t.HasCheckConstraint("ck_positions_temperature_c", "temperature_c >= -40 AND temperature_c <= 125");
                         });
                 });
 
@@ -629,12 +824,6 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("include_speed");
-
-                    b.Property<bool>("IncludeTemperature")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("include_temperature");
 
                     b.Property<string>("Label")
                         .IsRequired()
@@ -736,6 +925,15 @@ namespace CarPosAPI.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("last_name");
+
+                    b.Property<DateTime?>("MapsConsentGrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("maps_consent_granted_at");
+
+                    b.Property<string>("MapsConsentVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("maps_consent_version");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -856,6 +1054,17 @@ namespace CarPosAPI.Data.Migrations
                         .WithMany()
                         .HasForeignKey("SourceProfileId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceEvent", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", "Device")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Device");
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>

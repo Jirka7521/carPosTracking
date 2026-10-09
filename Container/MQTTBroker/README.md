@@ -88,7 +88,7 @@ matching rule is denied, so each account can touch only what is listed for it:
 | account       | may publish        | may subscribe        |
 |---------------|--------------------|----------------------|
 | `admin`       | everything         | everything, `$SYS/#` |
-| `GNSS01`      | `devices/GNSS01`   | `devices/GNSS01/cmd` |
+| `GNSS01`      | `devices/GNSS01`, `devices/GNSS01/status` (incl. its Last Will) | `devices/GNSS01/cmd` |
 | `dashboard`   | `devices/+/cmd`    | `devices/#`          |
 | `healthcheck` | `healthcheck/probe`| `healthcheck/probe`  |
 

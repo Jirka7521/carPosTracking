@@ -18,7 +18,7 @@ namespace CarPosAPI.Services.Privacy;
 /// private key to whoever asked. The three entities that carry secrets, <c>User</c>,
 /// <c>Device</c> and <c>ShareLink</c>, are therefore never written directly: each goes
 /// through a dedicated export record that has no field to leak. The rest (positions,
-/// configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
+/// connection events, configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
 /// records down against the serialised bytes. Keep both when this shape changes.
 ///
 /// Scoped: it holds the request's <see cref="CarPosDbContext"/>.
@@ -103,7 +103,9 @@ internal sealed class DataExportService : IDataExportService
         writer.WriteString(
             "notice",
             "Everything carPosTracking holds about this account, exported under GDPR Art. 15 and 20. "
-            + "The position history is complete and uncapped. Secrets - the password hash and device "
+            + "The position history and each device's event history (when it went offline and "
+            + "why, woke up, started or stopped moving) are complete and uncapped. Secrets - the "
+            + "password hash and device "
             + "private keys - are deliberately excluded: they are not personal data to port, and "
             + "copying them out of the system would only weaken it.");
         writer.WriteEndObject();
@@ -127,7 +129,9 @@ internal sealed class DataExportService : IDataExportService
                 candidate.LastName,
                 candidate.CreatedAt,
                 candidate.PrivacyPolicyVersion,
-                candidate.PrivacyPolicyAcceptedAt))
+                candidate.PrivacyPolicyAcceptedAt,
+                candidate.MapsConsentVersion,
+                candidate.MapsConsentGrantedAt))
             .SingleOrDefaultAsync(cancellationToken);
 
         writer.WriteStartObject("profile");
@@ -141,6 +145,8 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteString("createdAtUtc", user.CreatedAt);
             writer.WriteString("privacyPolicyVersionAccepted", user.PrivacyPolicyVersion);
             WriteNullableDateTime(writer, "privacyPolicyAcceptedAtUtc", user.PrivacyPolicyAcceptedAt);
+            writer.WriteString("mapsConsentVersion", user.MapsConsentVersion);
+            WriteNullableDateTime(writer, "mapsConsentGrantedAtUtc", user.MapsConsentGrantedAt);
         }
 
         writer.WriteEndObject();
@@ -298,7 +304,6 @@ internal sealed class DataExportService : IDataExportService
                     link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
                     link.IncludeSpeed,
                     link.IncludeBattery,
-                    link.IncludeTemperature,
                     link.CreatedAt,
                     link.RevokedAt,
                     link.SuccessfulRedeems,
@@ -318,7 +323,6 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteString("scope", link.Scope);
             writer.WriteBoolean("includeSpeed", link.IncludeSpeed);
             writer.WriteBoolean("includeBattery", link.IncludeBattery);
-            writer.WriteBoolean("includeTemperature", link.IncludeTemperature);
             writer.WriteString("createdAtUtc", link.CreatedAt);
 
             if (link.RevokedAt.HasValue)
@@ -381,6 +385,14 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteNumber("retryIntervalHours", profile.RetryIntervalHours);
             writer.WriteNumber("retryMaxAgeHours", profile.RetryMaxAgeHours);
             writer.WriteNumber("configCheckSeconds", profile.ConfigCheckSeconds);
+            writer.WriteBoolean("motionEnabled", profile.MotionEnabled);
+            writer.WriteNumber("motionThresholdMg", profile.MotionThresholdMg);
+            writer.WriteNumber("motionSpeedKmph", profile.MotionSpeedKmph);
+            writer.WriteNumber("motionWakeWaitSeconds", profile.MotionWakeWaitSeconds);
+            writer.WriteNumber("motionStopWaitSeconds", profile.MotionStopWaitSeconds);
+            writer.WriteNumber("movingIntervalSeconds", profile.MovingIntervalSeconds);
+            writer.WriteBoolean("movingSleepBetween", profile.MovingSleepBetween);
+            writer.WriteNumber("movingFixTimeoutSeconds", profile.MovingFixTimeoutSeconds);
             writer.WriteString("createdAtUtc", profile.CreatedAt);
             writer.WriteString("updatedAtUtc", profile.UpdatedAt);
             writer.WriteEndObject();
@@ -407,6 +419,14 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteNumber("retryIntervalHours", revision.RetryIntervalHours);
             writer.WriteNumber("retryMaxAgeHours", revision.RetryMaxAgeHours);
             writer.WriteNumber("configCheckSeconds", revision.ConfigCheckSeconds);
+            writer.WriteBoolean("motionEnabled", revision.MotionEnabled);
+            writer.WriteNumber("motionThresholdMg", revision.MotionThresholdMg);
+            writer.WriteNumber("motionSpeedKmph", revision.MotionSpeedKmph);
+            writer.WriteNumber("motionWakeWaitSeconds", revision.MotionWakeWaitSeconds);
+            writer.WriteNumber("motionStopWaitSeconds", revision.MotionStopWaitSeconds);
+            writer.WriteNumber("movingIntervalSeconds", revision.MovingIntervalSeconds);
+            writer.WriteBoolean("movingSleepBetween", revision.MovingSleepBetween);
+            writer.WriteNumber("movingFixTimeoutSeconds", revision.MovingFixTimeoutSeconds);
             writer.WriteString("source", revision.Source.ToString());
             writer.WriteString("createdAtUtc", revision.CreatedAt);
             writer.WriteEndObject();
@@ -451,6 +471,7 @@ internal sealed class DataExportService : IDataExportService
                     device.IsActive,
                     device.CreatedAt,
                     device.LastSeenAt,
+                    device.LastOnlineAt,
                     device.TrackingDeclarationAcceptedAt))
             .OrderBy(device => device.DeviceId)
             .ToListAsync(cancellationToken);
@@ -467,12 +488,14 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteBoolean("isActive", device.IsActive);
             writer.WriteString("registeredAtUtc", device.CreatedAt);
             WriteNullableDateTime(writer, "lastSeenAtUtc", device.LastSeenAt);
+            WriteNullableDateTime(writer, "lastOnlineAtUtc", device.LastOnlineAt);
             WriteNullableDateTime(
                 writer,
                 "trackingDeclarationAcceptedAtUtc",
                 device.TrackingDeclarationAcceptedAt);
 
             total += await WritePositionsAsync(writer, device.RowId, cancellationToken);
+            await WriteStatusEventsAsync(writer, device.RowId, cancellationToken);
 
             writer.WriteEndObject();
         }
@@ -515,7 +538,6 @@ internal sealed class DataExportService : IDataExportService
             WriteNullableDouble(writer, "accelXG", position.AccelXG);
             WriteNullableDouble(writer, "accelYG", position.AccelYG);
             WriteNullableDouble(writer, "accelZG", position.AccelZG);
-            WriteNullableDouble(writer, "temperatureC", position.TemperatureC);
             writer.WriteEndObject();
 
             written++;
@@ -531,6 +553,57 @@ internal sealed class DataExportService : IDataExportService
         writer.WriteEndArray();
 
         return written;
+    }
+
+    /// <summary>
+    /// Streams one device's whole event history — every time it went offline and why,
+    /// every notable restart, every wake and every motion step — into the open object, in
+    /// the order it happened. Streamed and flushed like the positions, and for the same
+    /// reason: a device that sleeps between reports logs several of these per report, so
+    /// the history can be longer than the trail.
+    /// </summary>
+    /// <param name="writer">The open JSON writer, positioned inside a device object.</param>
+    /// <param name="deviceRowId">Internal device id to filter on.</param>
+    /// <param name="cancellationToken">Cancels the query and the write.</param>
+    /// <returns>Completes when the array is written.</returns>
+    private async Task WriteStatusEventsAsync(
+        Utf8JsonWriter writer,
+        Guid deviceRowId,
+        CancellationToken cancellationToken)
+    {
+        long written = 0;
+
+        writer.WriteStartArray("statusEvents");
+
+        IAsyncEnumerable<DeviceEvent> stream = _context.DeviceEvents
+            .AsNoTracking()
+            .Where(deviceEvent => deviceEvent.DeviceId == deviceRowId)
+            .OrderBy(deviceEvent => deviceEvent.OccurredAt)
+            .ThenBy(deviceEvent => deviceEvent.Id)
+            .AsAsyncEnumerable();
+
+        await foreach (DeviceEvent deviceEvent in stream.WithCancellation(cancellationToken))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("occurredAtUtc", deviceEvent.OccurredAt);
+            writer.WriteString("receivedAtUtc", deviceEvent.ReceivedAt);
+            WriteNullableDateTime(writer, "deviceTimeUtc", deviceEvent.DeviceTime);
+            writer.WriteString("kind", deviceEvent.Kind);
+            writer.WriteString("reason", deviceEvent.Reason);
+            writer.WriteString("severity", deviceEvent.Severity);
+            WriteNullableInt(writer, "batteryPct", deviceEvent.BatteryPct);
+            WriteNullableInt(writer, "sleepSeconds", deviceEvent.SleepSeconds);
+            writer.WriteString("detail", deviceEvent.Detail);
+            writer.WriteEndObject();
+
+            written++;
+            if (written % FlushEveryRows == 0)
+            {
+                await writer.FlushAsync(cancellationToken);
+            }
+        }
+
+        writer.WriteEndArray();
     }
 
     /// <summary>Writes a nullable timestamp, as a value or an explicit null.</summary>

@@ -83,6 +83,24 @@ internal sealed class DeviceService : IDeviceService
                     .OrderByDescending(position => position.FixTime)
                     .Select(position => position.BatteryPct)
                     .FirstOrDefault(),
+                access.Device.LastOnlineAt,
+                // The most recent time this device went offline and why, for the
+                // status badge - another correlated subquery, so the list stays one
+                // round trip. Only offline events: the badge answers "why is it not
+                // here", and a restart, a wake or a motion step is the device being
+                // there. Latest by when it HAPPENED, so a goodbye that waited on the
+                // card for hours cannot pose as the newest one.
+                _context.DeviceEvents
+                    .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceId
+                        && deviceEvent.Kind == DeviceEventKindNames.Offline)
+                    .OrderByDescending(deviceEvent => deviceEvent.OccurredAt)
+                    .ThenByDescending(deviceEvent => deviceEvent.Id)
+                    .Select(deviceEvent => new DeviceOfflineEventDto(
+                        deviceEvent.Reason,
+                        deviceEvent.Severity,
+                        deviceEvent.OccurredAt,
+                        deviceEvent.SleepSeconds))
+                    .FirstOrDefault(),
                 // Two aggregates, both correlated subqueries for the same reason
                 // the battery is one: the list stays a single round trip however
                 // many devices, grants or links exist. Counted in SQL, never by
@@ -128,6 +146,7 @@ internal sealed class DeviceService : IDeviceService
         if (!request.TrackingDeclarationAccepted)
         {
             return OperationResult<DeviceCreatedDto>.Invalid(
+                ErrorCodes.TrackingDeclarationRequired,
                 "You must confirm that you are entitled to track this vehicle and will " +
                 "tell the people who drive it before a device can be registered.");
         }
@@ -169,7 +188,9 @@ internal sealed class DeviceService : IDeviceService
                 if (provisioning.Outcome == DeviceProvisioningOutcome.DuplicateDeviceId)
                 {
                     return OperationResult<DeviceCreatedDto>.Conflict(
-                        $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.");
+                        ErrorCodes.DeviceIdTaken,
+                        $"A device with id '{request.DeviceId}' is already registered. Device ids are permanent.",
+                        new Dictionary<string, object> { ["deviceId"] = request.DeviceId });
                 }
 
                 // The creator's grant is built from CapabilitySet.Full(), never from the
@@ -193,6 +214,17 @@ internal sealed class DeviceService : IDeviceService
                     RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
                     RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
                     ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
+                    // Motion wake starts on, with the firmware's own defaults behind
+                    // it, so a new tracker reports fast while driving and slowly while
+                    // parked without a person having to tune eight numbers first.
+                    MotionEnabled = DeviceConfigRules.DefaultMotionEnabled,
+                    MotionThresholdMg = DeviceConfigRules.DefaultMotionThresholdMg,
+                    MotionSpeedKmph = DeviceConfigRules.DefaultMotionSpeedKmph,
+                    MotionWakeWaitSeconds = DeviceConfigRules.DefaultMotionWakeWaitSeconds,
+                    MotionStopWaitSeconds = DeviceConfigRules.DefaultMotionStopWaitSeconds,
+                    MovingIntervalSeconds = DeviceConfigRules.DefaultMovingIntervalSeconds,
+                    MovingSleepBetween = DeviceConfigRules.DefaultMovingSleepBetween,
+                    MovingFixTimeoutSeconds = DeviceConfigRules.DefaultMovingFixTimeoutSeconds,
                     CreatedByUserId = null,
                     CreatedAt = DateTime.UtcNow,
                 });
@@ -216,10 +248,13 @@ internal sealed class DeviceService : IDeviceService
                     provisioning.Device!.DeviceId,
                     provisioning.Device.DisplayName,
                     // A brand-new device has no alias and has never reported, so these are
-                    // known without asking the database again (no last-seen, no battery).
+                    // known without asking the database again (no last-seen, no battery,
+                    // never online, never offline).
                     null,
                     true,
                     DateTime.UtcNow,
+                    null,
+                    null,
                     null,
                     null,
                     null,
@@ -245,12 +280,12 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanDelete)
         {
-            return OperationResult<bool>.Forbidden("You do not have permission to delete this device.");
+            return OperationResult<bool>.Forbidden(ErrorCodes.NoPermissionDeleteDevice, "You do not have permission to delete this device.");
         }
 
         if (!access.IsActive)
@@ -265,7 +300,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (device is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Soft delete only. The rows are history: positions reference this device,
@@ -294,7 +329,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<bool>.NotFound("No such device.");
+            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // No capability check beyond the grant existing: the alias is private to
@@ -352,7 +387,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<DeviceProvisioningResultDto>.NotFound("No such device.");
+            return OperationResult<DeviceProvisioningResultDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         if (!access.Permissions.CanModifySettings)
@@ -361,6 +396,7 @@ internal sealed class DeviceService : IDeviceService
             // server — but it does describe the broker topics this device publishes
             // on, which is operational detail a read-only viewer has no use for.
             return OperationResult<DeviceProvisioningResultDto>.Forbidden(
+                ErrorCodes.NoPermissionViewFirmware,
                 "You do not have permission to view this device's firmware configuration.");
         }
 
@@ -369,6 +405,7 @@ internal sealed class DeviceService : IDeviceService
 
         return payload is null
             ? OperationResult<DeviceProvisioningResultDto>.NotFound(
+                ErrorCodes.NoStoredPublicKey,
                 "This device has no stored public key, so no firmware configuration can be rendered.")
             : OperationResult<DeviceProvisioningResultDto>.Success(payload);
     }
@@ -386,7 +423,7 @@ internal sealed class DeviceService : IDeviceService
 
         if (access is null)
         {
-            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+            return OperationResult<AckKeyImportedDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // The same gate as reading the firmware configuration, and for a stronger
@@ -394,6 +431,7 @@ internal sealed class DeviceService : IDeviceService
         if (!access.Permissions.CanModifySettings)
         {
             return OperationResult<AckKeyImportedDto>.Forbidden(
+                ErrorCodes.NoPermissionChangeFirmware,
                 "You do not have permission to change this device's firmware configuration.");
         }
 

@@ -25,8 +25,14 @@ topic read $SYS/#
 # database. Without it the broker ACKs the subscription and silently drops every
 # ack (see the note at the top), the device times out waiting, and every fix is
 # re-sent forever - so this rule is load-bearing, not cosmetic.
+#
+# The `status` write carries the device's own "going offline because ..." and
+# "back online" messages AND its Last Will. Mosquitto checks a will topic against
+# the client's write ACL just like a normal publish, so without this rule the
+# dead-man message is never delivered - deploy it BEFORE firmware that sets one.
 user GNSS01
 topic write devices/GNSS01
+topic write devices/GNSS01/status
 topic read devices/GNSS01/cmd
 topic read devices/GNSS01/config
 topic read devices/GNSS01/ack

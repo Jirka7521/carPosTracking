@@ -85,7 +85,7 @@ export function LanguageMenu() {
           🌐
         </span>
         {/* The active language, in its own language — never translated. */}
-        <span>{activeLanguage?.nativeName ?? activeCode}</span>
+        <span className="language-menu-name">{activeLanguage?.nativeName ?? activeCode}</span>
       </button>
 
       {isOpen ? (

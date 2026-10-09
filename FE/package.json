@@ -18,6 +18,7 @@
     "i18n:extract": "i18next-cli extract",
     "i18n:check": "i18next-cli extract --ci --dry-run",
     "i18n:missing": "node scripts/i18n-missing.mjs",
+    "i18n:api-codes": "node scripts/i18n-api-codes.mjs",
     "i18n:lint": "i18next-cli lint"
   },
   "dependencies": {

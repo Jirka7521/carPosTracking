@@ -73,8 +73,14 @@ class GnssModule {
   // It lets the caller interleave its own per-poll reporting - e.g. printing
   // battery/accelerometer status beneath each satellite table - without this
   // class needing to know anything about those sensors.
+  //
+  // It returns whether the wait should CONTINUE. Returning false abandons the
+  // acquisition immediately, exactly as a timeout would. That is what lets the
+  // caller react to something that makes the whole cycle pointless - the power
+  // switch being turned off - without waiting out a fix budget that can be a
+  // full hour at its clamp.
   bool waitForFix(GnssFix& fix, uint32_t timeoutMs, uint32_t pollStepMs,
-                  const std::function<void()>& onEachRead = {});
+                  const std::function<bool()>& onEachRead = {});
 
   // Count satellites in view per constellation by listening to NMEA output for
   // `scanMs` milliseconds. Heavier than readFix(); mainly used for debugging.

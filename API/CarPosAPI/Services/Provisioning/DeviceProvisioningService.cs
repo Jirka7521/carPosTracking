@@ -43,7 +43,15 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
         DeviceConfigRules.DefaultQueueMaxFixes,
         DeviceConfigRules.DefaultRetryIntervalHours,
         DeviceConfigRules.DefaultRetryMaxAgeHours,
-        DeviceConfigRules.DefaultConfigCheckSeconds);
+        DeviceConfigRules.DefaultConfigCheckSeconds,
+        DeviceConfigRules.DefaultMotionEnabled,
+        DeviceConfigRules.DefaultMotionThresholdMg,
+        DeviceConfigRules.DefaultMotionSpeedKmph,
+        DeviceConfigRules.DefaultMotionWakeWaitSeconds,
+        DeviceConfigRules.DefaultMotionStopWaitSeconds,
+        DeviceConfigRules.DefaultMovingIntervalSeconds,
+        DeviceConfigRules.DefaultMovingSleepBetween,
+        DeviceConfigRules.DefaultMovingFixTimeoutSeconds);
 
     private readonly IMasterKeyProtector _protector;
     private readonly ConfigSnippetBuilder _snippetBuilder;
@@ -202,7 +210,15 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
                         revision.QueueMaxFixes,
                         revision.RetryIntervalHours,
                         revision.RetryMaxAgeHours,
-                        revision.ConfigCheckSeconds))
+                        revision.ConfigCheckSeconds,
+                        revision.MotionEnabled,
+                        revision.MotionThresholdMg,
+                        revision.MotionSpeedKmph,
+                        revision.MotionWakeWaitSeconds,
+                        revision.MotionStopWaitSeconds,
+                        revision.MovingIntervalSeconds,
+                        revision.MovingSleepBetween,
+                        revision.MovingFixTimeoutSeconds))
                     .FirstOrDefault()))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -265,7 +281,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 
         if (!validation.IsValid)
         {
-            return OperationResult<AckKeyImportedDto>.Invalid(validation.Error!);
+            return OperationResult<AckKeyImportedDto>.Invalid(validation.Failure!);
         }
 
         // Tracked, not AsNoTracking: this one is a write.
@@ -274,7 +290,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
 
         if (device is null)
         {
-            return OperationResult<AckKeyImportedDto>.NotFound("No such device.");
+            return OperationResult<AckKeyImportedDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         bool isRotation = !string.IsNullOrWhiteSpace(device.AckPublicKeyPem);

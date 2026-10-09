@@ -29,8 +29,7 @@
       "altitudeMeters": "Nadmořská výška",
       "batteryPct": "Baterie",
       "legend": "Veličiny",
-      "speedKmph": "Rychlost",
-      "temperatureC": "Teplota"
+      "speedKmph": "Rychlost"
     },
     "truncated": "Tento rozsah obsahuje víc než {{limit}} poloh, což je nejdál, kam jedno načtení dosáhne, takže graf začíná v {{start}} místo v čase „Od“, který jste zvolili. Zúžením rozsahu uvidíte starší data."
   },
@@ -42,12 +41,71 @@
     "done_few": "Smazány {{count}} polohy.",
     "done_many": "Smazáno {{count}} polohy.",
     "done_other": "Smazáno {{count}} poloh.",
+    "eventsDone_one": "Smazána {{count}} událost.",
+    "eventsDone_few": "Smazány {{count}} události.",
+    "eventsDone_many": "Smazáno {{count}} události.",
+    "eventsDone_other": "Smazáno {{count}} událostí.",
     "failed": "Historii poloh se nepodařilo smazat.",
-    "hint": "Trvale smaže všechny uložené polohy tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
+    "hint": "Trvale smaže všechny uložené polohy a události tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
     "submit": "Smazat historii poloh",
     "submitting": "Mažu…",
     "title": "Smazat historii poloh",
     "warning": "Tuto akci nelze vzít zpět."
+  },
+  "events": {
+    "column": {
+      "details": "Podrobnosti",
+      "event": "Událost",
+      "severity": "Závažnost",
+      "time": "Čas"
+    },
+    "detail": {
+      "battery": "baterie {{value}} %",
+      "charging": "nabíjí se",
+      "code": "kód {{code}}",
+      "sleepFor": "spánek {{duration}}",
+      "sleepUntil": "spánek {{duration}}, návrat kolem {{time}}"
+    },
+    "emptyBody": "Zařízení ve zvoleném časovém rozsahu nehlásilo žádné události.",
+    "emptyProblemsBody": "Ve zvoleném časovém rozsahu nejsou žádná upozornění ani chyby.",
+    "emptyTitle": "Žádné události",
+    "filter": {
+      "all": "Všechny události",
+      "label": "Zobrazit",
+      "problems": "Upozornění a chyby"
+    },
+    "loadedCount_one": "{{value}} událost.",
+    "loadedCount_few": "{{value}} události.",
+    "loadedCount_many": "{{value}} události.",
+    "loadedCount_other": "{{value}} událostí.",
+    "loading": "Načítám události…",
+    "reason": {
+      "accelerometer": "Probuzeno pohybem (akcelerometr)",
+      "activity": "Otřes — kontrola pohybu",
+      "batteryLow": "Slabá baterie — vypnuto kvůli ochraně článku",
+      "checking": "Kontrola pohybu",
+      "connectionLost": "Spojení ztraceno bez rozloučení",
+      "crash": "Restart po pádu",
+      "error": "Zastaveno kvůli chybě",
+      "motionOff": "Hlídání pohybu vypnuto",
+      "motionOn": "Hlídání pohybu zapnuto — kontrola pohybu",
+      "moving": "Rozjezd — vůz se pohybuje",
+      "noMotion": "Bez pohybu — vůz stojí",
+      "powerLoss": "Restart po výpadku napájení",
+      "powerOff": "Vypnuto vypínačem",
+      "powerOn": "Zapnuto",
+      "powerSwitch": "Probuzeno vypínačem",
+      "sleep": "Přešlo do pravidelného spánku",
+      "sleepNoMotion": "Přešlo do spánku — vůz stojí",
+      "stopped": "Zastavení — konec jízdy",
+      "timer": "Probuzeno časovačem (pravidelně)"
+    },
+    "severity": {
+      "alert": "Upozornění",
+      "error": "Chyba",
+      "normal": "Běžné"
+    },
+    "truncated": "Zobrazeno nejnovějších {{value}} událostí — rozsah jich obsahuje víc. Zúžením rozsahu uvidíte starší."
   },
   "loading": "Načítám zařízení…",
   "map": {
@@ -61,7 +119,6 @@
       "longitude": "Zeměpisná délka",
       "recorded": "Zaznamenáno: {{when}}",
       "speed": "Rychlost",
-      "temperature": "Teplota",
       "title": "Poloha"
     },
     "legend": "Legenda mapy",
@@ -85,7 +142,9 @@
   "mapsConsent": {
     "always": "Načítat mapy vždy",
     "body": "Načtením se vyžádají mapové dlaždice od Googlu, čímž se společnosti Google LLC prozradí vaše IP adresa, údaje o prohlížeči a ze zobrazené oblasti i přibližná poloha tohoto vozidla. Dokud se nerozhodnete, neodešle se nic.",
-    "hint": "Volbu můžete později změnit v Profilu, v sekci Soukromí.",
+    "googleTerms": "Načtením mapy souhlasíte s <terms>Dodatečnými smluvními podmínkami Map Google</terms> a berete na vědomí <privacy>Zásady ochrany soukromí Google</privacy>.",
+    "hintAccount": "Volba „vždy“ se uloží k vašemu účtu, takže se vás už nezeptáme na žádném zařízení, kde se přihlásíte. Odvolat ji můžete v Profilu, v sekci Soukromí.",
+    "hintBrowser": "Volba „vždy“ se uloží do cookie v tomto prohlížeči na šest měsíců. Odvolat ji můžete kdykoli na této stránce.",
     "once": "Načíst mapu jednou",
     "title": "Mapa zatím není načtená"
   },
@@ -101,7 +160,6 @@
       "latitude": "Šířka",
       "longitude": "Délka",
       "speed": "Rychlost",
-      "temperature": "Teplota",
       "timestamp": "Čas"
     },
     "columnSeparator": "Oddělovač sloupců",
@@ -144,6 +202,7 @@
   },
   "tabs": {
     "charts": "Grafy",
+    "events": "Události",
     "label": "Sekce zařízení",
     "map": "Mapa",
     "positions": "Polohy",

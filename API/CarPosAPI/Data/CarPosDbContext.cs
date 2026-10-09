@@ -26,6 +26,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Decrypted, validated GNSS fixes.</summary>
     public DbSet<Position> Positions => Set<Position>();
 
+    /// <summary>Each device's history: offline and why, notable restarts, wakes and motion steps.</summary>
+    public DbSet<DeviceEvent> DeviceEvents => Set<DeviceEvent>();
+
     /// <summary>Dashboard accounts.</summary>
     public DbSet<User> Users => Set<User>();
 

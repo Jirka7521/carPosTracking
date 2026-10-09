@@ -30,7 +30,6 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
             table.HasCheckConstraint("ck_positions_accel_x_g", "accel_x_g >= -16 AND accel_x_g <= 16");
             table.HasCheckConstraint("ck_positions_accel_y_g", "accel_y_g >= -16 AND accel_y_g <= 16");
             table.HasCheckConstraint("ck_positions_accel_z_g", "accel_z_g >= -16 AND accel_z_g <= 16");
-            table.HasCheckConstraint("ck_positions_temperature_c", "temperature_c >= -40 AND temperature_c <= 125");
         });
 
         builder.HasKey(position => position.Id);
@@ -86,9 +85,6 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
 
         builder.Property(position => position.AccelZG)
             .HasColumnName("accel_z_g");
-
-        builder.Property(position => position.TemperatureC)
-            .HasColumnName("temperature_c");
 
         // The dedupe arbiter: MQTT delivery is at-least-once and backlog replays
         // carry no markers, so (device, fix time) is the only identity of a fix.

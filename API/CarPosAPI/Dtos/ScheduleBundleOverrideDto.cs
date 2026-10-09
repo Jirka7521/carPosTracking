@@ -40,6 +40,7 @@ namespace CarPosAPI.Dtos;
 /// <param name="RetryIntervalHours">Hours between attempts on a rejected fix.</param>
 /// <param name="RetryMaxAgeHours">Hours before a rejected fix is abandoned; 0 = never.</param>
 /// <param name="ConfigCheckSeconds">Seconds between the device's periodic re-checks.</param>
+/// <param name="Motion">The override's motion block, after <c>config_check_s</c> as in <see cref="DeviceConfigDocumentDto"/>.</param>
 public sealed record ScheduleBundleOverrideDto(
     [property: JsonPropertyName("until")] string UntilUtc,
     [property: JsonPropertyName("interval_s")] int IntervalSeconds,
@@ -48,4 +49,5 @@ public sealed record ScheduleBundleOverrideDto(
     [property: JsonPropertyName("queue_max_fixes")] int QueueMaxFixes,
     [property: JsonPropertyName("retry_interval_h")] int RetryIntervalHours,
     [property: JsonPropertyName("retry_max_age_h")] int RetryMaxAgeHours,
-    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds);
+    [property: JsonPropertyName("config_check_s")] int ConfigCheckSeconds,
+    [property: JsonPropertyName("motion")] DeviceMotionDocumentDto Motion);

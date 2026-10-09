@@ -15,7 +15,8 @@ This folder is **self-contained**: it carries the built sources (`api-src/`,
 secrets. It was produced on the dev machine by `scripts/Publish-Deployment.ps1`
 (Ctrl+Shift+M) — you do not edit anything here by hand.
 
-Copy the whole folder to the Raspberry Pi and bring it up with the steps below.
+Copy the whole folder to `/mnt/externalSSD0/dockerScripts/MQTT/Application` on
+the Raspberry Pi and bring it up with the steps below.
 
 ---
 
@@ -179,7 +180,8 @@ when a container joins the network, not on a plain restart.
 ## Update / redeploy
 
 Re-run the wizard on the dev machine (Ctrl+Shift+M), copy the refreshed folder
-over, and run `docker compose up -d --build` again. To roll a single service:
+over `/mnt/externalSSD0/dockerScripts/MQTT/Application`, and run
+`docker compose up -d --build` again. To roll a single service:
 `docker compose up -d --build api` (or `fe`).
 
 ## Tear down

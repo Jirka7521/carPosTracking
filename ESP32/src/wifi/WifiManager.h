@@ -12,6 +12,7 @@
 //
 //  Typical lifecycle:
 //      WifiManager wifi(config::kWifiSsid, config::kWifiPassword,
+//                       config::kDeviceId,
 //                       config::kWifiMaxRetries,
 //                       config::kWifiReconnectIntervalMs);
 //      wifi.begin();                               // init the WiFi stack
@@ -31,16 +32,36 @@
 
 class WifiManager {
  public:
+  // What the station is doing right now, for anything that needs to SHOW it.
+  //
+  // Deliberately coarser than the driver's own event stream: a status indicator
+  // only needs to distinguish "not running" from "working on it" from "done",
+  // and collapsing the retry burst, the background reconnect timer and the
+  // initial association into one Connecting state is what keeps it that way.
+  //
+  // Note that Connecting persists indefinitely when no access point is
+  // reachable - the manager never stops retrying - so a caller must not treat
+  // it as a transient.
+  enum class LinkState : uint8_t {
+    Off        = 0,  // driver stopped, or never started
+    Connecting = 1,  // associating, or waiting out a reconnect gap
+    Connected  = 2,  // holding an IP
+  };
+
   // Borrows (does not copy) the credential strings - they must outlive this
   // object. With Config.h that is automatic (they are constexpr globals).
   //   ssid                : network name to join
   //   password            : network password ("" for an open network)
+  //   hostname            : name this device announces to the network (DHCP),
+  //                         i.e. what the router's client list shows instead of
+  //                         the ESP-IDF default "espressif". Letters, digits and
+  //                         hyphens only, at most 32 characters.
   //   maxRetries          : fast association attempts in one burst before the
   //                         burst is considered failed
   //   reconnectIntervalMs : after a failed burst, gap between background
   //                         reconnect bursts (until an IP is obtained)
-  WifiManager(const char* ssid, const char* password, int maxRetries,
-              uint32_t reconnectIntervalMs);
+  WifiManager(const char* ssid, const char* password, const char* hostname,
+              int maxRetries, uint32_t reconnectIntervalMs);
 
   // Initialise the WiFi stack in station mode: NVS flash, the default event
   // loop, the network interface and the esp_wifi driver. Call once before
@@ -54,6 +75,10 @@ class WifiManager {
 
   // True while we currently hold an IP address.
   bool isConnected() const;
+
+  // Coarse state for status indicators. Cheap: a single member read, safe to
+  // call from another task on a tick.
+  LinkState linkState() const;
 
   // Disconnect from the access point and stop the WiFi driver (lower power).
   // begin()/connect() can be used again afterwards.
@@ -71,11 +96,16 @@ class WifiManager {
 
   const char* ssid_;
   const char* password_;
+  const char* hostname_;
   int         maxRetries_;
   uint32_t    reconnectIntervalMs_;
 
   bool               initialised_;   // begin() has set up the WiFi stack
-  bool               connected_;     // we currently hold an IP
+  // The single source of truth for "what is the link doing". isConnected() is
+  // derived from it rather than tracked alongside it, so the two cannot
+  // disagree. Written from the WiFi event task, read from the main and
+  // indicator tasks; a single aligned enum store needs no lock.
+  volatile LinkState linkState_;
   int                retryCount_;    // association retries in the current burst
   EventGroupHandle_t events_;        // signals connect success / failure
   esp_timer_handle_t reconnectTimer_;  // periodic background reconnect

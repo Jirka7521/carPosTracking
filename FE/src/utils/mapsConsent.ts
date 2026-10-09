@@ -1,54 +1,105 @@
 // ---------------------------------------------------------------------------
-// Whether this browser has agreed to load the Google map.
+// Whether this viewer has agreed to load the Google map — the version of the
+// prompt, and the share-visitor half of where the answer is kept.
 //
 // Loading the Maps JavaScript API tells Google LLC the viewer's IP address,
 // browser details and referrer, and — because the viewport is centred on the
 // fixes — roughly where the tracked vehicle is. That is a transfer of personal
-// data to a third country, and it used to happen the instant a device's map tab
-// was opened, with nothing asked and nothing said.
+// data to a third country, so nothing reaches Google until somebody chooses.
 //
-// So the choice is stored here, per browser, alongside the language and CSV
-// preferences that already live under the `carpos.` prefix. It is deliberately
-// NOT stored on the server: it is a preference of the person looking at the
-// screen, not a property of the account, and syncing it would mean one device's
-// answer silently speaking for another.
+// "Always" is remembered in one of two places, depending on who is looking:
 //
-// Three states, and the middle one matters: "always" loads without asking,
-// "never asked" shows the gate, and a session-only agreement (the "just this
-// once" button) lives in memory and dies with the tab.
+//   * A signed-in user — on the ACCOUNT (PUT /api/me/maps-consent, read through
+//     hooks/useAccountMapsConsent.ts). The person who agreed is the account
+//     holder, the prompt tells them the answer covers every device they sign in
+//     on, and so asking again on each new browser would be asking a question
+//     they have already answered. It also leaves a server-side record of when
+//     they agreed and to which wording, which is what GDPR Art. 7(1) asks for.
+//
+//   * A share-link visitor — in a COOKIE on this browser, written below. They
+//     have no account to hang it on, and the server deliberately stores nothing
+//     about them. The cookie holds only the prompt version, is scoped to the
+//     share page's path so it never travels with an /api request, and lapses
+//     after 180 days. Storing a choice the visitor explicitly made is a
+//     user-requested preference under ePrivacy Art. 5(3), so it needs no banner
+//     of its own — but withdrawing it must be as easy as giving it (Art. 7(3)),
+//     which is why the share page offers that next to the map.
+//
+// The "just this once" button stores nothing anywhere: it lives in component
+// state and dies with the tab.
+//
+// MAPS_CONSENT_VERSION versions the prompt's wording. Bump it when the text
+// changes materially: a stored answer to an older version counts as no answer,
+// on the account and in the cookie alike, so everybody is asked again.
 // ---------------------------------------------------------------------------
 
-// Same `carpos.` namespace as carpos.language and carpos.csvDelimiter.
-const MAPS_CONSENT_STORAGE_KEY = 'carpos.mapsConsent'
+import { BASE_PATH } from '../services/runtimeConfig'
 
-// The only value that counts as standing consent. Anything else — absent,
-// corrupted, left over from an older format — means "ask".
-const CONSENT_GRANTED = 'always'
+export const MAPS_CONSENT_VERSION = '2026-10-09'
 
-export function hasStandingMapsConsent(): boolean {
+// Google's own terms for people who use a map embedded through the Maps
+// Platform. The Platform terms require that end users are bound by the first and
+// pointed to the second; share visitors never accept this site's terms of use,
+// so the prompt itself is where they meet them.
+export const GOOGLE_MAPS_TERMS_URL = 'https://maps.google.com/help/terms_maps/'
+export const GOOGLE_PRIVACY_POLICY_URL = 'https://policies.google.com/privacy'
+
+// Same `carpos_` prefix as carpos_session, carpos_csrf and carpos_share.
+const MAPS_CONSENT_COOKIE_NAME = 'carpos_maps_consent'
+
+// Six months. Long enough that somebody sent links by the same person over a
+// season is not asked every time; short enough that an old "yes" does not
+// outlive the visitor's memory of having given it.
+const MAPS_CONSENT_COOKIE_MAX_AGE_SEC = 180 * 24 * 60 * 60
+
+// Where the answer used to live for everybody, per browser. Not carried over:
+// it was given for one browser, and recording it as an account-wide agreement
+// would put words in somebody's mouth.
+const LEGACY_STORAGE_KEY = 'carpos.mapsConsent'
+
+export function isCurrentMapsConsentVersion(version: string | null | undefined): boolean {
+  return version === MAPS_CONSENT_VERSION
+}
+
+export function hasBrowserMapsConsent(): boolean {
   try {
-    return window.localStorage.getItem(MAPS_CONSENT_STORAGE_KEY) === CONSENT_GRANTED
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${MAPS_CONSENT_COOKIE_NAME}=([^;]*)`))
+    return match !== null && isCurrentMapsConsentVersion(decodeURIComponent(match[1]))
   } catch {
-    // Private mode, or storage blocked. Failing closed is the right way round
-    // here: the cost of being asked again is a click, the cost of assuming
-    // consent nobody gave is a transfer that should not have happened.
+    // Cookies blocked. Failing closed is the right way round here: the cost of
+    // being asked again is a click, the cost of assuming consent nobody gave is
+    // a transfer that should not have happened.
     return false
   }
 }
 
-export function grantStandingMapsConsent(): void {
+export function grantBrowserMapsConsent(): void {
+  writeCookie(encodeURIComponent(MAPS_CONSENT_VERSION), MAPS_CONSENT_COOKIE_MAX_AGE_SEC)
+}
+
+export function revokeBrowserMapsConsent(): void {
+  writeCookie('', 0)
+}
+
+// Drops the old per-browser answer. Called once at start-up.
+export function forgetLegacyMapsConsent(): void {
   try {
-    window.localStorage.setItem(MAPS_CONSENT_STORAGE_KEY, CONSENT_GRANTED)
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY)
   } catch {
-    // The map still loads for this session; only the memory of the choice is
-    // lost, which is a worse experience rather than a privacy problem.
+    // Nothing to remove if storage is unavailable — it was never written.
   }
 }
 
-export function revokeMapsConsent(): void {
+function writeCookie(value: string, maxAgeSec: number): void {
+  // Secure only over https: the dev server is plain http on localhost, and a
+  // Secure cookie there would silently not be stored.
+  const secure: string = window.location.protocol === 'https:' ? '; Secure' : ''
+
   try {
-    window.localStorage.removeItem(MAPS_CONSENT_STORAGE_KEY)
+    document.cookie =
+      `${MAPS_CONSENT_COOKIE_NAME}=${value}; Path=${BASE_PATH}/share; Max-Age=${maxAgeSec}; SameSite=Strict${secure}`
   } catch {
-    // Nothing to remove if storage is unavailable — it was never written.
+    // The map still loads for this visit; only the memory of the choice is
+    // lost, which is a worse experience rather than a privacy problem.
   }
 }

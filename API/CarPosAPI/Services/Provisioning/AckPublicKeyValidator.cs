@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using CarPosAPI.Services.Common;
 
 namespace CarPosAPI.Services.Provisioning;
 
@@ -31,7 +32,9 @@ internal static class AckPublicKeyValidator
     {
         if (string.IsNullOrWhiteSpace(ackPublicKeyPem))
         {
-            return new AckPublicKeyValidation("No key was supplied.", null);
+            return new AckPublicKeyValidation(
+                new ServiceError(ErrorCodes.AckKeyMissing, "No key was supplied."),
+                null);
         }
 
         // Checked before parsing, not after: a private PEM imports perfectly well and
@@ -42,8 +45,10 @@ internal static class AckPublicKeyValidator
         if (ackPublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
         {
             return new AckPublicKeyValidation(
-                "That is a PRIVATE key. Supply the ack PUBLIC key — the private half belongs "
-                + "only in the firmware's Config.h and must never reach this server.",
+                new ServiceError(
+                    ErrorCodes.AckKeyIsPrivate,
+                    "That is a PRIVATE key. Supply the ack PUBLIC key — the private half belongs "
+                    + "only in the firmware's Config.h and must never reach this server."),
                 null);
         }
 
@@ -57,13 +62,22 @@ internal static class AckPublicKeyValidator
         {
             // ImportFromPem reports every malformed input this way: no PEM block, an
             // unsupported label, or corrupt base64.
-            return new AckPublicKeyValidation("That is not a valid PEM public key.", null);
+            return new AckPublicKeyValidation(
+                new ServiceError(ErrorCodes.AckKeyInvalid, "That is not a valid PEM public key."),
+                null);
         }
 
         if (candidate.KeySize != ExpectedRsaKeySizeBits)
         {
             return new AckPublicKeyValidation(
-                $"The ack key is {candidate.KeySize} bits; this system uses RSA-{ExpectedRsaKeySizeBits}.",
+                new ServiceError(
+                    ErrorCodes.AckKeyWrongSize,
+                    $"The ack key is {candidate.KeySize} bits; this system uses RSA-{ExpectedRsaKeySizeBits}.",
+                    new Dictionary<string, object>
+                    {
+                        ["bits"] = candidate.KeySize,
+                        ["expected"] = ExpectedRsaKeySizeBits,
+                    }),
                 null);
         }
 

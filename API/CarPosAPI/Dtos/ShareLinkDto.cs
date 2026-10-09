@@ -26,7 +26,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="Scope">One of <see cref="ShareScopeNames"/>.</param>
 /// <param name="IncludeSpeed">Whether speed travels with each fix.</param>
 /// <param name="IncludeBattery">Whether the battery percentage travels with each fix.</param>
-/// <param name="IncludeTemperature">Whether the temperature travels with each fix.</param>
 /// <param name="Status">One of <see cref="ShareLinkStatusNames"/>, derived server-side.</param>
 /// <param name="CreatedAt">When the link was minted (UTC).</param>
 /// <param name="RevokedAt">When it was withdrawn (UTC), or null.</param>
@@ -49,7 +48,6 @@ public sealed record ShareLinkDto(
     string Scope,
     bool IncludeSpeed,
     bool IncludeBattery,
-    bool IncludeTemperature,
     string Status,
     DateTime CreatedAt,
     DateTime? RevokedAt,

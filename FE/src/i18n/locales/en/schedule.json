@@ -29,6 +29,8 @@
     "resumed": "Schedule resumed.",
     "ruleAdded": "Rule added.",
     "ruleDeleted": "Rule deleted.",
+    "rulePaused": "Rule paused — it will not apply until you resume it.",
+    "ruleResumed": "Rule resumed.",
     "ruleSaved": "Rule saved."
   },
   "override": {
@@ -51,6 +53,7 @@
     "inForceWarning": "This profile is in force right now, so saving changes what the tracker is running immediately — not at the next switch.",
     "intro": "A profile is a complete set of this device’s settings under a name the rules refer to.",
     "isFallback": "fallback profile",
+    "motionTag": "reacts to motion",
     "name": "Profile name",
     "namePlaceholder": "Night",
     "nameRequired": "Give the profile a name — it is how the rules refer to it.",
@@ -85,7 +88,9 @@
     "intro": "Listed in the order they are evaluated — lower priority number first. The first rule whose window contains the moment wins; if none does, the fallback applies.",
     "matchingNow": "matching now",
     "needProfile": "Create a profile first",
-    "prioritySummary": "priority {{priority}}"
+    "pause": "Pause",
+    "prioritySummary": "priority {{priority}}",
+    "resume": "Resume"
   },
   "status": {
     "awaitingFirstPass": "Waiting for the scheduler’s first pass — this is what it will apply.",

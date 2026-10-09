@@ -29,7 +29,6 @@ public sealed class SharedPositionShapeTests
         nameof(SharedPositionDto.Longitude),
         nameof(SharedPositionDto.SpeedKmph),
         nameof(SharedPositionDto.BatteryPct),
-        nameof(SharedPositionDto.TemperatureC),
     ];
 
     [Fact]
@@ -54,7 +53,6 @@ public sealed class SharedPositionShapeTests
             new DateTime(2026, 9, 12, 12, 0, 0, DateTimeKind.Utc),
             50.08,
             14.43,
-            null,
             null,
             null);
 
@@ -81,13 +79,12 @@ public sealed class SharedPositionShapeTests
     public void TheSessionDescriptionNamesNoDeviceAndNoPerson()
     {
         // The other half of the guarantee: what the visitor is told about the share
-        // itself. A label the creator chose, a window, and the three disclosure flags.
+        // itself. A label the creator chose, a window, and the two disclosure flags.
         ShareSessionDto session = new ShareSessionDto(
             "The car",
             new DateTime(2026, 9, 12, 12, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 9, 12, 18, 0, 0, DateTimeKind.Utc),
             ShareScopeNames.LatestOnly,
-            false,
             false,
             false);
 

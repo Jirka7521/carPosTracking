@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-09-09`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-10-09`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -22,6 +22,7 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 | `first_name`, `last_name` | **P** | visible to users you share a device with | deleted |
 | `created_at` | p | | deleted |
 | `privacy_policy_version`, `privacy_policy_accepted_at` | p | which version of the terms of use **and** privacy policy this account accepted, and when (column names are historical) | deleted |
+| `maps_consent_version`, `maps_consent_granted_at` | p | the account's standing consent to load the Google map: which prompt wording, and when. Null when none; **withdrawal nulls both**, no history kept | deleted |
 
 ### `positions` — the sensitive table
 
@@ -32,12 +33,33 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 | `speed_kmph`, `accel_x/y/z_g` | **P** | driving behaviour | as above |
 | `fix_time`, `received_at` | **P** | when the vehicle was where | as above |
 | `altitude_m` | **P** | | as above |
-| `battery_pct`, `temperature_c` | · | device health | as above |
+| `battery_pct` | · | device health | as above |
 
 Bounded on read at 1000 rows per query (`PositionQueryService.MaxPositionsPerQuery`); the data
 export deliberately bypasses that cap so portability is complete. **Never auto-deleted** — see
 the retention section of the policy at `/privacy`. Erasable via
 `DELETE /api/devices/{deviceId}/positions` or by deleting the account.
+
+### `device_events` — the device history
+
+| Column | | Note | On account deletion |
+|---|---|---|---|
+| `device_id` | p | links to a device and thence to a person | — |
+| `occurred_at` | **P** | when it happened — the tracker went offline, restarted, woke, or started / stopped moving — i.e. when the vehicle was parked, driven or left alone | deleted with the device if solely owned |
+| `received_at` | **P** | when the server received it; later than `occurred_at` for an event the tracker kept on its SD card while out of range | as above |
+| `device_time` | **P** | the tracker's own clock at that moment, when it trusted one | as above |
+| `kind`, `reason`, `severity` | p | offline (sleep / sleep because parked / switched off / battery low / error / connection lost), restart (power on / power loss / crash), wake (timer / accelerometer / power switch) or motion step (checking / jolt / moving / no motion / stopped / motion wake on or off), and how serious | as above |
+| `battery_pct`, `sleep_seconds`, `detail` | · | device health; expected time away; an error code such as `gnss_init` | as above |
+
+No location — but a detailed timetable of when the vehicle was in use: the motion steps say when
+it started moving and when it was parked, to the minute, so it is treated exactly like `positions`:
+several rows per sleep cycle on a sleeping device, **never auto-deleted**, erased over the same
+range by `DELETE /api/devices/{deviceId}/positions` and with the device on account deletion, and
+included in the data export. Reads are bounded at 1000 rows
+(`GET /api/devices/{deviceId}/events`). Written only by the status ingest from the tracker's own
+sealed messages and its MQTT Last Will. On the tracker, events said out of range wait on its SD
+card (`events.jsonl`) as **ciphertext only**, like queued fixes, until the broker acknowledges
+them.
 
 ### `devices`
 
@@ -46,6 +68,7 @@ the retention section of the policy at `/privacy`. Erasable via
 | `device_id` | p | the MQTT identity, e.g. `GNSS01`; also the topic segment and broker username |
 | `display_name` | **P** | free text chosen by a user — often a person's or a car's name |
 | `last_seen_at` | **P** | a presence and activity signal |
+| `last_online_at` | **P** | when the tracker last announced a broker connection — a presence signal |
 | `private_key_ciphertext` | · | **secret** — AES-256-GCM sealed; never selected into a DTO, never exported, never logged |
 | `public_key_pem`, `ack_public_key_pem` | · | public halves |
 | `config_*`, `reported_*`, `schedule_bundle_version` | p | how closely and when the vehicle is tracked |
@@ -66,7 +89,7 @@ On account deletion the user's own rows are deleted; `granted_by` on *surviving*
 
 `device_id` p, `created_by_user_id` **P**, `label` **P** (free text, chosen by the creator and
 shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_speed` ·,
-`include_battery` ·, `include_temperature` ·, `revoked_at` p, `created_at` p, and three usage counters —
+`include_battery` ·, `revoked_at` p, `created_at` p, and three usage counters —
 `successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
 
 Three columns are **credentials, never personal data to export**: `selector` and `verifier`
@@ -130,7 +153,7 @@ password, MQTT device credentials, the device's ack private key, the backend's p
 
 | Hop | What is visible |
 |---|---|
-| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`) and the client IP are visible |
+| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`, and `devices/<id>/status` for the status messages — connection, wake, motion — and the Last Will) and the client IP are visible — so the broker can see *that* a tracker reported or sent a status, never what it said |
 | Broker → API | same ciphertext; the API connects as the `dashboard` broker account |
 | API → browser | plaintext JSON over TLS — but Cloudflare terminates that TLS and therefore sees it |
 | Browser → Google | on map load only, after consent: IP, user-agent, referrer, and the viewport (hence the vehicle's area) |
@@ -159,18 +182,23 @@ publishes an empty retained payload on both topics to clear them.
 
 `carpos_session` (`HttpOnly`, unreadable by script), `carpos_csrf`, `carpos_share` (`HttpOnly`;
 only on a browser that has opened a share link, and only for that link's remaining window),
-and three localStorage
-preferences: `carpos.language`, `carpos.csvDelimiter`, `carpos.mapsConsent`. None of the
-localStorage values is ever sent to the server.
+`carpos_maps_consent` (set by the dashboard's script, only when a share-link visitor chooses
+"Always load maps"; holds the prompt version and nothing else; `Path=<base>/share`, so it never
+travels with an `/api` request; 180 days; removed by the share page's "Stop loading maps
+automatically"), and two localStorage preferences: `carpos.language`, `carpos.csvDelimiter`.
+None of the localStorage values is ever sent to the server. The old `carpos.mapsConsent`
+localStorage key is deleted on start-up — a signed-in user's map consent now lives in `users`.
 
 ---
 
 ## 6. What the data export contains
 
-`GET /api/me/export` streams a JSON document with: the profile, every access grant held and
+`GET /api/me/export` streams a JSON document with: the profile (including the map consent's
+`mapsConsentVersion` and `mapsConsentGrantedAtUtc`), every access grant held and
 granted, device nicknames, the temporary share links this account created, metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
-history of every readable device** — uncapped.
+history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
+readable device** — uncapped.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised
