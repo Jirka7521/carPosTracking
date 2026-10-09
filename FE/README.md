@@ -410,6 +410,15 @@ so there is one countdown however many controls are on screen, and pressing
 Refresh anywhere advances all of it. The Home page runs its own, for the battery
 and last-fix on the device cards.
 
+**One range per page, too.** A tab is unmounted as soon as you leave it, so
+`DevicePage` also owns the reader's view choices and hands them down the same
+way: the date range (one window for Map, Positions, Charts and Events), the
+table's sort and page size, the ticked chart series and the events filter. Pick
+"Past hour" on the map and the table, charts and events show the same hour; sort
+the table by speed and it is still sorted when you come back. They live in
+memory only, so leaving the device page or reloading starts from the defaults
+again.
+
 Deliberately **not** refreshed: the firmware-configuration panel (an on-demand
 block holding a key, and re-rendering it under the reader would be hostile) and
 the access roster (it changes when a person changes it).
@@ -439,8 +448,8 @@ on the card and in the device header, and the rules live in one place,
 - **Nothing at all** for firmware that sends no status messages, exactly as the
   battery pill behaves for a device without the sensor.
 
-The **Events** tab lists the history behind it, newest first, with the same date
-range toolbar as the other tabs and a filter for alerts and errors only — a
+The **Events** tab lists the history behind it, newest first, sharing the date
+range with the other tabs, plus a filter for alerts and errors only — a
 tracker that sleeps between reports logs a routine event every cycle.
 
 ### The settings form under a refresh

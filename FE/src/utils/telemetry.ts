@@ -85,6 +85,11 @@ export const SERIES: readonly SeriesDef[] = [
   { key: 'accelMagG',      labelKey: 'device:charts.series.accelMagG',      unit: 'g',    color: '#00A3A3', decimals: 2 },
 ]
 
+// Speed and battery on first paint: "is it moving" and "is the tracker alive"
+// are the two questions worth answering without being asked, and the pair
+// demonstrates the two-axis behaviour without a wall of lines.
+export const DEFAULT_CHART_SERIES: readonly SeriesKey[] = ['speedKmph', 'batteryPct']
+
 // Total acceleration √(x² + y² + z²). Undefined unless all three axes were
 // reported for this fix — a missing axis would silently understate the result,
 // which is worse than showing a gap.

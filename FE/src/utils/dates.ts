@@ -57,8 +57,8 @@ export function getTodayRange(): DateRange {
   }
 }
 
-// The range every tab opens with: today so far. Computed once when a tab mounts
-// and then left alone.
+// The range the device page opens with: today so far. Computed once when the
+// page mounts, shared by its tabs, and then left alone.
 //
 // Opening on the calendar day rather than a rolling 24 hours means the first
 // load answers "where has it been today", and it answers it with less data.

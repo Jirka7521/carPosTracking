@@ -8,8 +8,8 @@
 // knowing about: a crash, a power loss, a cold power-on.
 //
 // Features:
-//   • The same date range toolbar as the Map, Positions and Charts tabs, opening
-//     on today and moved only by the reader
+//   • The same date range as the Map, Positions and Charts tabs — one range,
+//     held by DevicePage, opening on today and moved only by the reader
 //   • A severity filter, "All events" or "Alerts and errors" — a device that
 //     sleeps between reports logs one routine event per report, so the problems
 //     are easy to lose without it. The filter runs in the API, not here.
@@ -31,8 +31,7 @@ import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
 import { fetchDeviceEvents } from '../services/apiClient'
 import type { DeviceEventDto, DeviceEventSeverity } from '../services/apiTypes'
-import type { DateRange } from '../utils/dates'
-import { datetimeLocalToIso, getDefaultDateRange, parseApiTimestamp } from '../utils/dates'
+import { datetimeLocalToIso, parseApiTimestamp } from '../utils/dates'
 import { describeSeconds } from '../utils/deviceConfig'
 import { EVENT_REASON_LABEL_KEYS, EVENT_SEVERITY_LABEL_KEYS } from '../utils/deviceEvents'
 import { describeError } from '../utils/errors'
@@ -42,7 +41,7 @@ import { describeError } from '../utils/errors'
 const EVENTS_LIMIT = 1000
 
 // The two filter choices. 'problems' is everything at alert severity and above.
-type SeverityFilter = 'all' | 'problems'
+export type SeverityFilter = 'all' | 'problems'
 
 const MIN_SEVERITY: Record<SeverityFilter, DeviceEventSeverity | undefined> = {
   all: undefined,
@@ -53,17 +52,21 @@ export function DeviceEventsTab() {
   const { t } = useTranslation(['device', 'common', 'errors'])
 
   // The device page's timer and device, shared with every other tab — see
-  // DevicePage for why there is exactly one.
-  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
+  // DevicePage for why there is exactly one. The range and the filter are its
+  // too, so they match the other tabs and are still set when the reader returns.
+  const {
+    device,
+    autoRefresh: refresh,
+    dateRange,
+    setDateRange,
+    eventFilter: filter,
+    setEventFilter: setFilter,
+  } = useOutletContext<DevicePageContext>()
 
   const [events, setEvents]               = useState<DeviceEventDto[]>([])
   const [isLoading, setIsLoading]         = useState<boolean>(false)
   const [hasLoaded, setHasLoaded]         = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<string>('')
-
-  // Computed once on mount and changed only by the reader, like the other tabs.
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
-  const [filter, setFilter]       = useState<SeverityFilter>('all')
 
   // Load on mount, on a range or filter change, and on every refresh tick. A
   // failed load keeps the rows already on screen and says so in the status line

@@ -3,8 +3,8 @@
 //
 // Features:
 //   • Date range pickers (from / to) to filter which positions to load. The
-//     range is computed once when the tab mounts (see getDefaultDateRange) and
-//     is only ever changed by the user — refreshing re-runs the SAME query.
+//     range is DevicePage's, shared with the other tabs, and is only ever
+//     changed by the user — refreshing re-runs the SAME query.
 //   • "Auto-refresh" toggle: when on, reloads on the device page's shared
 //     timer with a live countdown, leaving the range and the map view
 //     untouched. The same tick re-reads the device, so the battery in the
@@ -30,8 +30,7 @@ import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
-import type { DateRange } from '../utils/dates'
-import { datetimeLocalToIso, getDefaultDateRange } from '../utils/dates'
+import { datetimeLocalToIso } from '../utils/dates'
 import { formatInteger } from '../i18n/format'
 import { describeError } from '../utils/errors'
 import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
@@ -49,7 +48,15 @@ export function DeviceMapTab() {
   // bumps a token to re-run the query below and never touches the date range —
   // and because the header's battery and last-fix hang off the same token,
   // pressing Refresh here can never leave the two disagreeing.
-  const { device, autoRefresh: refresh } = useOutletContext<DevicePageContext>()
+  //
+  // The date range is the device page's too, so the window picked here is the
+  // one every other tab shows, and it is still here when you come back.
+  const {
+    device,
+    autoRefresh: refresh,
+    dateRange,
+    setDateRange,
+  } = useOutletContext<DevicePageContext>()
 
   // Google Maps API key from the container's runtime config (see
   // services/runtimeConfig.ts). Empty string = the map cannot be rendered.
@@ -71,10 +78,6 @@ export function DeviceMapTab() {
     positionsRef.current = next
     setPositions(next)
   }
-
-  // Date range controls. Computed once, on mount — from here on only the two
-  // inputs change it, so a reload can never move the window under the user.
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange)
 
   // Bumped by the "Fit to positions" button; DeviceMap re-frames on a change
   const [fitToken, setFitToken] = useState<number>(0)
