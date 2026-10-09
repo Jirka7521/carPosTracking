@@ -40,8 +40,7 @@ reuse.
 - 🔋 **Battery monitor**: pack state of charge measured on the sense pin
   (GPIO35) and mapped through a **Li-ion discharge curve** (not a straight line),
   plus charge detection on that same pin — a value of `0` is the agreed
-  "charging" sentinel. Also reports the **modem die temperature**
-  (`AT+CPMUTEMP`, published as `temp_c`).
+  "charging" sentinel.
 - 📊 **Battery measurement**: the pack voltage is sampled **every 0.5 s for the
   whole time the device is awake** — boot, modem, MQTT connect and the entire fix
   hunt — then **trimmed of outliers** and taken down to its **median**, so a
@@ -605,13 +604,13 @@ sensor fields; the field names match the API's `PositionPayloadDto` exactly:
 ```json
 {"device":"GNSS01","latitude_deg":50.08,"longitude_deg":14.42,
  "speed_kmph":0.0,"altitude_m":210.0,"time_utc":"2026-07-23T10:00:00Z",
- "battery_pct":87,"accel_x_g":0.01,"accel_y_g":-0.02,"accel_z_g":0.99,
- "temp_c":31.0}
+ "battery_pct":87,"accel_x_g":0.01,"accel_y_g":-0.02,"accel_z_g":0.99}
 ```
 
-`battery_pct` (`0` = charging), `accel_x/y/z_g` and `temp_c` (modem die
-temperature in °C) are **omitted** when their sensor is disabled or a read
-failed, so an older decoder still parses the six location fields it knows. The
+`battery_pct` (`0` = charging) and `accel_x/y/z_g` are **omitted** when their
+sensor is disabled or a read failed, so an older decoder still parses the six
+location fields it knows. The modem die temperature (`temp_c`) is no longer
+read or sent; the API still accepts it from older firmware. The
 raw pack millivolts are **not** on the wire — they stay on the serial console as
 a curve-calibration aid only.
 
@@ -1838,18 +1837,16 @@ With `kGnssDebug = true`, every read prints to the serial console, e.g.:
 ---------------- SENSORS ----------------
   Battery        : 87 % (3892 mV)
   Accel X/Y/Z    : 0.01 / -0.02 / 0.99 g
-  Modem temp     : 31.0 C
 -----------------------------------------
 ```
 
 The **SENSORS** block is printed beneath the satellite table after **every fix
-poll** while the device waits for a lock, so battery/accel/temperature are
-visible even before a fix arrives. `Battery` shows the percent with the raw pack
+poll** while the device waits for a lock, so battery/accel are visible even
+before a fix arrives. `Battery` shows the percent with the raw pack
 millivolts in parentheses — a calibration aid for the Li-ion curve, and
 deliberately **not** published — or `charging (sentinel 0)` while the charger is
 connected, or `n/a` when the monitor is disabled or a read failed; `Accel X/Y/Z`
-shows the raw ADXL345 sample in g, or `n/a`; `Modem temp` is the modem die
-temperature (published as `temp_c`), or `n/a` when unavailable.
+shows the raw ADXL345 sample in g, or `n/a`.
 
 Once a lock arrives, three more **GNSS FIX** blocks follow about a second apart
 with **no satellite table between them** — that is the averaging burst, which
@@ -2577,8 +2574,7 @@ this checklist:
 > pack protecting itself, not a firmware fault, and `battery_pct` can read high at
 > the moment it cuts off. There is no software low-battery shutdown in this
 > firmware. Soften the ~2 A transmit sag with a bulk capacitor (1000–4700 µF)
-> across VBAT, short/thick leads, and a BMS rated for the peak current — and watch
-> `temp_c` to catch the heat before the cut-off.
+> across VBAT, short/thick leads, and a BMS rated for the peak current.
 
 A *garbled* log (stray bytes rather than silence) points at the baud rate; total
 silence points at power or PWRKEY.

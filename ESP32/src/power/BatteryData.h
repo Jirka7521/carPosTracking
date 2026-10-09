@@ -17,7 +17,7 @@
 //   millivolts  the raw pack voltage the percent was derived from (AT+CBC), or 0
 //               on the charging path where no voltage was read. Carried for the
 //               serial debug print only - it is deliberately NOT published, so
-//               the telemetry/DB contract stays "percent + temperature" (see
+//               the telemetry/DB contract stays "percent only" (see
 //               TelemetryPublisher). Handy for calibrating voltageToPercent().
 //   charging    true when the charger was detected (percent is then 0).
 //   valid       true only when the reading actually succeeded; false leaves the

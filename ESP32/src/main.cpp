@@ -12,7 +12,6 @@
 #include "freertos/task.h"
 #include "gnss/FixAverager.h"
 #include "gnss/GnssModule.h"
-#include "modem/ModemData.h"
 #include "modem/Sim7000Modem.h"
 #include "motion/MotionTracker.h"
 #include "mqtt/AckWatcher.h"
@@ -58,12 +57,9 @@ static const char* TAG = "main";
 // config::kGnssDebug is on. Battery percent 0 is the "charging" sentinel, so it
 // is spelled out rather than shown as a misleading flat 0 %. The raw pack
 // millivolts are shown next to the percent purely as a calibration aid for the
-// Li-ion curve - they are deliberately kept out of the published payload. The
-// modem die temperature is shown too: it is the sensor that actually explains a
-// hot-car cut-off.
+// Li-ion curve - they are deliberately kept out of the published payload.
 static void debugPrintSensors(const BatteryStatus& battery,
-                              const AccelSample& accel,
-                              const ModemHealth& modem) {
+                              const AccelSample& accel) {
   printf("---------------- SENSORS ----------------\n");
   if (!battery.valid) {
     printf("  Battery        : n/a (disabled / read failed)\n");
@@ -79,12 +75,6 @@ static void debugPrintSensors(const BatteryStatus& battery,
            accel.zG);
   } else {
     printf("  Accel X/Y/Z    : n/a (disabled / read failed)\n");
-  }
-
-  if (modem.valid) {
-    printf("  Modem temp     : %.1f C\n", modem.temperatureC);
-  } else {
-    printf("  Modem temp     : n/a (unavailable)\n");
   }
   printf("-----------------------------------------\n\n");
 }
@@ -682,17 +672,13 @@ extern "C" void app_main(void) {
     if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
       AccelSample   accelSample;
-      ModemHealth   modemHealth;
       if (config::kBatteryEnabled) {
         battery.read(batteryStatus);
-        // Temperature rides along with the battery/health read (same modem, one
-        // extra AT round-trip) rather than earning its own feature flag.
-        modemHealth.valid = modem.readTemperatureC(modemHealth.temperatureC);
       }
       if (config::kAdxlEnabled) {
         accel.read(accelSample);
       }
-      debugPrintSensors(batteryStatus, accelSample, modemHealth);
+      debugPrintSensors(batteryStatus, accelSample);
     }
 
     return true;  // keep waiting for the fix
@@ -939,13 +925,6 @@ extern "C" void app_main(void) {
         if (!config::kAccelPeakEnabled || !accelPeak.takePeak(sample.accel)) {
           accel.read(sample.accel);
         }
-      }
-      if (config::kBatteryEnabled) {
-        // The modem die temperature used to ride along with the battery read
-        // (see the debug lambda above); that read has moved above this block, so
-        // only the temperature is left here. Published as temp_c when it
-        // succeeds, and only ever for a fix we are about to send.
-        sample.modem.valid = modem.readTemperatureC(sample.modem.temperatureC);
       }
 
       // Checkpoint this run in RTC memory so the NEXT boot's journal line can

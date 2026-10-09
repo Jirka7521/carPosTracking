@@ -200,12 +200,8 @@ constexpr uint32_t kAccelSampleIntervalMs = 500;
 //  kBatteryChargeAdcThreshold the monitor reports the sentinel percent = 0, which
 //  the API/FE render as "charging".
 //
-//  While enabled the monitor ALSO reports the modem's die temperature (AT+CPMUTEMP,
-//  published as temp_c) - one extra AT round-trip on the same modem, no separate
-//  flag. It is a proxy for how hot the device is running (the pack has no sensor).
-//
-//  Set kBatteryEnabled to `false` to skip the monitor; the battery AND temperature
-//  fields are then absent from the payload.
+//  Set kBatteryEnabled to `false` to skip the monitor; the battery field is then
+//  absent from the payload.
 // -----------------------------------------------------------------------------
 constexpr bool kBatteryEnabled = true;
 
