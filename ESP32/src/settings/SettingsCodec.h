@@ -7,7 +7,7 @@
 //  the runtime settings, and nothing else. The MQTT config message and the
 //  cached file on the SD card are the *same* document:
 //
-//      { "version": 7, "interval_s": 1200, "sleep_between": false,
+//      { "version": 7, "interval_s": 1200, "sleep_between": true,
 //        "fix_timeout_s": 180, "queue_max_fixes": 20000,
 //        "retry_interval_h": 24, "retry_max_age_h": 168,
 //        "config_check_s": 3600,

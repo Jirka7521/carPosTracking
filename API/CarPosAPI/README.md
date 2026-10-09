@@ -1036,7 +1036,7 @@ in every schedule-bundle profile and in the override, so a schedule switch chang
 the whole motion configuration along with the standby values:
 
 ```json
-{ "version": 12, "interval_s": 1200, "sleep_between": false, "fix_timeout_s": 180,
+{ "version": 12, "interval_s": 1200, "sleep_between": true, "fix_timeout_s": 180,
   "queue_max_fixes": 20000, "retry_interval_h": 24, "retry_max_age_h": 168,
   "config_check_s": 3600,
   "motion": { "enabled": true, "threshold_mg": 188, "speed_kmph": 3,

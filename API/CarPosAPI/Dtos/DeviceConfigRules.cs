@@ -39,8 +39,13 @@ public static class DeviceConfigRules
     /// </summary>
     public const int DefaultIntervalSeconds = 1200;
 
-    /// <summary>Factory default for deep-sleeping between reports.</summary>
-    public const bool DefaultSleepBetween = false;
+    /// <summary>
+    /// Factory default for deep-sleeping between reports — the STANDBY flag, so on: a
+    /// parked vehicle is where the tracker spends most of its life, and the motion
+    /// interrupt wakes it when the vehicle moves. The moving set keeps its own flag,
+    /// <see cref="DefaultMovingSleepBetween"/>.
+    /// </summary>
+    public const bool DefaultSleepBetween = true;
 
     /// <summary>Minimum GNSS acquire budget — below the modem's poll step it could never succeed.</summary>
     public const int MinFixTimeoutSeconds = 15;

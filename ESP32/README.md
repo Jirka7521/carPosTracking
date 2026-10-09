@@ -503,7 +503,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
 | `kDeviceAckPrivateKeyPem` | — | **This device's RSA private key (secret)** — decrypts the acks |
 | `kDefaultSendIntervalSeconds` | `1200` | Interval used until the broker says otherwise — the **standby** (parked) interval, since motion wake is on by default |
-| `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
+| `kDefaultSleepBetweenSends` | `true` | Sleep flag used until the broker says otherwise — the **standby** flag: a parked device deep-sleeps and the accelerometer wakes it |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
 | `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `3600` | Clamps on `fix_timeout_s` |
 | `kMinQueueMaxFixes` / `kMaxQueueMaxFixes` | `100` / `100000` | Clamps on `queue_max_fixes` (~100 MB of envelopes at the ceiling) |

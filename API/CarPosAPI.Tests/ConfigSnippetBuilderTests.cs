@@ -40,13 +40,13 @@ public sealed class ConfigSnippetBuilderTests
     /// <para>
     /// <c>RetryMaxAgeHours</c> is 0 — "never give up", the one value that is meaningful
     /// at its floor, and so the one a careless renderer would be most likely to drop or
-    /// replace with a default. <c>MotionEnabled</c> is false because the factory
-    /// default is now on.
+    /// replace with a default. <c>MotionEnabled</c> and <c>SleepBetween</c> are false
+    /// because both factory defaults are now on.
     /// </para>
     /// </summary>
     private static readonly DeviceConfigValuesDto s_settings = new DeviceConfigValuesDto(
         IntervalSeconds: 300,
-        SleepBetween: true,
+        SleepBetween: false,
         FixTimeoutSeconds: 240,
         QueueMaxFixes: 5000,
         RetryIntervalHours: 12,
@@ -105,7 +105,7 @@ public sealed class ConfigSnippetBuilderTests
 
         // This device's live settings as the compile-time defaults.
         ("kDefaultSendIntervalSeconds", "300"),
-        ("kDefaultSleepBetweenSends", "true"),
+        ("kDefaultSleepBetweenSends", "false"),
         ("kFixAcquireTimeoutSeconds", "240"),
         ("kSdMaxQueuedFixes", "5000"),
         ("kRetryIntervalHours", "12"),
@@ -493,7 +493,7 @@ public sealed class ConfigSnippetBuilderTests
         (string snippet, string _) = BuildSnippet();
 
         Assert.Contains("kDefaultSendIntervalSeconds = 300;", snippet, StringComparison.Ordinal);
-        Assert.Contains("kDefaultSleepBetweenSends   = true;", snippet, StringComparison.Ordinal);
+        Assert.Contains("kDefaultSleepBetweenSends   = false;", snippet, StringComparison.Ordinal);
         Assert.Contains("kFixAcquireTimeoutSeconds = 240;", snippet, StringComparison.Ordinal);
         Assert.Contains("kSdMaxQueuedFixes = 5000;", snippet, StringComparison.Ordinal);
         Assert.Contains("kRetryIntervalHours = 12;", snippet, StringComparison.Ordinal);

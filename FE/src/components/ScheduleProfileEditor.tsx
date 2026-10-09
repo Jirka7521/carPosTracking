@@ -28,7 +28,7 @@ import { ConfigValuesFields } from './ConfigValuesFields'
 // that fails validation.
 const DEFAULT_VALUES: DeviceConfigValuesDto = {
   intervalSeconds: 1200,
-  sleepBetween: false,
+  sleepBetween: true,
   fixTimeoutSeconds: 180,
   queueMaxFixes: 20000,
   retryIntervalHours: 24,

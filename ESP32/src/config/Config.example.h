@@ -624,8 +624,13 @@ constexpr char kDeviceAckPrivateKeyPem[] = "";
 // wake" below), so this is how often a PARKED car reports. Twenty minutes is a
 // heartbeat, not a track: the accelerometer is what notices the car pulling
 // away, and the moving set's 30 s takes over from there.
+//
+// A parked car deep-sleeps between those reports: it is where the tracker
+// spends most of its life, and the ADXL345 interrupt wakes it when the car
+// moves, so staying awake would buy nothing but a flat battery. The moving
+// set keeps its own sleep flag (off) - see "Motion wake" below.
 constexpr uint32_t kDefaultSendIntervalSeconds = 1200;
-constexpr bool     kDefaultSleepBetweenSends   = false;
+constexpr bool     kDefaultSleepBetweenSends   = true;
 
 // Accepted range for every numeric setting. A broker message outside these
 // bounds is clamped rather than rejected, so a typo can never wedge the device

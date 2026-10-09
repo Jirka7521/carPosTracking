@@ -275,6 +275,7 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
     | Stop timeout (`stop_wait_s`) | 600 s (900 s acceptable) | **900 s** |
     | Fast-mode interval (`motion.moving.interval_s`) | 5–10 s | **30 s** |
     | Slow-mode interval (`interval_s`, the timer safety net) | ≤ 15 min | **20 min** |
+    | Sleep between slow-mode reports (`sleep_between`) | deep sleep (the state machine below) | **on** |
 
     By the table above, register 3 catches 52 % of starts in the first minute instead
     of 61 %, the same 84 % within two minutes, with 2.1 false wakes a day instead of
