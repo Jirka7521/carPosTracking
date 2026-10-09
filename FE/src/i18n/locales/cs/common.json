@@ -84,6 +84,21 @@
     "change": "Změnit jazyk",
     "heading": "Jazyk"
   },
+  "link": {
+    "online": "Online",
+    "onlineTitle": "Připojeno — naposledy aktivní {{when}}",
+    "overdue": "Nehlásí se",
+    "overdueTitle": "Mělo se vrátit do {{time}} a od té doby se neozvalo",
+    "reason": {
+      "batteryLow": "Slabá baterie",
+      "connectionLost": "Spojení ztraceno",
+      "error": "Chyba",
+      "powerOff": "Vypnuto",
+      "sleep": "Spí"
+    },
+    "sinceTitle": "Offline od {{when}}",
+    "sleepTitle": "Spí od {{since}}, návrat kolem {{time}}"
+  },
   "nav": {
     "home": "Přejít na domovskou stránku",
     "legal": "Přečíst podmínky užití",

@@ -44,6 +44,7 @@ export const PARAMETER_ORIGINS: Readonly<Record<string, ParameterOrigin>> = {
   kTelemetryTopic: 'device',
   kConfigTopic: 'device',
   kAckTopic: 'device',
+  kStatusTopic: 'device',
   kMqttBrokerUri: 'device',
   kMqttUsername: 'device',
   kMqttClientId: 'device',

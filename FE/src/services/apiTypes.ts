@@ -64,14 +64,21 @@ export type DeviceDto = {
   createdAt: string
   deactivatedAt: string | null
   // When the last accepted fix arrived, or null if the device has never
-  // reported. The firmware sends no heartbeat, so this is the only liveness
-  // signal that exists.
+  // reported. One of two liveness signals — see lastOnlineAt.
   lastSeenAt: string | null
   // Battery state of charge from this device's most recent fix (0–100), or null
   // when it has never reported one. The value 0 is the "charging" sentinel — the
   // UI shows it as charging rather than as a flat battery. Lets the device grid
   // display a battery level without loading positions.
   lastBatteryPct: number | null
+  // When the device last announced a new broker connection, or null when it
+  // never has (firmware without status messages). Unlike lastSeenAt it moves even
+  // when no fix follows — a tracker in a garage is still online.
+  lastOnlineAt: string | null
+  // The most recent time the device went offline, and why — or null when it
+  // never has. Whether it has since come back is answered by comparing against
+  // lastOnlineAt / lastSeenAt; see utils/deviceEvents.ts resolveLinkState.
+  lastOfflineEvent: DeviceOfflineEventDto | null
   // How many accounts and live share links can see this device right now. Always
   // present, and people is always at least 1.
   accessCounts: DeviceAccessCountsDto
@@ -106,6 +113,58 @@ export type PositionDto = {
   // (older firmware, or the SIM7000 AT+CPMUTEMP command unsupported). A proxy for
   // how hot the tracker is running — a hot-car cut-off shows up here.
   temperatureC: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Device connection history — GET /api/devices/{deviceId}/events
+//
+// The tracker says why it goes offline (and the broker says it for the tracker,
+// through its Last Will, when it cannot); after a reboot it says why it
+// restarted. The API stores each as an event and decides how much it matters.
+// ---------------------------------------------------------------------------
+
+// Why a device went offline. 'connectionLost' is the Last Will — published by the
+// broker when a session died without a goodbye (crash, power cut, lost link).
+export type DeviceOfflineReason = 'sleep' | 'powerOff' | 'batteryLow' | 'error' | 'connectionLost'
+
+// Why a device restarted, as it reported once it was back. Ordinary deep-sleep
+// wakes are not recorded at all.
+export type DeviceRestartReason = 'powerOn' | 'powerLoss' | 'crash'
+
+export type DeviceEventReason = DeviceOfflineReason | DeviceRestartReason
+
+export type DeviceEventKind = 'offline' | 'restart'
+
+// Decided by the API alone, lowest first. 'normal' is expected behaviour (a
+// planned sleep), 'alert' needs attention (low battery), 'error' is a fault.
+export type DeviceEventSeverity = 'normal' | 'alert' | 'error'
+
+// The latest offline event, carried on every DeviceDto for the status badge.
+export interface DeviceOfflineEventDto {
+  reason: DeviceOfflineReason
+  severity: DeviceEventSeverity
+  // When it went offline — the server's receive time, which is the event's time.
+  receivedAt: string
+  // How long the device expected to be away, when it said (a planned sleep).
+  sleepSeconds: number | null
+}
+
+// One row of the Events tab.
+export interface DeviceEventDto {
+  id: number
+  kind: DeviceEventKind
+  reason: DeviceEventReason
+  severity: DeviceEventSeverity
+  // When the server received it. The event's time: the Last Will carries no
+  // clock of its own.
+  receivedAt: string
+  // The device's own clock at the time, when it trusted one.
+  deviceTime: string | null
+  // Battery percent the device last knew; 0 is the "charging" sentinel.
+  batteryPct: number | null
+  sleepSeconds: number | null
+  // A short machine code qualifying an error, e.g. 'gnss_init'.
+  detail: string | null
 }
 
 // One row in GET /api/access?deviceId=X — the four capability flags a user
@@ -515,11 +574,15 @@ export interface AccountErasureResultDto {
   // grant handed to another person, a share link is not left standing: nobody
   // would remain who could revoke one.
   shareLinksDeleted: number
+  // Connection-history rows erased with the deleted devices.
+  deviceEventsDeleted: number
 }
 
-// DELETE /api/devices/{deviceId}/positions — erases a location history.
+// DELETE /api/devices/{deviceId}/positions — erases a location history, and the
+// device's connection events over the same range with it.
 export interface PositionErasureResultDto {
   deletedCount: number
+  deletedEventCount: number
 }
 
 // ---------------------------------------------------------------------------

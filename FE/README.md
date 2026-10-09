@@ -223,6 +223,7 @@ FE/
 │   │   ├── FirmwareParameterTable.tsx  Read-only reference of every firmware parameter
 │   │   ├── PermissionBadges.tsx   Badge row showing canRead/canDelete/canShare/canModifySettings
 │   │   ├── BatteryBadge.tsx       Battery level pill (⚡ when charging; 0 = charging sentinel)
+│   │   ├── DeviceLinkBadge.tsx    Connection pill: Online, or offline and why (Sleeping, Battery low, Connection lost…)
 │   │   ├── DurationField.tsx      Number input plus a seconds/minutes/hours combobox — stores canonical units
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
@@ -239,6 +240,7 @@ FE/
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
+│   │   ├── DeviceEventsTab.tsx    Events tab — connection history: why it went offline, notable restarts
 │   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config, sharing, delete
 │   ├── services/
 │   │   ├── apiClient.ts           All fetch calls; cookies + CSRF header
@@ -247,6 +249,7 @@ FE/
 │   └── utils/
 │       ├── dates.ts               Date/time formatting helpers
 │       ├── devices.ts             Device label fallback (customName → displayName → deviceId)
+│       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
 │       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
@@ -284,6 +287,7 @@ FE/
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, temperature, acceleration over time |
+| `/device/:deviceId/events` | protected | Connection history — every time the tracker went offline and why, and notable restarts; filter to alerts and errors |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
@@ -394,6 +398,35 @@ and last-fix on the device cards.
 Deliberately **not** refreshed: the firmware-configuration panel (an on-demand
 block holding a key, and re-rendering it under the reader would be hostile) and
 the access roster (it changes when a person changes it).
+
+### Online, offline, and why
+
+The tracker announces each new connection and says why before it goes offline
+(a planned sleep, the power switch, a low battery, an error); when it drops
+without a word, the broker publishes its Last Will — "connection lost" — for it.
+The API stores those as events and hands each device's latest offline event and
+last online time out with the device list.
+
+[`DeviceLinkBadge`](src/components/DeviceLinkBadge.tsx) turns that into one pill
+on the card and in the device header, and the rules live in one place,
+[`utils/deviceEvents.ts`](src/utils/deviceEvents.ts):
+
+- **Online** when the device's online time *or* its last fix is newer than its
+  last offline event — both, so a lost online message cannot leave a reporting
+  tracker looking offline.
+- **Offline, with the reason**, coloured by the severity the API assigned (grey
+  for a sleep or switch-off, amber for an alert, red for an error), always with a
+  word as well. A sleep also says when the tracker should be back.
+- **Overdue** when a sleeping tracker is more than five minutes past that time —
+  the one case the dashboard judges itself, because only it knows "now". "Now" is
+  sampled on each device reload, so the badge changes on the page's refresh
+  cadence, never mid-render.
+- **Nothing at all** for firmware that sends no status messages, exactly as the
+  battery pill behaves for a device without the sensor.
+
+The **Events** tab lists the history behind it, newest first, with the same date
+range toolbar as the other tabs and a filter for alerts and errors only — a
+tracker that sleeps between reports logs a routine event every cycle.
 
 ### The settings form under a refresh
 

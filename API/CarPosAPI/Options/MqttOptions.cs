@@ -62,6 +62,18 @@ public sealed class MqttOptions
     public string TopicFilter { get; set; } = "devices/+";
 
     /// <summary>
+    /// Topic filter for device status messages — each device's own "online" and
+    /// "offline because …" messages and its Last Will, all on
+    /// <c>devices/&lt;id&gt;/status</c>. A second filter rather than <c>devices/#</c>,
+    /// which would also deliver this application's own <c>/ack</c>, <c>/config</c> and
+    /// <c>/schedule</c> publishes back to it. A separate setting rather than a list in
+    /// <see cref="TopicFilter"/> so a deployment that overrides that one keeps working
+    /// untouched.
+    /// </summary>
+    [Required]
+    public string StatusTopicFilter { get; set; } = "devices/+/status";
+
+    /// <summary>
     /// Keep-alive interval. 30 s keeps the WebSocket alive through the reverse
     /// proxy in front of the broker, whose idle timeout would otherwise drop it.
     /// </summary>

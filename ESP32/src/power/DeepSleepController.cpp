@@ -27,7 +27,8 @@ DeepSleepController::DeepSleepController(MqttClient& mqtt, WifiManager& wifi,
                                          GnssModule& gnss, SdCard& card,
                                          int modemPwrKeyPin, int wakeGpioPin,
                                          int wakeGpioLevel, Adxl345* accel,
-                                         int motionWakePin, bool motionLowPower)
+                                         int motionWakePin, bool motionLowPower,
+                                         PresenceReporter* presence)
     : mqtt_(mqtt),
       wifi_(wifi),
       gnss_(gnss),
@@ -37,7 +38,8 @@ DeepSleepController::DeepSleepController(MqttClient& mqtt, WifiManager& wifi,
       wakeGpioLevel_(wakeGpioLevel),
       accel_(accel),
       motionWakePin_(motionWakePin),
-      motionLowPower_(motionLowPower) {}
+      motionLowPower_(motionLowPower),
+      presence_(presence) {}
 
 void DeepSleepController::releasePinHolds(int modemPwrKeyPin, int wakeGpioPin,
                                           int motionWakePin) {
@@ -80,8 +82,18 @@ const char* DeepSleepController::wakeCauseName() {
   }
 }
 
+void DeepSleepController::sayGoodbye(OfflineReason reason, uint32_t sleepS,
+                                     const char* detail) {
+  // Bounded by the status publish timeout and a no-op while disconnected, so a
+  // dead link cannot hold the device awake on its way down.
+  if (presence_ != nullptr) {
+    presence_->reportOffline(reason, sleepS, detail);
+  }
+}
+
 void DeepSleepController::shutdownPeripherals() {
-  // 1. Say goodbye properly, while the radio is still up.
+  // 1. Say goodbye properly, while the radio is still up. The clean DISCONNECT
+  //    is also what makes the broker discard our Last Will.
   mqtt_.stop();
 
   // 2. Stop the WiFi driver. ESP-IDF expects the radio stopped, not just idle,
@@ -177,6 +189,9 @@ void DeepSleepController::sleepFor(uint32_t durationMs,
            (unsigned)(durationMs / 1000),
            motionThresholdSteps > 0 ? " or until motion" : "");
 
+  // sleep_s lets the dashboard say when to expect the device back - and notice
+  // when it does not come back. A motion wake can only make that earlier.
+  sayGoodbye(OfflineReason::Sleep, durationMs / 1000);
   shutdownPeripherals();
   holdModemOff(modemPwrKeyPin_);
 
@@ -240,9 +255,47 @@ void DeepSleepController::sleepUntilExternalWake() {
            "Power switch off - sleeping until it is switched back on; modem "
            "and card going down first.");
 
+  // No sleep_s: off is off, there is nothing to expect back.
+  sayGoodbye(OfflineReason::PowerOff, 0);
   shutdownPeripherals();
   holdModemOff(modemPwrKeyPin_);
   armWakeSources(0, wakeGpioPin_, wakeGpioLevel_);
+  enterSleep();
+}
+
+void DeepSleepController::sleepForLowBattery(uint32_t recheckMs) {
+  ESP_LOGW(TAG,
+           "Battery below the cut-off - shutting down; re-checking the pack "
+           "every %us.", (unsigned)(recheckMs / 1000));
+
+  // No sleep_s either: the re-check wake stays dark unless the pack has
+  // recovered, so there is no time at which the dashboard should expect it.
+  sayGoodbye(OfflineReason::BatteryLow, 0);
+  shutdownPeripherals();
+  holdModemOff(modemPwrKeyPin_);
+  armWakeSources(recheckMs, -1, wakeGpioLevel_);  // timer only - see banner
+  enterSleep();
+}
+
+void DeepSleepController::sleepAfterError(const char* detail,
+                                          uint32_t retryMs) {
+  ESP_LOGE(TAG, "Unrecoverable this boot (%s) - sleeping %us, then retrying.",
+           detail != nullptr ? detail : "error", (unsigned)(retryMs / 1000));
+
+  sayGoodbye(OfflineReason::Error, retryMs / 1000, detail);
+  shutdownPeripherals();
+  holdModemOff(modemPwrKeyPin_);
+  armWakeSources(retryMs, -1, wakeGpioLevel_);  // timer only - see banner
+  enterSleep();
+}
+
+void DeepSleepController::sleepForBare(uint32_t durationMs,
+                                       int modemPwrKeyPin) {
+  ESP_LOGI(TAG, "Battery still low - back to sleep for %us without starting up.",
+           (unsigned)(durationMs / 1000));
+
+  holdModemOff(modemPwrKeyPin);
+  armWakeSources(durationMs, -1, 0);  // timer only; the level is unused
   enterSleep();
 }
 

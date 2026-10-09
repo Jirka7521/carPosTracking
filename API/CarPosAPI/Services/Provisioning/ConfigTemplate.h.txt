@@ -85,6 +85,14 @@ constexpr uint32_t kSatelliteScanMs = 3000;  // How long to listen to NMEA when
 constexpr uint32_t kFixAcquireTimeoutSeconds = 180;
 constexpr uint32_t kFixPollStepMs            = 2000;
 
+// What happens when the modem / GNSS engine cannot be brought up at boot (wiring,
+// power, a wedged modem). The device reports an "error" status (detail
+// "gnss_init" - see "Status messages" below), deep-sleeps this long, and tries
+// the whole boot again. Without it a failed init used to halt the firmware awake
+// and doing nothing until the pack ran flat. A retry costs one boot's worth of
+// energy; a few minutes is long enough not to drain the pack in a fault loop.
+constexpr uint32_t kGnssInitRetrySleepMinutes = 10;
+
 // -----------------------------------------------------------------------------
 //  Averaged position reports.
 //
@@ -305,6 +313,36 @@ constexpr bool kBatteryReportFromMethods = true;
 constexpr uint32_t kUnplugFixTimeoutSeconds = 60;
 
 // -----------------------------------------------------------------------------
+//  Low-battery cut-off.
+//
+//  Below kLowBatteryCutoffMv the device reports a "battery low" status, powers
+//  everything down and deep-sleeps, waking every kLowBatteryRecheckMinutes only
+//  to measure the pack - no WiFi, no modem, no MQTT on those wakes. It starts up
+//  again once the pack reads kLowBatteryResumeMv or more, or the charger is
+//  connected (the pack then reads as absent, which always counts as "go").
+//
+//  The two thresholds are a hysteresis: a pack relieved of the modem's load
+//  bounces back a little, so one threshold would restart, sag and stop in a
+//  loop. Both are measured by the same calibrated median as battery_pct (see
+//  "Battery measurement" above). The values below are starting points with a
+//  margin over the cell's protection cut-off - calibrate them on your pack.
+//
+//  Set kLowBatteryCutoffEnabled to false to restore the old behaviour: run until
+//  the pack browns out.
+// -----------------------------------------------------------------------------
+constexpr bool     kLowBatteryCutoffEnabled  = true;
+constexpr uint32_t kLowBatteryCutoffMv       = 3450;  // stop below this
+constexpr uint32_t kLowBatteryResumeMv       = 3650;  // start again at/above this
+constexpr uint32_t kLowBatteryRecheckMinutes = 30;
+
+static_assert(kLowBatteryResumeMv > kLowBatteryCutoffMv,
+              "the resume threshold must sit above the cut-off (hysteresis)");
+static_assert(kLowBatteryCutoffMv > kBatteryNoReadingMv,
+              "a cut-off at or below the no-reading level could never fire");
+static_assert(kLowBatteryRecheckMinutes > 0,
+              "a zero re-check would wake the device continuously");
+
+// -----------------------------------------------------------------------------
 //  WiFi (station mode).
 //
 //  ⚠ SECRETS: fill kWifiSsid / kWifiPassword in your local Config.h only. Leave
@@ -358,12 +396,51 @@ constexpr char kMqttClientId[] = "GNSSXX";
 // normal round-trip to the broker over the (possibly slow) cellular/WiFi link.
 constexpr uint32_t kMqttPublishAckTimeoutMs = 8000;
 
+// MQTT keep-alive, in seconds. Besides keeping the session open it decides how
+// fast a dead device is noticed: the broker waits 1.5x this before it drops a
+// silent session and publishes its Last Will ("connection lost" - see "Status
+// messages" below). 60 s means about 90 s. Must not exceed the broker's
+// max_keepalive (120 in Container/MQTTBroker), or the CONNECT is refused.
+constexpr uint16_t kMqttKeepaliveSeconds = 60;
+
 // -----------------------------------------------------------------------------
 //  Telemetry topic + device identity.
 //  The single place the publish path is defined (matches the desktop tools).
 // -----------------------------------------------------------------------------
 constexpr char kDeviceId[]       = "GNSSXX";
 constexpr char kTelemetryTopic[] = "devices/GNSSXX";
+
+// -----------------------------------------------------------------------------
+//  Status messages & Last Will (device -> broker -> API).
+//
+//  The device says why it goes offline, and the broker says it for the device
+//  when it cannot:
+//
+//      online           on every new connection; the first one of a boot also
+//                       carries the reset reason (a crash, watchdog or
+//                       brown-out shows up on the dashboard this way)
+//      offline + reason just before every deep sleep: "sleep" (with how long),
+//                       "power_off", "battery_low" or "error" (with a detail)
+//      Last Will        "connection_lost" - published BY THE BROKER when the
+//                       session dies without a clean DISCONNECT (crash, power
+//                       loss, lost link), about 1.5x kMqttKeepaliveSeconds later
+//
+//  Each is end-to-end encrypted exactly like a fix and sent as a one-element
+//  JSON array, so the broker still sees only ciphertext. No ack, no SD queue -
+//  a status message that cannot be delivered right now is simply dropped.
+//
+//  ⚠ The broker ACL must grant this device WRITE on the topic below BEFORE this
+//  firmware is flashed: Mosquitto checks the will topic against the write ACL.
+//  Set kStatusReportsEnabled to false to send none of this (and set no will).
+// -----------------------------------------------------------------------------
+constexpr bool kStatusReportsEnabled = true;
+
+constexpr char kStatusTopic[] = "devices/GNSSXX/status";
+
+// How long one status publish may wait for the broker's QoS-2 ack. Short on
+// purpose: an offline message sits directly in front of a deep sleep, and a link
+// that cannot confirm it within a few seconds is not going to.
+constexpr uint32_t kStatusPublishTimeoutMs = 3000;
 
 // -----------------------------------------------------------------------------
 //  Remote settings (broker -> device).

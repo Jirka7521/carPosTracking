@@ -97,6 +97,7 @@ public sealed class DataExportShapeTests
             true,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             null,
+            null,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         ShareLinkExportRow shareLink = new ShareLinkExportRow(

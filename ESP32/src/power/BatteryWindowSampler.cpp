@@ -104,6 +104,27 @@ bool BatteryWindowSampler::takeWindow(uint32_t* dest, std::size_t cap,
   return taken > 0;
 }
 
+bool BatteryWindowSampler::sampleNow(uint32_t* dest, std::size_t count,
+                                     uint32_t gapMs, std::size_t& countOut) {
+  countOut = 0;
+  if (dest == nullptr || count == 0) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < count; ++i) {
+    // Same rule as sampleOnce(): a failed conversion is skipped, never stored
+    // as a zero that would read as a flat pack.
+    int value = 0;
+    if (adc_.readRaw(vbatPin_, value)) {
+      dest[countOut++] = static_cast<uint32_t>(value);
+    }
+    if (gapMs > 0 && i + 1 < count) {
+      vTaskDelay(pdMS_TO_TICKS(gapMs));
+    }
+  }
+  return countOut > 0;
+}
+
 void BatteryWindowSampler::taskEntry(void* arg) {
   static_cast<BatteryWindowSampler*>(arg)->run();
 }

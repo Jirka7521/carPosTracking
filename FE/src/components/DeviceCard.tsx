@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next'
 import { PermissionBadges } from './PermissionBadges'
 import { BatteryBadge } from './BatteryBadge'
 import { AccessCountBadge } from './AccessCountBadge'
+import { DeviceLinkBadge } from './DeviceLinkBadge'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { formatRelativeTime } from '../utils/dates'
@@ -54,13 +55,17 @@ export function DeviceCard({ device }: DeviceCardProps) {
 
         <div className="device-card-badges">
           {/* Who can see this vehicle: accounts with a grant, plus any share
-              link that is live right now. Leftmost of the three so the two
-              badges that can signal a problem keep the end of the row. */}
+              link that is live right now. Leftmost so the badges that can
+              signal a problem keep the end of the row. */}
           <AccessCountBadge counts={device.accessCounts} />
 
           {/* Battery from the latest fix; renders nothing when the device sent
               none, so a sensor-less device shows no empty slot. */}
           <BatteryBadge value={device.lastBatteryPct} />
+
+          {/* Connected, or offline and why. Renders nothing for firmware that
+              sends no status messages, like the battery badge does. */}
+          <DeviceLinkBadge device={device} />
 
           <span
             className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
@@ -85,9 +90,9 @@ export function DeviceCard({ device }: DeviceCardProps) {
           : t('home:card.deactivated', { date: deactivatedDate ?? '' })}
       </div>
 
-      {/* Liveness. The tracker sends no heartbeat, so this only moves when a
-          real fix arrives — "never reported" usually means the firmware has
-          not been flashed with this device's config yet. */}
+      {/* Liveness by fix. This only moves when a real fix arrives — "never
+          reported" usually means the firmware has not been flashed with this
+          device's config yet. The link badge above covers the connection. */}
       {device.isActive ? (
         <div className="device-card-meta">
           {t('home:card.lastFix', { when: formatRelativeTime(device.lastSeenAt) })}

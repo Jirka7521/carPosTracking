@@ -61,9 +61,10 @@ src/
 ├── gnss/       GnssData / CgnsinfParser / NmeaParser / GnssModule
 ├── crypto/     PayloadCrypto / AckCrypto  ← RSA-OAEP + AES-256-GCM envelope
 ├── mqtt/       MqttClient / TelemetryPublisher / TelemetrySample / AckWatcher
+│               OfflineReason / StatusPublisher / PresenceReporter
 ├── power/      AdcSampler / BatteryMonitor / BatteryWindowSampler
 │               BatteryMethods / BatteryReporter / ChargerWatcher
-│               BootJournal / DeepSleepController
+│               BootJournal / DeepSleepController / LowBatteryGuard
 ├── sensors/    Adxl345 / AccelPeakTracker  ← ADXL345 accelerometer
 ├── motion/     MotionTracker           ← motion wake: standby / checking / moving
 ├── sdcard/     SdCard / FixQueue / RetryQueue / QueueIndex / FixForwarder

@@ -108,6 +108,7 @@
       "locationData": {
         "p1": "For every fix a tracker reports: latitude and longitude, speed, acceleration on three axes, altitude, the GNSS fix time and the server receive time, battery percentage, temperature, and the device identifier.",
         "p2": "A location history describes where a vehicle, and therefore usually a person, has been, when, and how they drove. It is treated as sensitive throughout: coordinates are never written to any log file.",
+        "p3": "Each tracker also reports its own connection status: when it connects, when it goes offline and why (a planned sleep, being switched off, a low battery, a fault), and when it restarts after a crash or a power loss. If it drops off without saying so, the message broker reports that on its behalf. These records show when the vehicle was in use, so they are kept, exported and erased exactly like the positions.",
         "title": "Location and vehicle telemetry"
       },
       "notCollected": {

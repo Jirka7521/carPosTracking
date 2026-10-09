@@ -70,6 +70,21 @@
     "change": "Change language",
     "heading": "Language"
   },
+  "link": {
+    "online": "Online",
+    "onlineTitle": "Connected — last sign of life {{when}}",
+    "overdue": "Overdue",
+    "overdueTitle": "Was expected back by {{time}} and has not reported since",
+    "reason": {
+      "batteryLow": "Battery low",
+      "connectionLost": "Connection lost",
+      "error": "Error",
+      "powerOff": "Switched off",
+      "sleep": "Sleeping"
+    },
+    "sinceTitle": "Offline since {{when}}",
+    "sleepTitle": "Asleep since {{since}}, expected back about {{time}}"
+  },
   "nav": {
     "home": "Go to home page",
     "legal": "Read the terms of use",

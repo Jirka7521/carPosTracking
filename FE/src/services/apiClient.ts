@@ -32,6 +32,8 @@ import type {
   DeviceCreateRequestDto,
   DeviceCreatedDto,
   DeviceDto,
+  DeviceEventDto,
+  DeviceEventSeverity,
   DeviceProvisioningDto,
   DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
@@ -581,6 +583,27 @@ export async function fetchPositions(
 ): Promise<PositionDto[]> {
   return request<PositionDto[]>('GET', '/positions', {
     query: { deviceId, from, to },
+  })
+}
+
+// ----- Device events (connection history) -----
+
+// Filters for the Events tab. Every one is optional; the API answers newest
+// first and caps the page itself (default 200, max 1000).
+export type DeviceEventQuery = {
+  from?: string
+  to?: string
+  // That severity and worse — 'alert' means alerts and errors.
+  minSeverity?: DeviceEventSeverity
+  limit?: number
+}
+
+export async function fetchDeviceEvents(
+  deviceId: string,
+  query: DeviceEventQuery = {},
+): Promise<DeviceEventDto[]> {
+  return request<DeviceEventDto[]>('GET', `/devices/${segment(deviceId)}/events`, {
+    query: { from: query.from, to: query.to, minSeverity: query.minSeverity, limit: query.limit },
   })
 }
 

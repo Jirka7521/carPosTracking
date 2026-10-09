@@ -58,6 +58,9 @@ export default defineConfig({
       'positions.column.*',    // PositionListTab  COLUMNS labelKey
       'status.*',              // ShareLinkList, template literal over ShareLinkStatus
       'api.*',                 // utils/errors.ts, template literal over the API's error codes
+      'link.reason.*',         // utils/deviceEvents.ts  OFFLINE_BADGE_LABEL_KEYS
+      'events.reason.*',       // utils/deviceEvents.ts  EVENT_REASON_LABEL_KEYS
+      'events.severity.*',     // utils/deviceEvents.ts  EVENT_SEVERITY_LABEL_KEYS
     ],
   },
 

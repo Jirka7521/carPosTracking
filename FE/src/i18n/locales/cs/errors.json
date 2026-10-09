@@ -85,6 +85,7 @@
   "loadConfigFailed": "Nastavení zařízení se nepodařilo načíst.",
   "loadDeviceFailed": "Zařízení se nepodařilo načíst.",
   "loadDevicesFailed": "Zařízení se nepodařilo načíst.",
+  "loadEventsFailed": "Události zařízení se nepodařilo načíst.",
   "loadHistoryFailed": "Historii nastavení se nepodařilo načíst.",
   "loadMorePositionsFailed": "Další polohy se nepodařilo načíst.",
   "loadPositionsFailed": "Polohy se nepodařilo načíst.",

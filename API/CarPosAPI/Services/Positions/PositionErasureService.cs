@@ -1,12 +1,16 @@
 using CarPosAPI.Data;
+using CarPosAPI.Dtos;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CarPosAPI.Services.Positions;
 
 /// <summary>
-/// Implements <see cref="IPositionErasureService"/> with a single bulk delete.
+/// Implements <see cref="IPositionErasureService"/> with two bulk deletes in one
+/// transaction — the positions and the connection history over the same range, so an
+/// erasure can never leave one half of the record behind.
 ///
 /// <c>ExecuteDeleteAsync</c> rather than loading and removing: the whole point is
 /// that the range may be enormous, and pulling a year of fixes through the change
@@ -23,7 +27,7 @@ internal sealed class PositionErasureService : IPositionErasureService
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="authorizer">Resolves the caller's grant on the device.</param>
-    /// <param name="logger">Structured logger — device id and a row count, never coordinates.</param>
+    /// <param name="logger">Structured logger — device id and row counts, never coordinates.</param>
     public PositionErasureService(
         CarPosDbContext context,
         IDeviceAccessAuthorizer authorizer,
@@ -35,7 +39,7 @@ internal sealed class PositionErasureService : IPositionErasureService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<long>> EraseAsync(
+    public async Task<OperationResult<PositionErasureResultDto>> EraseAsync(
         int userId,
         string deviceId,
         DateTime? fromUtc,
@@ -46,7 +50,7 @@ internal sealed class PositionErasureService : IPositionErasureService
 
         if (access is null)
         {
-            return OperationResult<long>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
+            return OperationResult<PositionErasureResultDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
         }
 
         // Reading a history and destroying one are different acts, so this asks for
@@ -55,35 +59,67 @@ internal sealed class PositionErasureService : IPositionErasureService
         // proved they can see the device, so there is nothing left to conceal.
         if (!access.Permissions.CanDelete)
         {
-            return OperationResult<long>.Forbidden(
+            return OperationResult<PositionErasureResultDto>.Forbidden(
                 ErrorCodes.NoPermissionDeleteData,
                 "You do not have permission to delete this device's data.");
         }
 
-        IQueryable<Data.Entities.Position> query = _context.Positions
-            .Where(position => position.DeviceId == access.DeviceRowId);
+        DateTime? from = fromUtc.HasValue ? NormaliseToUtc(fromUtc.Value) : null;
+        DateTime? to = toUtc.HasValue ? NormaliseToUtc(toUtc.Value) : null;
 
-        if (fromUtc.HasValue)
-        {
-            DateTime from = NormaliseToUtc(fromUtc.Value);
-            query = query.Where(position => position.FixTime >= from);
-        }
+        // The connection retries transient faults (Program.cs), so the transaction has
+        // to run inside the execution strategy, which may replay it whole.
+        IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
-        if (toUtc.HasValue)
-        {
-            DateTime to = NormaliseToUtc(toUtc.Value);
-            query = query.Where(position => position.FixTime <= to);
-        }
+        PositionErasureResultDto result = await strategy.ExecuteAsync(
+            async (CancellationToken attemptToken) =>
+            {
+                await using IDbContextTransaction transaction =
+                    await _context.Database.BeginTransactionAsync(attemptToken);
 
-        long deleted = await query.ExecuteDeleteAsync(cancellationToken);
+                IQueryable<Data.Entities.Position> positions = _context.Positions
+                    .Where(position => position.DeviceId == access.DeviceRowId);
+                if (from.HasValue)
+                {
+                    positions = positions.Where(position => position.FixTime >= from.Value);
+                }
+
+                if (to.HasValue)
+                {
+                    positions = positions.Where(position => position.FixTime <= to.Value);
+                }
+
+                // Events have no fix time; their receive time is the closest thing to
+                // "when", and it is what the dashboard shows them by.
+                IQueryable<Data.Entities.DeviceEvent> events = _context.DeviceEvents
+                    .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceRowId);
+                if (from.HasValue)
+                {
+                    events = events.Where(deviceEvent => deviceEvent.ReceivedAt >= from.Value);
+                }
+
+                if (to.HasValue)
+                {
+                    events = events.Where(deviceEvent => deviceEvent.ReceivedAt <= to.Value);
+                }
+
+                long positionsDeleted = await positions.ExecuteDeleteAsync(attemptToken);
+                long eventsDeleted = await events.ExecuteDeleteAsync(attemptToken);
+
+                await transaction.CommitAsync(attemptToken);
+
+                return new PositionErasureResultDto(positionsDeleted, eventsDeleted);
+            },
+            cancellationToken);
 
         _logger.LogInformation(
-            "User {UserId} erased {DeletedCount} position(s) for device {DeviceId}",
+            "User {UserId} erased {DeletedCount} position(s) and {DeletedEventCount} event(s) for device {DeviceId}",
             userId,
-            deleted,
+            result.DeletedCount,
+            result.DeletedEventCount,
             access.DeviceId);
 
-        return OperationResult<long>.Success(deleted);
+        return OperationResult<PositionErasureResultDto>.Success(result);
     }
 
     /// <summary>

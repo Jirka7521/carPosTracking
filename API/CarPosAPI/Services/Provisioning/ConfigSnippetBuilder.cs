@@ -68,6 +68,9 @@ internal sealed class ConfigSnippetBuilder
     /// <summary>Suffix of the per-device delivery-ack topic.</summary>
     private const string AckTopicSuffix = "/ack";
 
+    /// <summary>Suffix of the per-device status topic (status messages and the Last Will).</summary>
+    private const string StatusTopicSuffix = "/status";
+
     /// <summary>Indent of a continued C string literal, matching the firmware's style.</summary>
     private const string LiteralIndent = "    ";
 
@@ -107,6 +110,17 @@ internal sealed class ConfigSnippetBuilder
     public string AckTopicFor(string deviceId)
     {
         return TopicPrefix + deviceId + AckTopicSuffix;
+    }
+
+    /// <summary>Builds the status topic for a device.</summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <returns>
+    /// The topic the firmware says "online" / "offline because …" on and registers as its
+    /// Last Will, e.g. <c>devices/GNSS01/status</c>.
+    /// </returns>
+    public string StatusTopicFor(string deviceId)
+    {
+        return TopicPrefix + deviceId + StatusTopicSuffix;
     }
 
     /// <summary>Renders the complete, ready-to-build <c>Config.h</c>.</summary>
@@ -152,6 +166,10 @@ internal sealed class ConfigSnippetBuilder
         writer.SetString("kTelemetryTopic", TelemetryTopicFor(deviceId));
         writer.SetString("kConfigTopic", ConfigTopicFor(deviceId));
         writer.SetString("kAckTopic", AckTopicFor(deviceId));
+        // Per device like the topics above: left at the template's GNSSXX, the Last Will
+        // would name a topic the device's broker account may not write, and Mosquitto
+        // would refuse it.
+        writer.SetString("kStatusTopic", StatusTopicFor(deviceId));
         writer.SetString("kMqttBrokerUri", brokerUri);
 
         // The broker account is per device and named after it, and the client id is

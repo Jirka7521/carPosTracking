@@ -16,10 +16,12 @@ namespace CarPosAPI.Services.Privacy;
 /// credential with no account behind it any more, and nobody remaining could
 /// revoke one.
 /// </param>
+/// <param name="DeviceEventsDeleted">Connection-history rows erased along with the deleted devices.</param>
 public sealed record AccountErasureSummary(
     int DevicesDeleted,
     int DevicesRetained,
     long PositionsDeleted,
     int GrantsDeleted,
     int GrantsAnonymised,
-    int ShareLinksDeleted);
+    int ShareLinksDeleted,
+    long DeviceEventsDeleted);

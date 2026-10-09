@@ -8,6 +8,12 @@
 //  the subsystems it must quiesce but owns the *order*, which is where the real
 //  knowledge lives:
 //
+//      0. Status - say WHY (PresenceReporter): "going to sleep", "switched off",
+//                  "battery low", "error". It has to come first, while the
+//                  link is still up - and it has to come before step 1, whose
+//                  clean DISCONNECT is what makes the broker throw the Last
+//                  Will away. Every sleep path goes through this class, so a
+//                  new one cannot forget to report.
 //      1. MQTT   - disconnect so the broker sees a DISCONNECT rather than
 //                  waiting out the keep-alive on a session that is already gone.
 //      2. WiFi   - stop the driver. ESP-IDF requires the radio be stopped before
@@ -40,6 +46,9 @@
 //                               mean "off until you turn it back on" rather than
 //                               "off until the next report". No accelerometer
 //                               either: off means off.
+//    sleepForLowBattery() /     the RTC timer ALONE - ext0 for the same reason as
+//    sleepAfterError()          sleepFor(), and no motion wake: a flat pack or a
+//                               fault is not fixed by the car moving.
 //
 //  The accelerometer is armed as the very LAST step, after the modem is off and
 //  the card unmounted: its activity detection is AC-coupled against a reference
@@ -50,6 +59,8 @@
 
 #include "gnss/GnssModule.h"
 #include "mqtt/MqttClient.h"
+#include "mqtt/OfflineReason.h"
+#include "mqtt/PresenceReporter.h"
 #include "sdcard/SdCard.h"
 #include "sensors/Adxl345.h"
 #include "wifi/WifiManager.h"
@@ -67,10 +78,12 @@ class DeepSleepController {
   //   accel         : armed for the motion wake, or nullptr for none
   //   motionWakePin : the accelerometer's INT1 GPIO (ext1), or -1 for none
   //   motionLowPower: put the accelerometer in its low-power rate for the sleep
+  //   presence      : told why we are going down (step 0), or nullptr to sleep
+  //                   without a status message
   DeepSleepController(MqttClient& mqtt, WifiManager& wifi, GnssModule& gnss,
                       SdCard& card, int modemPwrKeyPin, int wakeGpioPin,
                       int wakeGpioLevel, Adxl345* accel, int motionWakePin,
-                      bool motionLowPower);
+                      bool motionLowPower, PresenceReporter* presence);
 
   // Release the pin latches applied before the previous sleep. Call once at the
   // very start of app_main(), before any driver touches those pins - until this
@@ -119,7 +132,28 @@ class DeepSleepController {
                                                       int wakeGpioPin,
                                                       int wakeGpioLevel);
 
+  // The pack has fallen below the cut-off (see LowBatteryGuard): report
+  // "battery low", shut down and sleep for `recheckMs` on the timer alone. The
+  // next wake re-checks the pack before it powers anything up. Never returns.
+  [[noreturn]] void sleepForLowBattery(uint32_t recheckMs);
+
+  // A fault the firmware caught itself - `detail` is a short machine code such
+  // as "gnss_init". Report it, shut down, and sleep `retryMs` on the timer
+  // alone so the next boot tries again from scratch instead of the device
+  // sitting awake doing nothing. Never returns.
+  [[noreturn]] void sleepAfterError(const char* detail, uint32_t retryMs);
+
+  // A timer-only sleep with nothing to quiesce, for the low-battery re-check
+  // wakes that find the pack still too low: they stop before WiFi, MQTT, the
+  // modem or the card are started. Like sleepUntilExternalWakeBare(), it does
+  // not touch the modem - the caller has made sure it is off. Never returns.
+  [[noreturn]] static void sleepForBare(uint32_t durationMs, int modemPwrKeyPin);
+
  private:
+  // Step 0 above: tell the broker why, if there is anyone to tell.
+  void sayGoodbye(OfflineReason reason, uint32_t sleepS,
+                  const char* detail = nullptr);
+
   // Steps 1-4 above: stop the network, the modem and the card.
   void shutdownPeripherals();
 
@@ -154,4 +188,5 @@ class DeepSleepController {
   Adxl345*     accel_;
   int          motionWakePin_;
   bool         motionLowPower_;
+  PresenceReporter* presence_;
 };

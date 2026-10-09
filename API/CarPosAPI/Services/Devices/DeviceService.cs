@@ -83,6 +83,22 @@ internal sealed class DeviceService : IDeviceService
                     .OrderByDescending(position => position.FixTime)
                     .Select(position => position.BatteryPct)
                     .FirstOrDefault(),
+                access.Device.LastOnlineAt,
+                // The most recent time this device went offline and why, for the
+                // status badge - another correlated subquery, so the list stays one
+                // round trip. Restarts are left out: the badge answers "why is it not
+                // here", and a restart is the device coming back.
+                _context.DeviceEvents
+                    .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceId
+                        && deviceEvent.Kind == DeviceEventKindNames.Offline)
+                    .OrderByDescending(deviceEvent => deviceEvent.ReceivedAt)
+                    .ThenByDescending(deviceEvent => deviceEvent.Id)
+                    .Select(deviceEvent => new DeviceOfflineEventDto(
+                        deviceEvent.Reason,
+                        deviceEvent.Severity,
+                        deviceEvent.ReceivedAt,
+                        deviceEvent.SleepSeconds))
+                    .FirstOrDefault(),
                 // Two aggregates, both correlated subqueries for the same reason
                 // the battery is one: the list stays a single round trip however
                 // many devices, grants or links exist. Counted in SQL, never by
@@ -234,10 +250,13 @@ internal sealed class DeviceService : IDeviceService
                     provisioning.Device!.DeviceId,
                     provisioning.Device.DisplayName,
                     // A brand-new device has no alias and has never reported, so these are
-                    // known without asking the database again (no last-seen, no battery).
+                    // known without asking the database again (no last-seen, no battery,
+                    // never online, never offline).
                     null,
                     true,
                     DateTime.UtcNow,
+                    null,
+                    null,
                     null,
                     null,
                     null,

@@ -93,6 +93,17 @@ class BatteryWindowSampler {
   // reporting path with the modem mid-cycle.
   bool takeWindow(uint32_t* dest, std::size_t cap, std::size_t& countOut);
 
+  // Take `count` conversions RIGHT NOW, on the calling task, `gapMs` apart, into
+  // `dest` - bypassing the window entirely, which is left untouched. Needs
+  // begin() but not start().
+  //
+  // This is the one place a burst is fine: LowBatteryGuard calls it at boot,
+  // before WiFi, the modem or MQTT exist, so there is no transmit droop for the
+  // spreading in the banner to dodge. Blocks for about count x gapMs. Returns
+  // false, with countOut == 0, when no conversion succeeded.
+  bool sampleNow(uint32_t* dest, std::size_t count, uint32_t gapMs,
+                 std::size_t& countOut);
+
  private:
   // FreeRTOS entry point; forwards to run() on the instance in `arg`.
   static void taskEntry(void* arg);

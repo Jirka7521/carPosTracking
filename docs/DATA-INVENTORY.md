@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-09-09`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-10-09`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -39,6 +39,23 @@ export deliberately bypasses that cap so portability is complete. **Never auto-d
 the retention section of the policy at `/privacy`. Erasable via
 `DELETE /api/devices/{deviceId}/positions` or by deleting the account.
 
+### `device_events` — the connection history
+
+| Column | | Note | On account deletion |
+|---|---|---|---|
+| `device_id` | p | links to a device and thence to a person | — |
+| `received_at` | **P** | when the tracker went offline (or restarted) — i.e. when the vehicle stopped or started being used | deleted with the device if solely owned |
+| `device_time` | **P** | the tracker's own clock at that moment, when it trusted one | as above |
+| `kind`, `reason`, `severity` | p | offline (sleep / switched off / battery low / error / connection lost) or restart (power on / power loss / crash), and how serious | as above |
+| `battery_pct`, `sleep_seconds`, `detail` | · | device health; expected time away; an error code such as `gnss_init` | as above |
+
+No location — but a timetable of when the vehicle was in use, so it is treated exactly like
+`positions`: one row per sleep cycle on a sleeping device, **never auto-deleted**, erased over the
+same range by `DELETE /api/devices/{deviceId}/positions` and with the device on account deletion,
+and included in the data export. Reads are bounded at 1000 rows
+(`GET /api/devices/{deviceId}/events`). Written only by the status ingest from the tracker's own
+sealed messages and its MQTT Last Will.
+
 ### `devices`
 
 | Column | | Note |
@@ -46,6 +63,7 @@ the retention section of the policy at `/privacy`. Erasable via
 | `device_id` | p | the MQTT identity, e.g. `GNSS01`; also the topic segment and broker username |
 | `display_name` | **P** | free text chosen by a user — often a person's or a car's name |
 | `last_seen_at` | **P** | a presence and activity signal |
+| `last_online_at` | **P** | when the tracker last announced a broker connection — a presence signal |
 | `private_key_ciphertext` | · | **secret** — AES-256-GCM sealed; never selected into a DTO, never exported, never logged |
 | `public_key_pem`, `ack_public_key_pem` | · | public halves |
 | `config_*`, `reported_*`, `schedule_bundle_version` | p | how closely and when the vehicle is tracked |
@@ -130,7 +148,7 @@ password, MQTT device credentials, the device's ack private key, the backend's p
 
 | Hop | What is visible |
 |---|---|
-| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`) and the client IP are visible |
+| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`, and `devices/<id>/status` for the connection messages and the Last Will) and the client IP are visible — so the broker can see *that* a tracker reported or went offline, never why |
 | Broker → API | same ciphertext; the API connects as the `dashboard` broker account |
 | API → browser | plaintext JSON over TLS — but Cloudflare terminates that TLS and therefore sees it |
 | Browser → Google | on map load only, after consent: IP, user-agent, referrer, and the viewport (hence the vehicle's area) |
@@ -170,7 +188,7 @@ localStorage values is ever sent to the server.
 `GET /api/me/export` streams a JSON document with: the profile, every access grant held and
 granted, device nicknames, the temporary share links this account created, metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
-history of every readable device** — uncapped.
+history and connection history (`statusEvents`) of every readable device** — uncapped.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised

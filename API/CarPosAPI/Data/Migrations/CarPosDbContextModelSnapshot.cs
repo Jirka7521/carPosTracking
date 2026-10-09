@@ -163,6 +163,10 @@ namespace CarPosAPI.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<DateTime?>("LastOnlineAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_online_at");
+
                     b.Property<DateTime?>("LastSeenAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
@@ -688,6 +692,79 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("BatteryPct")
+                        .HasColumnType("integer")
+                        .HasColumnName("battery_pct");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("detail");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTime?>("DeviceTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("device_time");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("severity");
+
+                    b.Property<int?>("SleepSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("sleep_seconds");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId", "ReceivedAt")
+                        .HasDatabaseName("ix_device_events_device_id_received_at");
+
+                    b.ToTable("device_events", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_events_battery_pct", "battery_pct >= 0 AND battery_pct <= 100");
+
+                            t.HasCheckConstraint("ck_device_events_kind", "kind IN ('offline', 'restart')");
+
+                            t.HasCheckConstraint("ck_device_events_reason", "(kind = 'offline' AND reason IN ('sleep', 'powerOff', 'batteryLow', 'error', 'connectionLost')) OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash'))");
+
+                            t.HasCheckConstraint("ck_device_events_severity", "severity IN ('normal', 'alert', 'error')");
+
+                            t.HasCheckConstraint("ck_device_events_sleep_seconds", "sleep_seconds >= 0 AND sleep_seconds <= 86400");
+                        });
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>
                 {
                     b.Property<long>("Id")
@@ -1040,6 +1117,17 @@ namespace CarPosAPI.Data.Migrations
                         .WithMany()
                         .HasForeignKey("SourceProfileId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceEvent", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", "Device")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Device");
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>

@@ -6,6 +6,7 @@
 #include "crypto/AckCrypto.h"
 #include "crypto/PayloadCrypto.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,6 +17,8 @@
 #include "motion/MotionTracker.h"
 #include "mqtt/AckWatcher.h"
 #include "mqtt/MqttClient.h"
+#include "mqtt/PresenceReporter.h"
+#include "mqtt/StatusPublisher.h"
 #include "mqtt/TelemetryPublisher.h"
 #include "mqtt/TelemetrySample.h"
 #include "power/AdcSampler.h"
@@ -26,6 +29,7 @@
 #include "power/BootJournal.h"
 #include "power/ChargerWatcher.h"
 #include "power/DeepSleepController.h"
+#include "power/LowBatteryGuard.h"
 #include "power/PowerSwitch.h"
 #include "sensors/AccelPeakTracker.h"
 #include "sensors/Adxl345.h"
@@ -130,6 +134,78 @@ extern "C" void app_main(void) {
     DeepSleepController::sleepUntilExternalWakeBare(config::kModemPwrKeyPin,
                                                     config::kWakeGpioPin,
                                                     config::kWakeGpioLevel);
+  }
+
+  // ---- The pack measurement, and the low-battery boot check ----------------
+  //
+  // Brought up here, ahead of WiFi and the modem, for one reason: the
+  // low-battery guard has to decide whether this boot may run at all BEFORE
+  // anything loads the rail. A device latched off for a flat pack that wakes on
+  // its re-check timer and finds the pack still low goes straight back to sleep
+  // from here, having spent a few tens of milliseconds and no radio time. The
+  // sampling task itself is still started further down, where it always was.
+  //
+  // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
+  // on a unit that is already claimed, and two subsystems below need pins on it
+  // (the monitor's charge sense, the measurement's pack sense). See
+  // AdcSampler.h.
+  static AdcSampler adcSampler;
+  if (config::kBatteryEnabled || config::kBatteryReportFromMethods ||
+      config::kLowBatteryCutoffEnabled) {
+    if (!adcSampler.begin()) {
+      ESP_LOGW(TAG, "ADC unavailable - battery readings will be omitted.");
+    }
+  }
+
+  // The conversions behind the published percent, taken on their own task every
+  // kBatteryWindowSampleMs. Started further down, as early as the rest of the
+  // device exists, because the window is meant to cover the whole awake stretch
+  // - the modem coming up, WiFi settling, the MQTT connect, the config fetch and
+  // the entire fix hunt - rather than a couple of seconds guessed at just before
+  // the publish. Every one of those is a moment the rail moves, and a median
+  // wants to see all of them. See BatteryWindowSampler.h.
+  static BatteryWindowSampler batteryWindow(adcSampler,
+                                            config::kBatteryVbatSensePin,
+                                            config::kBatteryWindowSampleMs);
+
+  // The pack measurement itself: the window, outlier-trimmed and taken down to
+  // its median, scored with the Li-ion curve. It measures only - it decides
+  // nothing and stores nothing itself.
+  static BatteryMethods batteryMethods(
+      adcSampler, batteryWindow, config::kBatteryDividerRatio,
+      config::kBatteryOutlierMadFactor, config::kBatteryNoReadingMv);
+
+  // Claim the pack sense pin now, so the guard's spot reading below can use it.
+  const bool windowReady =
+      (config::kBatteryReportFromMethods || config::kLowBatteryCutoffEnabled) &&
+      batteryWindow.begin();
+
+  // Stops the tracker before the pack runs flat - see LowBatteryGuard.h. With
+  // no usable pack reading it stays out of the way (fail open).
+  static LowBatteryGuard lowBattery(
+      batteryMethods, config::kLowBatteryCutoffEnabled && windowReady,
+      config::kLowBatteryCutoffMv, config::kLowBatteryResumeMv);
+  constexpr uint32_t kLowBatteryRecheckMs =
+      config::kLowBatteryRecheckMinutes * 60UL * 1000UL;
+
+  if (lowBattery.checkAtBoot() == LowBatteryGuard::BootVerdict::Hold) {
+    // Latched off and not recovered: back to sleep without starting anything.
+    // On our own re-check timer the modem is known to be off - the sleep that
+    // latched us powered it down. Any other way in (a reset, a re-flash) gets
+    // the same probe-before-touch treatment as checkpoint 0 above, because the
+    // modem keeps its power state across an ESP32 reset and a blind PWRKEY pulse
+    // would switch an off modem ON.
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+      SerialPort   holdSerial(config::kModemUartPort, config::kModemTxPin,
+                              config::kModemRxPin, config::kModemBaudRate);
+      Sim7000Modem holdModem(holdSerial, config::kModemPwrKeyPin);
+      if (holdModem.begin() && holdModem.isResponsive()) {
+        ESP_LOGI(TAG, "Modem still running - powering it down first.");
+        holdModem.powerOff();
+      }
+    }
+    DeepSleepController::sleepForBare(kLowBatteryRecheckMs,
+                                      config::kModemPwrKeyPin);
   }
 
   // WiFi. Constructed unconditionally - even a WiFi-disabled build hands it to
@@ -258,9 +334,16 @@ extern "C" void app_main(void) {
   static FixAverager averager(gnss);
 
   // Power up the modem, enable the GNSS engine and select the constellations.
-  if (!gnss.begin()) {
-    ESP_LOGE(TAG, "GNSS init failed - check wiring and power. Halting.");
-    return;
+  //
+  // A failure no longer halts the firmware where it stands - that used to leave
+  // the device awake, silent and draining the pack. Instead the rest of the
+  // bring-up carries on (MQTT does not need the modem: it runs over WiFi), and
+  // once the sleeper exists below the device reports an "error" status and
+  // sleeps for kGnssInitRetrySleepMinutes before trying the whole boot again.
+  const bool gnssReady = gnss.begin();
+  if (!gnssReady) {
+    ESP_LOGE(TAG, "GNSS init failed - check wiring and power. Will report the "
+                  "error and retry after a sleep.");
   }
 
   // Optional onboard sensors carried in every report: the ADXL345 accelerometer
@@ -294,17 +377,8 @@ extern "C" void app_main(void) {
     }
   }
 
-  // The single owner of the ESP32's ADC1 unit: the IDF refuses a second handle
-  // on a unit that is already claimed, and two subsystems below need pins on it
-  // (the monitor's charge sense, the measurement's pack sense). See
-  // AdcSampler.h.
-  static AdcSampler adcSampler;
-  if (config::kBatteryEnabled || config::kBatteryReportFromMethods) {
-    if (!adcSampler.begin()) {
-      ESP_LOGW(TAG, "ADC unavailable - battery readings will be omitted.");
-    }
-  }
-
+  // The ADC unit, the pack window and its measurement were brought up right
+  // after checkpoint 0, for the low-battery boot check - see there.
   static BatteryMonitor battery(adcSampler, modem,
                                 config::kBatteryChargeSensePin,
                                 config::kBatteryChargeAdcThreshold,
@@ -320,30 +394,13 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Battery monitor disabled in Config.h.");
   }
 
-  // The conversions behind the published percent, taken on their own task every
-  // kBatteryWindowSampleMs. Started HERE, as early as the ADC exists, because
-  // the window is meant to cover the whole awake stretch - the modem coming up,
-  // WiFi settling, the MQTT connect, the config fetch and the entire fix hunt -
-  // rather than a couple of seconds guessed at just before the publish. Every
-  // one of those is a moment the rail moves, and a median wants to see all of
-  // them. See BatteryWindowSampler.h.
-  static BatteryWindowSampler batteryWindow(adcSampler,
-                                            config::kBatteryVbatSensePin,
-                                            config::kBatteryWindowSampleMs);
-
-  // The pack measurement itself: the window, outlier-trimmed and taken down to
-  // its median, scored with the Li-ion curve. It measures only - it decides
-  // nothing and stores nothing itself.
-  static BatteryMethods batteryMethods(
-      adcSampler, batteryWindow, config::kBatteryDividerRatio,
-      config::kBatteryOutlierMadFactor, config::kBatteryNoReadingMv);
-
   // Tested once here rather than re-derived every cycle. A device whose ADC
   // never came up still tracks and still publishes positions; it just leaves
-  // battery_pct out (or falls back to the modem's own figure, below).
+  // battery_pct out (or falls back to the modem's own figure, below). The pin
+  // was claimed early (windowReady); the sampling task starts here.
   bool methodsReady = false;
   if (config::kBatteryReportFromMethods) {
-    methodsReady = batteryWindow.begin() && batteryWindow.start();
+    methodsReady = windowReady && batteryWindow.start();
     if (!methodsReady) {
       ESP_LOGW(TAG,
                "Battery measurement unavailable - battery_pct will be "
@@ -369,7 +426,8 @@ extern "C" void app_main(void) {
   // background, so we never block on it. Each fix is end-to-end encrypted by
   // PayloadCrypto before TelemetryPublisher hands it to the broker.
   static MqttClient     mqtt(config::kMqttBrokerUri, config::kMqttUsername,
-                             config::kMqttPassword, config::kMqttClientId);
+                             config::kMqttPassword, config::kMqttClientId,
+                             config::kMqttKeepaliveSeconds);
   static PayloadCrypto  crypto(config::kReceiverPublicKeyPem);
   static TelemetryPublisher publisher(mqtt, crypto, config::kTelemetryTopic,
                                       config::kDeviceId);
@@ -396,6 +454,18 @@ extern "C" void app_main(void) {
                                        config::kConfigTopic);
   static RemoteSchedule remoteSchedule(mqtt, scheduleStore, updateSignal,
                                        config::kScheduleTopic);
+
+  // The device's own presence messages - "online", and "offline because ..."
+  // before every sleep - plus the Last Will the broker publishes for us when we
+  // cannot. Sealed with the same crypto as the fixes. Constructed
+  // unconditionally (they hold a few pointers); with kStatusReportsEnabled off
+  // nothing below ever calls them and the sleeper is handed nullptr.
+  static StatusPublisher statusPublisher(mqtt, crypto, deviceClock,
+                                         config::kStatusTopic,
+                                         config::kDeviceId,
+                                         config::kStatusPublishTimeoutMs);
+  static PresenceReporter presence(mqtt, statusPublisher,
+                                   BootJournal::resetCauseName());
 
   // The one place that knows which of the three opinions about this device's
   // settings wins - see the banner on SettingsSelector.
@@ -433,6 +503,20 @@ extern "C" void app_main(void) {
                "BROKER acks it, even if the API never stored it.");
     }
 
+    // The Last Will travels in CONNECT, so it is sealed and registered BEFORE
+    // begin(). Sealed once per boot and replayed by esp-mqtt on every automatic
+    // reconnect. A failure costs only the dead-man message, never the link.
+    if (config::kStatusReportsEnabled) {
+      std::string lastWill;
+      if (statusPublisher.sealLastWill(lastWill) &&
+          mqtt.setLastWill(config::kStatusTopic, lastWill)) {
+        ESP_LOGI(TAG, "Last will armed on %s.", config::kStatusTopic);
+      } else {
+        ESP_LOGW(TAG, "Last will could not be armed - an unexpected drop will "
+                      "not be reported.");
+      }
+    }
+
     if (mqtt.begin()) {
       ESP_LOGI(TAG, "MQTT enabled; publishing fixes to %s.",
                config::kTelemetryTopic);
@@ -444,6 +528,11 @@ extern "C" void app_main(void) {
                  "no config from the broker within %ums - continuing with the "
                  "cached settings (is it published retained?)",
                  (unsigned)config::kConfigFetchTimeoutMs);
+      }
+      // Say we are here - and, on the first connection of this boot, why we
+      // restarted. The retained config above arriving means the link is up.
+      if (config::kStatusReportsEnabled) {
+        presence.service();
       }
     } else {
       ESP_LOGW(TAG, "MQTT failed to start; continuing without publishing.");
@@ -468,7 +557,36 @@ extern "C" void app_main(void) {
   static DeepSleepController sleeper(
       mqtt, wifi, gnss, sdCard, config::kModemPwrKeyPin, config::kWakeGpioPin,
       config::kWakeGpioLevel, config::kAdxlEnabled ? &accel : nullptr,
-      config::kMotionWakePin, config::kMotionWakeLowPowerSensor);
+      config::kMotionWakePin, config::kMotionWakeLowPowerSensor,
+      (config::kMqttEnabled && config::kStatusReportsEnabled) ? &presence
+                                                              : nullptr);
+
+  // Shut down for a flat pack once the guard has called it - at boot (the
+  // spot check found the pack already below the cut-off) or after a cycle's
+  // reading. Every caller is a safe point: nothing is half-published. Does
+  // not return when it acts. Everything else it touches is static, so the
+  // re-check period is the only capture.
+  std::function<void()> cutOffIfBatteryLow = [kLowBatteryRecheckMs]() {
+    if (!lowBattery.cutoffPending()) {
+      return;
+    }
+    statusLeds.allOff();
+    lowBattery.latch();  // the next wake re-checks before starting anything
+    sleeper.sleepForLowBattery(kLowBatteryRecheckMs);
+  };
+
+  // GNSS never came up (see above). Everything else did, so the device can
+  // still say so before it sleeps and retries - unless the pack is the reason,
+  // in which case "battery low" is the truer report and the longer sleep.
+  if (!gnssReady) {
+    if (config::kStatusReportsEnabled) {
+      presence.service();
+    }
+    cutOffIfBatteryLow();
+    statusLeds.allOff();
+    sleeper.sleepAfterError(
+        "gnss_init", config::kGnssInitRetrySleepMinutes * 60UL * 1000UL);
+  }
 
   ESP_LOGI(TAG,
            "GNSS ready. Reporting every %us (sleep between: %s, settings v%u, "
@@ -534,6 +652,12 @@ extern "C" void app_main(void) {
     // backlog or re-resolving settings for a cycle that is about to end.
     if (config::kPowerSwitchEnabled && !powerSwitch.isRunRequested()) {
       return false;
+    }
+
+    // A reconnect during a long hunt is a new session the dashboard has not
+    // heard about yet. Cheap when there is nothing new.
+    if (config::kStatusReportsEnabled) {
+      presence.service();
     }
 
     // Seed the clock from the poll that has just happened. Doing it here rather
@@ -604,6 +728,13 @@ extern "C" void app_main(void) {
       statusLeds.allOff();
       sleeper.sleepUntilExternalWake();
     }
+
+    // Announce a connection made since the last pass, then act on a flat pack
+    // found at boot or by the previous cycle - before spending an acquire.
+    if (config::kStatusReportsEnabled) {
+      presence.service();
+    }
+    cutOffIfBatteryLow();
 
     statusLeds.setGnss(StatusLed::Mode::Blink);
 
@@ -780,6 +911,14 @@ extern "C" void app_main(void) {
                (unsigned)sample.battery.millivolts);
     }
 
+    // The same reading, two more consumers: the low-battery guard decides on
+    // the measured voltage (falling back to AT+CBC), and the presence reporter
+    // keeps the published percent for the next goodbye. The guard only marks
+    // the cut-off here; it is acted on after this cycle's report has gone out,
+    // so the last position before a shutdown is not lost.
+    lowBattery.evaluateCycle(methods, fwBattery);
+    presence.noteBattery(sample.battery);
+
     // Does this fix go out? With motion wake off: whenever there is one, as
     // always. With it on, MotionTracker also uses the fix to move its state on -
     // a fast one starts or extends a trip - and holds back every fix of a check
@@ -837,6 +976,10 @@ extern "C" void app_main(void) {
       }
     }
 
+    // This cycle's report is out (or queued on the card); if the reading above
+    // put the pack below the cut-off, this is where the device stops.
+    cutOffIfBatteryLow();
+
     // Catches the one window the per-poll hook cannot: a config that arrived
     // while we were sealing and publishing the sample. That one is genuinely
     // reported next cycle - this sample was captured under the older settings,
@@ -889,6 +1032,13 @@ extern "C" void app_main(void) {
     // mid-wait swaps the moving interval for the standby one, and the loop
     // re-times against it exactly as it would for a config change.
     while (config::kMqttEnabled) {
+      // A reconnect while waiting is noticed here: it re-subscribes, the broker
+      // replays the retained config, and that wakes the wait below at once - so
+      // the new session is announced within a pass, not an interval later.
+      if (config::kStatusReportsEnabled) {
+        presence.service();
+      }
+
       // A motion window may have run out while we waited. Closing it here, not
       // only after the next acquire, is what makes a trip end on time.
       if (motion.evaluate()) {

@@ -39,6 +39,17 @@ ESP32 ──(WSS, QoS 2)──► Mosquitto ──(WSS, QoS 2)──► MqttInge
                                                             │
   ESP32 ◄──(encrypted ack)── Mosquitto ◄─────────── MqttAckPublisher
         devices/GNSS01/ack             stored[] / rejected[] per envelope id
+
+ESP32 ──(WSS, QoS 2)──► Mosquitto ──(WSS, QoS 2)──► MqttIngestService
+   devices/GNSS01/status    devices/+/status                │
+   online / offline+reason                                  ▼
+   + the Last Will, published                      StatusIngestPipeline
+   by the BROKER on a dead session      device lookup → decode → decrypt
+                                        → validate + classify → write
+                                                            │
+                                                            ▼
+                                        PostgreSQL (device_events,
+                                        devices.last_online_at)
 ```
 
 Key properties:
@@ -79,6 +90,49 @@ Key properties:
 - **Single instance only.** The persistent session is keyed by the MQTT client
   id — two instances would kick each other off the broker.
 
+## Device status — why a tracker went offline
+
+Each device says why it is leaving, and the broker says it for the device when it
+cannot. Everything arrives on `devices/<id>/status`, sealed in the same envelope
+as a fix (so the broker still sees only ciphertext), as a one-element JSON array.
+The decrypted payload is `Dtos/DeviceStatusPayloadDto`:
+
+| Message | When | Stored as (`device_events`) |
+|---|---|---|
+| `{"type":"offline","reason":"sleep","sleep_s":300}` | before every planned deep sleep | `offline` / `sleep` / **normal** |
+| `… "reason":"power_off"` | the power switch was turned off | `offline` / `powerOff` / **normal** |
+| `… "reason":"battery_low"` | the pack fell below the firmware's cut-off | `offline` / `batteryLow` / **alert** |
+| `… "reason":"error","detail":"gnss_init"` | a fault the firmware caught itself | `offline` / `error` / **error** |
+| `… "reason":"connection_lost"` | the **Last Will** — published by the broker ~1.5× the keep-alive after a session dies without a goodbye (crash, power cut, lost link) | `offline` / `connectionLost` / **error** |
+| `{"type":"online","reset_reason":"PANIC"}` | first connection after a boot | `restart` / `crash` / **error** (also `INT_WDT`, `TASK_WDT`, `WDT`, `SW`) |
+| `… "reset_reason":"BROWNOUT"` | | `restart` / `powerLoss` / **alert** |
+| `… "reset_reason":"POWERON"` | | `restart` / `powerOn` / **normal** |
+| `{"type":"online"}` (or `DEEPSLEEP`, `EXT`) | every other connection | no row — only `devices.last_online_at` moves |
+
+Optional fields everywhere: `time_utc` (only while the device trusts its clock),
+`battery_pct` (0 = charging), `sleep_s`, `detail`. A bad optional field is dropped
+to null; an unknown `type` or `reason`, or a payload whose `device` does not match
+the topic, rejects the message.
+
+- **Severity is decided here, never on the device** —
+  [`Services/Ingest/DeviceEventClassifier.cs`](Services/Ingest/DeviceEventClassifier.cs)
+  is the only mapping, pinned by `DeviceEventClassifierTests`. Re-judging a reason
+  is an API deploy, not a reflash of every tracker.
+- **The event time is the server's receive time.** The Last Will is sealed when the
+  device connects and published whenever the broker gives up on it, so it carries no
+  clock; `device_time` is kept beside it when the device sent a plausible one.
+- **No dedupe, no ack.** A status message has no natural identity — the Last Will is
+  legitimately the same bytes after every reconnect within one boot — and nothing on
+  the device waits for a verdict. A QoS-2 redelivery after a crash between commit
+  and PUBREC can repeat one row; that is accepted.
+- **"Online" is two signals.** `devices.last_online_at` (set by online messages, even
+  when no fix follows) and `devices.last_seen_at` (set by positions). The dashboard
+  treats a device as back when either is newer than its last offline event, so a lost
+  online message cannot leave it looking offline.
+- **The broker ACL must let each device WRITE its status topic** — see
+  [One-time server setup](#mosquitto--ingest-account--acl--persistence). Mosquitto
+  checks the will topic against it too, so deploy the ACL before firmware that sets one.
+
 ## Configuration
 
 [`appsettings.json`](appsettings.json) is committed and **secret-free**, and
@@ -103,6 +157,13 @@ Delivery acks are configured under the same `Mqtt` section, all non-secret:
 | `Mqtt:AckQos` | `1` | At-least-once is right: verdicts are keyed by envelope id, so a duplicate ack is idempotent. |
 | `Mqtt:AckPublishTimeoutSeconds` | `5` | Bounds the publish. The ack is sent from inside the message handler MQTTnet awaits, so an unbounded wait for a PUBACK could stall ingest behind its own reply. |
 
+The two subscriptions are configured beside them:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Mqtt:TopicFilter` | `devices/+` | Position batches. One id segment, so no `devices/x/…` topic ever matches it. |
+| `Mqtt:StatusTopicFilter` | `devices/+/status` | Status messages and Last Wills (see [Device status](#device-status--why-a-tracker-went-offline)). A second filter rather than `devices/#`, which would also deliver this API's own `/ack`, `/config` and `/schedule` publishes back to it. |
+
 `Jwt:SigningKey` has no default and no fallback: anyone holding it can mint a
 session for any account, so a deployment without a real one refuses to start.
 Rotating it invalidates every active session, which is the intended effect.
@@ -115,7 +176,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-09-13` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-10-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -404,7 +465,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
-| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions` and `accessCounts` |
+| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
 | `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
@@ -423,7 +484,8 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
-| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions; needs `CanDelete`. Returns `{ deletedCount }` |
+| `GET /api/devices/{deviceId}/events?from=&to=&minSeverity=&limit=` | the device's connection history (offline reasons, notable restarts), newest first. `minSeverity` = `normal`/`alert`/`error` keeps that and worse (anything else → 400); `limit` default 200, max 1000; `from`/`to` bound the receive time |
+| `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions **and its connection events** over the same range; needs `CanDelete`. Returns `{ deletedCount, deletedEventCount }` |
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
 | `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
@@ -658,7 +720,8 @@ ignores `PositionQueryService.MaxPositionsPerQuery`: that 1000-row cap protects
 the dashboard, and a truncated export is not portability. It must never emit a
 password hash or a device private key — the two entities that carry secrets,
 `User` and `Device`, are projected into `*ExportRow` records that have no field
-to leak, and `DataExportShapeTests` pins that down.
+to leak, and `DataExportShapeTests` pins that down. Each device also carries its
+complete `statusEvents[]` (connection history), streamed the same way.
 
 **`DELETE /api/me` really deletes.** It is the one place in this codebase that
 breaks the "records are never physically removed" rule the rest of it follows,
@@ -667,8 +730,13 @@ movements is not erasure by any reading of Art. 17. What survives is deliberatel
 impersonal: a grant this account handed to somebody else stays (that other user
 still has access) with `granted_by` nulled, and configuration revisions stay with
 `created_by_user_id` nulled. A device nobody else could see is deleted outright,
-positions and all, and its retained `config`/`schedule` messages are cleared off
-the broker — a retained message outlives the row it came from.
+positions and connection events and all, and its retained `config`/`schedule`
+messages are cleared off the broker — a retained message outlives the row it came
+from.
+
+`device_events` follows the positions everywhere: never pruned automatically, erased
+by the same two paths, and over the same range by `DELETE …/positions` — it records
+when the vehicle was in use just as surely as the trail does.
 
 Positions are **never** deleted automatically. There is no retention job and no
 TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
@@ -712,6 +780,8 @@ of `constexpr` lines for
     "deactivatedAt": null,
     "lastSeenAt": null,
     "lastBatteryPct": null,
+    "lastOnlineAt": null,
+    "lastOfflineEvent": null,
     "accessCounts": { "people": 1, "activeLinks": 0 },
     "permissions": { "canRead": true, "canDelete": true, "canShare": true, "canModifySettings": true }
   },
@@ -1330,6 +1400,12 @@ mosquitto_passwd -b /mosquitto/config/passwords carpos-api '<password>'
 #   user GNSS01
 #   topic read devices/GNSS01/config
 #   topic read devices/GNSS01/schedule
+#
+# Each device WRITES its own status topic - its online/offline messages and its
+# Last Will, which Mosquitto checks against this same rule. The ingest account
+# already reads it through devices/#:
+#   user GNSS01
+#   topic write devices/GNSS01/status
 ```
 
 **Verify actual delivery, not just the SUBACK** — this broker once granted a
@@ -1340,6 +1416,11 @@ mosquitto_sub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u carpos-api -P '<pa
 mosquitto_pub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u GNSS01 -P '<device password>' -t 'devices/GNSS01' -q 2 -m '[]'
 # The subscriber must print the message. (An empty array is consumed and logged
 # as invalid by the API — harmless as a probe.)
+
+# The status topic the same way - including as the device's account, which is the
+# grant its Last Will depends on:
+mosquitto_sub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u carpos-api -P '<password>' -t 'devices/+/status' -q 2 -v &
+mosquitto_pub -h jimajer.cz -p 443 --capath /etc/ssl/certs -u GNSS01 -P '<device password>' -t 'devices/GNSS01/status' -q 2 -m '[]'
 ```
 
 ### PostgreSQL — TLS for remote connections
@@ -1371,7 +1452,8 @@ connection string).
 ## Verification checklist (end to end)
 
 1. Startup without secrets fails fast with a clear message; with secrets it
-   logs "Connected to MQTT broker … Subscribed to devices/+ at QoS 2".
+   logs "Connected to MQTT broker … Subscribed to devices/+ and devices/+/status
+   at QoS 2".
 2. `\d positions` (psql) shows the CHECKs, the unique index and the generated
    `location` column + GIST index; the `BE` role can DML but not DDL.
 3. Publish a captured device envelope to `devices/GNSS01` → one row appears
@@ -1396,6 +1478,11 @@ connection string).
 9. Repeat with the dashboard's fields filled in and a generated ack key — that is
    the file an operator actually flashes, and it exercises the browser-side
    substitution as well as this renderer.
+10. With status-capable firmware: a sleeping device adds an `offline`/`sleep` row
+    to `device_events` per cycle and moves `devices.last_online_at` on every wake;
+    pulling its power mid-session adds `offline`/`connectionLost` about 1.5× its
+    keep-alive later (the Last Will); `GET /api/devices/GNSS01/events?minSeverity=alert`
+    returns only the latter.
 
 ## Roadmap (later phases)
 

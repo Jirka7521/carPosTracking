@@ -13,6 +13,7 @@ namespace CarPosAPI.Services.Privacy;
 /// <param name="IsActive">False once soft-deleted.</param>
 /// <param name="CreatedAt">When the device was registered (UTC).</param>
 /// <param name="LastSeenAt">When it last reported (UTC), if ever.</param>
+/// <param name="LastOnlineAt">When it last announced a broker connection (UTC), if ever.</param>
 /// <param name="TrackingDeclarationAcceptedAt">
 /// When whoever registered this device confirmed they were entitled to track the
 /// vehicle and would tell its drivers (UTC); null for devices predating the
@@ -25,4 +26,5 @@ public sealed record DeviceExportRow(
     bool IsActive,
     DateTime CreatedAt,
     DateTime? LastSeenAt,
+    DateTime? LastOnlineAt,
     DateTime? TrackingDeclarationAcceptedAt);

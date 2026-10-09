@@ -92,6 +92,9 @@ public sealed class ConfigSnippetBuilderTests
         ("kTelemetryTopic", "\"devices/GNSS01\""),
         ("kConfigTopic", "\"devices/GNSS01/config\""),
         ("kAckTopic", "\"devices/GNSS01/ack\""),
+        // The Last Will names this topic, so a miss here is worse than misrouted
+        // status messages: Mosquitto may refuse the CONNECT outright.
+        ("kStatusTopic", "\"devices/GNSS01/status\""),
         ("kMqttBrokerUri", $"\"{BrokerUri}\""),
         ("kMqttUsername", "\"GNSS01\""),
         ("kMqttClientId", "\"GNSS01\""),
@@ -181,6 +184,7 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Equal("devices/GNSS01", builder.TelemetryTopicFor(DeviceId));
         Assert.Equal("devices/GNSS01/config", builder.ConfigTopicFor(DeviceId));
         Assert.Equal("devices/GNSS01/ack", builder.AckTopicFor(DeviceId));
+        Assert.Equal("devices/GNSS01/status", builder.StatusTopicFor(DeviceId));
     }
 
     [Fact]
@@ -193,6 +197,7 @@ public sealed class ConfigSnippetBuilderTests
         Assert.Contains("constexpr char kTelemetryTopic[] = \"devices/GNSS01\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kConfigTopic[] = \"devices/GNSS01/config\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kAckTopic[] = \"devices/GNSS01/ack\";", snippet, StringComparison.Ordinal);
+        Assert.Contains("constexpr char kStatusTopic[] = \"devices/GNSS01/status\";", snippet, StringComparison.Ordinal);
         Assert.Contains($"constexpr char kMqttBrokerUri[] = \"{BrokerUri}\";", snippet, StringComparison.Ordinal);
         Assert.Contains("constexpr char kReceiverPublicKeyPem[] =", snippet, StringComparison.Ordinal);
         Assert.Contains("rendered 2026-07-22T10:15:00Z", snippet, StringComparison.Ordinal);

@@ -55,6 +55,13 @@ ESP32                     Mosquitto                 CarPosAPI              Postg
 If the device cannot reach the broker it queues sealed fixes on its SD card and sends
 them when it can, so a drive through a dead zone is not a hole in the history.
 
+Beside the fixes, the tracker says **why it goes offline** — a planned sleep, the power
+switch, a low battery (it shuts itself down before the pack runs flat), or an error — on
+`devices/<id>/status`, sealed the same way. When it drops without a word, an MQTT **Last
+Will** makes the broker report "connection lost" for it, and after a crash or a brown-out
+it reports the reset reason once it is back. The dashboard shows the result as a status
+badge on each device and an **Events** tab with the history.
+
 ## Getting started
 
 Each subsystem has its own README with the real detail:

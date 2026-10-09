@@ -18,7 +18,7 @@ namespace CarPosAPI.Services.Privacy;
 /// private key to whoever asked. The three entities that carry secrets, <c>User</c>,
 /// <c>Device</c> and <c>ShareLink</c>, are therefore never written directly: each goes
 /// through a dedicated export record that has no field to leak. The rest (positions,
-/// configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
+/// connection events, configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
 /// records down against the serialised bytes. Keep both when this shape changes.
 ///
 /// Scoped: it holds the request's <see cref="CarPosDbContext"/>.
@@ -103,7 +103,8 @@ internal sealed class DataExportService : IDataExportService
         writer.WriteString(
             "notice",
             "Everything carPosTracking holds about this account, exported under GDPR Art. 15 and 20. "
-            + "The position history is complete and uncapped. Secrets - the password hash and device "
+            + "The position history and each device's connection history (when it went offline and "
+            + "why) are complete and uncapped. Secrets - the password hash and device "
             + "private keys - are deliberately excluded: they are not personal data to port, and "
             + "copying them out of the system would only weaken it.");
         writer.WriteEndObject();
@@ -475,6 +476,7 @@ internal sealed class DataExportService : IDataExportService
                     device.IsActive,
                     device.CreatedAt,
                     device.LastSeenAt,
+                    device.LastOnlineAt,
                     device.TrackingDeclarationAcceptedAt))
             .OrderBy(device => device.DeviceId)
             .ToListAsync(cancellationToken);
@@ -491,12 +493,14 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteBoolean("isActive", device.IsActive);
             writer.WriteString("registeredAtUtc", device.CreatedAt);
             WriteNullableDateTime(writer, "lastSeenAtUtc", device.LastSeenAt);
+            WriteNullableDateTime(writer, "lastOnlineAtUtc", device.LastOnlineAt);
             WriteNullableDateTime(
                 writer,
                 "trackingDeclarationAcceptedAtUtc",
                 device.TrackingDeclarationAcceptedAt);
 
             total += await WritePositionsAsync(writer, device.RowId, cancellationToken);
+            await WriteStatusEventsAsync(writer, device.RowId, cancellationToken);
 
             writer.WriteEndObject();
         }
@@ -555,6 +559,55 @@ internal sealed class DataExportService : IDataExportService
         writer.WriteEndArray();
 
         return written;
+    }
+
+    /// <summary>
+    /// Streams one device's whole connection history — every time it went offline and
+    /// why, and every notable restart — into the open object. Streamed and flushed like
+    /// the positions, and for the same reason: a device that sleeps between reports logs
+    /// one of these per report, so the history can be as long as the trail.
+    /// </summary>
+    /// <param name="writer">The open JSON writer, positioned inside a device object.</param>
+    /// <param name="deviceRowId">Internal device id to filter on.</param>
+    /// <param name="cancellationToken">Cancels the query and the write.</param>
+    /// <returns>Completes when the array is written.</returns>
+    private async Task WriteStatusEventsAsync(
+        Utf8JsonWriter writer,
+        Guid deviceRowId,
+        CancellationToken cancellationToken)
+    {
+        long written = 0;
+
+        writer.WriteStartArray("statusEvents");
+
+        IAsyncEnumerable<DeviceEvent> stream = _context.DeviceEvents
+            .AsNoTracking()
+            .Where(deviceEvent => deviceEvent.DeviceId == deviceRowId)
+            .OrderBy(deviceEvent => deviceEvent.ReceivedAt)
+            .ThenBy(deviceEvent => deviceEvent.Id)
+            .AsAsyncEnumerable();
+
+        await foreach (DeviceEvent deviceEvent in stream.WithCancellation(cancellationToken))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("receivedAtUtc", deviceEvent.ReceivedAt);
+            WriteNullableDateTime(writer, "deviceTimeUtc", deviceEvent.DeviceTime);
+            writer.WriteString("kind", deviceEvent.Kind);
+            writer.WriteString("reason", deviceEvent.Reason);
+            writer.WriteString("severity", deviceEvent.Severity);
+            WriteNullableInt(writer, "batteryPct", deviceEvent.BatteryPct);
+            WriteNullableInt(writer, "sleepSeconds", deviceEvent.SleepSeconds);
+            writer.WriteString("detail", deviceEvent.Detail);
+            writer.WriteEndObject();
+
+            written++;
+            if (written % FlushEveryRows == 0)
+            {
+                await writer.FlushAsync(cancellationToken);
+            }
+        }
+
+        writer.WriteEndArray();
     }
 
     /// <summary>Writes a nullable timestamp, as a value or an explicit null.</summary>

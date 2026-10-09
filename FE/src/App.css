@@ -595,6 +595,89 @@
 }
 
 /*
+ * Connection-state pill (see components/DeviceLinkBadge.tsx): online, or offline
+ * and why. Same shape as the battery pill. The colour follows the severity the
+ * API gave the reason — neutral for a planned sleep or switch-off, amber for an
+ * alert (low battery, a sleep that is overdue), red for an error (crash, lost
+ * connection) — and every variant also carries a word, never colour alone.
+ */
+.link-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.725rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+
+.link-badge--online {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: var(--success-border);
+}
+
+.link-badge--normal {
+  background: var(--gray-100);
+  color: var(--gray-600);
+  border-color: var(--gray-300);
+}
+
+.link-badge--alert {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: var(--warning-border);
+}
+
+.link-badge--error {
+  background: var(--danger-bg);
+  color: var(--danger-dark);
+  border-color: var(--danger-border);
+}
+
+.link-badge--lg {
+  font-size: 0.85rem;
+  padding: 5px 14px;
+}
+
+/*
+ * Severity chip in the Events tab's table — the same three colours as the
+ * link badge, so "error" looks the same in the header and in the history.
+ */
+.event-severity {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border: 1px solid;
+}
+
+.event-severity--normal {
+  background: var(--gray-100);
+  color: var(--gray-600);
+  border-color: var(--gray-300);
+}
+
+.event-severity--alert {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: var(--warning-border);
+}
+
+.event-severity--error {
+  background: var(--danger-bg);
+  color: var(--danger-dark);
+  border-color: var(--danger-border);
+}
+
+/*
  * Access-count pill (see components/AccessCountBadge.tsx) — how many accounts
  * and live share links can currently see the device.
  *

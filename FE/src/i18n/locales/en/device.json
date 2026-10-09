@@ -36,12 +36,56 @@
     "confirmWord": "ERASE",
     "done_one": "{{count}} position erased.",
     "done_other": "{{count}} positions erased.",
+    "eventsDone_one": "{{count}} connection event erased.",
+    "eventsDone_other": "{{count}} connection events erased.",
     "failed": "The position history could not be erased.",
-    "hint": "Permanently deletes every stored position for this device. The device itself, its settings and its sharing stay exactly as they are. Position history is never deleted automatically, so this is the only thing that ever ends it.",
+    "hint": "Permanently deletes every stored position and connection event for this device. The device itself, its settings and its sharing stay exactly as they are. Position history is never deleted automatically, so this is the only thing that ever ends it.",
     "submit": "Erase position history",
     "submitting": "Erasing…",
     "title": "Erase position history",
     "warning": "This cannot be undone."
+  },
+  "events": {
+    "column": {
+      "details": "Details",
+      "event": "Event",
+      "severity": "Severity",
+      "time": "Time"
+    },
+    "detail": {
+      "battery": "battery {{value}}%",
+      "charging": "charging",
+      "code": "code {{code}}",
+      "sleepFor": "asleep for {{duration}}",
+      "sleepUntil": "asleep for {{duration}}, back about {{time}}"
+    },
+    "emptyBody": "The device reported no connection events in the selected time range.",
+    "emptyProblemsBody": "No alerts or errors in the selected time range.",
+    "emptyTitle": "No events",
+    "filter": {
+      "all": "All events",
+      "label": "Show",
+      "problems": "Alerts and errors"
+    },
+    "loadedCount_one": "{{value}} event.",
+    "loadedCount_other": "{{value}} events.",
+    "loading": "Loading events…",
+    "reason": {
+      "batteryLow": "Battery low — shut down to protect the pack",
+      "connectionLost": "Connection lost without a goodbye",
+      "crash": "Restarted after a crash",
+      "error": "Stopped on an error",
+      "powerLoss": "Restarted after a power loss",
+      "powerOff": "Switched off",
+      "powerOn": "Powered on",
+      "sleep": "Went to sleep"
+    },
+    "severity": {
+      "alert": "Alert",
+      "error": "Error",
+      "normal": "Normal"
+    },
+    "truncated": "Showing the newest {{value}} events — the range holds more. Narrow it to see earlier ones."
   },
   "loading": "Loading device…",
   "map": {
@@ -126,6 +170,7 @@
   },
   "tabs": {
     "charts": "Charts",
+    "events": "Events",
     "label": "Device sections",
     "map": "Map",
     "positions": "Positions",

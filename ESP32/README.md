@@ -80,6 +80,15 @@ reuse.
 - 😴 **Deep sleep between reports**: when told to, the firmware powers the modem
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
+- 📣 **Status messages & Last Will**: before every sleep or shutdown the device
+  says *why* — going to sleep (and for how long), switched off, battery low, or an
+  error — and an MQTT **Last Will** makes the broker say "connection lost" for it
+  when it drops without a goodbye. After a reboot it reports the reset reason, so a
+  crash or a brown-out reaches the dashboard. Sealed like every fix. See
+  [Status messages & Last Will](#status-messages--last-will).
+- 🪫 **Low-battery cut-off**: below a threshold the device reports "battery low",
+  shuts everything down and sleeps, waking only to re-check the pack, and starts
+  again once it is charged. See [Low-battery cut-off](#low-battery-cut-off).
 - 🚗 **Motion wake**: the ADXL345's activity interrupt wakes the sleeping ESP32
   when the car starts to move, and the device then reports on a **second, faster
   set of the seven reporting settings** until the car has stood still for a
@@ -150,7 +159,10 @@ src/
 │   ├── MqttClient.h/.cpp        ← Broker transport (esp-mqtt over wss/TLS)
 │   ├── TelemetrySample.h        ← Aggregate: position + battery + accel
 │   ├── TelemetryPublisher.h/.cpp← Sample → JSON → encrypt (seal/publish)
-│   └── AckWatcher.h/.cpp       ← Did the API actually store it? (per-envelope)
+│   ├── AckWatcher.h/.cpp       ← Did the API actually store it? (per-envelope)
+│   ├── OfflineReason.h          ← Why the device is leaving: sleep / off / battery / error
+│   ├── StatusPublisher.h/.cpp   ← Seal + publish online/offline status, seal the Last Will
+│   └── PresenceReporter.h/.cpp  ← When to say "online" (per connection) and "goodbye"
 │
 ├── sdcard/
 │   ├── SdCard.h/.cpp        ← Mount/format the card + line-oriented file IO
@@ -189,6 +201,7 @@ src/
     ├── BatteryReporter.h/.cpp     ← Picks the ONE percent that goes on the wire
     ├── ChargerWatcher.h/.cpp      ← Spots the charger-off edge (RTC-backed)
     ├── BootJournal.h/.cpp         ← Why this device restarted: one line per boot
+    ├── LowBatteryGuard.h/.cpp     ← Stop before the pack runs flat; resume when charged
     ├── PowerSwitch.h/.cpp         ← The run/sleep switch, debounced
     └── DeepSleepController.h/.cpp ← Ordered shutdown + wake sources + deep sleep
 ```
@@ -251,6 +264,9 @@ test:
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
 | `AckWatcher` | Collect the API's per-envelope verdicts; answer "was this fix actually stored?". |
+| `StatusPublisher` | Format an online / offline status message, seal it like a fix and publish it; seal the Last Will. |
+| `PresenceReporter` | Decide *when*: "online" once per new connection (with the reset reason on the first), "offline because …" before every sleep. |
+| `LowBatteryGuard` | Decide when the pack is too low to run and when it has recovered; remember the verdict across the sleep it causes. |
 | `SdCard` | Mount/format the microSD (FAT) and read/append/trim/filter files — every helper streams, one line at a time. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
@@ -262,7 +278,7 @@ test:
 | `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
 | `SettingsStore` | Cache the settings on the card; fall back to defaults when unreadable. |
 | `RemoteSettings` | Subscribe to the config topic; validate, apply and persist what arrives. |
-| `DeepSleepController` | Quiesce MQTT/WiFi/modem/card in order, arm the wake sources (timer, power switch, accelerometer), sleep. |
+| `DeepSleepController` | Say why (status message), quiesce MQTT/WiFi/modem/card in order, arm the wake sources (timer, power switch, accelerometer), sleep. |
 
 ---
 
@@ -408,6 +424,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kSatelliteScanMs` | `3000` | How long to listen to NMEA when counting sats |
 | `kFixAcquireTimeoutSeconds` | `180` | **Default** for `fix_timeout_s` — give up waiting for a fix after this long |
 | `kFixPollStepMs` | `2000` | Gap between `AT+CGNSINF` polls while acquiring |
+| `kGnssInitRetrySleepMinutes` | `10` | When the modem/GNSS cannot be brought up: report an `error` status (`gnss_init`), sleep this long, retry the boot |
 | **`kFixAverageEnabled`** | `true` | **Publish the average of several readings instead of one raw fix** (see below) |
 | `kFixAverageSampleCount` | `3` | Readings averaged after the discarded first one — also the exact number of reads attempted |
 | `kFixAverageStepMs` | `1000` | Gap between those readings; do not go below the receiver’s 1 Hz solve rate |
@@ -439,6 +456,9 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kBatteryNoReadingMv` | `2000` | Below this the pack is reported as absent, not as a flat cell |
 | **`kBatteryReportFromMethods`** | `true` | **Publish the measured percent as `battery_pct`.** `false` goes back to `BatteryMonitor`'s own `AT+CBC` figure |
 | `kUnplugFixTimeoutSeconds` | `60` | Extra acquire budget when the charger comes off and the cycle found no position. `0` disables it |
+| **`kLowBatteryCutoffEnabled`** | `true` | **Shut down below the cut-off** (see [Low-battery cut-off](#low-battery-cut-off)); `false` runs until the pack browns out |
+| `kLowBatteryCutoffMv` / `kLowBatteryResumeMv` | `3450` / `3650` | Stop below the first, start again at/above the second (hysteresis). Starting values — calibrate on your pack |
+| `kLowBatteryRecheckMinutes` | `30` | How often a cut-off device wakes, radio off, to re-measure the pack |
 | **`kWifiEnabled`** | `true` | **Enable/disable WiFi entirely** |
 | `kWifiSsid` / `kWifiPassword` | — | **Your WiFi credentials (secret)** |
 | `kWifiConnectTimeoutMs` | `15000` | Max wait for an IP before giving up |
@@ -452,6 +472,10 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kDeviceId` | `GNSSXX` | Device id placed inside each payload |
 | `kTelemetryTopic` | `devices/GNSSXX` | Topic each fix is published to |
 | `kMqttPublishAckTimeoutMs` | `8000` | How long to wait for the broker's QoS-2 delivery ack |
+| `kMqttKeepaliveSeconds` | `60` | MQTT keep-alive; the broker fires the Last Will ~1.5× this after a silent drop. Must not exceed the broker's `max_keepalive` (120) |
+| **`kStatusReportsEnabled`** | `true` | **Send online/offline status messages and arm the Last Will** (see [Status messages & Last Will](#status-messages--last-will)) |
+| `kStatusTopic` | `devices/GNSSXX/status` | Topic for status messages **and** the Last Will — the broker ACL must grant the device **write** on it |
+| `kStatusPublishTimeoutMs` | `3000` | How long one status publish may wait for the broker's QoS-2 ack |
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
@@ -912,6 +936,71 @@ due, which is the common cycle.
 
 Set `kAckEnabled = false` to restore the old behaviour exactly: the broker ack
 becomes the only confirmation, and nothing is written to `retry.jsonl`.
+
+---
+
+## Status messages & Last Will
+
+A tracker that goes quiet used to leave nothing but a gap: a routine sleep, a
+flat battery and a crash all looked the same from the dashboard. Now the device
+says **why** it is leaving, and the broker says it for the device when it cannot.
+Everything goes to `kStatusTopic` (`devices/GNSS01/status`):
+
+| Message | When | Sent by |
+|---|---|---|
+| `online` | once per new MQTT connection — the first one of a boot also carries `reset_reason` (`POWERON`, `BROWNOUT`, `PANIC`, `TASK_WDT`, `DEEPSLEEP` …, from [`BootJournal`](#boot-log)) | [`PresenceReporter`](src/mqtt/PresenceReporter.h) |
+| `offline` + `sleep` (+ `sleep_s`) | before every timed deep sleep | [`DeepSleepController`](src/power/DeepSleepController.h) |
+| `offline` + `power_off` | the [power switch](#power-switch) was turned off | `DeepSleepController` |
+| `offline` + `battery_low` | the [low-battery cut-off](#low-battery-cut-off) fired | `DeepSleepController` |
+| `offline` + `error` (+ `detail`) | a fault the firmware caught — today `gnss_init`, when the modem/GNSS cannot be started | `DeepSleepController` |
+| `offline` + `connection_lost` | the **Last Will**: published **by the broker**, about 1.5 × `kMqttKeepaliveSeconds` after the session dies without a goodbye (crash, power cut, lost link) | Mosquitto |
+
+Each one is built by [`StatusPublisher`](src/mqtt/StatusPublisher.h), **sealed
+exactly like a fix** and sent as a one-element JSON array, so the broker still
+sees only ciphertext and the API reuses its envelope decoder. The plaintext:
+
+```json
+{"device":"GNSS01","type":"offline","reason":"sleep",
+ "time_utc":"2026-10-09T12:00:00Z","battery_pct":57,"sleep_s":300}
+```
+
+`time_utc` is only sent while the [device clock](#the-clock-and-why-it-expires) is
+trusted, and the Last Will carries no time or battery at all — it is sealed once
+at connect and published whenever the broker gives up. The API therefore uses its
+own receive time for every event, decides how serious each reason is, and stores
+the history the dashboard shows.
+
+**Why it is reliable where it matters.** The goodbye is published with QoS 2 and
+confirmed (`publishConfirmed`) *before* `MqttClient::stop()` sends a clean
+DISCONNECT — and under MQTT 3.1.1 a clean DISCONNECT is exactly what makes the
+broker discard the Last Will. So a planned sleep is never misreported as a lost
+connection, and an unplanned drop always is. A device that cannot reach the broker
+when it goes to sleep simply sends nothing: there is no SD queue for status
+messages, because a stale "went to sleep" is worth nothing later.
+
+**Why from the main task.** `publishConfirmed` waits for an ack the esp-mqtt event
+task delivers, `PayloadCrypto`'s random generator is shared with the fix sealing,
+and `MqttClient` has a single "last acked" slot — so the "online" announcement is
+not sent from the CONNECTED event. Instead `MqttClient` counts connections, and
+`PresenceReporter::service()` is called where the main loop already passes (after
+the config fetch, at the top of each cycle, in every fix poll, and in each pass of
+the interval wait), announcing any connection it has not announced yet.
+
+### ⚠️ The broker ACL must grant the write — before you flash
+
+Mosquitto checks the will topic against the client's **write** ACL, exactly like a
+publish. Without the rule the Last Will is never delivered (and the CONNECT may be
+refused). Add it to
+[`Container/MQTTBroker/mosquitto/acl`](../Container/MQTTBroker/mosquitto/acl) and
+redeploy the broker **first**:
+
+```
+user GNSS01
+topic write devices/GNSS01/status
+```
+
+Set `kStatusReportsEnabled = false` to send none of this and arm no will — the
+device then behaves exactly as before.
 
 ---
 
@@ -1389,6 +1478,11 @@ When the broker sets `"sleep_between": true`,
 [`DeepSleepController`](src/power/DeepSleepController.h) takes over the end of
 every cycle. The order matters, and it owns it:
 
+0. **Status** — say why: an `offline` + `sleep` message carrying how long the
+   sleep will be, confirmed by the broker (see
+   [Status messages & Last Will](#status-messages--last-will)). It has to come
+   first, while the link is up, and before step 1, whose clean DISCONNECT is what
+   makes the broker discard the Last Will.
 1. **MQTT** — `stop()`, so the broker sees a clean DISCONNECT rather than waiting
    out the keep-alive on a session that is already gone.
 2. **WiFi** — stop the driver. ESP-IDF wants the radio *stopped* before deep
@@ -1809,6 +1903,11 @@ unexplained restart shows immediately what has been happening:
 
 `>` marks the boot now starting; the lines above it are read back off the card.
 
+The same `reset=` value is also sent to the dashboard, inside the first `online`
+status message of each boot (see
+[Status messages & Last Will](#status-messages--last-will)) — that is how a crash
+or a brown-out shows up there without anyone reading the card.
+
 | Field | Meaning |
 |-------|---------|
 | `#NNNN` | Boot counter. Restarts at `#0001` whenever RTC memory is cleared. |
@@ -2004,6 +2103,50 @@ Detection is once per reporting cycle, so an unplug is noticed up to one interva
 
 ---
 
+## Low-battery cut-off
+
+Without it the tracker ran until the cell browned out: a silent stop with nothing
+on the dashboard but a gap, and a Li-ion cell taken all the way down to its
+protection board every time. [`LowBatteryGuard`](src/power/LowBatteryGuard.h)
+stops it first:
+
+```
+running ──(pack < kLowBatteryCutoffMv)──► "battery low" status ──► LATCHED, deep sleep
+   ▲                                                                       │
+   └──(pack ≥ kLowBatteryResumeMv, or charger connected)── boot re-check ◄─┘
+                                                     every kLowBatteryRecheckMinutes
+```
+
+- **Detected on the cycle's own reading.** The cut-off uses the same calibrated,
+  outlier-trimmed median as `battery_pct` (falling back to the modem's `AT+CBC`
+  voltage), so a transmit droop cannot trip it. It is acted on **after** that
+  cycle's report has gone out, so the last position before a shutdown is kept.
+- **Says so, then sleeps on a timer alone** — ext0 cannot be armed (the switch sits
+  at its wake level) and there is no motion wake: a flat pack is not fixed by the
+  car moving.
+- **Re-checks without starting anything.** The boot check runs right after
+  checkpoint 0, before WiFi, the modem or MQTT exist: a spot burst of 16 ADC
+  conversions on a quiet rail. Still low → straight back to sleep, a few tens of
+  milliseconds awake and no radio time. Recovered → the latch clears and the device
+  starts up normally (its "online" message shows it is back).
+- **Two thresholds (hysteresis).** A pack relieved of the modem's load bounces
+  back a little; one threshold would restart, sag and stop in a loop.
+- **Charging always wins.** On USB power the sense pin reads as absent (see
+  [Charger-disconnect report](#charger-disconnect-report)), which clears the latch
+  and never cuts off. So does an ADC that cannot be read at all: the guard fails
+  open — it protects the device, it must never be one more way tracking stops.
+- **RTC-backed latch**, magic-word guarded like `ChargerWatcher`. A real power
+  loss clears it, which costs at most one extra "battery low" report after a cold
+  boot.
+
+The default 3450 / 3650 mV are starting points with a margin above the cell's
+protection cut-off — calibrate them on your pack. A cut-off found at the boot
+spot check still starts the modem once (GNSS is brought up before MQTT), which is
+what the margin is for. Set `kLowBatteryCutoffEnabled = false` to run until the
+pack browns out, as before.
+
+---
+
 ## Averaged position reports
 
 A single GNSS solution carries several metres of noise, and the **first**
@@ -2174,6 +2317,11 @@ needed — which is exactly why the pin has to be one that *has* an internal
 pull-up, and RTC-capable besides, since ext0 is the only thing that can wake the
 chip on a *level*. See [Wiring](#wiring) for why that pair of requirements landed
 on `33` and what had to move to free it.
+
+Switching off while connected sends an `offline` + `power_off` status first (see
+[Status messages & Last Will](#status-messages--last-will)), so the dashboard
+shows "Switched off" rather than "Connection lost". A switch found off at boot
+(checkpoint 0) has no connection to report on, and sends nothing.
 
 ### What "off" actually costs
 

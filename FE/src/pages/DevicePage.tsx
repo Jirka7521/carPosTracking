@@ -4,7 +4,7 @@
 // This component is mounted at /device/:deviceId — where :deviceId is the
 // tracker's MQTT identity, e.g. "GNSS01" — and renders:
 //   1. A breadcrumb "← Devices / <device name>"
-//   2. A four-tab bar: Map · Positions · Charts · Settings
+//   2. A five-tab bar: Map · Positions · Charts · Events · Settings
 //   3. An <Outlet /> where the active tab component is rendered
 //
 // It loads the device from the API on mount and passes the result
@@ -38,6 +38,7 @@ import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { AccessCountBadge } from '../components/AccessCountBadge'
+import { DeviceLinkBadge } from '../components/DeviceLinkBadge'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import { describeError } from '../utils/errors'
@@ -216,6 +217,11 @@ export function DevicePage() {
                 by the refresh control beside it. */}
             <BatteryBadge value={device.lastBatteryPct} large />
 
+            {/* Connected, or offline and why ("Sleeping", "Battery low",
+                "Connection lost" …), refreshed with the rest of the header.
+                The Events tab holds the history behind it. */}
+            <DeviceLinkBadge device={device} large />
+
             <span
               className={`status-badge ${device.isActive ? 'status-badge--active' : 'status-badge--inactive'}`}
             >
@@ -250,6 +256,13 @@ export function DevicePage() {
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
           📈 {t('device:tabs.charts')}
+        </NavLink>
+
+        <NavLink
+          to="events"
+          className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
+        >
+          📡 {t('device:tabs.events')}
         </NavLink>
 
         <NavLink

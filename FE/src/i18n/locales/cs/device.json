@@ -42,12 +42,60 @@
     "done_few": "Smazány {{count}} polohy.",
     "done_many": "Smazáno {{count}} polohy.",
     "done_other": "Smazáno {{count}} poloh.",
+    "eventsDone_one": "Smazána {{count}} událost připojení.",
+    "eventsDone_few": "Smazány {{count}} události připojení.",
+    "eventsDone_many": "Smazáno {{count}} události připojení.",
+    "eventsDone_other": "Smazáno {{count}} událostí připojení.",
     "failed": "Historii poloh se nepodařilo smazat.",
-    "hint": "Trvale smaže všechny uložené polohy tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
+    "hint": "Trvale smaže všechny uložené polohy a události připojení tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
     "submit": "Smazat historii poloh",
     "submitting": "Mažu…",
     "title": "Smazat historii poloh",
     "warning": "Tuto akci nelze vzít zpět."
+  },
+  "events": {
+    "column": {
+      "details": "Podrobnosti",
+      "event": "Událost",
+      "severity": "Závažnost",
+      "time": "Čas"
+    },
+    "detail": {
+      "battery": "baterie {{value}} %",
+      "charging": "nabíjí se",
+      "code": "kód {{code}}",
+      "sleepFor": "spánek {{duration}}",
+      "sleepUntil": "spánek {{duration}}, návrat kolem {{time}}"
+    },
+    "emptyBody": "Zařízení ve zvoleném časovém rozsahu nehlásilo žádné události připojení.",
+    "emptyProblemsBody": "Ve zvoleném časovém rozsahu nejsou žádná upozornění ani chyby.",
+    "emptyTitle": "Žádné události",
+    "filter": {
+      "all": "Všechny události",
+      "label": "Zobrazit",
+      "problems": "Upozornění a chyby"
+    },
+    "loadedCount_one": "{{value}} událost.",
+    "loadedCount_few": "{{value}} události.",
+    "loadedCount_many": "{{value}} události.",
+    "loadedCount_other": "{{value}} událostí.",
+    "loading": "Načítám události…",
+    "reason": {
+      "batteryLow": "Slabá baterie — vypnuto kvůli ochraně článku",
+      "connectionLost": "Spojení ztraceno bez rozloučení",
+      "crash": "Restart po pádu",
+      "error": "Zastaveno kvůli chybě",
+      "powerLoss": "Restart po výpadku napájení",
+      "powerOff": "Vypnuto vypínačem",
+      "powerOn": "Zapnuto",
+      "sleep": "Přešlo do spánku"
+    },
+    "severity": {
+      "alert": "Upozornění",
+      "error": "Chyba",
+      "normal": "Běžné"
+    },
+    "truncated": "Zobrazeno nejnovějších {{value}} událostí — rozsah jich obsahuje víc. Zúžením rozsahu uvidíte starší."
   },
   "loading": "Načítám zařízení…",
   "map": {
@@ -144,6 +192,7 @@
   },
   "tabs": {
     "charts": "Grafy",
+    "events": "Události",
     "label": "Sekce zařízení",
     "map": "Mapa",
     "positions": "Polohy",

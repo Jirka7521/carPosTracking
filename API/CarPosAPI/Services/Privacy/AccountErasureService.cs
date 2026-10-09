@@ -267,7 +267,7 @@ internal sealed class AccountErasureService : IAccountErasureService
                 setters => setters.SetProperty(profile => profile.CreatedByUserId, (int?)null),
                 cancellationToken);
 
-        (int devicesDeleted, long positionsDeleted) =
+        (int devicesDeleted, long positionsDeleted, long deviceEventsDeleted) =
             await DeleteDevicesAsync(deviceRowIds, cancellationToken);
 
         // 4. Last, now that nothing references it.
@@ -283,28 +283,30 @@ internal sealed class AccountErasureService : IAccountErasureService
             positionsDeleted,
             grantsDeleted,
             grantsAnonymised,
-            shareLinksDeleted);
+            shareLinksDeleted,
+            deviceEventsDeleted);
     }
 
     /// <summary>
     /// Deletes the given devices outright, with everything that hangs off them.
     ///
-    /// Positions first, because <c>positions.device_id</c> is a <c>Restrict</c>
-    /// foreign key and the device row cannot go while a single fix still points at
-    /// it. Schedule rules before profiles for the same reason, and both before the
-    /// device — even though the device would cascade to them — so the counts are
-    /// honest and the order does not depend on a cascade rule staying as it is.
+    /// Positions and connection events first, because <c>positions.device_id</c> and
+    /// <c>device_events.device_id</c> are <c>Restrict</c> foreign keys and the device
+    /// row cannot go while a single row still points at it. Schedule rules before
+    /// profiles for the same reason, and both before the device — even though the
+    /// device would cascade to them — so the counts are honest and the order does not
+    /// depend on a cascade rule staying as it is.
     /// </summary>
     /// <param name="deviceRowIds">Internal ids of the devices to delete.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>How many devices and how many position rows went.</returns>
-    private async Task<(int DevicesDeleted, long PositionsDeleted)> DeleteDevicesAsync(
+    /// <returns>How many devices, position rows and event rows went.</returns>
+    private async Task<(int DevicesDeleted, long PositionsDeleted, long DeviceEventsDeleted)> DeleteDevicesAsync(
         List<Guid> deviceRowIds,
         CancellationToken cancellationToken)
     {
         if (deviceRowIds.Count == 0)
         {
-            return (0, 0);
+            return (0, 0, 0);
         }
 
         // Share links on these devices, including any created by somebody else back
@@ -317,6 +319,12 @@ internal sealed class AccountErasureService : IAccountErasureService
 
         long positionsDeleted = await _context.Positions
             .Where(position => deviceRowIds.Contains(position.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // When the vehicle was in use, and why it went quiet — personal in the same way
+        // the trail is, and gone with it.
+        long deviceEventsDeleted = await _context.DeviceEvents
+            .Where(deviceEvent => deviceRowIds.Contains(deviceEvent.DeviceId))
             .ExecuteDeleteAsync(cancellationToken);
 
         await _context.DeviceConfigScheduleRules
@@ -354,6 +362,6 @@ internal sealed class AccountErasureService : IAccountErasureService
             .Where(device => deviceRowIds.Contains(device.Id))
             .ExecuteDeleteAsync(cancellationToken);
 
-        return (devicesDeleted, positionsDeleted);
+        return (devicesDeleted, positionsDeleted, deviceEventsDeleted);
     }
 }

@@ -88,9 +88,9 @@ export function parseApiTimestamp(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-// A short "how long ago" label for the device liveness indicator. The firmware
-// sends no heartbeat, so `lastSeenAt` only advances when a fix actually
-// arrives — this is the only signal that a tracker is alive at all.
+// A short "how long ago" label for the device liveness indicators — the card's
+// "last fix" line, where `lastSeenAt` only advances when a fix actually arrives,
+// and the connection badge's title.
 export function formatRelativeTime(value: string | null): string {
   if (!value) {
     return i18n.t('common:relative.never')

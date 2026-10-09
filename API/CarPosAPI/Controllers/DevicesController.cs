@@ -111,7 +111,8 @@ public sealed class DevicesController : ApiControllerBase
 
     /// <summary>
     /// Erases a device's stored position history, permanently — the per-device form
-    /// of the right to erasure (GDPR Art. 17).
+    /// of the right to erasure (GDPR Art. 17). Its connection history (offline and
+    /// restart events) over the same range goes with it.
     ///
     /// Positions are never deleted automatically (see docs/PRIVACY.md), so this is
     /// the only thing that ever bounds a location history. Unlike deleting a device,
@@ -121,7 +122,7 @@ public sealed class DevicesController : ApiControllerBase
     /// <param name="from">Optional inclusive lower bound on fix time (UTC).</param>
     /// <param name="to">Optional inclusive upper bound on fix time (UTC).</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>200 with the number of rows deleted, 403 without <c>CanDelete</c>, 404 when not visible.</returns>
+    /// <returns>200 with the numbers of rows deleted, 403 without <c>CanDelete</c>, 404 when not visible.</returns>
     [HttpDelete("{deviceId}/positions")]
     [ProducesResponseType(typeof(PositionErasureResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -134,12 +135,10 @@ public sealed class DevicesController : ApiControllerBase
     {
         int userId = RequireUserId(_currentUser);
 
-        OperationResult<long> result =
+        OperationResult<PositionErasureResultDto> result =
             await _positionErasure.EraseAsync(userId, deviceId, from, to, cancellationToken);
 
-        return result.IsSuccess
-            ? Ok(new PositionErasureResultDto(result.Value))
-            : Failure(result);
+        return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }
 
     /// <summary>

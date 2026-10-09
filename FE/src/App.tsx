@@ -9,10 +9,11 @@
 //   /share/:token     — a temporary share link, opened with a code (public)
 //   /share            — the same page after the token is taken out of the URL
 //   /home             — device list (protected)
-//   /device/:deviceId — device shell with four sub-tabs:
+//   /device/:deviceId — device shell with five sub-tabs:
 //     /map            — live map with auto-refresh
 //     /positions      — paginated GPS position list
 //     /charts         — telemetry series plotted over time
+//     /events         — connection history: why it went offline, restarts
 //     /settings       — device info, sharing, delete
 //
 // Auth guard: <RequireAuth> redirects unauthenticated users to
@@ -41,6 +42,7 @@ import { DevicePage } from './pages/DevicePage'
 import { DeviceMapTab } from './pages/DeviceMapTab'
 import { PositionListTab } from './pages/PositionListTab'
 import { DeviceChartsTab } from './pages/DeviceChartsTab'
+import { DeviceEventsTab } from './pages/DeviceEventsTab'
 import { DeviceSettingsTab } from './pages/DeviceSettingsTab'
 
 // Redirects the root path based on authentication state.
@@ -134,7 +136,7 @@ function AppRoutes() {
 
         {/*
          * Device shell: loads the device and renders the tab bar.
-         * Sub-routes are the four tabs. The index sub-route redirects
+         * Sub-routes are the five tabs. The index sub-route redirects
          * /device/:id straight to /device/:id/map so links don't land
          * on a blank page.
          */}
@@ -143,6 +145,7 @@ function AppRoutes() {
           <Route path="map"       element={<DeviceMapTab />} />
           <Route path="positions" element={<PositionListTab />} />
           <Route path="charts"    element={<DeviceChartsTab />} />
+          <Route path="events"    element={<DeviceEventsTab />} />
           <Route path="settings"  element={<DeviceSettingsTab />} />
         </Route>
       </Route>

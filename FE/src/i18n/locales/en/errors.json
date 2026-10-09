@@ -81,6 +81,7 @@
   "loadConfigFailed": "Failed to load the device settings.",
   "loadDeviceFailed": "Failed to load device.",
   "loadDevicesFailed": "Failed to load devices.",
+  "loadEventsFailed": "Failed to load the device's events.",
   "loadHistoryFailed": "Failed to load the settings history.",
   "loadMorePositionsFailed": "Failed to load more positions.",
   "loadPositionsFailed": "Failed to load positions.",

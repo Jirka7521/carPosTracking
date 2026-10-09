@@ -108,6 +108,7 @@
       "locationData": {
         "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie, teplota a identifikátor zařízení.",
         "p2": "Historie polohy popisuje, kde vozidlo, a tedy obvykle i člověk, bylo, kdy a jak se jelo. Podle toho se s ní zachází: souřadnice se nikdy nezapisují do žádného logu.",
+        "p3": "Každý sledovač navíc hlásí stav svého připojení: kdy se připojí, kdy přejde do režimu offline a proč (plánovaný spánek, vypnutí, slabá baterie, chyba) a kdy se restartuje po pádu nebo výpadku napájení. Pokud se odpojí bez ohlášení, nahlásí to za něj zprostředkující broker. Tyto záznamy ukazují, kdy se vozidlo používalo, proto se uchovávají, exportují a mažou stejně jako polohy.",
         "title": "Poloha a telemetrie vozidla"
       },
       "notCollected": {
