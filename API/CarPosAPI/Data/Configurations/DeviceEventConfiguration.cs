@@ -17,7 +17,7 @@ public sealed class DeviceEventConfiguration : IEntityTypeConfiguration<DeviceEv
     /// <summary>Longest kind name ("restart"), with room to spare.</summary>
     private const int KindMaxLength = 16;
 
-    /// <summary>Longest reason name ("connectionLost"), with room to spare.</summary>
+    /// <summary>Longest reason name ("connectionLost", "accelerometer"), with room to spare.</summary>
     private const int ReasonMaxLength = 24;
 
     /// <summary>Longest severity name ("normal"), with room to spare.</summary>
@@ -34,11 +34,13 @@ public sealed class DeviceEventConfiguration : IEntityTypeConfiguration<DeviceEv
         {
             table.HasCheckConstraint(
                 "ck_device_events_kind",
-                "kind IN ('offline', 'restart')");
+                "kind IN ('offline', 'restart', 'wake', 'motion')");
             table.HasCheckConstraint(
                 "ck_device_events_reason",
-                "(kind = 'offline' AND reason IN ('sleep', 'powerOff', 'batteryLow', 'error', 'connectionLost'))"
-                + " OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash'))");
+                "(kind = 'offline' AND reason IN ('sleep', 'sleepNoMotion', 'powerOff', 'batteryLow', 'error', 'connectionLost'))"
+                + " OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash'))"
+                + " OR (kind = 'wake' AND reason IN ('timer', 'accelerometer', 'powerSwitch'))"
+                + " OR (kind = 'motion' AND reason IN ('checking', 'activity', 'motionOn', 'moving', 'noMotion', 'stopped', 'motionOff'))");
             table.HasCheckConstraint(
                 "ck_device_events_severity",
                 "severity IN ('normal', 'alert', 'error')");
@@ -76,6 +78,10 @@ public sealed class DeviceEventConfiguration : IEntityTypeConfiguration<DeviceEv
         builder.Property(deviceEvent => deviceEvent.DeviceTime)
             .HasColumnName("device_time");
 
+        builder.Property(deviceEvent => deviceEvent.OccurredAt)
+            .HasColumnName("occurred_at")
+            .IsRequired();
+
         builder.Property(deviceEvent => deviceEvent.Kind)
             .HasColumnName("kind")
             .HasMaxLength(KindMaxLength)
@@ -102,8 +108,9 @@ public sealed class DeviceEventConfiguration : IEntityTypeConfiguration<DeviceEv
             .HasMaxLength(DetailMaxLength);
 
         // Every read is "this device, newest first, maybe a time range" — the Events
-        // tab, the badge's latest-offline subquery, and both erasure paths.
-        builder.HasIndex(deviceEvent => new { deviceEvent.DeviceId, deviceEvent.ReceivedAt })
-            .HasDatabaseName("ix_device_events_device_id_received_at");
+        // tab, the badge's latest-offline subquery, and both erasure paths — and all of
+        // them by when it happened, not when it arrived.
+        builder.HasIndex(deviceEvent => new { deviceEvent.DeviceId, deviceEvent.OccurredAt })
+            .HasDatabaseName("ix_device_events_device_id_occurred_at");
     }
 }

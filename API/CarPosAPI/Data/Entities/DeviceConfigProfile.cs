@@ -84,10 +84,11 @@ public sealed class DeviceConfigProfile
     public int ConfigCheckSeconds { get; set; }
 
     // The motion block, column for column what DeviceConfigVersion carries (see there
-    // for the full reasoning on each): the seven values above are the STANDBY set and
-    // the Moving* values are a second copy of them for while the vehicle is driving.
+    // for the full reasoning on each): interval, sleep and fix timeout above are the
+    // STANDBY set and the Moving* values are a second copy of those three for while the
+    // vehicle is driving. The other four values above apply in both modes.
 
-    /// <summary>Whether motion wake is on. Off by default; while off the other motion values are inert.</summary>
+    /// <summary>Whether motion wake is on. On by default; while off the other motion values are inert.</summary>
     public bool MotionEnabled { get; set; }
 
     /// <summary>Accelerometer wake threshold, in milli-g (the ADXL345 compares in 62.5 mg steps).</summary>
@@ -110,18 +111,6 @@ public sealed class DeviceConfigProfile
 
     /// <summary>How long the device chases a GNSS lock while moving, in seconds.</summary>
     public int MovingFixTimeoutSeconds { get; set; }
-
-    /// <summary>Undelivered-fix queue cap while moving; the device applies the larger of this and the standby cap.</summary>
-    public int MovingQueueMaxFixes { get; set; }
-
-    /// <summary>Hours between attempts on a fix this API rejected, while moving.</summary>
-    public int MovingRetryIntervalHours { get; set; }
-
-    /// <summary>Hours after which a still-rejected fix is abandoned, while moving; 0 means never, and the device applies the more lenient of this and the standby age.</summary>
-    public int MovingRetryMaxAgeHours { get; set; }
-
-    /// <summary>How often an awake device re-asks the broker for its configuration while moving, in seconds.</summary>
-    public int MovingConfigCheckSeconds { get; set; }
 
     /// <summary>Who created it. Null when the author's account has since been removed.</summary>
     public int? CreatedByUserId { get; set; }

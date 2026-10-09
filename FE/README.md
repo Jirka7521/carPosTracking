@@ -240,7 +240,7 @@ FE/
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
-│   │   ├── DeviceEventsTab.tsx    Events tab — connection history: why it went offline, notable restarts
+│   │   ├── DeviceEventsTab.tsx    Events tab — device history: offline and why, restarts, wakes, motion steps
 │   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config, sharing, delete
 │   ├── services/
 │   │   ├── apiClient.ts           All fetch calls; cookies + CSRF header
@@ -287,7 +287,7 @@ FE/
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
-| `/device/:deviceId/events` | protected | Connection history — every time the tracker went offline and why, and notable restarts; filter to alerts and errors |
+| `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
@@ -448,9 +448,17 @@ on the card and in the device header, and the rules live in one place,
 - **Nothing at all** for firmware that sends no status messages, exactly as the
   battery pill behaves for a device without the sensor.
 
-The **Events** tab lists the history behind it, newest first, sharing the date
-range with the other tabs, plus a filter for alerts and errors only — a
-tracker that sleeps between reports logs a routine event every cycle.
+The tracker also reports every wake from deep sleep (timer, accelerometer, power
+switch), every motion-wake step (checking for movement, moving, parked, stopped)
+and whether a sleep was on the interval or because the car was parked. Events
+said out of WiFi range wait on its SD card and arrive in a burst later; each one
+carries `occurredAt`, so the badge and the list place it when it happened, not
+when it arrived. Both kinds of sleep read "Sleeping" on the badge.
+
+The **Events** tab lists the history behind it, newest first by `occurredAt`,
+sharing the date range with the other tabs, plus a filter for alerts and errors
+only — a tracker that sleeps between reports logs several routine events every
+cycle.
 
 ### The settings form under a refresh
 
@@ -512,12 +520,14 @@ storable.
 
 Choosing **React to motion wake-up** in the form's settings-mode switch
 (`motionEnabled`; the other answer is **Same settings all the time**) lets the tracker's accelerometer wake
-it from deep sleep when the car starts to move, and gives it a second, complete
-copy of the seven reporting settings — the **moving** set (`movingIntervalSeconds`,
-`movingSleepBetween`, …) — to run while driving. The original seven become the
-**standby (parked)** set. All twelve new values are flat fields on
+it from deep sleep when the car starts to move, and gives it a second copy of the
+three settings that differ by mode — the **moving** set (`movingIntervalSeconds`,
+`movingSleepBetween`, `movingFixTimeoutSeconds`) — to run while driving. The
+original three become the **standby (parked)** set; the queue, retry and re-check
+settings have **one value for both modes**. All eight new values are flat fields on
 `DeviceConfigValuesDto`, saved in the same revision as everything else, and the
-schedule's profile editor shows them too: a profile holds the same values.
+schedule's profile editor shows them too: a profile holds the same values. It is
+the default for a new device and a new profile.
 
 - **What the tracker does with them.** After any wake from standby — the
   accelerometer or the standby timer — it looks for a GNSS fix for up to
@@ -529,18 +539,21 @@ schedule's profile editor shows them too: a profile holds the same values.
   firmware rounds to the nearest, `clamp(round(mg / 62.5), 1, 255)`, and the form
   shows where the typed value lands (`motionThresholdStep` in
   [`utils/deviceConfig.ts`](src/utils/deviceConfig.ts)). 63 mg is step 1 — 62.5 mg,
-  the most sensitive setting and the recommended default.
-- **A mode switch never deletes data.** The firmware keeps the larger of the two
-  queue caps, and the more lenient rejected-fix give-up age (0 = never), whichever
-  mode is running. The form says so when the two queue caps differ.
+  the most sensitive setting; the default 188 mg is step 3 (187.5 mg).
+- **A mode switch never deletes data.** The queue cap and the rejected-fix give-up
+  age are shared by both modes (`SHARED_KEYS`), so parking can never be what trims
+  the queue. The queue's span hint gives both figures — parked and moving — because
+  one cap covers two reporting intervals.
 
 On the page, [`ConfigValuesFields`](src/components/ConfigValuesFields.tsx) opens with
 [`ConfigModeSwitch`](src/components/ConfigModeSwitch.tsx) — the two modes as radio
 cards — and composes [`ModeValuesFields`](src/components/ModeValuesFields.tsx) — the
-seven controls, rendered once for the standby keys and once for the moving keys
-(`STANDBY_KEYS` / `MOVING_KEYS`, with the moving ids prefixed `…-moving-`) — after
-[`MotionWakeFields`](src/components/MotionWakeFields.tsx). With motion wake off only
-the standby set shows, without a block around it.
+three per-mode controls, rendered once for the standby keys and once for the moving
+keys (`STANDBY_KEYS` / `MOVING_KEYS`, with the moving ids prefixed `…-moving-`) —
+after [`MotionWakeFields`](src/components/MotionWakeFields.tsx), and then
+[`SharedValuesFields`](src/components/SharedValuesFields.tsx) — the queue, retry and
+re-check groups, once, in a **Both modes** block. With motion wake off only the
+standby set and the shared groups show, without a block around them.
 
 Every group of the form is a [`ConfigCollapsible`](src/components/ConfigCollapsible.tsx):
 a `<details>` that folds to its title and a one-line summary of the values

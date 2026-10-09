@@ -254,17 +254,32 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
   choice is listed here:
   - Moving means a GNSS speed strictly above **3 km/h**, configurable (`speed_kmph`,
     1–50). The analysis used 5 km/h and noted that 3 km/h changes nothing material.
-  - A **timer wake gets the full wake window** (`wake_wait_s`, default 240 s), exactly like
+  - A **timer wake gets the full wake window** (`wake_wait_s`, default 600 s), exactly like
     an accelerometer wake, as the state machine sketch below describes. The cost is
     covered in the README's "What it costs".
   - **Only the first fix of a wake is published**; the rest of the window only watches the
     speed. A fix faster than the speed limit is always published, as the first report of
     the trip.
-  - The fast mode is a **full moving copy of all seven reporting settings**
-    (`motion.moving`), not just an interval. The defaults are a 10 s interval, awake
-    (the top of the 5–10 s range above), and the 600 s stop timeout.
-  - The threshold is set in **mg** and rounded to the nearest 62.5 mg step; the default
-    63 mg is register 1.
+  - The fast mode is a **moving copy of the per-mode reporting settings** — interval,
+    sleep and fix timeout (`motion.moving`) — not just an interval. The queue, retry and
+    config re-check settings are shared by both modes, so a mode switch never trims the
+    queue or abandons a rejected fix.
+  - The threshold is set in **mg** and rounded to the nearest 62.5 mg step.
+  - **Defaults chosen by the owner (2026-10-09), on purpose outside the recommendation
+    above** — motion wake on by default, and:
+
+    | Setting | Recommended above | Default |
+    |---|---|---|
+    | Wake threshold | register 1 (63 mg), never 3 or above | **188 mg = register 3** (asked for as 0.16 g, stored as the step the sensor uses) |
+    | False-wake timeout (`wake_wait_s`) | 240 s (180–300 s) | **600 s** |
+    | Stop timeout (`stop_wait_s`) | 600 s (900 s acceptable) | **900 s** |
+    | Fast-mode interval (`motion.moving.interval_s`) | 5–10 s | **30 s** |
+    | Slow-mode interval (`interval_s`, the timer safety net) | ≤ 15 min | **20 min** |
+
+    By the table above, register 3 catches 52 % of starts in the first minute instead
+    of 61 %, the same 84 % within two minutes, with 2.1 false wakes a day instead of
+    3.1. The longer false-wake timeout makes up for the slower first minute: a wake
+    now waits ten minutes for the car to reach speed.
 - The wake path: ADXL345 INT1 is on **GPIO32** (RTC-capable). ext0 is no longer free for
   it: `kWakeGpioPin` / `kWakeGpioLevel` are derived from the power switch, and ext0 is one
   piece of hardware that cannot serve two signals. The motion wake therefore uses **ext1**

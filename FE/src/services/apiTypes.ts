@@ -119,17 +119,47 @@ export type PositionDto = {
 // restarted. The API stores each as an event and decides how much it matters.
 // ---------------------------------------------------------------------------
 
-// Why a device went offline. 'connectionLost' is the Last Will — published by the
-// broker when a session died without a goodbye (crash, power cut, lost link).
-export type DeviceOfflineReason = 'sleep' | 'powerOff' | 'batteryLow' | 'error' | 'connectionLost'
+// Why a device went offline. 'sleep' is the regular sleep between reports,
+// 'sleepNoMotion' a sleep because the car was found parked (motion wake armed).
+// 'connectionLost' is the Last Will — published by the broker when a session
+// died without a goodbye (crash, power cut, lost link).
+export type DeviceOfflineReason =
+  | 'sleep'
+  | 'sleepNoMotion'
+  | 'powerOff'
+  | 'batteryLow'
+  | 'error'
+  | 'connectionLost'
 
 // Why a device restarted, as it reported once it was back. Ordinary deep-sleep
-// wakes are not recorded at all.
+// wakes are 'wake' events instead.
 export type DeviceRestartReason = 'powerOn' | 'powerLoss' | 'crash'
 
-export type DeviceEventReason = DeviceOfflineReason | DeviceRestartReason
+// What woke a device from deep sleep: its regular timer, the accelerometer
+// (the car moved), or the power switch being turned back on.
+export type DeviceWakeReason = 'timer' | 'accelerometer' | 'powerSwitch'
 
-export type DeviceEventKind = 'offline' | 'restart'
+// One step of the device's motion-wake state machine. 'checking' / 'activity' /
+// 'motionOn' start a check for movement (after a wake, on a jolt while awake,
+// or because motion wake was switched on); 'moving' is a fast fix; 'noMotion'
+// ends a check with the car parked, 'stopped' ends a trip; 'motionOff' is
+// motion wake switched off.
+export type DeviceMotionReason =
+  | 'checking'
+  | 'activity'
+  | 'motionOn'
+  | 'moving'
+  | 'noMotion'
+  | 'stopped'
+  | 'motionOff'
+
+export type DeviceEventReason =
+  | DeviceOfflineReason
+  | DeviceRestartReason
+  | DeviceWakeReason
+  | DeviceMotionReason
+
+export type DeviceEventKind = 'offline' | 'restart' | 'wake' | 'motion'
 
 // Decided by the API alone, lowest first. 'normal' is expected behaviour (a
 // planned sleep), 'alert' needs attention (low battery), 'error' is a fault.
@@ -139,8 +169,9 @@ export type DeviceEventSeverity = 'normal' | 'alert' | 'error'
 export interface DeviceOfflineEventDto {
   reason: DeviceOfflineReason
   severity: DeviceEventSeverity
-  // When it went offline — the server's receive time, which is the event's time.
-  receivedAt: string
+  // When it went offline — the server's receive time for a live goodbye, the
+  // device's clock for one it kept on its SD card while out of range.
+  occurredAt: string
   // How long the device expected to be away, when it said (a planned sleep).
   sleepSeconds: number | null
 }
@@ -151,8 +182,11 @@ export interface DeviceEventDto {
   kind: DeviceEventKind
   reason: DeviceEventReason
   severity: DeviceEventSeverity
-  // When the server received it. The event's time: the Last Will carries no
-  // clock of its own.
+  // When it happened — the event's time, which the list is ordered by. Equal
+  // to receivedAt for a live message; earlier for one that waited on the
+  // device's SD card while it was out of range.
+  occurredAt: string
+  // When the server received it.
   receivedAt: string
   // The device's own clock at the time, when it trusted one.
   deviceTime: string | null
@@ -297,8 +331,9 @@ export type DeviceConfigValuesDto = {
   configCheckSeconds: number
 
   // ---- Motion wake --------------------------------------------------------
-  // The seven values above are the STANDBY set, used while the car is parked.
-  // The twelve below add a second, complete MOVING set and the knobs that
+  // intervalSeconds, sleepBetween and fixTimeoutSeconds above are the STANDBY
+  // set, used while the car is parked; the other four above apply in both
+  // modes. The eight below add a MOVING copy of those three and the knobs that
   // switch between the two. They are flat, like everything else here.
 
   // Wake the sleeping tracker when the accelerometer feels the car move, and
@@ -306,7 +341,7 @@ export type DeviceConfigValuesDto = {
   motionEnabled: boolean
   // Accelerometer wake threshold in milli-g. 63 … 2000. The sensor works in
   // 62.5 mg steps and the firmware rounds to the nearest, so 63 is step 1 —
-  // the most sensitive setting and the recommended default.
+  // the most sensitive setting. The default 188 is step 3 (187.5 mg).
   motionThresholdMg: number
   // A GNSS fix counts as "moving" when its speed is strictly above this, in
   // km/h. 1 … 50.
@@ -318,15 +353,10 @@ export type DeviceConfigValuesDto = {
   // falling back to standby. 60 … 7200 seconds.
   motionStopWaitSeconds: number
   // The moving set. Each mirrors the standby setting of the same name, with the
-  // same bounds; only the defaults differ (it reports every 10 s by default).
+  // same bounds; only the defaults differ (it reports every 30 s by default).
   movingIntervalSeconds: number
   movingSleepBetween: boolean
   movingFixTimeoutSeconds: number
-  movingQueueMaxFixes: number
-  movingRetryIntervalHours: number
-  // 0 means "never give up", as for retryMaxAgeHours.
-  movingRetryMaxAgeHours: number
-  movingConfigCheckSeconds: number
 }
 
 // One revision, as returned by the state and history endpoints.

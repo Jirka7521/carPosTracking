@@ -9,9 +9,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace CarPosAPI.Controllers;
 
 /// <summary>
-/// A device's connection history: when it went offline and why — a planned sleep, the
-/// power switch, a flat battery, a caught fault, or a connection that simply died — and
-/// the restarts worth knowing about.
+/// A device's history: when it went offline and why — a planned sleep, a sleep because
+/// the car was parked, the power switch, a flat battery, a caught fault, or a connection
+/// that simply died — the restarts worth knowing about, every wake from deep sleep and
+/// what caused it, and every step of its motion-wake state machine.
 ///
 /// <para>
 /// Read-only, like <see cref="PositionsController"/> and for the same reason: events
@@ -33,8 +34,8 @@ public sealed class DeviceEventsController : ApiControllerBase
     private const int DefaultLimit = 200;
 
     /// <summary>
-    /// Hard ceiling on one page. A device that sleeps between reports logs an event per
-    /// report, so a long range can hold many thousands; the caller narrows the range
+    /// Hard ceiling on one page. A device that sleeps between reports logs several events
+    /// per report, so a long range can hold many thousands; the caller narrows the range
     /// rather than asking for all of it.
     /// </summary>
     private const int MaxLimit = 1000;
@@ -53,8 +54,8 @@ public sealed class DeviceEventsController : ApiControllerBase
 
     /// <summary>Lists one device's events, newest first.</summary>
     /// <param name="deviceId">The device's MQTT identity.</param>
-    /// <param name="from">Inclusive lower bound on receive time (ISO 8601), optional.</param>
-    /// <param name="to">Inclusive upper bound on receive time (ISO 8601), optional.</param>
+    /// <param name="from">Inclusive lower bound on the event's time (ISO 8601), optional.</param>
+    /// <param name="to">Inclusive upper bound on the event's time (ISO 8601), optional.</param>
     /// <param name="minSeverity">
     /// <c>normal</c>, <c>alert</c> or <c>error</c>: only that severity and worse.
     /// Optional — omitted means every event.

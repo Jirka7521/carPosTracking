@@ -214,10 +214,12 @@ internal sealed class ConfigSnippetBuilder
         writer.SetNumber("kRetryMaxAgeHours", Number(settings.RetryMaxAgeHours));
         writer.SetNumber("kDefaultConfigCheckSeconds", Number(settings.ConfigCheckSeconds));
 
-        // The seven above are the STANDBY set; these are the motion-wake switch, its
-        // parameters and the MOVING copy of the seven. Rendered from the live revision
-        // for the same reason: a freshly flashed tracker should already behave as the
-        // dashboard says it does, before the retained document reaches it. The firmware
+        // Interval, sleep and fix timeout above are the STANDBY set; these are the
+        // motion-wake switch, its parameters and the MOVING copy of those three (the
+        // queue, retry and re-check values above serve both modes). Rendered from the
+        // live revision for the same reason: a freshly flashed tracker should already
+        // behave as the dashboard says it does, before the retained document reaches
+        // it. The firmware
         // keeps its own spelling for two of the moving constants
         // (kDefaultMovingSendIntervalSeconds, kDefaultMovingSleepBetweenSends) where this
         // API says MovingIntervalSeconds and MovingSleepBetween, so those names are the
@@ -230,10 +232,6 @@ internal sealed class ConfigSnippetBuilder
         writer.SetNumber("kDefaultMovingSendIntervalSeconds", Number(settings.MovingIntervalSeconds));
         writer.SetBool("kDefaultMovingSleepBetweenSends", settings.MovingSleepBetween);
         writer.SetNumber("kDefaultMovingFixTimeoutSeconds", Number(settings.MovingFixTimeoutSeconds));
-        writer.SetNumber("kDefaultMovingQueueMaxFixes", Number(settings.MovingQueueMaxFixes));
-        writer.SetNumber("kDefaultMovingRetryIntervalHours", Number(settings.MovingRetryIntervalHours));
-        writer.SetNumber("kDefaultMovingRetryMaxAgeHours", Number(settings.MovingRetryMaxAgeHours));
-        writer.SetNumber("kDefaultMovingConfigCheckSeconds", Number(settings.MovingConfigCheckSeconds));
 
         // --- Bounds: rendered from the API's own rules -------------------------
         // This removes the hand-sync the firmware's comment asks for ("if you change

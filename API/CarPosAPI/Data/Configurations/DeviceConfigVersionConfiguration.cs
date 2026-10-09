@@ -68,18 +68,6 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
                     "ck_device_config_versions_moving_fix_timeout_s",
                     $"moving_fix_timeout_s BETWEEN {DeviceConfigRules.MinFixTimeoutSeconds} AND {DeviceConfigRules.MaxFixTimeoutSeconds}");
                 table.HasCheckConstraint(
-                    "ck_device_config_versions_moving_queue_max_fixes",
-                    $"moving_queue_max_fixes BETWEEN {DeviceConfigRules.MinQueueMaxFixes} AND {DeviceConfigRules.MaxQueueMaxFixes}");
-                table.HasCheckConstraint(
-                    "ck_device_config_versions_moving_retry_interval_h",
-                    $"moving_retry_interval_h BETWEEN {DeviceConfigRules.MinRetryIntervalHours} AND {DeviceConfigRules.MaxRetryIntervalHours}");
-                table.HasCheckConstraint(
-                    "ck_device_config_versions_moving_retry_max_age_h",
-                    $"moving_retry_max_age_h BETWEEN {DeviceConfigRules.MinRetryMaxAgeHours} AND {DeviceConfigRules.MaxRetryMaxAgeHours}");
-                table.HasCheckConstraint(
-                    "ck_device_config_versions_moving_config_check_s",
-                    $"moving_config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
-                table.HasCheckConstraint(
                     "ck_device_config_versions_version",
                     $"version >= {DeviceConfigRules.InitialVersion}");
             });
@@ -136,12 +124,22 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
 
         // The motion block. Every column carries a default so the migration backfills
         // existing revisions with the same values a new device gets, and so a
-        // hand-written INSERT that predates the feature still produces a valid revision
-        // with motion switched off. The Moving* defaults are the firmware's, not copies
-        // of the standby ones: the whole point of the second set is that it differs.
+        // hand-written INSERT that predates the feature still produces a valid revision.
+        // The Moving* defaults are the firmware's, not copies of the standby ones: the
+        // whole point of the second set is that it differs. Only interval, sleep and fix
+        // timeout have a moving copy; the queue, retry and re-check columns above serve
+        // both modes.
+        // The sentinel is set explicitly because the default is TRUE. EF leaves a column
+        // out of an INSERT when its value equals the property's sentinel, so that the
+        // database default can apply — and the sentinel is the CLR default (false) unless
+        // configured otherwise. A revision saved with motion wake switched OFF would then
+        // be stored as on: the dashboard says off, the device is told on, and no error
+        // appears anywhere. Pinning the sentinel to the default means only a value that
+        // equals the default is ever left to the database.
         builder.Property(configVersion => configVersion.MotionEnabled)
             .HasColumnName("motion_enabled")
             .HasDefaultValue(DeviceConfigRules.DefaultMotionEnabled)
+            .HasSentinel(DeviceConfigRules.DefaultMotionEnabled)
             .IsRequired();
 
         builder.Property(configVersion => configVersion.MotionThresholdMg)
@@ -177,36 +175,6 @@ public sealed class DeviceConfigVersionConfiguration : IEntityTypeConfiguration<
         builder.Property(configVersion => configVersion.MovingFixTimeoutSeconds)
             .HasColumnName("moving_fix_timeout_s")
             .HasDefaultValue(DeviceConfigRules.DefaultMovingFixTimeoutSeconds)
-            .IsRequired();
-
-        builder.Property(configVersion => configVersion.MovingQueueMaxFixes)
-            .HasColumnName("moving_queue_max_fixes")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingQueueMaxFixes)
-            .IsRequired();
-
-        builder.Property(configVersion => configVersion.MovingRetryIntervalHours)
-            .HasColumnName("moving_retry_interval_h")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryIntervalHours)
-            .IsRequired();
-
-        // The sentinel is set explicitly, and for this column only. EF decides whether a
-        // value on an INSERT was "set" by comparing it with the property's sentinel,
-        // which is the CLR default (0) unless told otherwise — and when it was not set,
-        // the column is left out of the INSERT so the database default applies. Here
-        // 0 is a real, chosen value ("never give up on a rejected fix") that differs
-        // from the default of 168, so without this a revision saved with 0 would be
-        // stored as 168: the dashboard says never, the device is told a week, and no
-        // error appears anywhere. Every other column here has a floor above 0 or a
-        // default equal to its CLR default, so the usual sentinel is harmless for them.
-        builder.Property(configVersion => configVersion.MovingRetryMaxAgeHours)
-            .HasColumnName("moving_retry_max_age_h")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
-            .HasSentinel(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
-            .IsRequired();
-
-        builder.Property(configVersion => configVersion.MovingConfigCheckSeconds)
-            .HasColumnName("moving_config_check_s")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingConfigCheckSeconds)
             .IsRequired();
 
         builder.Property(configVersion => configVersion.CreatedByUserId)

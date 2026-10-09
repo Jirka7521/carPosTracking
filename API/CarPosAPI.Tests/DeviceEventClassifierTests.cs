@@ -12,6 +12,7 @@ public sealed class DeviceEventClassifierTests
 {
     [Theory]
     [InlineData("sleep", DeviceEventReasonNames.Sleep, DeviceEventSeverityNames.Normal)]
+    [InlineData("sleep_no_motion", DeviceEventReasonNames.SleepNoMotion, DeviceEventSeverityNames.Normal)]
     [InlineData("power_off", DeviceEventReasonNames.PowerOff, DeviceEventSeverityNames.Normal)]
     [InlineData("battery_low", DeviceEventReasonNames.BatteryLow, DeviceEventSeverityNames.Alert)]
     [InlineData("error", DeviceEventReasonNames.Error, DeviceEventSeverityNames.Error)]
@@ -69,6 +70,50 @@ public sealed class DeviceEventClassifierTests
         Assert.Null(DeviceEventClassifier.ClassifyRestart(resetReason));
     }
 
+    [Theory]
+    [InlineData("timer", DeviceEventReasonNames.Timer)]
+    [InlineData("accelerometer", DeviceEventReasonNames.Accelerometer)]
+    [InlineData("power_switch", DeviceEventReasonNames.PowerSwitch)]
+    public void ClassifiesEveryWakeCauseTheFirmwareSends(string deviceReason, string expectedReason)
+    {
+        bool known = DeviceEventClassifier.TryClassifyWake(deviceReason, out DeviceEventClassification? classification);
+
+        Assert.True(known);
+        Assert.NotNull(classification);
+        Assert.Equal(DeviceEventKindNames.Wake, classification.Kind);
+        Assert.Equal(expectedReason, classification.Reason);
+        Assert.Equal(DeviceEventSeverityNames.Normal, classification.Severity);
+    }
+
+    [Theory]
+    [InlineData("checking", DeviceEventReasonNames.Checking)]
+    [InlineData("activity", DeviceEventReasonNames.Activity)]
+    [InlineData("motion_on", DeviceEventReasonNames.MotionOn)]
+    [InlineData("moving", DeviceEventReasonNames.Moving)]
+    [InlineData("no_motion", DeviceEventReasonNames.NoMotion)]
+    [InlineData("stopped", DeviceEventReasonNames.Stopped)]
+    [InlineData("motion_off", DeviceEventReasonNames.MotionOff)]
+    public void ClassifiesEveryMotionStepTheFirmwareSends(string deviceReason, string expectedReason)
+    {
+        bool known = DeviceEventClassifier.TryClassifyMotion(deviceReason, out DeviceEventClassification? classification);
+
+        Assert.True(known);
+        Assert.NotNull(classification);
+        Assert.Equal(DeviceEventKindNames.Motion, classification.Kind);
+        Assert.Equal(expectedReason, classification.Reason);
+        Assert.Equal(DeviceEventSeverityNames.Normal, classification.Severity);
+    }
+
+    [Fact]
+    public void KeepsEachVocabularyToItsOwnType()
+    {
+        // A word is only meaningful under the type that sends it: a "timer" offline or a
+        // "sleep" motion step is not something the firmware says.
+        Assert.False(DeviceEventClassifier.TryClassifyOffline("timer", out _));
+        Assert.False(DeviceEventClassifier.TryClassifyWake("sleep", out _));
+        Assert.False(DeviceEventClassifier.TryClassifyMotion("accelerometer", out _));
+    }
+
     [Fact]
     public void EveryStoredValueSatisfiesTheDatabaseConstraints()
     {
@@ -78,6 +123,7 @@ public sealed class DeviceEventClassifierTests
         string[] offlineReasons =
         [
             DeviceEventReasonNames.Sleep,
+            DeviceEventReasonNames.SleepNoMotion,
             DeviceEventReasonNames.PowerOff,
             DeviceEventReasonNames.BatteryLow,
             DeviceEventReasonNames.Error,
@@ -89,9 +135,25 @@ public sealed class DeviceEventClassifierTests
             DeviceEventReasonNames.PowerLoss,
             DeviceEventReasonNames.Crash,
         ];
+        string[] wakeReasons =
+        [
+            DeviceEventReasonNames.Timer,
+            DeviceEventReasonNames.Accelerometer,
+            DeviceEventReasonNames.PowerSwitch,
+        ];
+        string[] motionReasons =
+        [
+            DeviceEventReasonNames.Checking,
+            DeviceEventReasonNames.Activity,
+            DeviceEventReasonNames.MotionOn,
+            DeviceEventReasonNames.Moving,
+            DeviceEventReasonNames.NoMotion,
+            DeviceEventReasonNames.Stopped,
+            DeviceEventReasonNames.MotionOff,
+        ];
         string[] severities = DeviceEventSeverityNames.AtLeast(null).ToArray();
 
-        foreach (string deviceReason in new[] { "sleep", "power_off", "battery_low", "error", "connection_lost" })
+        foreach (string deviceReason in new[] { "sleep", "sleep_no_motion", "power_off", "battery_low", "error", "connection_lost" })
         {
             DeviceEventClassifier.TryClassifyOffline(deviceReason, out DeviceEventClassification? classification);
             Assert.Contains(classification!.Reason, offlineReasons);
@@ -102,6 +164,20 @@ public sealed class DeviceEventClassifierTests
         {
             DeviceEventClassification classification = DeviceEventClassifier.ClassifyRestart(resetReason)!;
             Assert.Contains(classification.Reason, restartReasons);
+            Assert.Contains(classification.Severity, severities);
+        }
+
+        foreach (string wakeCause in new[] { "timer", "accelerometer", "power_switch" })
+        {
+            DeviceEventClassifier.TryClassifyWake(wakeCause, out DeviceEventClassification? classification);
+            Assert.Contains(classification!.Reason, wakeReasons);
+            Assert.Contains(classification.Severity, severities);
+        }
+
+        foreach (string motionStep in new[] { "checking", "activity", "motion_on", "moving", "no_motion", "stopped", "motion_off" })
+        {
+            DeviceEventClassifier.TryClassifyMotion(motionStep, out DeviceEventClassification? classification);
+            Assert.Contains(classification!.Reason, motionReasons);
             Assert.Contains(classification.Severity, severities);
         }
     }

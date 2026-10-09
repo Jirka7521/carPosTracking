@@ -12,9 +12,16 @@ namespace CarPosAPI.Services.Devices;
 ///
 /// <para>
 /// Filtering, ordering and the row cap all run in SQL through
-/// <c>ix_device_events_device_id_received_at</c>. The table grows by roughly one row
-/// per report on a device that sleeps between reports, so it is in the same league as
-/// <c>positions</c> and gets the same treatment: never read without a device and a cap.
+/// <c>ix_device_events_device_id_occurred_at</c>. The table grows by several rows per
+/// report on a device that sleeps between reports (a wake, its motion steps, the
+/// sleep), so it is in the same league as <c>positions</c> and gets the same
+/// treatment: never read without a device and a cap.
+/// </para>
+///
+/// <para>
+/// Range and order are by <c>OccurredAt</c>, not by arrival: a burst of events the
+/// device kept on its card while out of range belongs where it happened in the list,
+/// not at the moment the link came back.
 /// </para>
 ///
 /// Scoped — it owns a scoped <see cref="CarPosDbContext"/>.
@@ -96,20 +103,22 @@ internal sealed class DeviceEventQueryService : IDeviceEventQueryService
         if (fromUtc.HasValue)
         {
             DateTime from = fromUtc.Value;
-            query = query.Where(deviceEvent => deviceEvent.ReceivedAt >= from);
+            query = query.Where(deviceEvent => deviceEvent.OccurredAt >= from);
         }
 
         if (toUtc.HasValue)
         {
             DateTime to = toUtc.Value;
-            query = query.Where(deviceEvent => deviceEvent.ReceivedAt <= to);
+            query = query.Where(deviceEvent => deviceEvent.OccurredAt <= to);
         }
 
         // Id breaks ties: an online message that records a restart and a sleep a second
-        // later can share a receive time to the microsecond on a fast box, and the list
-        // must not reorder itself between two refreshes.
+        // later can share a receive time to the microsecond on a fast box, events from
+        // the card share the device's whole-second clock, and the list must not reorder
+        // itself between two refreshes. Ids follow arrival, and the device sends oldest
+        // first, so the tie-break keeps its order too.
         return query
-            .OrderByDescending(deviceEvent => deviceEvent.ReceivedAt)
+            .OrderByDescending(deviceEvent => deviceEvent.OccurredAt)
             .ThenByDescending(deviceEvent => deviceEvent.Id)
             .Take(limit)
             .Select(deviceEvent => new DeviceEventDto(
@@ -117,6 +126,7 @@ internal sealed class DeviceEventQueryService : IDeviceEventQueryService
                 deviceEvent.Kind,
                 deviceEvent.Reason,
                 deviceEvent.Severity,
+                deviceEvent.OccurredAt,
                 deviceEvent.ReceivedAt,
                 deviceEvent.DeviceTime,
                 deviceEvent.BatteryPct,
@@ -126,7 +136,7 @@ internal sealed class DeviceEventQueryService : IDeviceEventQueryService
 
     /// <summary>
     /// Forces a query-string bound to <see cref="DateTimeKind.Utc"/>, exactly as
-    /// <see cref="Positions.PositionQueryService"/> does — <c>received_at</c> is
+    /// <see cref="Positions.PositionQueryService"/> does — <c>occurred_at</c> is
     /// <c>timestamptz</c>, and Npgsql refuses a parameter for it of any other kind.
     /// </summary>
     /// <param name="value">A bound as model-bound from the query string.</param>

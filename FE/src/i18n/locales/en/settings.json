@@ -41,12 +41,8 @@
       "motionStopWaitSeconds": "Back to standby after no movement for",
       "motionThresholdMg": "Motion wake threshold",
       "motionWakeWaitSeconds": "Wait for movement after a wake",
-      "movingConfigCheckSeconds": "Re-check for settings every (moving)",
       "movingFixTimeoutSeconds": "GNSS lock timeout (moving)",
       "movingIntervalSeconds": "Report every (moving)",
-      "movingQueueMaxFixes": "Undelivered fixes kept (moving)",
-      "movingRetryIntervalHours": "Retry rejected fixes every (moving)",
-      "movingRetryMaxAgeHours": "Give up on rejected fixes after (moving)",
       "movingSleepBetween": "Deep-sleep between reports (moving)",
       "queueMaxFixes": "Undelivered fixes kept",
       "retryIntervalHours": "Retry rejected fixes every",
@@ -71,6 +67,7 @@
     "milliG": "{{value}} mg",
     "mode": {
       "moving": "While moving",
+      "shared": "Both modes (parked and moving)",
       "standby": "Standby (parked)"
     },
     "modeSwitch": {
@@ -81,10 +78,9 @@
       "motionHint": "An accelerometer in the tracker wakes it from deep sleep when the car starts to move. It then runs a separate While moving set, and falls back to the Standby (parked) set once the car has stopped."
     },
     "motionPollingNote": "Standby deep-sleep is off, so the tracker stays awake and notices motion by polling the accelerometer once a second. The accelerometer only saves battery when standby deep-sleep is on, because only then can the tracker sleep until something wakes it.",
-    "motionQueueCapNote": "The standby and moving queue limits differ. The tracker keeps the larger one ({{cap}}) in both modes, so switching mode never deletes queued fixes.",
     "motionSpeedHint": "A GNSS fix counts as moving only when its speed is strictly above this. A parked car's fixes still jitter by a km/h or two, so keep it above that or the tracker will mistake a parked car for a moving one.",
     "motionSpeedLabel": "Counts as moving above (km/h)",
-    "motionThresholdHint": "The sensor counts in steps of 62.5 mg and the tracker rounds this value to the nearest step. 63 mg is the lowest threshold and so the most sensitive; it is the recommended default. Raise it if bumps or wind wake the tracker for nothing.",
+    "motionThresholdHint": "The sensor counts in steps of 62.5 mg and the tracker rounds this value to the nearest step. 63 mg is the lowest threshold and so the most sensitive; the default 188 mg is step 3. Raise it if bumps or wind wake the tracker for nothing.",
     "motionThresholdLabel": "Wake threshold (mg)",
     "motionThresholdStep": "≈ sensor step {{step}} = {{mg}} mg ({{g}} g). Lower is more sensitive.",
     "motionWaitHint": "Wait for movement: after any wake from standby — from the accelerometer or from the standby timer — the tracker stays awake for up to this long, looking for a GNSS fix, and publishes only the first one it gets. As soon as any fix in that time is faster than the speed above, it switches to moving mode; if none is, it goes back to standby. Back to standby: while moving, the tracker keeps the moving settings until no fix has been above that speed for this long.",
@@ -94,6 +90,7 @@
     "queueMaxHint": "While the broker is unreachable each fix is encrypted and queued on the SD card. Past this many, the oldest are dropped so the card can never fill up. It is a count rather than a duration because a queued entry is bare ciphertext with no timestamp to age it by.",
     "queueMaxLabel": "Keep at most (fixes)",
     "queueSpan": "≈ {{duration}} at the current interval",
+    "queueSpanByMode": "≈ {{standby}} while parked, ≈ {{moving}} while moving",
     "rejectedHint": "Fixes this server refused are kept apart from the live queue and re-offered slowly, because several reject reasons are server-side and clear on their own. Giving up is the only path that deliberately discards data.",
     "retryForever": "keep retrying forever",
     "retryIntervalLabel": "Retry every",

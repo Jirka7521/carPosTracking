@@ -103,8 +103,9 @@ internal sealed class DataExportService : IDataExportService
         writer.WriteString(
             "notice",
             "Everything carPosTracking holds about this account, exported under GDPR Art. 15 and 20. "
-            + "The position history and each device's connection history (when it went offline and "
-            + "why) are complete and uncapped. Secrets - the password hash and device "
+            + "The position history and each device's event history (when it went offline and "
+            + "why, woke up, started or stopped moving) are complete and uncapped. Secrets - the "
+            + "password hash and device "
             + "private keys - are deliberately excluded: they are not personal data to port, and "
             + "copying them out of the system would only weaken it.");
         writer.WriteEndObject();
@@ -392,10 +393,6 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteNumber("movingIntervalSeconds", profile.MovingIntervalSeconds);
             writer.WriteBoolean("movingSleepBetween", profile.MovingSleepBetween);
             writer.WriteNumber("movingFixTimeoutSeconds", profile.MovingFixTimeoutSeconds);
-            writer.WriteNumber("movingQueueMaxFixes", profile.MovingQueueMaxFixes);
-            writer.WriteNumber("movingRetryIntervalHours", profile.MovingRetryIntervalHours);
-            writer.WriteNumber("movingRetryMaxAgeHours", profile.MovingRetryMaxAgeHours);
-            writer.WriteNumber("movingConfigCheckSeconds", profile.MovingConfigCheckSeconds);
             writer.WriteString("createdAtUtc", profile.CreatedAt);
             writer.WriteString("updatedAtUtc", profile.UpdatedAt);
             writer.WriteEndObject();
@@ -430,10 +427,6 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteNumber("movingIntervalSeconds", revision.MovingIntervalSeconds);
             writer.WriteBoolean("movingSleepBetween", revision.MovingSleepBetween);
             writer.WriteNumber("movingFixTimeoutSeconds", revision.MovingFixTimeoutSeconds);
-            writer.WriteNumber("movingQueueMaxFixes", revision.MovingQueueMaxFixes);
-            writer.WriteNumber("movingRetryIntervalHours", revision.MovingRetryIntervalHours);
-            writer.WriteNumber("movingRetryMaxAgeHours", revision.MovingRetryMaxAgeHours);
-            writer.WriteNumber("movingConfigCheckSeconds", revision.MovingConfigCheckSeconds);
             writer.WriteString("source", revision.Source.ToString());
             writer.WriteString("createdAtUtc", revision.CreatedAt);
             writer.WriteEndObject();
@@ -563,10 +556,11 @@ internal sealed class DataExportService : IDataExportService
     }
 
     /// <summary>
-    /// Streams one device's whole connection history — every time it went offline and
-    /// why, and every notable restart — into the open object. Streamed and flushed like
-    /// the positions, and for the same reason: a device that sleeps between reports logs
-    /// one of these per report, so the history can be as long as the trail.
+    /// Streams one device's whole event history — every time it went offline and why,
+    /// every notable restart, every wake and every motion step — into the open object, in
+    /// the order it happened. Streamed and flushed like the positions, and for the same
+    /// reason: a device that sleeps between reports logs several of these per report, so
+    /// the history can be longer than the trail.
     /// </summary>
     /// <param name="writer">The open JSON writer, positioned inside a device object.</param>
     /// <param name="deviceRowId">Internal device id to filter on.</param>
@@ -584,13 +578,14 @@ internal sealed class DataExportService : IDataExportService
         IAsyncEnumerable<DeviceEvent> stream = _context.DeviceEvents
             .AsNoTracking()
             .Where(deviceEvent => deviceEvent.DeviceId == deviceRowId)
-            .OrderBy(deviceEvent => deviceEvent.ReceivedAt)
+            .OrderBy(deviceEvent => deviceEvent.OccurredAt)
             .ThenBy(deviceEvent => deviceEvent.Id)
             .AsAsyncEnumerable();
 
         await foreach (DeviceEvent deviceEvent in stream.WithCancellation(cancellationToken))
         {
             writer.WriteStartObject();
+            writer.WriteString("occurredAtUtc", deviceEvent.OccurredAt);
             writer.WriteString("receivedAtUtc", deviceEvent.ReceivedAt);
             WriteNullableDateTime(writer, "deviceTimeUtc", deviceEvent.DeviceTime);
             writer.WriteString("kind", deviceEvent.Kind);

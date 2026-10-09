@@ -89,18 +89,18 @@ internal sealed class PositionErasureService : IPositionErasureService
                     positions = positions.Where(position => position.FixTime <= to.Value);
                 }
 
-                // Events have no fix time; their receive time is the closest thing to
-                // "when", and it is what the dashboard shows them by.
+                // Events have no fix time; their occurred time is the "when" - the one
+                // the dashboard shows them by, so a range erases what the reader saw in it.
                 IQueryable<Data.Entities.DeviceEvent> events = _context.DeviceEvents
                     .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceRowId);
                 if (from.HasValue)
                 {
-                    events = events.Where(deviceEvent => deviceEvent.ReceivedAt >= from.Value);
+                    events = events.Where(deviceEvent => deviceEvent.OccurredAt >= from.Value);
                 }
 
                 if (to.HasValue)
                 {
-                    events = events.Where(deviceEvent => deviceEvent.ReceivedAt <= to.Value);
+                    events = events.Where(deviceEvent => deviceEvent.OccurredAt <= to.Value);
                 }
 
                 long positionsDeleted = await positions.ExecuteDeleteAsync(attemptToken);

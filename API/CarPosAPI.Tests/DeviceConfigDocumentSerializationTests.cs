@@ -40,7 +40,7 @@ public class DeviceConfigDocumentSerializationTests
                 3,
                 240,
                 600,
-                new DeviceModeDocumentDto(10, false, 150, 25000, 12, 96, 1800)));
+                new DeviceModeDocumentDto(10, false, 150)));
     }
 
     [Fact]
@@ -56,9 +56,7 @@ public class DeviceConfigDocumentSerializationTests
             "\"config_check_s\":3600,\"motion\":{"
                 + "\"enabled\":true,\"threshold_mg\":63,\"speed_kmph\":3,"
                 + "\"wake_wait_s\":240,\"stop_wait_s\":600,"
-                + "\"moving\":{\"interval_s\":10,\"sleep_between\":false,\"fix_timeout_s\":150,"
-                + "\"queue_max_fixes\":25000,\"retry_interval_h\":12,\"retry_max_age_h\":96,"
-                + "\"config_check_s\":1800}}}",
+                + "\"moving\":{\"interval_s\":10,\"sleep_between\":false,\"fix_timeout_s\":150}}}",
             json,
             StringComparison.Ordinal);
     }
@@ -90,10 +88,25 @@ public class DeviceConfigDocumentSerializationTests
         Assert.Equal(1, CountOccurrences(json, "\"version\""));
     }
 
+    [Theory]
+    [InlineData("queue_max_fixes")]
+    [InlineData("retry_interval_h")]
+    [InlineData("retry_max_age_h")]
+    [InlineData("config_check_s")]
+    public void TheSharedSettingsAppearOnlyAtTheTopLevel(string key)
+    {
+        string json = JsonSerializer.Serialize(Sample());
+
+        // The queue cap, both retry settings and the config re-check have one value for
+        // both modes. A copy inside "moving" would be ignored by the firmware, so a
+        // dashboard showing it would be showing a setting that does nothing.
+        Assert.Equal(1, CountOccurrences(json, "\"" + key + "\""));
+    }
+
     [Fact]
     public void ARevisionMapsEachColumnToItsOwnKey()
     {
-        // The factory is twelve values of mostly the same type in a row, which is
+        // The factory is eight values of mostly the same type in a row, which is
         // exactly the shape in which two get swapped without anything failing to
         // compile. Every column here holds a different number for that reason.
         DeviceConfigVersion revision = new DeviceConfigVersion
@@ -106,10 +119,6 @@ public class DeviceConfigDocumentSerializationTests
             MovingIntervalSeconds = 105,
             MovingSleepBetween = true,
             MovingFixTimeoutSeconds = 106,
-            MovingQueueMaxFixes = 107,
-            MovingRetryIntervalHours = 108,
-            MovingRetryMaxAgeHours = 109,
-            MovingConfigCheckSeconds = 110,
         };
 
         string json = JsonSerializer.Serialize(DeviceMotionDocumentFactory.Create(revision));
@@ -117,8 +126,7 @@ public class DeviceConfigDocumentSerializationTests
         Assert.Equal(
             "{\"enabled\":true,\"threshold_mg\":101,\"speed_kmph\":102,\"wake_wait_s\":103,"
                 + "\"stop_wait_s\":104,\"moving\":{\"interval_s\":105,\"sleep_between\":true,"
-                + "\"fix_timeout_s\":106,\"queue_max_fixes\":107,\"retry_interval_h\":108,"
-                + "\"retry_max_age_h\":109,\"config_check_s\":110}}",
+                + "\"fix_timeout_s\":106}}",
             json);
     }
 
@@ -126,7 +134,7 @@ public class DeviceConfigDocumentSerializationTests
     public void AllThreeSourcesOfTheMotionBlockAgree()
     {
         // The revision, the profile and the dashboard's flat shape describe the same
-        // twelve settings, and the publishers pick whichever one they happen to have.
+        // eight settings, and the publishers pick whichever one they happen to have.
         // If the three overloads ever disagreed, the same settings would reach the
         // device differently depending on which code path delivered them.
         DeviceConfigVersion revision = new DeviceConfigVersion
@@ -139,10 +147,6 @@ public class DeviceConfigDocumentSerializationTests
             MovingIntervalSeconds = 205,
             MovingSleepBetween = true,
             MovingFixTimeoutSeconds = 206,
-            MovingQueueMaxFixes = 207,
-            MovingRetryIntervalHours = 208,
-            MovingRetryMaxAgeHours = 209,
-            MovingConfigCheckSeconds = 210,
         };
 
         DeviceConfigProfile profile = new DeviceConfigProfile
@@ -155,10 +159,6 @@ public class DeviceConfigDocumentSerializationTests
             MovingIntervalSeconds = revision.MovingIntervalSeconds,
             MovingSleepBetween = revision.MovingSleepBetween,
             MovingFixTimeoutSeconds = revision.MovingFixTimeoutSeconds,
-            MovingQueueMaxFixes = revision.MovingQueueMaxFixes,
-            MovingRetryIntervalHours = revision.MovingRetryIntervalHours,
-            MovingRetryMaxAgeHours = revision.MovingRetryMaxAgeHours,
-            MovingConfigCheckSeconds = revision.MovingConfigCheckSeconds,
         };
 
         DeviceConfigValuesDto values = new DeviceConfigValuesDto(
@@ -176,11 +176,7 @@ public class DeviceConfigDocumentSerializationTests
             revision.MotionStopWaitSeconds,
             revision.MovingIntervalSeconds,
             revision.MovingSleepBetween,
-            revision.MovingFixTimeoutSeconds,
-            revision.MovingQueueMaxFixes,
-            revision.MovingRetryIntervalHours,
-            revision.MovingRetryMaxAgeHours,
-            revision.MovingConfigCheckSeconds);
+            revision.MovingFixTimeoutSeconds);
 
         DeviceMotionDocumentDto fromRevision = DeviceMotionDocumentFactory.Create(revision);
 

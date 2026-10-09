@@ -15,12 +15,14 @@
 //
 // What it renders is a composition, led by ConfigModeSwitch: the same settings
 // all the time, or react to motion wake? Answered "the same", there is one set
-// of seven settings. Answered "react", there are two complete sets — STANDBY
-// (parked) and MOVING — each folded into its own block, after the motion
-// settings that decide when the device passes from one to the other. The notes
-// about how those interact sit right under the switch, outside every block, so
-// folding a group can never be what hides a warning. The sets are
-// ModeValuesFields, the motion settings are MotionWakeFields; this file only
+// of seven settings. Answered "react", interval, sleep and fix timeout come in
+// two sets — STANDBY (parked) and MOVING — each folded into its own block, after
+// the motion settings that decide when the device passes from one to the other;
+// the queue, retry and re-check settings follow in a third block, because they
+// have one value for both modes. The notes about how those interact sit right
+// under the switch, outside every block, so folding a group can never be what
+// hides a warning. The sets are ModeValuesFields, the shared settings
+// SharedValuesFields, the motion settings MotionWakeFields; this file only
 // arranges them and says what is worth warning about.
 //
 // `seedKey` is passed straight through to each DurationField's `key`. Changing
@@ -36,7 +38,9 @@ import { formatInteger } from '../i18n/format'
 import type { DeviceConfigValuesDto } from '../services/apiTypes'
 import {
   MOVING_KEYS,
+  SHARED_KEYS,
   STANDBY_KEYS,
+  describeHours,
   describeReportingSummary,
   describeSeconds,
 } from '../utils/deviceConfig'
@@ -45,6 +49,7 @@ import { ConfigCollapsible } from './ConfigCollapsible'
 import { ConfigModeSwitch } from './ConfigModeSwitch'
 import { ModeValuesFields } from './ModeValuesFields'
 import { MotionWakeFields } from './MotionWakeFields'
+import { SharedValuesFields } from './SharedValuesFields'
 
 export type ConfigValuesFieldsProps = {
   values: DeviceConfigValuesDto
@@ -79,11 +84,14 @@ export function ConfigValuesFields({
     return renderPendingNote ? renderPendingNote(key) : null
   }
 
-  // Whether any of a mode's seven settings has not reached the device yet, for
+  // Whether any of a mode's three settings has not reached the device yet, for
   // the ⚠ on that mode's folded block.
   function isModePending(keys: ModeKeys): boolean {
     return Object.values(keys).some((key) => pendingNote(key) !== null)
   }
+
+  // The same for the block of settings shared by both modes.
+  const isSharedPending: boolean = SHARED_KEYS.some((key) => pendingNote(key) !== null)
 
   // The device stays awake for up to the whole wait window after EVERY wake, and
   // a timer wake is a wake. A wait at least as long as the standby interval
@@ -97,12 +105,6 @@ export function ConfigValuesFields({
   // An awake standby device has no interrupt to wait for; see the note's text.
   const isStandbyAwake: boolean = values.motionEnabled && !values.sleepBetween
 
-  // The firmware keeps the LARGER of the two caps, in both modes, so that
-  // switching mode can never be what deletes a queued fix.
-  const queueCap: number = Math.max(values.queueMaxFixes, values.movingQueueMaxFixes)
-  const isQueueCapMerged: boolean =
-    values.motionEnabled && values.queueMaxFixes !== values.movingQueueMaxFixes
-
   return (
     <>
       <ConfigModeSwitch
@@ -113,7 +115,7 @@ export function ConfigValuesFields({
         idPrefix={idPrefix}
       />
 
-      {isWakeWindowTooLong || isStandbyAwake || isQueueCapMerged ? (
+      {isWakeWindowTooLong || isStandbyAwake ? (
         <div className="config-notes">
           {isWakeWindowTooLong ? (
             <div className="banner banner--warning" role="status">
@@ -127,14 +129,6 @@ export function ConfigValuesFields({
           {isStandbyAwake ? (
             <div className="banner banner--info" role="status">
               {t('config.motionPollingNote')}
-            </div>
-          ) : null}
-
-          {isQueueCapMerged ? (
-            <div className="banner banner--info" role="status">
-              {t('config.motionQueueCapNote', {
-                cap: t('config.fixesCount', { count: queueCap, value: formatInteger(queueCap) }),
-              })}
             </div>
           ) : null}
         </div>
@@ -186,18 +180,54 @@ export function ConfigValuesFields({
               idPrefix={`${idPrefix}-moving`}
             />
           </ConfigCollapsible>
+
+          {/* The queue, retry and re-check settings have one value for both
+              modes, so they get a block of their own rather than a copy in
+              each — a reader should not have to wonder which one applies. */}
+          <ConfigCollapsible
+            title={t('config.mode.shared')}
+            summary={[
+              t('config.fixesCount', {
+                count: values.queueMaxFixes,
+                value: formatInteger(values.queueMaxFixes),
+              }),
+              values.retryMaxAgeHours === 0
+                ? t('config.retryForever')
+                : t('config.summary.maxAge', { duration: describeHours(values.retryMaxAgeHours) }),
+            ].join(' · ')}
+            hasPending={isSharedPending}
+          >
+            <SharedValuesFields
+              values={values}
+              onChange={onChange}
+              seedKey={seedKey}
+              disabled={disabled}
+              pendingNote={pendingNote}
+              idPrefix={idPrefix}
+            />
+          </ConfigCollapsible>
         </>
       ) : (
         // One set and nothing to tell it apart from, so no block around it.
-        <ModeValuesFields
-          values={values}
-          keys={STANDBY_KEYS}
-          onChange={onChange}
-          seedKey={seedKey}
-          disabled={disabled}
-          pendingNote={pendingNote}
-          idPrefix={idPrefix}
-        />
+        <>
+          <ModeValuesFields
+            values={values}
+            keys={STANDBY_KEYS}
+            onChange={onChange}
+            seedKey={seedKey}
+            disabled={disabled}
+            pendingNote={pendingNote}
+            idPrefix={idPrefix}
+          />
+          <SharedValuesFields
+            values={values}
+            onChange={onChange}
+            seedKey={seedKey}
+            disabled={disabled}
+            pendingNote={pendingNote}
+            idPrefix={idPrefix}
+          />
+        </>
       )}
     </>
   )

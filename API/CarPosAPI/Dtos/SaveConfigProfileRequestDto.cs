@@ -24,11 +24,11 @@ namespace CarPosAPI.Dtos;
 /// <param name="IntervalSeconds">Seconds between position reports.</param>
 /// <param name="SleepBetween">Deep-sleep and power the modem down between reports.</param>
 /// <param name="FixTimeoutSeconds">How long to chase a GNSS lock before giving up on a cycle.</param>
-/// <param name="QueueMaxFixes">How many undelivered fixes the SD queue may hold.</param>
-/// <param name="RetryIntervalHours">Hours between attempts on a fix this API rejected.</param>
-/// <param name="RetryMaxAgeHours">Hours after which a still-rejected fix is abandoned; 0 = never.</param>
-/// <param name="ConfigCheckSeconds">How often an awake device asks the broker to re-send its configuration.</param>
-/// <param name="MotionEnabled">Turns motion wake on; the seven values above are then the STANDBY set and the <c>Moving*</c> values the set used while driving.</param>
+/// <param name="QueueMaxFixes">How many undelivered fixes the SD queue may hold, in either mode.</param>
+/// <param name="RetryIntervalHours">Hours between attempts on a fix this API rejected, in either mode.</param>
+/// <param name="RetryMaxAgeHours">Hours after which a still-rejected fix is abandoned, in either mode; 0 = never.</param>
+/// <param name="ConfigCheckSeconds">How often an awake device asks the broker to re-send its configuration, in either mode.</param>
+/// <param name="MotionEnabled">Turns motion wake on; interval, sleep and fix timeout above are then the STANDBY set and the <c>Moving*</c> values the set used while driving.</param>
 /// <param name="MotionThresholdMg">Accelerometer wake threshold in milli-g; the ADXL345 compares in 62.5 mg steps and the firmware rounds to the nearest (63 mg = step 1, the most sensitive).</param>
 /// <param name="MotionSpeedKmph">A fix counts as moving when its GNSS speed is strictly above this, in km/h; not 0, because a parked receiver reports 0-3 km/h of jitter.</param>
 /// <param name="MotionWakeWaitSeconds">How long a wake may look for a moving fix before going back to sleep.</param>
@@ -36,10 +36,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="MovingIntervalSeconds">Seconds between position reports while moving.</param>
 /// <param name="MovingSleepBetween">Deep-sleep and power the modem down between reports while moving.</param>
 /// <param name="MovingFixTimeoutSeconds">How long to chase a GNSS lock before giving up on a cycle, while moving.</param>
-/// <param name="MovingQueueMaxFixes">Undelivered-fix queue cap while moving; the device applies the LARGER of this and the standby cap.</param>
-/// <param name="MovingRetryIntervalHours">Hours between attempts on a fix this API rejected, while moving.</param>
-/// <param name="MovingRetryMaxAgeHours">Hours after which a still-rejected fix is abandoned, while moving; 0 = never. The device applies the more lenient of this and the standby age.</param>
-/// <param name="MovingConfigCheckSeconds">How often an awake device asks the broker to re-send its configuration, while moving.</param>
 public sealed record SaveConfigProfileRequestDto(
     [Required]
     [StringLength(
@@ -102,20 +98,4 @@ public sealed record SaveConfigProfileRequestDto(
 
     [Required]
     [Range(DeviceConfigRules.MinFixTimeoutSeconds, DeviceConfigRules.MaxFixTimeoutSeconds)]
-    int MovingFixTimeoutSeconds,
-
-    [Required]
-    [Range(DeviceConfigRules.MinQueueMaxFixes, DeviceConfigRules.MaxQueueMaxFixes)]
-    int MovingQueueMaxFixes,
-
-    [Required]
-    [Range(DeviceConfigRules.MinRetryIntervalHours, DeviceConfigRules.MaxRetryIntervalHours)]
-    int MovingRetryIntervalHours,
-
-    [Required]
-    [Range(DeviceConfigRules.MinRetryMaxAgeHours, DeviceConfigRules.MaxRetryMaxAgeHours)]
-    int MovingRetryMaxAgeHours,
-
-    [Required]
-    [Range(DeviceConfigRules.MinConfigCheckSeconds, DeviceConfigRules.MaxConfigCheckSeconds)]
-    int MovingConfigCheckSeconds);
+    int MovingFixTimeoutSeconds);

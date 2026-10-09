@@ -8,18 +8,21 @@
 //  passed around freely between the store, the codec, the applier and main().
 //
 //  Everything else in Config.h is a compile-time constant. These are not:
-//      standby()              the seven reporting knobs (interval, sleep, fix
-//                             timeout, queue cap, retry pacing, config re-check)
-//                             - the config document's top-level keys
+//      standby()              the three per-mode knobs (interval, sleep, fix
+//                             timeout) - the config document's top-level keys
+//      queueMaxFixes() ...    the four shared knobs (queue cap, retry pacing,
+//      configCheckSeconds()   retry give-up age, config re-check) - top-level
+//                             keys too, and in force in EVERY mode
 //      motion()               the motion-wake block: whether the accelerometer
 //                             wakes the device, its thresholds, and a second set
-//                             of the seven knobs for while the car is moving
+//                             of the three per-mode knobs for while it is moving
 //
-//  The seven getters and setters below (intervalSeconds() and friends) are the
-//  STANDBY set's, kept as forwards so everything that predates motion wake still
-//  reads exactly what it always did. With motion wake off the standby set is the
-//  only set, so for those callers nothing has changed. Code that must honour the
-//  MOVING set asks MotionTracker::activeMode() which one is in force instead.
+//  The first three getters and setters below (intervalSeconds() and friends) are
+//  the STANDBY set's, kept as forwards so everything that predates motion wake
+//  still reads exactly what it always did. With motion wake off the standby set
+//  is the only set, so for those callers nothing has changed. Code that must
+//  honour the MOVING set asks MotionTracker::activeMode() which one is in force
+//  instead. The four shared knobs have no second copy, so there is nothing to ask.
 //
 //  version() is not a setting but the server's revision number for this whole
 //  document. It rides along so the device can echo it back in every report
@@ -60,10 +63,6 @@ class DeviceSettings {
   uint32_t intervalSeconds() const { return standby_.intervalSeconds(); }
   bool     sleepBetweenSends() const { return standby_.sleepBetweenSends(); }
   uint32_t fixTimeoutSeconds() const { return standby_.fixTimeoutSeconds(); }
-  uint32_t queueMaxFixes() const { return standby_.queueMaxFixes(); }
-  uint32_t retryIntervalHours() const { return standby_.retryIntervalHours(); }
-  uint32_t retryMaxAgeHours() const { return standby_.retryMaxAgeHours(); }
-  uint32_t configCheckSeconds() const { return standby_.configCheckSeconds(); }
 
   void setIntervalSeconds(uint32_t seconds) {
     standby_.setIntervalSeconds(seconds);
@@ -72,21 +71,25 @@ class DeviceSettings {
   void setFixTimeoutSeconds(uint32_t seconds) {
     standby_.setFixTimeoutSeconds(seconds);
   }
-  void setQueueMaxFixes(uint32_t fixes) { standby_.setQueueMaxFixes(fixes); }
-  void setRetryIntervalHours(uint32_t hours) {
-    standby_.setRetryIntervalHours(hours);
-  }
-  void setRetryMaxAgeHours(uint32_t hours) {
-    standby_.setRetryMaxAgeHours(hours);
-  }
-  void setConfigCheckSeconds(uint32_t seconds) {
-    standby_.setConfigCheckSeconds(seconds);
-  }
 
-  // Pin every field - both sets and the motion thresholds - into the range
-  // allowed by Config.h. Always call this on settings that arrived from the
-  // broker or from the card. version() is left alone - it is the server's number
-  // to choose, not ours to second-guess.
+  // The shared knobs - one value, whichever set is in force.
+  uint32_t queueMaxFixes() const { return queueMaxFixes_; }
+  uint32_t retryIntervalHours() const { return retryIntervalHours_; }
+  uint32_t retryMaxAgeHours() const { return retryMaxAgeHours_; }
+
+  // Only meaningful while awake: a deep-sleeping device re-subscribes on every
+  // wake anyway, so the periodic re-check has nothing left to do for it.
+  uint32_t configCheckSeconds() const { return configCheckSeconds_; }
+
+  void setQueueMaxFixes(uint32_t fixes) { queueMaxFixes_ = fixes; }
+  void setRetryIntervalHours(uint32_t hours) { retryIntervalHours_ = hours; }
+  void setRetryMaxAgeHours(uint32_t hours) { retryMaxAgeHours_ = hours; }
+  void setConfigCheckSeconds(uint32_t seconds) { configCheckSeconds_ = seconds; }
+
+  // Pin every field - both sets, the shared knobs and the motion thresholds -
+  // into the range allowed by Config.h. Always call this on settings that
+  // arrived from the broker or from the card. version() is left alone - it is
+  // the server's number to choose, not ours to second-guess.
   void clampToLimits();
 
   // Value equality over the settings themselves, deliberately ignoring
@@ -101,5 +104,9 @@ class DeviceSettings {
  private:
   uint32_t       version_;
   ModeSettings   standby_;
+  uint32_t       queueMaxFixes_;
+  uint32_t       retryIntervalHours_;
+  uint32_t       retryMaxAgeHours_;
+  uint32_t       configCheckSeconds_;
   MotionSettings motion_;
 };

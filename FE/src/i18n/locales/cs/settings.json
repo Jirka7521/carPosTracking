@@ -43,12 +43,8 @@
       "motionStopWaitSeconds": "Zpět do pohotovosti po klidu delším než",
       "motionThresholdMg": "Práh probuzení pohybem",
       "motionWakeWaitSeconds": "Čekat na pohyb po probuzení",
-      "movingConfigCheckSeconds": "Kontrolovat nastavení každých (za jízdy)",
       "movingFixTimeoutSeconds": "Časový limit GNSS fixace (za jízdy)",
       "movingIntervalSeconds": "Hlásit každých (za jízdy)",
-      "movingQueueMaxFixes": "Uchovaných nedoručených poloh (za jízdy)",
-      "movingRetryIntervalHours": "Opakovat odmítnuté polohy každých (za jízdy)",
-      "movingRetryMaxAgeHours": "Vzdát odmítnuté polohy po (za jízdy)",
       "movingSleepBetween": "Hluboký spánek mezi hlášeními (za jízdy)",
       "queueMaxFixes": "Uchovaných nedoručených poloh",
       "retryIntervalHours": "Opakovat odmítnuté polohy každých",
@@ -75,6 +71,7 @@
     "milliG": "{{value}} mg",
     "mode": {
       "moving": "Za jízdy",
+      "shared": "Pro oba režimy (zaparkováno i za jízdy)",
       "standby": "Pohotovostní režim (zaparkováno)"
     },
     "modeSwitch": {
@@ -85,10 +82,9 @@
       "motionHint": "Akcelerometr v trackeru ho probudí z hlubokého spánku, jakmile se auto rozjede. Tracker pak používá samostatnou sadu „Za jízdy“ a po zastavení auta se vrátí k sadě „Pohotovostní režim (zaparkováno)“."
     },
     "motionPollingNote": "Hluboký spánek v pohotovostním režimu je vypnutý, takže tracker zůstává vzhůru a pohyb zjišťuje dotazováním akcelerometru jednou za sekundu. Akcelerometr šetří baterii jen tehdy, když je v pohotovostním režimu zapnutý hluboký spánek — jen tehdy totiž může tracker spát, dokud ho něco neprobudí.",
-    "motionQueueCapNote": "Limity fronty v pohotovostním režimu a za jízdy se liší. Tracker v obou režimech používá ten větší ({{cap}}), takže přepnutí režimu nikdy nesmaže polohy ve frontě.",
     "motionSpeedHint": "GNSS poloha se počítá jako pohyb, jen když je její rychlost přísně nad touto hodnotou. Polohy zaparkovaného auta stále kolísají o km/h či dva, proto ji nechte nad touto úrovní, jinak tracker zaparkované auto splete s jedoucím.",
     "motionSpeedLabel": "Za pohyb se počítá rychlost nad (km/h)",
-    "motionThresholdHint": "Senzor počítá v krocích po 62,5 mg a tracker tuto hodnotu zaokrouhlí na nejbližší krok. 63 mg je nejnižší práh, tedy nejcitlivější nastavení, a doporučená výchozí hodnota. Zvyšte ji, pokud tracker zbytečně budí otřesy nebo vítr.",
+    "motionThresholdHint": "Senzor počítá v krocích po 62,5 mg a tracker tuto hodnotu zaokrouhlí na nejbližší krok. 63 mg je nejnižší práh, tedy nejcitlivější nastavení; výchozích 188 mg je krok 3. Zvyšte ji, pokud tracker zbytečně budí otřesy nebo vítr.",
     "motionThresholdLabel": "Práh probuzení (mg)",
     "motionThresholdStep": "≈ krok senzoru {{step}} = {{mg}} mg ({{g}} g). Nižší hodnota znamená vyšší citlivost.",
     "motionWaitHint": "Čekat na pohyb: po každém probuzení z pohotovostního režimu — akcelerometrem i časovačem — tracker zůstane vzhůru nejvýše po tuto dobu, hledá GNSS polohu a publikuje jen první, kterou získá. Jakmile je kterákoli poloha v té době rychlejší než rychlost výše, přepne se do režimu jízdy; není-li žádná, vrátí se do pohotovosti. Zpět do pohotovosti: za jízdy tracker drží nastavení „Za jízdy“, dokud po tuto dobu žádná poloha nepřekročila uvedenou rychlost.",
@@ -98,6 +94,7 @@
     "queueMaxHint": "Dokud je broker nedostupný, každá poloha se zašifruje a zařadí do fronty na SD kartě. Nad tímto počtem se nejstarší zahazují, aby se karta nikdy nezaplnila. Je to počet, ne doba, protože položka ve frontě je holý šifrový text bez časového razítka.",
     "queueMaxLabel": "Uchovat nejvýše (poloh)",
     "queueSpan": "≈ {{duration}} při současném intervalu",
+    "queueSpanByMode": "≈ {{standby}} zaparkováno, ≈ {{moving}} za jízdy",
     "rejectedHint": "Polohy, které server odmítl, se drží stranou od živé fronty a nabízejí se znovu jen pomalu, protože několik důvodů odmítnutí je na straně serveru a samo pomine. Vzdát se je jediná cesta, která data záměrně zahazuje.",
     "retryForever": "opakovat donekonečna",
     "retryIntervalLabel": "Opakovat každých",

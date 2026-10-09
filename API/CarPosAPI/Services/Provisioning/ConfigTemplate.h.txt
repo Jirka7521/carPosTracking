@@ -155,8 +155,8 @@ constexpr int kAdxlInt2Pin = 34;  // reserved; input-only, awake-time use only
 // -----------------------------------------------------------------------------
 //  Peak accelerometer readings.
 //
-//  A report normally carries ONE instantaneous accelerometer sample - at the
-//  default 60 s interval, one reading a minute. That says almost nothing about
+//  A report normally carries ONE instantaneous accelerometer sample - at a
+//  60 s interval, one reading a minute. That says almost nothing about
 //  what the car did: braking, cornering and potholes all happen *between* two
 //  reports and are simply never seen.
 //
@@ -409,21 +409,30 @@ constexpr char kTelemetryTopic[] = "devices/GNSSXX";
 // -----------------------------------------------------------------------------
 //  Status messages & Last Will (device -> broker -> API).
 //
-//  The device says why it goes offline, and the broker says it for the device
+//  The device reports what happens to it, and the broker says it for the device
 //  when it cannot:
 //
 //      online           on every new connection; the first one of a boot also
 //                       carries the reset reason (a crash, watchdog or
 //                       brown-out shows up on the dashboard this way)
 //      offline + reason just before every deep sleep: "sleep" (with how long),
+//                       "sleep_no_motion" (parked, motion wake armed),
 //                       "power_off", "battery_low" or "error" (with a detail)
+//      wake + reason    once per wake from deep sleep: "timer",
+//                       "accelerometer" or "power_switch"
+//      motion + reason  every step of the motion-wake state machine: "checking",
+//                       "activity", "motion_on", "moving", "no_motion",
+//                       "stopped", "motion_off"
 //      Last Will        "connection_lost" - published BY THE BROKER when the
 //                       session dies without a clean DISCONNECT (crash, power
 //                       loss, lost link), about 1.5x kMqttKeepaliveSeconds later
 //
-//  Each is end-to-end encrypted exactly like a fix and sent as a one-element
-//  JSON array, so the broker still sees only ciphertext. No ack, no SD queue -
-//  a status message that cannot be delivered right now is simply dropped.
+//  Each is end-to-end encrypted exactly like a fix, so the broker still sees
+//  only ciphertext. "online" is live-only - it is about the connection it rides
+//  on. offline / wake / motion are things that HAPPENED: out of range they are
+//  kept on the SD card (kSdEventQueueFilePath) and sent, oldest first, as soon
+//  as the link is back, so a trip made away from WiFi still has its history.
+//  They leave the card on the broker's QoS-2 ack; there is no API ack for them.
 //
 //  ⚠ The broker ACL must grant this device WRITE on the topic below BEFORE this
 //  firmware is flashed: Mosquitto checks the will topic against the write ACL.
@@ -437,6 +446,17 @@ constexpr char kStatusTopic[] = "devices/GNSSXX/status";
 // purpose: an offline message sits directly in front of a deep sleep, and a link
 // that cannot confirm it within a few seconds is not going to.
 constexpr uint32_t kStatusPublishTimeoutMs = 3000;
+
+// Where offline / wake / motion events wait while the broker is out of reach -
+// sealed envelopes, one per line, exactly like the fix queue (and with no more
+// readable on the card than it has). Drained in bursts of kSdMaxBurstFixes,
+// paced by kBacklogFlushRetryMs and kBacklogFlushBudgetMs like the fix backlog.
+constexpr char kSdEventQueueFilePath[] = "/sdcard/events.jsonl";
+
+// Safety cap on that file; past it the oldest events are dropped. A parked car
+// with motion wake on logs about four events per wake, ~1 KB each, so the
+// default is ~10 MB - days of standby cycles, weeks at typical intervals.
+constexpr uint32_t kSdMaxQueuedEvents = 10000;
 
 // -----------------------------------------------------------------------------
 //  Remote settings (broker -> device).
@@ -464,8 +484,10 @@ constexpr uint32_t kStatusPublishTimeoutMs = 3000;
 //                       this document (a backstop - see kDefaultConfigCheckSeconds)
 //      motion           the motion-wake block: { "enabled", "threshold_mg",
 //                       "speed_kmph", "wake_wait_s", "stop_wait_s", "moving": {
-//                       the seven keys above, for while the car is driving } } -
-//                       see "Motion wake" at the end of this file
+//                       interval_s, sleep_between and fix_timeout_s again, for
+//                       while the car is driving } } - the queue, retry and
+//                       config_check_s keys are shared by both modes. See
+//                       "Motion wake" at the end of this file
 //
 //  Every key is optional: the decoder merges what it finds into the settings
 //  already in force, so a document carrying only "interval_s" changes only that.
@@ -597,7 +619,12 @@ constexpr char kDeviceAckPrivateKeyPem[] = "";
 // The remaining four defaults are the constants they replace at runtime, and
 // live with the subsystem they belong to: kFixAcquireTimeoutSeconds (timing),
 // kSdMaxQueuedFixes, kRetryIntervalHours and kRetryMaxAgeHours (microSD).
-constexpr uint32_t kDefaultSendIntervalSeconds = 60;
+//
+// The interval is the STANDBY one - motion wake is on by default (see "Motion
+// wake" below), so this is how often a PARKED car reports. Twenty minutes is a
+// heartbeat, not a track: the accelerometer is what notices the car pulling
+// away, and the moving set's 30 s takes over from there.
+constexpr uint32_t kDefaultSendIntervalSeconds = 1200;
 constexpr bool     kDefaultSleepBetweenSends   = false;
 
 // Accepted range for every numeric setting. A broker message outside these
@@ -955,10 +982,11 @@ constexpr uint32_t kMinDeepSleepMs = 1000;
 // -----------------------------------------------------------------------------
 //  Motion wake (accelerometer wake + separate moving / standby settings).
 //
-//  With motion wake on, the device runs one of TWO sets of the seven runtime
-//  settings: STANDBY (the top-level config document - interval_s, sleep_between
-//  and the rest) while the car is parked, and MOVING (the document's
-//  "motion.moving" object) while it is driving. MotionTracker owns the switch:
+//  With motion wake on, the device runs one of TWO sets of the three per-mode
+//  settings: STANDBY (the top-level interval_s, sleep_between and fix_timeout_s)
+//  while the car is parked, and MOVING (the document's "motion.moving" object)
+//  while it is driving. The queue, retry and config re-check settings are shared
+//  by both. MotionTracker owns the switch:
 //
 //      STANDBY   runs the standby set. Asleep (standby sleep_between), it has
 //                TWO wake sources: the RTC timer at the standby interval, and the
@@ -977,20 +1005,26 @@ constexpr uint32_t kMinDeepSleepMs = 1000;
 //  cached on the card like every other setting, and carried by every schedule
 //  profile). The values here are only the defaults for a device that has never
 //  been told otherwise, taken from docs/MOTION-WAKE-THRESHOLDS.md. The feature is
-//  OFF by default: it changes how the device sleeps, so it is switched on
-//  deliberately from the dashboard.
+//  ON by default: a tracker that reports every 30 s while driving and every
+//  20 min while parked is what this device is for. It can be switched off from
+//  the dashboard, which leaves the standby set as the only one.
 //
 //  Requires kAdxlEnabled. Without a working accelerometer the timer still wakes
 //  the device, so motion mode degrades to "look for movement every interval".
 // -----------------------------------------------------------------------------
-constexpr bool kDefaultMotionWakeEnabled = false;
+constexpr bool kDefaultMotionWakeEnabled = true;
 
 // Wake threshold, in milli-g. The ADXL345 compares in steps of 62.5 mg
 // (THRESH_ACT), so the value is rounded to the nearest step: 63 mg is step 1, the
 // most sensitive setting the data supports. The floor is that one step -
 // THRESH_ACT = 0 is the value the datasheet warns misbehaves - and the ceiling is
 // the sensor's +/-2 g range, beyond which a reading cannot change by much more.
-constexpr uint32_t kDefaultMotionThresholdMg = 63;
+//
+// The default is step 3 (187.5 mg), the step nearest 0.16 g - written as 188 so
+// the stored number is what the sensor actually uses rather than a value it
+// silently rounds. Less eager than step 1: a door slam or a passing lorry wakes
+// the device less often, and a real pull-away still clears it.
+constexpr uint32_t kDefaultMotionThresholdMg = 188;
 constexpr uint32_t kMinMotionThresholdMg     = 63;
 constexpr uint32_t kMaxMotionThresholdMg     = 2000;
 
@@ -1000,31 +1034,28 @@ constexpr uint32_t kDefaultMotionSpeedKmph = 3;
 constexpr uint32_t kMinMotionSpeedKmph     = 1;
 constexpr uint32_t kMaxMotionSpeedKmph     = 50;
 
-// How long a wake may look for a moving fix before going back to sleep. Covers a
-// cold GNSS start, and a driver who gets in and pulls away a few minutes later.
-constexpr uint32_t kDefaultMotionWakeWaitSeconds = 240;
+// How long a wake may look for a moving fix before going back to sleep. Ten
+// minutes covers a cold GNSS start, and a driver who gets in and pulls away
+// several minutes later.
+constexpr uint32_t kDefaultMotionWakeWaitSeconds = 600;
 constexpr uint32_t kMinMotionWakeWaitSeconds     = 30;
 constexpr uint32_t kMaxMotionWakeWaitSeconds     = 3600;
 
-// How long after the LAST moving fix the device stays in moving mode. Ten
-// minutes is the elbow of the analysed stop durations: shorter costs a fresh wake
-// at many traffic stops, longer only burns awake time.
-constexpr uint32_t kDefaultMotionStopWaitSeconds = 600;
+// How long after the LAST moving fix the device stays in moving mode. Fifteen
+// minutes rides out traffic stops and a quick errand without ending the trip;
+// shorter costs a fresh wake at more stops, longer only burns awake time.
+constexpr uint32_t kDefaultMotionStopWaitSeconds = 900;
 constexpr uint32_t kMinMotionStopWaitSeconds     = 60;
 constexpr uint32_t kMaxMotionStopWaitSeconds     = 7200;
 
 // The MOVING set's defaults. Its accepted ranges are the standby ones above
 // (kMin/kMaxSendIntervalSeconds and friends) - a setting means the same thing in
-// either mode. Two rules keep a mode switch from losing data, both applied by
-// SettingsApplier: the queue cap in force is the LARGER of the two, and the
-// rejected-fix give-up age the more lenient (0 = never beats any number).
-constexpr uint32_t kDefaultMovingSendIntervalSeconds = 10;
+// either mode. Only these three differ per mode: the queue cap, both retry knobs
+// and the config re-check are shared, so a mode switch can never be what trims
+// the queue or abandons a rejected fix.
+constexpr uint32_t kDefaultMovingSendIntervalSeconds = 30;
 constexpr bool     kDefaultMovingSleepBetweenSends   = false;
 constexpr uint32_t kDefaultMovingFixTimeoutSeconds   = 180;
-constexpr uint32_t kDefaultMovingQueueMaxFixes       = 20000;
-constexpr uint32_t kDefaultMovingRetryIntervalHours  = 24;
-constexpr uint32_t kDefaultMovingRetryMaxAgeHours    = 168;
-constexpr uint32_t kDefaultMovingConfigCheckSeconds  = 3600;
 
 // Gap between GNSS acquires while CHECKING. Short on purpose: the receiver is
 // already running, and the whole point of the window is to catch the car pulling

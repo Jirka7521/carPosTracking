@@ -289,7 +289,7 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<bool>("MotionEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
+                        .HasDefaultValue(true)
                         .HasColumnName("motion_enabled");
 
                     b.Property<int>("MotionSpeedKmph")
@@ -301,26 +301,20 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<int>("MotionStopWaitSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(600)
+                        .HasDefaultValue(900)
                         .HasColumnName("motion_stop_wait_s");
 
                     b.Property<int>("MotionThresholdMg")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(63)
+                        .HasDefaultValue(188)
                         .HasColumnName("motion_threshold_mg");
 
                     b.Property<int>("MotionWakeWaitSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(240)
+                        .HasDefaultValue(600)
                         .HasColumnName("motion_wake_wait_s");
-
-                    b.Property<int>("MovingConfigCheckSeconds")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(3600)
-                        .HasColumnName("moving_config_check_s");
 
                     b.Property<int>("MovingFixTimeoutSeconds")
                         .ValueGeneratedOnAdd()
@@ -331,26 +325,8 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<int>("MovingIntervalSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(10)
+                        .HasDefaultValue(30)
                         .HasColumnName("moving_interval_s");
-
-                    b.Property<int>("MovingQueueMaxFixes")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(20000)
-                        .HasColumnName("moving_queue_max_fixes");
-
-                    b.Property<int>("MovingRetryIntervalHours")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(24)
-                        .HasColumnName("moving_retry_interval_h");
-
-                    b.Property<int>("MovingRetryMaxAgeHours")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(168)
-                        .HasColumnName("moving_retry_max_age_h");
 
                     b.Property<bool>("MovingSleepBetween")
                         .ValueGeneratedOnAdd()
@@ -418,17 +394,9 @@ namespace CarPosAPI.Data.Migrations
 
                             t.HasCheckConstraint("ck_device_config_profiles_motion_wake_wait_s", "motion_wake_wait_s BETWEEN 30 AND 3600");
 
-                            t.HasCheckConstraint("ck_device_config_profiles_moving_config_check_s", "moving_config_check_s BETWEEN 60 AND 86400");
-
                             t.HasCheckConstraint("ck_device_config_profiles_moving_fix_timeout_s", "moving_fix_timeout_s BETWEEN 15 AND 3600");
 
                             t.HasCheckConstraint("ck_device_config_profiles_moving_interval_s", "moving_interval_s BETWEEN 5 AND 86400");
-
-                            t.HasCheckConstraint("ck_device_config_profiles_moving_queue_max_fixes", "moving_queue_max_fixes BETWEEN 100 AND 100000");
-
-                            t.HasCheckConstraint("ck_device_config_profiles_moving_retry_interval_h", "moving_retry_interval_h BETWEEN 1 AND 720");
-
-                            t.HasCheckConstraint("ck_device_config_profiles_moving_retry_max_age_h", "moving_retry_max_age_h BETWEEN 0 AND 8760");
 
                             t.HasCheckConstraint("ck_device_config_profiles_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
 
@@ -545,7 +513,7 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<bool>("MotionEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
+                        .HasDefaultValue(true)
                         .HasColumnName("motion_enabled");
 
                     b.Property<int>("MotionSpeedKmph")
@@ -557,26 +525,20 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<int>("MotionStopWaitSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(600)
+                        .HasDefaultValue(900)
                         .HasColumnName("motion_stop_wait_s");
 
                     b.Property<int>("MotionThresholdMg")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(63)
+                        .HasDefaultValue(188)
                         .HasColumnName("motion_threshold_mg");
 
                     b.Property<int>("MotionWakeWaitSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(240)
+                        .HasDefaultValue(600)
                         .HasColumnName("motion_wake_wait_s");
-
-                    b.Property<int>("MovingConfigCheckSeconds")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(3600)
-                        .HasColumnName("moving_config_check_s");
 
                     b.Property<int>("MovingFixTimeoutSeconds")
                         .ValueGeneratedOnAdd()
@@ -587,26 +549,8 @@ namespace CarPosAPI.Data.Migrations
                     b.Property<int>("MovingIntervalSeconds")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(10)
+                        .HasDefaultValue(30)
                         .HasColumnName("moving_interval_s");
-
-                    b.Property<int>("MovingQueueMaxFixes")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(20000)
-                        .HasColumnName("moving_queue_max_fixes");
-
-                    b.Property<int>("MovingRetryIntervalHours")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(24)
-                        .HasColumnName("moving_retry_interval_h");
-
-                    b.Property<int>("MovingRetryMaxAgeHours")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(168)
-                        .HasColumnName("moving_retry_max_age_h");
 
                     b.Property<bool>("MovingSleepBetween")
                         .ValueGeneratedOnAdd()
@@ -670,17 +614,9 @@ namespace CarPosAPI.Data.Migrations
 
                             t.HasCheckConstraint("ck_device_config_versions_motion_wake_wait_s", "motion_wake_wait_s BETWEEN 30 AND 3600");
 
-                            t.HasCheckConstraint("ck_device_config_versions_moving_config_check_s", "moving_config_check_s BETWEEN 60 AND 86400");
-
                             t.HasCheckConstraint("ck_device_config_versions_moving_fix_timeout_s", "moving_fix_timeout_s BETWEEN 15 AND 3600");
 
                             t.HasCheckConstraint("ck_device_config_versions_moving_interval_s", "moving_interval_s BETWEEN 5 AND 86400");
-
-                            t.HasCheckConstraint("ck_device_config_versions_moving_queue_max_fixes", "moving_queue_max_fixes BETWEEN 100 AND 100000");
-
-                            t.HasCheckConstraint("ck_device_config_versions_moving_retry_interval_h", "moving_retry_interval_h BETWEEN 1 AND 720");
-
-                            t.HasCheckConstraint("ck_device_config_versions_moving_retry_max_age_h", "moving_retry_max_age_h BETWEEN 0 AND 8760");
 
                             t.HasCheckConstraint("ck_device_config_versions_queue_max_fixes", "queue_max_fixes BETWEEN 100 AND 100000");
 
@@ -724,6 +660,10 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("kind");
 
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(24)
@@ -748,16 +688,16 @@ namespace CarPosAPI.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DeviceId", "ReceivedAt")
-                        .HasDatabaseName("ix_device_events_device_id_received_at");
+                    b.HasIndex("DeviceId", "OccurredAt")
+                        .HasDatabaseName("ix_device_events_device_id_occurred_at");
 
                     b.ToTable("device_events", null, t =>
                         {
                             t.HasCheckConstraint("ck_device_events_battery_pct", "battery_pct >= 0 AND battery_pct <= 100");
 
-                            t.HasCheckConstraint("ck_device_events_kind", "kind IN ('offline', 'restart')");
+                            t.HasCheckConstraint("ck_device_events_kind", "kind IN ('offline', 'restart', 'wake', 'motion')");
 
-                            t.HasCheckConstraint("ck_device_events_reason", "(kind = 'offline' AND reason IN ('sleep', 'powerOff', 'batteryLow', 'error', 'connectionLost')) OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash'))");
+                            t.HasCheckConstraint("ck_device_events_reason", "(kind = 'offline' AND reason IN ('sleep', 'sleepNoMotion', 'powerOff', 'batteryLow', 'error', 'connectionLost')) OR (kind = 'restart' AND reason IN ('powerOn', 'powerLoss', 'crash')) OR (kind = 'wake' AND reason IN ('timer', 'accelerometer', 'powerSwitch')) OR (kind = 'motion' AND reason IN ('checking', 'activity', 'motionOn', 'moving', 'noMotion', 'stopped', 'motionOff'))");
 
                             t.HasCheckConstraint("ck_device_events_severity", "severity IN ('normal', 'alert', 'error')");
 

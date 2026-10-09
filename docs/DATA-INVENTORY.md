@@ -40,22 +40,26 @@ export deliberately bypasses that cap so portability is complete. **Never auto-d
 the retention section of the policy at `/privacy`. Erasable via
 `DELETE /api/devices/{deviceId}/positions` or by deleting the account.
 
-### `device_events` — the connection history
+### `device_events` — the device history
 
 | Column | | Note | On account deletion |
 |---|---|---|---|
 | `device_id` | p | links to a device and thence to a person | — |
-| `received_at` | **P** | when the tracker went offline (or restarted) — i.e. when the vehicle stopped or started being used | deleted with the device if solely owned |
+| `occurred_at` | **P** | when it happened — the tracker went offline, restarted, woke, or started / stopped moving — i.e. when the vehicle was parked, driven or left alone | deleted with the device if solely owned |
+| `received_at` | **P** | when the server received it; later than `occurred_at` for an event the tracker kept on its SD card while out of range | as above |
 | `device_time` | **P** | the tracker's own clock at that moment, when it trusted one | as above |
-| `kind`, `reason`, `severity` | p | offline (sleep / switched off / battery low / error / connection lost) or restart (power on / power loss / crash), and how serious | as above |
+| `kind`, `reason`, `severity` | p | offline (sleep / sleep because parked / switched off / battery low / error / connection lost), restart (power on / power loss / crash), wake (timer / accelerometer / power switch) or motion step (checking / jolt / moving / no motion / stopped / motion wake on or off), and how serious | as above |
 | `battery_pct`, `sleep_seconds`, `detail` | · | device health; expected time away; an error code such as `gnss_init` | as above |
 
-No location — but a timetable of when the vehicle was in use, so it is treated exactly like
-`positions`: one row per sleep cycle on a sleeping device, **never auto-deleted**, erased over the
-same range by `DELETE /api/devices/{deviceId}/positions` and with the device on account deletion,
-and included in the data export. Reads are bounded at 1000 rows
+No location — but a detailed timetable of when the vehicle was in use: the motion steps say when
+it started moving and when it was parked, to the minute, so it is treated exactly like `positions`:
+several rows per sleep cycle on a sleeping device, **never auto-deleted**, erased over the same
+range by `DELETE /api/devices/{deviceId}/positions` and with the device on account deletion, and
+included in the data export. Reads are bounded at 1000 rows
 (`GET /api/devices/{deviceId}/events`). Written only by the status ingest from the tracker's own
-sealed messages and its MQTT Last Will.
+sealed messages and its MQTT Last Will. On the tracker, events said out of range wait on its SD
+card (`events.jsonl`) as **ciphertext only**, like queued fixes, until the broker acknowledges
+them.
 
 ### `devices`
 
@@ -149,7 +153,7 @@ password, MQTT device credentials, the device's ack private key, the backend's p
 
 | Hop | What is visible |
 |---|---|
-| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`, and `devices/<id>/status` for the connection messages and the Last Will) and the client IP are visible — so the broker can see *that* a tracker reported or went offline, never why |
+| Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`, and `devices/<id>/status` for the status messages — connection, wake, motion — and the Last Will) and the client IP are visible — so the broker can see *that* a tracker reported or sent a status, never what it said |
 | Broker → API | same ciphertext; the API connects as the `dashboard` broker account |
 | API → browser | plaintext JSON over TLS — but Cloudflare terminates that TLS and therefore sees it |
 | Browser → Google | on map load only, after consent: IP, user-agent, referrer, and the viewport (hence the vehicle's area) |
@@ -193,7 +197,8 @@ localStorage key is deleted on start-up — a signed-in user's map consent now l
 `mapsConsentVersion` and `mapsConsentGrantedAtUtc`), every access grant held and
 granted, device nicknames, the temporary share links this account created, metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
-history and connection history (`statusEvents`) of every readable device** — uncapped.
+history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
+readable device** — uncapped.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised

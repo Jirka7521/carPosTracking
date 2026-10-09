@@ -21,9 +21,9 @@ namespace CarPosAPI.Dtos;
 /// cycle — validation cannot express that trade-off, so the UI explains it instead.
 /// </param>
 /// <param name="FixTimeoutSeconds">How long to chase a GNSS lock before giving up on a cycle.</param>
-/// <param name="QueueMaxFixes">How many undelivered fixes the SD queue may hold.</param>
-/// <param name="RetryIntervalHours">Hours between attempts on a fix this API rejected.</param>
-/// <param name="RetryMaxAgeHours">Hours after which a still-rejected fix is abandoned; 0 = never.</param>
+/// <param name="QueueMaxFixes">How many undelivered fixes the SD queue may hold, in either mode.</param>
+/// <param name="RetryIntervalHours">Hours between attempts on a fix this API rejected, in either mode.</param>
+/// <param name="RetryMaxAgeHours">Hours after which a still-rejected fix is abandoned, in either mode; 0 = never.</param>
 /// <param name="ConfigCheckSeconds">
 /// How often an awake device asks the broker to re-send this document. A backstop
 /// only — a saved change normally reaches the device by push within a second. It has
@@ -31,9 +31,10 @@ namespace CarPosAPI.Dtos;
 /// device re-reads its configuration on every wake.
 /// </param>
 /// <param name="MotionEnabled">
-/// Turns motion wake on. The seven values above are then the STANDBY set (the car is
-/// parked) and the <c>Moving*</c> values below are the set the device runs while it is
-/// driving. Off, every other motion value is stored but inert.
+/// Turns motion wake on. Interval, sleep and fix timeout above are then the STANDBY set
+/// (the car is parked) and the <c>Moving*</c> values below are the set the device runs
+/// while it is driving; the queue, retry and re-check values above apply in both.
+/// Off, every other motion value is stored but inert.
 /// </param>
 /// <param name="MotionThresholdMg">
 /// Accelerometer wake threshold, in milli-g. The ADXL345 compares in 62.5 mg steps and
@@ -49,18 +50,6 @@ namespace CarPosAPI.Dtos;
 /// <param name="MovingIntervalSeconds">Seconds between position reports while moving.</param>
 /// <param name="MovingSleepBetween">Deep-sleep and power the modem down between reports while moving.</param>
 /// <param name="MovingFixTimeoutSeconds">How long to chase a GNSS lock before giving up on a cycle, while moving.</param>
-/// <param name="MovingQueueMaxFixes">
-/// How many undelivered fixes the SD queue may hold while moving. The cap in force on
-/// the device is the LARGER of this and <paramref name="QueueMaxFixes"/>, so switching
-/// mode never discards fixes the other mode was still allowed to keep.
-/// </param>
-/// <param name="MovingRetryIntervalHours">Hours between attempts on a fix this API rejected, while moving.</param>
-/// <param name="MovingRetryMaxAgeHours">
-/// Hours after which a still-rejected fix is abandoned, while moving; 0 = never. The age
-/// in force on the device is the more lenient of this and <paramref name="RetryMaxAgeHours"/>,
-/// so 0 in either set means a rejected fix is never given up on.
-/// </param>
-/// <param name="MovingConfigCheckSeconds">How often an awake device asks the broker to re-send this document, while moving.</param>
 /// <param name="AcknowledgeOverride">
 /// The caller understands that on a device with an <em>enabled schedule</em> this save
 /// is temporary: it holds only until the next scheduled switch, which then reasserts
@@ -136,21 +125,5 @@ public sealed record UpdateDeviceConfigRequestDto(
     [Required]
     [Range(DeviceConfigRules.MinFixTimeoutSeconds, DeviceConfigRules.MaxFixTimeoutSeconds)]
     int MovingFixTimeoutSeconds,
-
-    [Required]
-    [Range(DeviceConfigRules.MinQueueMaxFixes, DeviceConfigRules.MaxQueueMaxFixes)]
-    int MovingQueueMaxFixes,
-
-    [Required]
-    [Range(DeviceConfigRules.MinRetryIntervalHours, DeviceConfigRules.MaxRetryIntervalHours)]
-    int MovingRetryIntervalHours,
-
-    [Required]
-    [Range(DeviceConfigRules.MinRetryMaxAgeHours, DeviceConfigRules.MaxRetryMaxAgeHours)]
-    int MovingRetryMaxAgeHours,
-
-    [Required]
-    [Range(DeviceConfigRules.MinConfigCheckSeconds, DeviceConfigRules.MaxConfigCheckSeconds)]
-    int MovingConfigCheckSeconds,
 
     bool AcknowledgeOverride = false);

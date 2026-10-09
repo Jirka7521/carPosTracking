@@ -205,10 +205,6 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             MovingIntervalSeconds = request.MovingIntervalSeconds,
             MovingSleepBetween = request.MovingSleepBetween,
             MovingFixTimeoutSeconds = request.MovingFixTimeoutSeconds,
-            MovingQueueMaxFixes = request.MovingQueueMaxFixes,
-            MovingRetryIntervalHours = request.MovingRetryIntervalHours,
-            MovingRetryMaxAgeHours = request.MovingRetryMaxAgeHours,
-            MovingConfigCheckSeconds = request.MovingConfigCheckSeconds,
             CreatedByUserId = userId,
             CreatedAt = now,
             UpdatedAt = now,
@@ -276,10 +272,6 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
         profile.MovingIntervalSeconds = request.MovingIntervalSeconds;
         profile.MovingSleepBetween = request.MovingSleepBetween;
         profile.MovingFixTimeoutSeconds = request.MovingFixTimeoutSeconds;
-        profile.MovingQueueMaxFixes = request.MovingQueueMaxFixes;
-        profile.MovingRetryIntervalHours = request.MovingRetryIntervalHours;
-        profile.MovingRetryMaxAgeHours = request.MovingRetryMaxAgeHours;
-        profile.MovingConfigCheckSeconds = request.MovingConfigCheckSeconds;
         profile.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -873,11 +865,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
                 profile.MotionStopWaitSeconds,
                 profile.MovingIntervalSeconds,
                 profile.MovingSleepBetween,
-                profile.MovingFixTimeoutSeconds,
-                profile.MovingQueueMaxFixes,
-                profile.MovingRetryIntervalHours,
-                profile.MovingRetryMaxAgeHours,
-                profile.MovingConfigCheckSeconds))
+                profile.MovingFixTimeoutSeconds))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -964,11 +952,7 @@ internal sealed class DeviceConfigScheduleService : IDeviceConfigScheduleService
             profile.MotionStopWaitSeconds,
             profile.MovingIntervalSeconds,
             profile.MovingSleepBetween,
-            profile.MovingFixTimeoutSeconds,
-            profile.MovingQueueMaxFixes,
-            profile.MovingRetryIntervalHours,
-            profile.MovingRetryMaxAgeHours,
-            profile.MovingConfigCheckSeconds);
+            profile.MovingFixTimeoutSeconds);
     }
 
     /// <summary>Re-types a failed gate result as a state result, keeping outcome, detail and code.</summary>

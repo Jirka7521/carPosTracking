@@ -2,11 +2,12 @@
 // deviceEvents — what a tracker's connection status MEANS, for the status badge
 // and the Events tab.
 //
-// The API stores what happened (an offline reason, a restart) and how much it
-// matters (the severity). Two things are left to the dashboard, because only it
-// knows "now": whether the device has come back since it went offline, and
-// whether a sleeping device is late. Both are answered here, in one place, so the
-// card in the grid and the header on the device page can never disagree.
+// The API stores what happened (an offline reason, a restart, a wake, a motion
+// step) and how much it matters (the severity). Two things are left to the
+// dashboard, because only it knows "now": whether the device has come back since
+// it went offline, and whether a sleeping device is late. Both are answered here,
+// in one place, so the card in the grid and the header on the device page can
+// never disagree.
 //
 // Tables below hold translation KEYS, not text, like every other label table in
 // utils/. They are reached through a constant, so their prefixes are listed in
@@ -73,7 +74,7 @@ export function resolveLinkState(device: DeviceDto, nowMs: number): DeviceLinkSt
 
   const alive: Date | null = latestSignOfLife(device)
   const offline = device.lastOfflineEvent
-  const offlineAt: Date | null = offline ? parseApiTimestamp(offline.receivedAt) : null
+  const offlineAt: Date | null = offline ? parseApiTimestamp(offline.occurredAt) : null
 
   if (offline === null || offlineAt === null) {
     // Never gone offline on record. Only claim "online" when the device has said
@@ -103,8 +104,11 @@ export function resolveLinkState(device: DeviceDto, nowMs: number): DeviceLinkSt
 
 // The badge's word for why a device is offline — phrased as a STATE ("Sleeping"),
 // since the badge answers "what is it doing now".
+// Both sleeps read "Sleeping": the badge says what the device is doing, and why
+// it went to sleep is the Events tab's to tell.
 export const OFFLINE_BADGE_LABEL_KEYS = {
   sleep: 'common:link.reason.sleep',
+  sleepNoMotion: 'common:link.reason.sleep',
   powerOff: 'common:link.reason.powerOff',
   batteryLow: 'common:link.reason.batteryLow',
   error: 'common:link.reason.error',
@@ -114,6 +118,7 @@ export const OFFLINE_BADGE_LABEL_KEYS = {
 // Decorative icon per offline reason; always rendered aria-hidden beside text.
 export const OFFLINE_BADGE_ICONS: Record<DeviceOfflineReason, string> = {
   sleep: '💤',
+  sleepNoMotion: '💤',
   powerOff: '⏻',
   batteryLow: '🪫',
   error: '⚠️',
@@ -124,6 +129,7 @@ export const OFFLINE_BADGE_ICONS: Record<DeviceOfflineReason, string> = {
 // sleep"), since each row is one moment in the history.
 export const EVENT_REASON_LABEL_KEYS = {
   sleep: 'device:events.reason.sleep',
+  sleepNoMotion: 'device:events.reason.sleepNoMotion',
   powerOff: 'device:events.reason.powerOff',
   batteryLow: 'device:events.reason.batteryLow',
   error: 'device:events.reason.error',
@@ -131,6 +137,16 @@ export const EVENT_REASON_LABEL_KEYS = {
   powerOn: 'device:events.reason.powerOn',
   powerLoss: 'device:events.reason.powerLoss',
   crash: 'device:events.reason.crash',
+  timer: 'device:events.reason.timer',
+  accelerometer: 'device:events.reason.accelerometer',
+  powerSwitch: 'device:events.reason.powerSwitch',
+  checking: 'device:events.reason.checking',
+  activity: 'device:events.reason.activity',
+  motionOn: 'device:events.reason.motionOn',
+  moving: 'device:events.reason.moving',
+  noMotion: 'device:events.reason.noMotion',
+  stopped: 'device:events.reason.stopped',
+  motionOff: 'device:events.reason.motionOff',
 } as const satisfies Record<DeviceEventReason, string>
 
 export const EVENT_SEVERITY_LABEL_KEYS = {

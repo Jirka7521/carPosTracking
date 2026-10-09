@@ -10,6 +10,8 @@
 //  drift apart.
 //
 //      Sleep           a planned deep sleep between reports (sleep_between)
+//      SleepNoMotion   the same, but in STANDBY with motion wake on: the car is
+//                      parked, and the accelerometer is armed to say otherwise
 //      PowerOff        the operator switched the unit off
 //      BatteryLow      the pack fell below the cut-off - see LowBatteryGuard
 //      Error           a fault the firmware caught itself (e.g. GNSS init failed)
@@ -20,6 +22,7 @@
 
 enum class OfflineReason {
   Sleep,
+  SleepNoMotion,
   PowerOff,
   BatteryLow,
   Error,

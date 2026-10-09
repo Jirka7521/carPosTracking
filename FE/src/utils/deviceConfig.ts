@@ -48,10 +48,6 @@ export const CONFIG_LIMITS = {
   // The moving set is bounded exactly like the standby set it mirrors.
   movingIntervalSeconds: { min: 5, max: 86400 },
   movingFixTimeoutSeconds: { min: 15, max: 3600 },
-  movingQueueMaxFixes: { min: 100, max: 100000 },
-  movingRetryIntervalHours: { min: 1, max: 720 },
-  movingRetryMaxAgeHours: { min: 0, max: 8760 },
-  movingConfigCheckSeconds: { min: 60, max: 86400 },
 } as const
 
 // Every editable key, in the order the form and the pending table present them.
@@ -73,48 +69,44 @@ export const CONFIG_FIELD_ORDER: readonly (keyof DeviceConfigValuesDto)[] = [
   'movingIntervalSeconds',
   'movingSleepBetween',
   'movingFixTimeoutSeconds',
-  'movingQueueMaxFixes',
-  'movingRetryIntervalHours',
-  'movingRetryMaxAgeHours',
-  'movingConfigCheckSeconds',
 ]
 
-// The seven settings that make up one operating mode, as a map from the role a
+// The three settings that differ per operating mode, as a map from the role a
 // setting plays to the key that holds it. With motion wake there are two
-// complete copies — standby and moving — and ModeValuesFields renders either
-// one from the same JSX by being handed one of these maps. Typing each role as
-// the pair of keys it can be stops a caller asking a mode for a setting it does
-// not have; it cannot stop a map that mixes the two modes, which is why there
-// are only these two and nothing else builds one.
+// copies — standby and moving — and ModeValuesFields renders either one from
+// the same JSX by being handed one of these maps. Typing each role as the pair
+// of keys it can be stops a caller asking a mode for a setting it does not
+// have; it cannot stop a map that mixes the two modes, which is why there are
+// only these two and nothing else builds one.
 export type ModeKeys = {
   interval: 'intervalSeconds' | 'movingIntervalSeconds'
   sleepBetween: 'sleepBetween' | 'movingSleepBetween'
   fixTimeout: 'fixTimeoutSeconds' | 'movingFixTimeoutSeconds'
-  queueMax: 'queueMaxFixes' | 'movingQueueMaxFixes'
-  retryInterval: 'retryIntervalHours' | 'movingRetryIntervalHours'
-  retryMaxAge: 'retryMaxAgeHours' | 'movingRetryMaxAgeHours'
-  configCheck: 'configCheckSeconds' | 'movingConfigCheckSeconds'
 }
 
 export const STANDBY_KEYS: ModeKeys = {
   interval: 'intervalSeconds',
   sleepBetween: 'sleepBetween',
   fixTimeout: 'fixTimeoutSeconds',
-  queueMax: 'queueMaxFixes',
-  retryInterval: 'retryIntervalHours',
-  retryMaxAge: 'retryMaxAgeHours',
-  configCheck: 'configCheckSeconds',
 }
 
 export const MOVING_KEYS: ModeKeys = {
   interval: 'movingIntervalSeconds',
   sleepBetween: 'movingSleepBetween',
   fixTimeout: 'movingFixTimeoutSeconds',
-  queueMax: 'movingQueueMaxFixes',
-  retryInterval: 'movingRetryIntervalHours',
-  retryMaxAge: 'movingRetryMaxAgeHours',
-  configCheck: 'movingConfigCheckSeconds',
 }
+
+// The four settings with ONE value for both modes: the queue cap, the two retry
+// knobs and the config re-check. They govern storage and the link rather than
+// how the car is sampled, and the firmware applies them whichever mode is in
+// force — a queue cap that followed the mode would trim the queue every time
+// the car parked. SharedValuesFields renders them, once.
+export const SHARED_KEYS = [
+  'queueMaxFixes',
+  'retryIntervalHours',
+  'retryMaxAgeHours',
+  'configCheckSeconds',
+] as const satisfies readonly (keyof DeviceConfigValuesDto)[]
 
 // Short labels used wherever a setting is named outside its own form field —
 // as translation keys rather than text, so the form, the pending table and the
@@ -138,10 +130,6 @@ export const CONFIG_FIELD_LABEL_KEYS = {
   movingIntervalSeconds: 'settings:config.field.movingIntervalSeconds',
   movingSleepBetween: 'settings:config.field.movingSleepBetween',
   movingFixTimeoutSeconds: 'settings:config.field.movingFixTimeoutSeconds',
-  movingQueueMaxFixes: 'settings:config.field.movingQueueMaxFixes',
-  movingRetryIntervalHours: 'settings:config.field.movingRetryIntervalHours',
-  movingRetryMaxAgeHours: 'settings:config.field.movingRetryMaxAgeHours',
-  movingConfigCheckSeconds: 'settings:config.field.movingConfigCheckSeconds',
 } as const satisfies Record<keyof DeviceConfigValuesDto, string>
 
 // Which settings differ between two revisions. Returns keys in CONFIG_FIELD_ORDER
@@ -170,21 +158,17 @@ export function formatConfigValue(
     case 'fixTimeoutSeconds':
     case 'movingFixTimeoutSeconds':
     case 'configCheckSeconds':
-    case 'movingConfigCheckSeconds':
     case 'motionWakeWaitSeconds':
     case 'motionStopWaitSeconds':
       return i18n.t('common:units.abbrevSeconds', { value: values[key] })
     case 'queueMaxFixes':
-    case 'movingQueueMaxFixes':
       return i18n.t('settings:config.fixesCount', {
         count: values[key],
         value: formatInteger(values[key]),
       })
     case 'retryIntervalHours':
-    case 'movingRetryIntervalHours':
       return i18n.t('common:units.abbrevHours', { value: values[key] })
     case 'retryMaxAgeHours':
-    case 'movingRetryMaxAgeHours':
       // 0 is not "zero hours", it is the deliberate "keep retrying forever".
       return values[key] === 0
         ? i18n.t('common:relative.never')
@@ -254,6 +238,31 @@ export function estimateQueueSpan(maxFixes: number, intervalSeconds: number): st
   }
   return i18n.t('settings:config.queueSpan', {
     duration: describeSeconds(maxFixes * intervalSeconds),
+  })
+}
+
+// The same estimate for a tracker with motion wake on, where the one queue cap
+// is shared by two intervals: it fills one fix per cycle of whichever set is in
+// force, so how long it lasts depends on whether the car is parked or driving.
+// Both are given rather than the worse one, because an outage while parked is
+// the common case and reading only the driving figure would undersell it.
+export function estimateQueueSpanByMode(
+  maxFixes: number,
+  standbyIntervalSeconds: number,
+  movingIntervalSeconds: number,
+): string {
+  if (!Number.isFinite(maxFixes) || maxFixes <= 0) {
+    return ''
+  }
+  if (!Number.isFinite(standbyIntervalSeconds) || standbyIntervalSeconds <= 0) {
+    return ''
+  }
+  if (!Number.isFinite(movingIntervalSeconds) || movingIntervalSeconds <= 0) {
+    return ''
+  }
+  return i18n.t('settings:config.queueSpanByMode', {
+    standby: describeSeconds(maxFixes * standbyIntervalSeconds),
+    moving: describeSeconds(maxFixes * movingIntervalSeconds),
   })
 }
 
@@ -345,10 +354,6 @@ export function validateConfigRanges(values: DeviceConfigValuesDto): string | nu
     { key: 'motionStopWaitSeconds', value: values.motionStopWaitSeconds },
     { key: 'movingIntervalSeconds', value: values.movingIntervalSeconds },
     { key: 'movingFixTimeoutSeconds', value: values.movingFixTimeoutSeconds },
-    { key: 'movingQueueMaxFixes', value: values.movingQueueMaxFixes },
-    { key: 'movingRetryIntervalHours', value: values.movingRetryIntervalHours },
-    { key: 'movingRetryMaxAgeHours', value: values.movingRetryMaxAgeHours },
-    { key: 'movingConfigCheckSeconds', value: values.movingConfigCheckSeconds },
   ]
 
   for (const check of checks) {

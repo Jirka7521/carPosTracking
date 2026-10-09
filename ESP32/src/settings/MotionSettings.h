@@ -13,8 +13,9 @@
 //      speedKmph()        a fix strictly faster than this counts as MOVING
 //      wakeWaitSeconds()  after a wake, how long to look for a moving fix
 //      stopWaitSeconds()  how long after the last moving fix to stay MOVING
-//      moving()           the full set of the seven reporting knobs in force
-//                         while moving (the standby set lives on DeviceSettings)
+//      moving()           the three per-mode reporting knobs in force while
+//                         moving (the standby set, and the four knobs shared by
+//                         both modes, live on DeviceSettings)
 //
 //  WHAT it means lives in MotionTracker; this class only keeps the numbers
 //  valid. The bounds and defaults are the "Motion wake" block of Config.h, which

@@ -35,6 +35,7 @@ void SettingsCodec::encodeInto(cJSON* object, const DeviceSettings& settings,
   }
 
   encodeMode(object, settings.standby());
+  encodeShared(object, settings);
   encodeMotion(object, settings.motion());
 }
 
@@ -44,14 +45,17 @@ void SettingsCodec::encodeMode(cJSON* object, const ModeSettings& mode) {
   cJSON_AddBoolToObject(object, kSleepKey, mode.sleepBetweenSends());
   cJSON_AddNumberToObject(object, kFixTimeoutKey,
                           static_cast<double>(mode.fixTimeoutSeconds()));
-  cJSON_AddNumberToObject(object, kQueueMaxFixesKey,
-                          static_cast<double>(mode.queueMaxFixes()));
-  cJSON_AddNumberToObject(object, kRetryIntervalKey,
-                          static_cast<double>(mode.retryIntervalHours()));
-  cJSON_AddNumberToObject(object, kRetryMaxAgeKey,
-                          static_cast<double>(mode.retryMaxAgeHours()));
-  cJSON_AddNumberToObject(object, kConfigCheckKey,
-                          static_cast<double>(mode.configCheckSeconds()));
+}
+
+void SettingsCodec::encodeShared(cJSON* root, const DeviceSettings& settings) {
+  cJSON_AddNumberToObject(root, kQueueMaxFixesKey,
+                          static_cast<double>(settings.queueMaxFixes()));
+  cJSON_AddNumberToObject(root, kRetryIntervalKey,
+                          static_cast<double>(settings.retryIntervalHours()));
+  cJSON_AddNumberToObject(root, kRetryMaxAgeKey,
+                          static_cast<double>(settings.retryMaxAgeHours()));
+  cJSON_AddNumberToObject(root, kConfigCheckKey,
+                          static_cast<double>(settings.configCheckSeconds()));
 }
 
 void SettingsCodec::encodeMotion(cJSON* root, const MotionSettings& motion) {
@@ -182,6 +186,10 @@ bool SettingsCodec::decodeObject(const cJSON* root, DeviceSettings& settings) {
     sawKnownKey = true;
   }
 
+  if (decodeShared(root, decoded)) {
+    sawKnownKey = true;
+  }
+
   MotionSettings motion = decoded.motion();
   if (decodeMotion(root, motion)) {
     decoded.setMotion(motion);
@@ -214,20 +222,27 @@ bool SettingsCodec::decodeMode(const cJSON* object, ModeSettings& mode) {
     mode.setFixTimeoutSeconds(value);
     sawKnownKey = true;
   }
-  if (readUint(object, kQueueMaxFixesKey, value)) {
-    mode.setQueueMaxFixes(value);
+  return sawKnownKey;
+}
+
+bool SettingsCodec::decodeShared(const cJSON* root, DeviceSettings& settings) {
+  bool     sawKnownKey = false;
+  uint32_t value       = 0;
+
+  if (readUint(root, kQueueMaxFixesKey, value)) {
+    settings.setQueueMaxFixes(value);
     sawKnownKey = true;
   }
-  if (readUint(object, kRetryIntervalKey, value)) {
-    mode.setRetryIntervalHours(value);
+  if (readUint(root, kRetryIntervalKey, value)) {
+    settings.setRetryIntervalHours(value);
     sawKnownKey = true;
   }
-  if (readUint(object, kRetryMaxAgeKey, value)) {
-    mode.setRetryMaxAgeHours(value);
+  if (readUint(root, kRetryMaxAgeKey, value)) {
+    settings.setRetryMaxAgeHours(value);
     sawKnownKey = true;
   }
-  if (readUint(object, kConfigCheckKey, value)) {
-    mode.setConfigCheckSeconds(value);
+  if (readUint(root, kConfigCheckKey, value)) {
+    settings.setConfigCheckSeconds(value);
     sawKnownKey = true;
   }
   return sawKnownKey;
@@ -269,7 +284,8 @@ bool SettingsCodec::decodeMotion(const cJSON* root, MotionSettings& motion) {
   }
 
   // The moving set merges exactly like the top level: a partial "moving" changes
-  // only the keys it carries.
+  // only the keys it carries. Only the three per-mode keys are read here; an
+  // older document's moving queue/retry/re-check keys are simply not looked up.
   const cJSON* moving = cJSON_GetObjectItemCaseSensitive(object, kMovingKey);
   if (moving != nullptr) {
     if (cJSON_IsObject(moving)) {

@@ -8,12 +8,14 @@
 //  the subsystems it must quiesce but owns the *order*, which is where the real
 //  knowledge lives:
 //
-//      0. Status - say WHY (PresenceReporter): "going to sleep", "switched off",
+//      0. Status - say WHY (PresenceReporter): "going to sleep" (on the
+//                  interval, or because the car is parked), "switched off",
 //                  "battery low", "error". It has to come first, while the
 //                  link is still up - and it has to come before step 1, whose
 //                  clean DISCONNECT is what makes the broker throw the Last
-//                  Will away. Every sleep path goes through this class, so a
-//                  new one cannot forget to report.
+//                  Will away. Out of range it is kept on the SD card instead,
+//                  which step 4 is still to unmount. Every sleep path goes
+//                  through this class, so a new one cannot forget to report.
 //      1. MQTT   - disconnect so the broker sees a DISCONNECT rather than
 //                  waiting out the keep-alive on a session that is already gone.
 //      2. WiFi   - stop the driver. ESP-IDF requires the radio be stopped before

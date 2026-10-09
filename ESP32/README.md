@@ -80,20 +80,23 @@ reuse.
   right down (GNSS engine, antenna amplifier and LTE PA all go with it) and puts
   the ESP32 into deep sleep for the rest of the interval.
 - 📣 **Status messages & Last Will**: before every sleep or shutdown the device
-  says *why* — going to sleep (and for how long), switched off, battery low, or an
-  error — and an MQTT **Last Will** makes the broker say "connection lost" for it
-  when it drops without a goodbye. After a reboot it reports the reset reason, so a
-  crash or a brown-out reaches the dashboard. Sealed like every fix. See
-  [Status messages & Last Will](#status-messages--last-will).
+  says *why* — going to sleep on its interval (and for how long), going to sleep
+  because the car is parked, switched off, battery low, or an error — and an MQTT
+  **Last Will** makes the broker say "connection lost" for it when it drops
+  without a goodbye. It also reports every wake (timer, accelerometer, power
+  switch) and every motion-wake step (checking, moving, parked, stopped). After a
+  reboot it reports the reset reason, so a crash or a brown-out reaches the
+  dashboard. Sealed like every fix; said out of range, they wait on the SD card.
+  See [Status messages & Last Will](#status-messages--last-will).
 - 🪫 **Low-battery cut-off**: below a threshold the device reports "battery low",
   shuts everything down and sleeps, waking only to re-check the pack, and starts
   again once it is charged. See [Low-battery cut-off](#low-battery-cut-off).
 - 🚗 **Motion wake**: the ADXL345's activity interrupt wakes the sleeping ESP32
   when the car starts to move, and the device then reports on a **second, faster
-  set of the seven reporting settings** until the car has stood still for a
-  while. AC-coupled on all three axes, so it works however the sensor is
-  mounted. Off by default; with it off the device behaves exactly as it did
-  before. See [Motion wake](#motion-wake).
+  set of reporting settings** (interval, sleep, fix timeout) until the car has
+  stood still for a while. AC-coupled on all three axes, so it works however the
+  sensor is mounted. On by default; switched off, the device behaves exactly as
+  it did before. See [Motion wake](#motion-wake).
 - 🧾 **Boot log**: one line per boot on the SD card — reset reason, boot counter,
   free heap — and the recent history printed to serial at start-up, so an
   unexplained restart can be diagnosed after the fact. Because RTC memory
@@ -148,7 +151,13 @@ src/
 │   └── AccelPeakTracker.h/.cpp ← Per-axis peak of the interval, on its own task
 │
 ├── motion/
-│   └── MotionTracker.h/.cpp    ← Motion wake: STANDBY / CHECKING / MOVING, and which settings apply
+│   ├── MotionTracker.h/.cpp    ← Motion wake: STANDBY / CHECKING / MOVING, and which settings apply
+│   └── MotionChange.h          ← One reported transition: checking / moving / no motion / stopped …
+│
+├── events/
+│   ├── WakeCause.h              ← What woke the device: timer / accelerometer / power switch
+│   ├── ActivityReporter.h/.cpp  ← When to record a wake or a motion step
+│   └── EventLog.h/.cpp          ← Status events: publish now, or keep on the card and drain later
 │
 ├── status/
 │   ├── StatusLed.h/.cpp        ← One LED: a mode (off/blink/on) → a pin level
@@ -159,8 +168,8 @@ src/
 │   ├── TelemetrySample.h        ← Aggregate: position + battery + accel
 │   ├── TelemetryPublisher.h/.cpp← Sample → JSON → encrypt (seal/publish)
 │   ├── AckWatcher.h/.cpp       ← Did the API actually store it? (per-envelope)
-│   ├── OfflineReason.h          ← Why the device is leaving: sleep / off / battery / error
-│   ├── StatusPublisher.h/.cpp   ← Seal + publish online/offline status, seal the Last Will
+│   ├── OfflineReason.h          ← Why the device is leaving: sleep / parked / off / battery / error
+│   ├── StatusPublisher.h/.cpp   ← Seal every status message, publish "online", seal the Last Will
 │   └── PresenceReporter.h/.cpp  ← When to say "online" (per connection) and "goodbye"
 │
 ├── sdcard/
@@ -170,8 +179,8 @@ src/
 │   └── FixForwarder.h/.cpp  ← Publish-now-or-store; flush the backlog, lock or not
 │
 ├── settings/
-│   ├── DeviceSettings.h/.cpp   ← The settings in force: version + standby set + motion block
-│   ├── ModeSettings.h/.cpp     ← The seven reporting knobs of ONE mode, validated & clamped
+│   ├── DeviceSettings.h/.cpp   ← The settings in force: version + standby set + shared knobs + motion block
+│   ├── ModeSettings.h/.cpp     ← The three per-mode reporting knobs of ONE mode, validated & clamped
 │   ├── MotionSettings.h/.cpp   ← The motion block: wake threshold, timings, the moving set
 │   ├── SettingsCodec.h/.cpp    ← DeviceSettings ⇄ the config JSON (one format)
 │   ├── SettingsStore.h/.cpp    ← Cache them, in the clear, on the SD card
@@ -263,17 +272,19 @@ test:
 | `MqttClient` | Connect to the broker (esp-mqtt/TLS); publish, subscribe, confirm QoS-2 delivery. |
 | `TelemetryPublisher` | Format a `TelemetrySample` as JSON and encrypt it (`sealSample`); publish one. |
 | `AckWatcher` | Collect the API's per-envelope verdicts; answer "was this fix actually stored?". |
-| `StatusPublisher` | Format an online / offline status message, seal it like a fix and publish it; seal the Last Will. |
+| `StatusPublisher` | Format a status message (online / offline / wake / motion) and seal it like a fix; publish "online"; seal the Last Will. |
 | `PresenceReporter` | Decide *when*: "online" once per new connection (with the reset reason on the first), "offline because …" before every sleep. |
+| `ActivityReporter` | Decide *when*: the wake that started this boot, and every step `MotionTracker` reports. |
+| `EventLog` | Deliver offline / wake / motion events in order: publish now, or keep them on the card (`events.jsonl`) and drain them when the link is back. |
 | `LowBatteryGuard` | Decide when the pack is too low to run and when it has recovered; remember the verdict across the sleep it causes. |
 | `SdCard` | Mount/format the microSD (FAT) and read/append/trim/filter files — every helper streams, one line at a time. |
 | `FixQueue` | Persistent FIFO of encrypted envelopes on the card (with a size cap). |
 | `RetryQueue` | Fixes the API rejected, with a next-attempt time and a give-up age. |
 | `FixForwarder` | Publish a fix (plus any backlog) or store it; flush the card as a burst whenever the link is up — no position lock needed. |
-| `DeviceSettings` | Hold the *valid* settings in force — version, the standby set and the motion block; clamp anything out of range. |
-| `ModeSettings` | One mode's seven reporting values, with their bounds. Used twice: standby and moving. |
+| `DeviceSettings` | Hold the *valid* settings in force — version, the standby set, the four knobs shared by both modes (queue cap, retry pacing and give-up age, config re-check) and the motion block; clamp anything out of range. |
+| `ModeSettings` | One mode's three reporting values (interval, sleep, fix timeout), with their bounds. Used twice: standby and moving. |
 | `MotionSettings` | The motion block: on/off, wake threshold (mg → sensor steps), speed, the two windows, and the moving set. |
-| `MotionTracker` | The motion-wake state machine (STANDBY / CHECKING / MOVING): which set is in force, whether a fix is published, what survives a deep sleep. |
+| `MotionTracker` | The motion-wake state machine (STANDBY / CHECKING / MOVING): which set is in force, whether a fix is published, what survives a deep sleep; reports every transition. |
 | `SettingsCodec` | The one definition of the config JSON, for both the wire and the card. |
 | `SettingsStore` | Cache the settings on the card; fall back to defaults when unreadable. |
 | `RemoteSettings` | Subscribe to the config topic; validate, apply and persist what arrives. |
@@ -472,9 +483,11 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kTelemetryTopic` | `devices/GNSSXX` | Topic each fix is published to |
 | `kMqttPublishAckTimeoutMs` | `8000` | How long to wait for the broker's QoS-2 delivery ack |
 | `kMqttKeepaliveSeconds` | `60` | MQTT keep-alive; the broker fires the Last Will ~1.5× this after a silent drop. Must not exceed the broker's `max_keepalive` (120) |
-| **`kStatusReportsEnabled`** | `true` | **Send online/offline status messages and arm the Last Will** (see [Status messages & Last Will](#status-messages--last-will)) |
+| **`kStatusReportsEnabled`** | `true` | **Send online / offline / wake / motion status messages and arm the Last Will** (see [Status messages & Last Will](#status-messages--last-will)) |
 | `kStatusTopic` | `devices/GNSSXX/status` | Topic for status messages **and** the Last Will — the broker ACL must grant the device **write** on it |
 | `kStatusPublishTimeoutMs` | `3000` | How long one status publish may wait for the broker's QoS-2 ack |
+| `kSdEventQueueFilePath` | `/sdcard/events.jsonl` | Where offline / wake / motion events wait while the broker is out of reach (sealed, one per line) |
+| `kSdMaxQueuedEvents` | `10000` | Cap on that file (~1 KB each); past it the oldest events are dropped |
 | `kReceiverPublicKeyPem` | — | **Receiver's RSA public key** (encrypts the payload) |
 | `kConfigTopic` | `devices/GNSSXX/config` | Topic the **retained** settings message is read from |
 | `kConfigFetchTimeoutMs` | `8000` | Wait for the retained config (covers connect + TLS) |
@@ -489,7 +502,7 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kAckTopic` | `devices/GNSSXX/ack` | Topic the API publishes its delivery verdicts to |
 | `kAckTimeoutMs` | `10000` | Wait for the API's verdict (covers decrypt + validate + DB write) |
 | `kDeviceAckPrivateKeyPem` | — | **This device's RSA private key (secret)** — decrypts the acks |
-| `kDefaultSendIntervalSeconds` | `60` | Interval used until the broker says otherwise |
+| `kDefaultSendIntervalSeconds` | `1200` | Interval used until the broker says otherwise — the **standby** (parked) interval, since motion wake is on by default |
 | `kDefaultSleepBetweenSends` | `false` | Sleep flag used until the broker says otherwise |
 | `kMinSendIntervalSeconds` / `kMaxSendIntervalSeconds` | `5` / `86400` | Clamps on a broker-supplied `interval_s` |
 | `kMinFixTimeoutSeconds` / `kMaxFixTimeoutSeconds` | `15` / `3600` | Clamps on `fix_timeout_s` |
@@ -517,16 +530,16 @@ Everything tunable lives in [`src/config/Config.h`](src/config/Config.h):
 | `kWakeGpioPin` | `33` | ext0 wake pin — **derived from `kPowerSwitchPin`**, not set independently. Armed only for the switched-off sleep, never for a timed one (see [Wake sources](#wake-sources)) |
 | `kWakeGpioLevel` | `0` | Pin level that wakes the chip — **derived from `kPowerSwitchRunLevel`** |
 | `kMinDeepSleepMs` | `1000` | Floor on a deep-sleep duration |
-| **`kDefaultMotionWakeEnabled`** | `false` | **Default** for `motion.enabled` — motion wake is off until switched on from the dashboard (see [Motion wake](#motion-wake)) |
-| `kDefaultMotionThresholdMg` | `63` | **Default** for `motion.threshold_mg` — wake threshold in mg, rounded to the sensor's 62.5 mg steps (`63` = step 1) |
+| **`kDefaultMotionWakeEnabled`** | `true` | **Default** for `motion.enabled` — motion wake is on until switched off from the dashboard (see [Motion wake](#motion-wake)) |
+| `kDefaultMotionThresholdMg` | `188` | **Default** for `motion.threshold_mg` — wake threshold in mg, rounded to the sensor's 62.5 mg steps (`188` = step 3, 187.5 mg) |
 | `kMinMotionThresholdMg` / `kMaxMotionThresholdMg` | `63` / `2000` | Clamps on `threshold_mg`: one step up to the sensor's ±2 g range |
 | `kDefaultMotionSpeedKmph` | `3` | **Default** for `motion.speed_kmph` — a fix *strictly* faster than this counts as moving |
 | `kMinMotionSpeedKmph` / `kMaxMotionSpeedKmph` | `1` / `50` | Clamps on `speed_kmph` |
-| `kDefaultMotionWakeWaitSeconds` | `240` | **Default** for `motion.wake_wait_s` — how long a wake looks for a moving fix |
+| `kDefaultMotionWakeWaitSeconds` | `600` | **Default** for `motion.wake_wait_s` — how long a wake looks for a moving fix |
 | `kMinMotionWakeWaitSeconds` / `kMaxMotionWakeWaitSeconds` | `30` / `3600` | Clamps on `wake_wait_s` |
-| `kDefaultMotionStopWaitSeconds` | `600` | **Default** for `motion.stop_wait_s` — how long after the last moving fix the device stays in the moving set |
+| `kDefaultMotionStopWaitSeconds` | `900` | **Default** for `motion.stop_wait_s` — how long after the last moving fix the device stays in the moving set |
 | `kMinMotionStopWaitSeconds` / `kMaxMotionStopWaitSeconds` | `60` / `7200` | Clamps on `stop_wait_s` |
-| `kDefaultMovingSendIntervalSeconds` / `…SleepBetweenSends` / `…FixTimeoutSeconds` / `…QueueMaxFixes` / `…RetryIntervalHours` / `…RetryMaxAgeHours` / `…ConfigCheckSeconds` | `10` / `false` / `180` / `20000` / `24` / `168` / `3600` | **Defaults** for the seven keys of `motion.moving`. Their clamps are the standby ones above — a setting means the same in either mode |
+| `kDefaultMovingSendIntervalSeconds` / `…SleepBetweenSends` / `…FixTimeoutSeconds` | `30` / `false` / `180` | **Defaults** for the three keys of `motion.moving`. Their clamps are the standby ones above — a setting means the same in either mode. The queue, retry and config re-check settings have no moving copy: one value serves both modes |
 | `kMotionCheckPollMs` | `5000` | Gap between GNSS acquires while CHECKING for movement |
 | `kMotionActivityPollMs` | `1000` | How often an **awake** standby device reads the accelerometer's activity latch |
 | `kMotionWakeLowPowerSensor` | `true` | Drop the ADXL345 to its 25 Hz low-power rate (~40 µA instead of ~140 µA) while the ESP32 sleeps |
@@ -942,40 +955,67 @@ becomes the only confirmation, and nothing is written to `retry.jsonl`.
 
 A tracker that goes quiet used to leave nothing but a gap: a routine sleep, a
 flat battery and a crash all looked the same from the dashboard. Now the device
-says **why** it is leaving, and the broker says it for the device when it cannot.
-Everything goes to `kStatusTopic` (`devices/GNSS01/status`):
+says **why** it is leaving, **what woke it**, and **every step of motion wake**,
+and the broker says it for the device when it cannot. Everything goes to
+`kStatusTopic` (`devices/GNSS01/status`):
 
 | Message | When | Sent by |
 |---|---|---|
 | `online` | once per new MQTT connection — the first one of a boot also carries `reset_reason` (`POWERON`, `BROWNOUT`, `PANIC`, `TASK_WDT`, `DEEPSLEEP` …, from [`BootJournal`](#boot-log)) | [`PresenceReporter`](src/mqtt/PresenceReporter.h) |
-| `offline` + `sleep` (+ `sleep_s`) | before every timed deep sleep | [`DeepSleepController`](src/power/DeepSleepController.h) |
+| `offline` + `sleep` (+ `sleep_s`) | before every timed deep sleep on the reporting interval — motion wake off, or between reports of a trip | [`DeepSleepController`](src/power/DeepSleepController.h) |
+| `offline` + `sleep_no_motion` (+ `sleep_s`) | before a timed deep sleep in STANDBY with motion wake on — the car was found parked, the accelerometer is armed | `DeepSleepController` |
 | `offline` + `power_off` | the [power switch](#power-switch) was turned off | `DeepSleepController` |
 | `offline` + `battery_low` | the [low-battery cut-off](#low-battery-cut-off) fired | `DeepSleepController` |
 | `offline` + `error` (+ `detail`) | a fault the firmware caught — today `gnss_init`, when the modem/GNSS cannot be started | `DeepSleepController` |
 | `offline` + `connection_lost` | the **Last Will**: published **by the broker**, about 1.5 × `kMqttKeepaliveSeconds` after the session dies without a goodbye (crash, power cut, lost link) | Mosquitto |
+| `wake` + `timer` / `accelerometer` / `power_switch` | once per wake from deep sleep, naming the source that fired (a power-on or a crash is not a wake — that is `reset_reason`) | [`ActivityReporter`](src/events/ActivityReporter.h) |
+| `motion` + `checking` | the boot began a check for movement (any wake, a power-on) | `ActivityReporter`, from [`MotionTracker`](src/motion/MotionTracker.h) |
+| `motion` + `activity` / `motion_on` | a check began because the accelerometer tripped while awake / because a config switched motion wake on | `ActivityReporter` |
+| `motion` + `moving` | a fix faster than `speed_kmph` — the trip started (not repeated for every fast fix) | `ActivityReporter` |
+| `motion` + `no_motion` / `stopped` | back to STANDBY: a check found no movement / a trip stood still for `stop_wait_s` | `ActivityReporter` |
+| `motion` + `motion_off` | a config switched motion wake off | `ActivityReporter` |
 
-Each one is built by [`StatusPublisher`](src/mqtt/StatusPublisher.h), **sealed
-exactly like a fix** and sent as a one-element JSON array, so the broker still
-sees only ciphertext and the API reuses its envelope decoder. The plaintext:
+A parked car with motion wake on therefore logs, per wake: `wake` → `motion
+checking` → `motion no_motion` → `offline sleep_no_motion`.
+
+Each one is built by [`StatusPublisher`](src/mqtt/StatusPublisher.h) and **sealed
+exactly like a fix**, so the broker still sees only ciphertext and the API reuses
+its envelope decoder. The plaintext:
 
 ```json
 {"device":"GNSS01","type":"offline","reason":"sleep",
  "time_utc":"2026-10-09T12:00:00Z","battery_pct":57,"sleep_s":300}
+{"device":"GNSS01","type":"wake","reason":"accelerometer",
+ "time_utc":"2026-10-09T12:05:00Z"}
 ```
 
 `time_utc` is only sent while the [device clock](#the-clock-and-why-it-expires) is
 trusted, and the Last Will carries no time or battery at all — it is sealed once
-at connect and published whenever the broker gives up. The API therefore uses its
-own receive time for every event, decides how serious each reason is, and stores
-the history the dashboard shows.
+at connect and published whenever the broker gives up. The API uses its own
+receive time as an event's time, except for an event whose `time_utc` is well
+in the past — one that waited on the card, below — and decides how serious each
+reason is.
+
+**Out of range: the event log.** MQTT runs over WiFi, and the moments worth
+recording — the car starting to move, parking somewhere, sleeping there — happen
+exactly where there is none. So everything except `online` goes through
+[`EventLog`](src/events/EventLog.h): with the link up and nothing older waiting it
+is published at once; otherwise it is appended to `kSdEventQueueFilePath`
+(`/sdcard/events.jsonl`, sealed, one envelope per line — the same `FixQueue`
+class as the fixes, in its own file) and drained **oldest first** in bursts of
+`kSdMaxBurstFixes` the moment the link is back, **before** that connection's
+`online` goes out. An event leaves the card on the broker's QoS-2 ack alone: the
+API holds a persistent session on the status topic, and a status message it
+rejects is rejected for good, so there is no API ack to wait for. With no card
+and no link an event is dropped and logged. `online` stays live-only — replayed
+later it would describe a connection long gone.
 
 **Why it is reliable where it matters.** The goodbye is published with QoS 2 and
 confirmed (`publishConfirmed`) *before* `MqttClient::stop()` sends a clean
 DISCONNECT — and under MQTT 3.1.1 a clean DISCONNECT is exactly what makes the
 broker discard the Last Will. So a planned sleep is never misreported as a lost
 connection, and an unplanned drop always is. A device that cannot reach the broker
-when it goes to sleep simply sends nothing: there is no SD queue for status
-messages, because a stale "went to sleep" is worth nothing later.
+when it goes to sleep keeps the goodbye on the card instead.
 
 **Why from the main task.** `publishConfirmed` waits for an ack the esp-mqtt event
 task delivers, `PayloadCrypto`'s random generator is shared with the fix sealing,
@@ -1055,9 +1095,12 @@ approximate span ("≈ 13.9 days at a 60 s interval") for the reader.
 ### The `motion` block
 
 The same document carries an optional **`motion`** object: the switch for
-[Motion wake](#motion-wake), its thresholds, and a **second set of the seven
-reporting values** for while the car is driving. The seven top-level keys above
-are the **standby** set; `motion.moving` is the same seven again.
+[Motion wake](#motion-wake), its thresholds, and a **second set of reporting
+values** for while the car is driving. Of the seven top-level keys above,
+`interval_s`, `sleep_between` and `fix_timeout_s` are the **standby** set and
+`motion.moving` is the same three again. The other four — `queue_max_fixes`, the
+two `retry_*` keys and `config_check_s` — are **shared by both modes** and have no
+moving copy.
 
 ```json
 {
@@ -1066,18 +1109,14 @@ are the **standby** set; `motion.moving` is the same seven again.
   "sleep_between": true,
   "motion": {
     "enabled": true,
-    "threshold_mg": 63,
+    "threshold_mg": 188,
     "speed_kmph": 3,
-    "wake_wait_s": 240,
-    "stop_wait_s": 600,
+    "wake_wait_s": 600,
+    "stop_wait_s": 900,
     "moving": {
-      "interval_s": 10,
+      "interval_s": 30,
       "sleep_between": false,
-      "fix_timeout_s": 180,
-      "queue_max_fixes": 20000,
-      "retry_interval_h": 24,
-      "retry_max_age_h": 168,
-      "config_check_s": 3600
+      "fix_timeout_s": 180
     }
   }
 }
@@ -1085,12 +1124,12 @@ are the **standby** set; `motion.moving` is the same seven again.
 
 | Field | Type | Meaning | Clamped to |
 |-------|------|---------|------------|
-| `motion.enabled` | boolean | Motion wake on. **Off is the default**, and with it off the standby set is the only set and every fix is published — the device behaves exactly as it did before this block existed. | — |
+| `motion.enabled` | boolean | Motion wake on. **On is the default.** With it off the standby set is the only set and every fix is published — the device behaves exactly as it did before this block existed. | — |
 | `motion.threshold_mg` | number | Accelerometer wake threshold in milli-g. The sensor compares in **62.5 mg steps** (`THRESH_ACT`), so the firmware rounds to the nearest step: `63` is step 1, `125` step 2, `250` step 4. | `[kMinMotionThresholdMg, kMaxMotionThresholdMg]` (63–2000) |
 | `motion.speed_kmph` | number | A fix **strictly faster** than this counts as moving. | `[kMinMotionSpeedKmph, kMaxMotionSpeedKmph]` (1–50) |
 | `motion.wake_wait_s` | number | After a wake, how long to look for a moving fix before going back to standby. | `[kMinMotionWakeWaitSeconds, kMaxMotionWakeWaitSeconds]` (30–3600) |
 | `motion.stop_wait_s` | number | How long after the last moving fix the device stays in the moving set. | `[kMinMotionStopWaitSeconds, kMaxMotionStopWaitSeconds]` (60–7200) |
-| `motion.moving.*` | the seven | Same keys, same meaning and **the same bounds** as the top level. | as above |
+| `motion.moving.*` | the three | `interval_s`, `sleep_between`, `fix_timeout_s`: same keys, same meaning and **the same bounds** as the top level. Any other key in here (an older publisher's moving queue or retry values) is ignored. | as above |
 
 **It merges like everything else.** A partial `motion`, or a partial
 `motion.moving`, changes only the keys it carries. So an older publisher that has
@@ -1477,8 +1516,9 @@ When the broker sets `"sleep_between": true`,
 [`DeepSleepController`](src/power/DeepSleepController.h) takes over the end of
 every cycle. The order matters, and it owns it:
 
-0. **Status** — say why: an `offline` + `sleep` message carrying how long the
-   sleep will be, confirmed by the broker (see
+0. **Status** — say why: an `offline` + `sleep` (or `sleep_no_motion`, when the
+   car was found parked) message carrying how long the sleep will be, confirmed by
+   the broker — or kept on the card when out of range (see
    [Status messages & Last Will](#status-messages--last-will)). It has to come
    first, while the link is up, and before step 1, whose clean DISCONNECT is what
    makes the broker discard the Last Will.
@@ -1571,8 +1611,8 @@ tell you whether a wake was scheduled, the switch, or motion.
 
 A tracker that reports every few minutes while the car is parked wastes battery;
 one that reports every few minutes while the car is *driving* loses the track.
-Motion wake gives the device **two sets of the seven reporting settings** and lets
-the car choose between them — slow, and asleep, while parked; fast while driving.
+Motion wake gives the device **two sets of the per-mode reporting settings** —
+interval, sleep and fix timeout — and lets the car choose between them — slow, and asleep, while parked; fast while driving.
 The ADXL345's **activity interrupt** is what wakes it when the car pulls away.
 
 The threshold and the timings come from recorded fixes of the owner's own car and
@@ -1580,9 +1620,10 @@ are derived in [`docs/MOTION-WAKE-THRESHOLDS.md`](../docs/MOTION-WAKE-THRESHOLDS
 under one rule: **a missed trip is worse than a false wake**. Every default sits on
 the sensitive side of that analysis.
 
-It is **off by default** (`motion.enabled`, defaulting to
-`kDefaultMotionWakeEnabled`), because it changes how the device sleeps and should
-be switched on deliberately. With it off nothing below applies: the standby set is
+It is **on by default** (`motion.enabled`, defaulting to
+`kDefaultMotionWakeEnabled`): reporting every 30 s while driving and every 20 min
+while parked is what the tracker is for. It can be switched off from the
+dashboard. With it off nothing below applies: the standby set is
 the only set, every fix is published and the accelerometer is never armed. It
 needs `kAdxlEnabled`; with no working sensor the timer still wakes the device, so
 motion mode degrades to "look for movement every interval" rather than failing.
@@ -1591,15 +1632,16 @@ motion mode degrades to "look for movement every interval" rather than failing.
 
 | Set | Where it comes from | In force |
 |---|---|---|
-| **Standby** | the config document's top-level keys — `interval_s`, `sleep_between`, … | while the car is parked |
-| **Moving** | `motion.moving` — the same seven keys, see [The `motion` block](#the-motion-block) | while checking for movement, and while driving |
+| **Standby** | the config document's top-level `interval_s`, `sleep_between` and `fix_timeout_s` | while the car is parked |
+| **Moving** | `motion.moving` — the same three keys, see [The `motion` block](#the-motion-block) | while checking for movement, and while driving |
+| *(shared)* | the top-level `queue_max_fixes`, `retry_interval_h`, `retry_max_age_h`, `config_check_s` | always — see [Shared settings](#shared-settings) |
 
 One class, [`ModeSettings`](src/settings/ModeSettings.h), serves both, with the
 same bounds: that is what stops a setting from quietly meaning one thing parked
 and another moving. [`MotionTracker`](src/motion/MotionTracker.h) is the only
 thing that decides which set is in force; everything else asks it. A sensible
 pairing is a long standby interval with `sleep_between` on, and a short moving
-interval with it off — the defaults for the moving set are 10 s, awake.
+interval with it off — the defaults are 20 min parked and 30 s, awake, moving.
 
 ### The state machine
 
@@ -1718,22 +1760,17 @@ a brown-out, the accelerometer — means something else happened and starts a fr
 check. The record is consumed on every boot, so a stale "moving" can never
 outlive the sleep that wrote it.
 
-### Switching sets without losing data
+### Shared settings
 
-The set in force flips at every trip, and two storage settings must **not** simply
-follow it: lowering either throws data away the moment it is applied. `FixQueue`
-trims at once to a smaller cap, and `RetryQueue` abandons anything older than a
-shorter give-up age. A car that parks twice a day would delete undelivered fixes
-twice a day. So while motion wake is on,
-[`SettingsApplier`](src/settings/SettingsApplier.h) applies:
-
-| Setting | In force |
-|---|---|
-| `queue_max_fixes` | the **larger** of the standby and moving values |
-| `retry_max_age_h` | the **more lenient** of the two — `0` ("never give up") beats any number |
-| `retry_interval_h` | the value of the set in force: it only paces attempts, and a longer or shorter one loses nothing |
-
-With motion wake off the standby values apply on their own, as before.
+The set in force flips at every trip, and the storage settings must **not** follow
+it: lowering the queue cap or the give-up age throws data away the moment it is
+applied. `FixQueue` trims at once to a smaller cap, and `RetryQueue` abandons
+anything older than a shorter give-up age — a car that parks twice a day would
+delete undelivered fixes twice a day. So `queue_max_fixes`, `retry_interval_h`,
+`retry_max_age_h` and `config_check_s` have **one value for both modes**: they live
+on [`DeviceSettings`](src/settings/DeviceSettings.h), not in a `ModeSettings`, and
+[`SettingsApplier`](src/settings/SettingsApplier.h) applies them without asking
+which mode is in force.
 
 ### What it costs
 
@@ -1741,10 +1778,10 @@ With motion wake off the standby values apply on their own, as before.
 deliberate — the timer is the safety net for a trip the interrupt somehow missed —
 but it is the main thing to budget for. A parked car woken by the timer finds no
 movement and stays awake, modem and GNSS on, for the whole `wake_wait_s` instead
-of the few seconds a plain report takes. At the default 240 s window and a
-15-minute standby interval that is **up to 27 % of the time awake**. False
-accelerometer wakes add to it: the analysis found about three a day at 63 mg, each
-costing up to a window — roughly 12 minutes a day.
+of the few seconds a plain report takes. At the default 600 s window and the
+default 20-minute standby interval that is **up to 50 % of the time awake**. False
+accelerometer wakes add to it: the analysis found about two a day at the default
+188 mg (step 3), each costing up to a window — roughly 20 minutes a day.
 
 The standby interval is measured from when a check **began** (the wake), not from
 when it ended, so the standby cadence stays steady however long each check took.
@@ -1753,8 +1790,10 @@ already due when the window closes and the device **practically never sleeps**;
 the dashboard warns about that combination.
 
 The levers, in the order they are worth reaching for: a **longer standby
-interval**; a **higher `threshold_mg`** (125 mg catches the same trips after two
-minutes as 63 mg, with fewer false wakes — 2.2 a day against 3.1 in the analysis);
+interval**; a **higher `threshold_mg`** (the analysis found every step from 63 to
+188 mg catches the same trips after two minutes, with fewer false wakes the higher
+it goes — 3.1 a day at step 1, 2.1 at step 3 — but beyond step 3 it no longer
+recommends going);
 a **shorter `wake_wait_s`**, at the price of missing a driver who sits in the car
 for minutes before pulling away, which costs one extra wake cycle but never a trip.
 
@@ -1773,18 +1812,18 @@ The motion log lines carry the tag `Motion`. On a bench, `wake_wait_s = 30` and
 
 1. **Switch it on** — from the dashboard, or by publishing
    `{"motion":{"enabled":true}}` retained (it merges). A device that is awake
-   logs `CHECKING for movement for up to 240s (motion wake switched on).`; one
+   logs `CHECKING for movement for up to 600s (motion wake switched on).`; one
    that boots with it already on gives the reason for its wake instead
    (`power-on / reset`, `timer wake`, …), and its `GNSS ready` summary line ends
    in `motion wake: CHECKING`.
 2. **Sleep with the accelerometer armed.** Turn standby `sleep_between` on, with an
    interval longer than the window. Expect `Sleeping for 540s or until motion;
    modem and card going down first.`, then
-   `activity interrupt armed on INT1: step 1 (62 mg), 25 Hz low power` from
+   `activity interrupt armed on INT1: step 3 (187 mg), 25 Hz low power` from
    `Adxl345`, then `Motion wake armed on GPIO 32 (ext1, any high).` from
    `DeepSleep`. INT1 idles LOW on a meter.
 3. **Wake it with a tap on the car.** The boot log shows `wake=ext1 GPIO`, and the
-   log says `CHECKING for movement for up to 240s (accelerometer wake).` One report
+   log says `CHECKING for movement for up to 600s (accelerometer wake).` One report
    goes out; later fixes log `not published`; when the window closes:
    `no fix faster than the speed limit within the wake window - CHECKING ->
    STANDBY.` — and the device sleeps again.
@@ -2213,7 +2252,7 @@ acquisition fix; the burst is then compiled out entirely.
 ## Peak accelerometer readings
 
 The normal report carries **one instantaneous** accelerometer triple per cycle —
-at the default 60 s interval, one sample a minute. That says almost nothing about
+at a 60 s interval, one sample a minute. That says almost nothing about
 what the car did: braking, cornering and potholes all happen *between* two
 reports and are simply never seen.
 

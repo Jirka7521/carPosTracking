@@ -86,17 +86,19 @@ internal sealed class DeviceService : IDeviceService
                 access.Device.LastOnlineAt,
                 // The most recent time this device went offline and why, for the
                 // status badge - another correlated subquery, so the list stays one
-                // round trip. Restarts are left out: the badge answers "why is it not
-                // here", and a restart is the device coming back.
+                // round trip. Only offline events: the badge answers "why is it not
+                // here", and a restart, a wake or a motion step is the device being
+                // there. Latest by when it HAPPENED, so a goodbye that waited on the
+                // card for hours cannot pose as the newest one.
                 _context.DeviceEvents
                     .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceId
                         && deviceEvent.Kind == DeviceEventKindNames.Offline)
-                    .OrderByDescending(deviceEvent => deviceEvent.ReceivedAt)
+                    .OrderByDescending(deviceEvent => deviceEvent.OccurredAt)
                     .ThenByDescending(deviceEvent => deviceEvent.Id)
                     .Select(deviceEvent => new DeviceOfflineEventDto(
                         deviceEvent.Reason,
                         deviceEvent.Severity,
-                        deviceEvent.ReceivedAt,
+                        deviceEvent.OccurredAt,
                         deviceEvent.SleepSeconds))
                     .FirstOrDefault(),
                 // Two aggregates, both correlated subqueries for the same reason
@@ -212,9 +214,9 @@ internal sealed class DeviceService : IDeviceService
                     RetryIntervalHours = DeviceConfigRules.DefaultRetryIntervalHours,
                     RetryMaxAgeHours = DeviceConfigRules.DefaultRetryMaxAgeHours,
                     ConfigCheckSeconds = DeviceConfigRules.DefaultConfigCheckSeconds,
-                    // Motion wake starts off, with the firmware's own defaults behind
-                    // it, so switching it on later is one toggle rather than twelve
-                    // numbers a person has to guess.
+                    // Motion wake starts on, with the firmware's own defaults behind
+                    // it, so a new tracker reports fast while driving and slowly while
+                    // parked without a person having to tune eight numbers first.
                     MotionEnabled = DeviceConfigRules.DefaultMotionEnabled,
                     MotionThresholdMg = DeviceConfigRules.DefaultMotionThresholdMg,
                     MotionSpeedKmph = DeviceConfigRules.DefaultMotionSpeedKmph,
@@ -223,10 +225,6 @@ internal sealed class DeviceService : IDeviceService
                     MovingIntervalSeconds = DeviceConfigRules.DefaultMovingIntervalSeconds,
                     MovingSleepBetween = DeviceConfigRules.DefaultMovingSleepBetween,
                     MovingFixTimeoutSeconds = DeviceConfigRules.DefaultMovingFixTimeoutSeconds,
-                    MovingQueueMaxFixes = DeviceConfigRules.DefaultMovingQueueMaxFixes,
-                    MovingRetryIntervalHours = DeviceConfigRules.DefaultMovingRetryIntervalHours,
-                    MovingRetryMaxAgeHours = DeviceConfigRules.DefaultMovingRetryMaxAgeHours,
-                    MovingConfigCheckSeconds = DeviceConfigRules.DefaultMovingConfigCheckSeconds,
                     CreatedByUserId = null,
                     CreatedAt = DateTime.UtcNow,
                 });

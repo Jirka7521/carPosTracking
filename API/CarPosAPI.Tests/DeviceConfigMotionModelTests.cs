@@ -37,24 +37,24 @@ public sealed class DeviceConfigMotionModelTests
     [Theory]
     [InlineData(typeof(DeviceConfigVersion))]
     [InlineData(typeof(DeviceConfigProfile))]
-    public void AMovingGiveUpAgeOfZeroIsNotReplacedByTheDatabaseDefault(Type entityType)
+    public void MotionWakeSavedAsOffIsNotReplacedByTheDatabaseDefault(Type entityType)
     {
         using CarPosDbContext context = CreateContext();
 
         IProperty property = context.Model
             .FindEntityType(entityType)!
-            .FindProperty(nameof(DeviceConfigVersion.MovingRetryMaxAgeHours))!;
+            .FindProperty(nameof(DeviceConfigVersion.MotionEnabled))!;
 
         // EF leaves a column out of an INSERT when the value equals the property's
         // sentinel, so that the database default can apply. The sentinel is the CLR
-        // default (0) unless configured otherwise — and for this column 0 is a real,
-        // chosen value meaning "never give up on a rejected fix", while the default is
-        // 168. With the usual sentinel a revision saved with 0 would be stored as a
-        // week, with no error anywhere and a dashboard that still says "never".
-        Assert.Equal(DeviceConfigRules.DefaultMovingRetryMaxAgeHours, property.GetDefaultValue());
+        // default (false) unless configured otherwise — and for this column false is a
+        // real, chosen value meaning "motion wake off", while the default is true. With
+        // the usual sentinel a revision saved with motion wake off would be stored as
+        // on, with no error anywhere and a dashboard that still says off.
+        Assert.Equal(DeviceConfigRules.DefaultMotionEnabled, property.GetDefaultValue());
         Assert.NotEqual(
-            0,
-            Assert.IsType<int>(property.Sentinel));
+            false,
+            Assert.IsType<bool>(property.Sentinel));
     }
 
     [Fact]
@@ -103,10 +103,6 @@ public sealed class DeviceConfigMotionModelTests
             "moving_interval_s",
             "moving_sleep_between",
             "moving_fix_timeout_s",
-            "moving_queue_max_fixes",
-            "moving_retry_interval_h",
-            "moving_retry_max_age_h",
-            "moving_config_check_s",
         })
         {
             Assert.Contains(column, sql, StringComparison.Ordinal);

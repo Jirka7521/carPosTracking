@@ -92,14 +92,17 @@ Key properties:
 
 ## Device status — why a tracker went offline
 
-Each device says why it is leaving, and the broker says it for the device when it
-cannot. Everything arrives on `devices/<id>/status`, sealed in the same envelope
-as a fix (so the broker still sees only ciphertext), as a one-element JSON array.
-The decrypted payload is `Dtos/DeviceStatusPayloadDto`:
+Each device says why it is leaving, what woke it and how its motion wake moved on,
+and the broker says it for the device when it cannot. Everything arrives on
+`devices/<id>/status`, sealed in the same envelope as a fix (so the broker still
+sees only ciphertext), as a JSON array — one envelope for a live message, many for
+a burst the device kept on its SD card while out of range. The decrypted payload is
+`Dtos/DeviceStatusPayloadDto`:
 
 | Message | When | Stored as (`device_events`) |
 |---|---|---|
-| `{"type":"offline","reason":"sleep","sleep_s":300}` | before every planned deep sleep | `offline` / `sleep` / **normal** |
+| `{"type":"offline","reason":"sleep","sleep_s":300}` | before a deep sleep on the reporting interval | `offline` / `sleep` / **normal** |
+| `… "reason":"sleep_no_motion"` | before a deep sleep because the car was found parked (motion wake armed) | `offline` / `sleepNoMotion` / **normal** |
 | `… "reason":"power_off"` | the power switch was turned off | `offline` / `powerOff` / **normal** |
 | `… "reason":"battery_low"` | the pack fell below the firmware's cut-off | `offline` / `batteryLow` / **alert** |
 | `… "reason":"error","detail":"gnss_init"` | a fault the firmware caught itself | `offline` / `error` / **error** |
@@ -108,23 +111,41 @@ The decrypted payload is `Dtos/DeviceStatusPayloadDto`:
 | `… "reset_reason":"BROWNOUT"` | | `restart` / `powerLoss` / **alert** |
 | `… "reset_reason":"POWERON"` | | `restart` / `powerOn` / **normal** |
 | `{"type":"online"}` (or `DEEPSLEEP`, `EXT`) | every other connection | no row — only `devices.last_online_at` moves |
+| `{"type":"wake","reason":"timer"}` | woke from deep sleep on its timer | `wake` / `timer` / **normal** |
+| `… "reason":"accelerometer"` / `"power_switch"` | woke because the car moved / the switch was turned on | `wake` / `accelerometer` / `powerSwitch` / **normal** |
+| `{"type":"motion","reason":"checking"}` | the boot began a check for movement | `motion` / `checking` / **normal** |
+| `… "reason":"activity"` / `"motion_on"` | a check began on a jolt while awake / because motion wake was switched on | `motion` / `activity` / `motionOn` / **normal** |
+| `… "reason":"moving"` | a fast fix — the trip started | `motion` / `moving` / **normal** |
+| `… "reason":"no_motion"` / `"stopped"` | a check found the car parked / a trip ended | `motion` / `noMotion` / `stopped` / **normal** |
+| `… "reason":"motion_off"` | motion wake was switched off | `motion` / `motionOff` / **normal** |
 
 Optional fields everywhere: `time_utc` (only while the device trusts its clock),
 `battery_pct` (0 = charging), `sleep_s`, `detail`. A bad optional field is dropped
 to null; an unknown `type` or `reason`, or a payload whose `device` does not match
-the topic, rejects the message.
+the topic, rejects the message. `wake` and `motion` never move
+`devices.last_online_at`: they may describe something that happened hours ago.
 
 - **Severity is decided here, never on the device** —
   [`Services/Ingest/DeviceEventClassifier.cs`](Services/Ingest/DeviceEventClassifier.cs)
   is the only mapping, pinned by `DeviceEventClassifierTests`. Re-judging a reason
   is an API deploy, not a reflash of every tracker.
-- **The event time is the server's receive time.** The Last Will is sealed when the
-  device connects and published whenever the broker gives up on it, so it carries no
-  clock; `device_time` is kept beside it when the device sent a plausible one.
-- **No dedupe, no ack.** A status message has no natural identity — the Last Will is
-  legitimately the same bytes after every reconnect within one boot — and nothing on
-  the device waits for a verdict. A QoS-2 redelivery after a crash between commit
-  and PUBREC can repeat one row; that is accepted.
+- **The event time is `occurred_at`.** Normally the server's receive time — the
+  Last Will is sealed when the device connects and published whenever the broker
+  gives up on it, so it carries no clock, and a live message is published at the
+  moment it describes. But offline, wake and motion events said out of range wait
+  on the device's card and arrive late, so when `time_utc` is more than two minutes
+  before the receive time (`DeviceStatusWriter.ReplayThreshold` — beyond transit
+  and clock drift) the device's clock is the event's time instead, never later than
+  the receive time. The Events tab, its range filter, the badge's latest-offline
+  pick, range erasure and the export all go by `occurred_at`; `received_at` and
+  `device_time` are kept beside it.
+- **No dedupe, no API ack.** A status message has no natural identity — the Last
+  Will is legitimately the same bytes after every reconnect within one boot. The
+  device clears its card on the broker's QoS-2 ack alone: this API's persistent
+  session keeps the message through an outage, and a rejection is final. A QoS-2
+  redelivery after a crash between commit and PUBREC, or a burst the device
+  re-sends because the broker's ack never reached it, can repeat rows; that is
+  accepted.
 - **"Online" is two signals.** `devices.last_online_at` (set by online messages, even
   when no fix follows) and `devices.last_seen_at` (set by positions). The dashboard
   treats a device as back when either is newer than its last offline event, so a lost
@@ -486,7 +507,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/rules[/{ruleId}]` | weekly-window CRUD |
 | `POST /api/devices/{deviceId}/schedule/resume` | end a manual override early and reapply the scheduled profile |
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
-| `GET /api/devices/{deviceId}/events?from=&to=&minSeverity=&limit=` | the device's connection history (offline reasons, notable restarts), newest first. `minSeverity` = `normal`/`alert`/`error` keeps that and worse (anything else → 400); `limit` default 200, max 1000; `from`/`to` bound the receive time |
+| `GET /api/devices/{deviceId}/events?from=&to=&minSeverity=&limit=` | the device's history (offline reasons, notable restarts, wakes, motion steps), newest first. `minSeverity` = `normal`/`alert`/`error` keeps that and worse (anything else → 400); `limit` default 200, max 1000; `from`/`to` bound the event's time (`occurredAt`) |
 | `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions **and its connection events** over the same range; needs `CanDelete`. Returns `{ deletedCount, deletedEventCount }` |
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
@@ -726,7 +747,8 @@ the dashboard, and a truncated export is not portability. It must never emit a
 password hash or a device private key — the two entities that carry secrets,
 `User` and `Device`, are projected into `*ExportRow` records that have no field
 to leak, and `DataExportShapeTests` pins that down. Each device also carries its
-complete `statusEvents[]` (connection history), streamed the same way.
+complete `statusEvents[]` (offline, restarts, wakes, motion steps — in the order
+they happened), streamed the same way.
 
 **`DELETE /api/me` really deletes.** It is the one place in this codebase that
 breaks the "records are never physically removed" rule the rest of it follows,
@@ -949,13 +971,13 @@ no reflash and without the device being online at the time:
 
 | Field | Meaning | Range | Default |
 |---|---|---|---|
-| `intervalSeconds` | seconds between position reports | 5 – 86400 | 60 |
+| `intervalSeconds` | seconds between position reports (the **standby** interval while motion wake is on) | 5 – 86400 | 1200 |
 | `sleepBetween` | deep-sleep + modem power-down between reports | — | false |
 | `fixTimeoutSeconds` | how long to chase a GNSS lock before giving up on a cycle | 15 – 900 | 180 |
-| `queueMaxFixes` | undelivered fixes the SD queue may hold | 100 – 100000 | 20000 |
-| `retryIntervalHours` | hours between attempts on a rejected fix | 1 – 720 | 24 |
-| `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never | 0 – 8760 | 168 |
-| `configCheckSeconds` | how often an **awake** device re-asks for this document | 60 – 86400 | 3600 |
+| `queueMaxFixes` | undelivered fixes the SD queue may hold — in either mode | 100 – 100000 | 20000 |
+| `retryIntervalHours` | hours between attempts on a rejected fix — in either mode | 1 – 720 | 24 |
+| `retryMaxAgeHours` | abandon a still-rejected fix after this long; `0` = never — in either mode | 0 – 8760 | 168 |
+| `configCheckSeconds` | how often an **awake** device re-asks for this document — in either mode | 60 – 86400 | 3600 |
 
 The bounds live in [`Dtos/DeviceConfigRules.cs`](Dtos/DeviceConfigRules.cs) and
 **mirror the firmware's clamps** in `ESP32/src/config/Config.h`. The two sides
@@ -970,60 +992,56 @@ tracker in a field has nobody to ask. Change one side and you must change the ot
 
 ### Motion wake
 
-The seven values above are the **standby** set — what a parked tracker runs. With
-motion wake on, the device keeps a second, **moving** set and runs that while the
-vehicle is driving: an accelerometer interrupt wakes it, it looks for a fix faster
-than `motionSpeedKmph`, and from then on it reports on the moving set until
-`motionStopWaitSeconds` have passed since the last moving fix. Twelve more values
-carry this, appended to every settings request and response:
+`intervalSeconds`, `sleepBetween` and `fixTimeoutSeconds` above are the **standby**
+set — what a parked tracker runs. With motion wake on, the device keeps a second,
+**moving** copy of those three and runs that while the vehicle is driving: an
+accelerometer interrupt wakes it, it looks for a fix faster than `motionSpeedKmph`,
+and from then on it reports on the moving set until `motionStopWaitSeconds` have
+passed since the last moving fix. The other four values above — the queue, both retry
+settings and the config re-check — are **shared by both modes** and have no moving
+copy. Eight more values carry this, appended to every settings request and response:
 
 | Field | Meaning | Range | Default |
 |---|---|---|---|
-| `motionEnabled` | motion wake on; off, every other value below is stored but inert | — | false |
-| `motionThresholdMg` | accelerometer wake threshold, milli-g | 63 – 2000 | 63 |
+| `motionEnabled` | motion wake on; off, every other value below is stored but inert | — | true |
+| `motionThresholdMg` | accelerometer wake threshold, milli-g | 63 – 2000 | 188 |
 | `motionSpeedKmph` | a fix counts as moving when its speed is **strictly above** this | 1 – 50 | 3 |
-| `motionWakeWaitSeconds` | how long a wake may look for a moving fix before going back to sleep | 30 – 3600 | 240 |
-| `motionStopWaitSeconds` | how long after the last moving fix the device stays in moving mode | 60 – 7200 | 600 |
-| `movingIntervalSeconds` | `intervalSeconds` while moving | 5 – 86400 | 10 |
+| `motionWakeWaitSeconds` | how long a wake may look for a moving fix before going back to sleep | 30 – 3600 | 600 |
+| `motionStopWaitSeconds` | how long after the last moving fix the device stays in moving mode | 60 – 7200 | 900 |
+| `movingIntervalSeconds` | `intervalSeconds` while moving | 5 – 86400 | 30 |
 | `movingSleepBetween` | `sleepBetween` while moving | — | false |
 | `movingFixTimeoutSeconds` | `fixTimeoutSeconds` while moving | 15 – 3600 | 180 |
-| `movingQueueMaxFixes` | `queueMaxFixes` while moving | 100 – 100000 | 20000 |
-| `movingRetryIntervalHours` | `retryIntervalHours` while moving | 1 – 720 | 24 |
-| `movingRetryMaxAgeHours` | `retryMaxAgeHours` while moving; `0` = never | 0 – 8760 | 168 |
-| `movingConfigCheckSeconds` | `configCheckSeconds` while moving | 60 – 86400 | 3600 |
 
 The moving set has **no bounds of its own**: a setting means the same thing in either
 mode, so each `moving*` value is held to its standby counterpart's range (the table
 repeats them for convenience; the constants are the standby ones in
 [`DeviceConfigRules`](Dtos/DeviceConfigRules.cs)). The defaults are the firmware's, and
-motion wake is **off** by default because it changes how the device sleeps.
+motion wake is **on** by default: a new tracker reports every 30 s while driving and
+every 20 min while parked.
 
 Two things the dashboard should say rather than leave a user to discover:
 
 - **The threshold is quantised.** The ADXL345 compares in steps of 62.5 mg and the
   firmware rounds `motionThresholdMg` to the nearest, so 63 mg is step 1 — the most
-  sensitive setting there is, and therefore the floor.
-- **A mode switch never loses data, by two firmware rules.** The queue cap in force
-  is the **larger** of `queueMaxFixes` and `movingQueueMaxFixes`, and the rejected-fix
-  give-up age is the **more lenient** of `retryMaxAgeHours` and
-  `movingRetryMaxAgeHours` (`0` — never — beats any number). So in each of those two
-  pairs the smaller value is simply ignored while the other mode's is larger.
+  sensitive setting there is, and therefore the floor. The default 188 is step 3
+  (187.5 mg), stored as the step the sensor actually uses.
+- **A mode switch never loses data.** The queue cap and the rejected-fix give-up age
+  are shared by both modes, so parking can never be what trims the queue or abandons
+  a rejected fix.
 
 The dashboard's request and response shapes carry these **flat and camelCase**, like
-the seven. **On the device they are nested and snake_case:** the config document gains
+the seven above. **On the device they are nested and snake_case:** the config document gains
 a `motion` object after `config_check_s`, and the same object follows `config_check_s`
 in every schedule-bundle profile and in the override, so a schedule switch changes
 the whole motion configuration along with the standby values:
 
 ```json
-{ "version": 12, "interval_s": 60, "sleep_between": false, "fix_timeout_s": 180,
+{ "version": 12, "interval_s": 1200, "sleep_between": false, "fix_timeout_s": 180,
   "queue_max_fixes": 20000, "retry_interval_h": 24, "retry_max_age_h": 168,
   "config_check_s": 3600,
-  "motion": { "enabled": false, "threshold_mg": 63, "speed_kmph": 3,
-              "wake_wait_s": 240, "stop_wait_s": 600,
-              "moving": { "interval_s": 10, "sleep_between": false, "fix_timeout_s": 180,
-                          "queue_max_fixes": 20000, "retry_interval_h": 24,
-                          "retry_max_age_h": 168, "config_check_s": 3600 } } }
+  "motion": { "enabled": true, "threshold_mg": 188, "speed_kmph": 3,
+              "wake_wait_s": 600, "stop_wait_s": 900,
+              "moving": { "interval_s": 30, "sleep_between": false, "fix_timeout_s": 180 } } }
 ```
 
 [`DeviceConfigDocumentDto`](Dtos/DeviceConfigDocumentDto.cs),
@@ -1037,14 +1055,25 @@ flat values become the nested object is
 > **This is a breaking change for clients of the settings endpoints.** A settings
 > save and a profile create/update are **full replacements**, so
 > `PUT /api/devices/{deviceId}/config` and
-> `POST`/`PUT .../schedule/profiles` now require all twelve fields, and a client built
+> `POST`/`PUT .../schedule/profiles` now require all eight motion fields, and a client built
 > before them answers **400** until it sends them.
 >
 > **Existing data is unaffected.** The `AddMotionWakeSettings` migration backfills every
-> revision and profile with the defaults above (motion off), and deliberately does not
+> revision and profile with the defaults of the time (motion off), and deliberately does not
 > bump any device's `config_version`: nothing a device runs changes, so showing the
 > fleet as "pending" would be wrong. Each document is republished with the new
 > `motion` object at the next broker reconnect, under the same version.
+>
+> **Shared storage settings (`ShareStorageSettingsAcrossMotionModes`).** The moving
+> copies of the queue cap, both retry settings and the config re-check were removed
+> again: the migration drops the four `moving_*` columns (and their CHECKs) from
+> `device_config_versions` and `device_config_profiles`, so any moving value that
+> differed from the standby one is **lost** and the standby value applies in both
+> modes. It also moves the column defaults to the new factory defaults above; rows
+> already stored keep their values, so no existing device changes behaviour. Deploy
+> this API **before** applying the migration — the previous build's INSERTs name the
+> dropped columns. A client still sending `movingQueueMaxFixes` and friends is not
+> rejected: unknown members are ignored.
 
 ### The flow
 
@@ -1483,11 +1512,13 @@ connection string).
 9. Repeat with the dashboard's fields filled in and a generated ack key — that is
    the file an operator actually flashes, and it exercises the browser-side
    substitution as well as this renderer.
-10. With status-capable firmware: a sleeping device adds an `offline`/`sleep` row
-    to `device_events` per cycle and moves `devices.last_online_at` on every wake;
+10. With status-capable firmware: a sleeping device adds `wake`/`timer`, its
+    motion steps and an `offline`/`sleep` (or `sleepNoMotion`) row to
+    `device_events` per cycle and moves `devices.last_online_at` on every wake;
     pulling its power mid-session adds `offline`/`connectionLost` about 1.5× its
     keep-alive later (the Last Will); `GET /api/devices/GNSS01/events?minSeverity=alert`
-    returns only the latter.
+    returns only the latter. Events from a drive out of WiFi range arrive in a burst
+    on return, each row's `occurred_at` placed when it happened.
 
 ## Roadmap (later phases)
 

@@ -1,18 +1,25 @@
 // ============================================================
-// DeviceEventsTab — the "Events" tab inside DevicePage: the tracker's connection
-// history, newest first.
+// DeviceEventsTab — the "Events" tab inside DevicePage: the tracker's history,
+// newest first.
 //
-// Every row is one moment the device went off the air, and why — a planned
-// sleep, the power switch, a flat battery, a fault it caught, or a connection
-// that simply died (its Last Will, published by the broker) — or a restart worth
-// knowing about: a crash, a power loss, a cold power-on.
+// Every row is one moment something changed:
+//   • the device went off the air, and why — a regular sleep, a sleep because
+//     the car was found parked, the power switch, a flat battery, a fault it
+//     caught, or a connection that simply died (its Last Will, published by the
+//     broker);
+//   • a restart worth knowing about — a crash, a power loss, a cold power-on;
+//   • a wake from deep sleep — the regular timer, the accelerometer, the switch;
+//   • a step of motion wake — checking for movement, moving, parked, stopped.
+// Rows are placed by when they HAPPENED (occurredAt): events the device kept on
+// its SD card while out of range arrive in a burst later, but slot in where
+// they belong.
 //
 // Features:
 //   • The same date range as the Map, Positions and Charts tabs — one range,
 //     held by DevicePage, opening on today and moved only by the reader
 //   • A severity filter, "All events" or "Alerts and errors" — a device that
-//     sleeps between reports logs one routine event per report, so the problems
-//     are easy to lose without it. The filter runs in the API, not here.
+//     sleeps between reports logs several routine events per report, so the
+//     problems are easy to lose without it. The filter runs in the API, not here.
 //   • Refreshes on the device page's one shared timer, keeping the rows on screen
 //     while it does
 //
@@ -179,7 +186,7 @@ export function DeviceEventsTab() {
             <tbody>
               {events.map((event) => (
                 <tr key={event.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{formatTimestamp(event.receivedAt)}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{formatTimestamp(event.occurredAt)}</td>
                   <td>
                     <span className={`event-severity event-severity--${event.severity}`}>
                       {t(EVENT_SEVERITY_LABEL_KEYS[event.severity])}
@@ -204,9 +211,9 @@ function describeDetails(event: DeviceEventDto): string {
   const parts: string[] = []
 
   if (event.sleepSeconds !== null) {
-    const receivedAt: Date | null = parseApiTimestamp(event.receivedAt)
+    const occurredAt: Date | null = parseApiTimestamp(event.occurredAt)
     const backAt: Date | null =
-      receivedAt === null ? null : new Date(receivedAt.getTime() + event.sleepSeconds * 1000)
+      occurredAt === null ? null : new Date(occurredAt.getTime() + event.sleepSeconds * 1000)
     parts.push(
       backAt === null
         ? i18n.t('device:events.detail.sleepFor', { duration: describeSeconds(event.sleepSeconds) })

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using CarPosAPI.Data.Configurations;
 using CarPosAPI.Dtos;
@@ -33,9 +33,10 @@ internal sealed partial class DeviceStatusValidator
     public const int MaxBatteryPct = 100;
 
     /// <summary>
-    /// How far back a device's clock may plausibly sit. A status message is published
-    /// live, never replayed from the card, so anything much older is a clock gone wrong
-    /// rather than a late delivery — and the receive time is what the event uses anyway.
+    /// How far back a device's clock may plausibly sit. Offline, wake and motion events
+    /// said out of range wait on the device's SD card and arrive late — but a month late
+    /// is far likelier a clock gone wrong than a month out of range. The event then falls
+    /// back to its receive time.
     /// </summary>
     public const int MaxDeviceTimeAgeDays = 30;
 
@@ -98,6 +99,28 @@ internal sealed partial class DeviceStatusValidator
             // An offline message without a reason we understand has nothing to say: the
             // dashboard could only show "offline because <something>".
             if (!DeviceEventClassifier.TryClassifyOffline(payload.Reason, out classification))
+            {
+                reason = DeviceStatusRejectReason.UnknownReason;
+                return false;
+            }
+        }
+        else if (string.Equals(payload.Type, DeviceEventClassifier.WakeType, StringComparison.Ordinal)
+            || string.Equals(payload.Type, DeviceEventClassifier.MotionType, StringComparison.Ordinal))
+        {
+            // Neither says anything about the connection — a wake or a motion step may
+            // have happened hours ago, out of range, and only now come off the card — so
+            // neither moves the online time. Like an offline, the reason IS the message.
+            isOnline = false;
+            if (payload.Reason is null)
+            {
+                reason = DeviceStatusRejectReason.MissingField;
+                return false;
+            }
+
+            bool known = string.Equals(payload.Type, DeviceEventClassifier.WakeType, StringComparison.Ordinal)
+                ? DeviceEventClassifier.TryClassifyWake(payload.Reason, out classification)
+                : DeviceEventClassifier.TryClassifyMotion(payload.Reason, out classification);
+            if (!known)
             {
                 reason = DeviceStatusRejectReason.UnknownReason;
                 return false;

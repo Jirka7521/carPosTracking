@@ -13,6 +13,8 @@
 #include "gnss/FixAverager.h"
 #include "gnss/GnssModule.h"
 #include "modem/Sim7000Modem.h"
+#include "events/ActivityReporter.h"
+#include "events/EventLog.h"
 #include "motion/MotionTracker.h"
 #include "mqtt/AckWatcher.h"
 #include "mqtt/MqttClient.h"
@@ -257,9 +259,17 @@ extern "C" void app_main(void) {
                                config::kSdMaxRetryEntries,
                                config::kRetryIntervalHours,
                                config::kRetryMaxAgeHours);
+  // Status events (offline / wake / motion) said while the broker was out of
+  // reach. The same queue class as the fixes, in a file of its own - see
+  // EventLog. Unbegun, it simply refuses every append.
+  static FixQueue eventQueue(sdCard, config::kSdEventQueueFilePath,
+                             config::kSdMaxQueuedEvents);
   if (config::kSdEnabled) {
     if (sdCard.begin() && fixQueue.begin()) {
       retryQueue.begin();
+      if (config::kStatusReportsEnabled) {
+        eventQueue.begin();
+      }
       ESP_LOGI(TAG, "SD store-and-forward ready (%u fix(es) recovered).",
                (unsigned)fixQueue.size());
     } else {
@@ -310,7 +320,7 @@ extern "C" void app_main(void) {
   // the cached document, and again every time a new one arrives, so the queues
   // are never running limits the server has already superseded.
   static SettingsApplier settingsApplier(fixQueue, retryQueue);
-  settingsApplier.apply(settings, motion.activeMode(settings));
+  settingsApplier.apply(settings);
 
   static SerialPort serial(config::kModemUartPort, config::kModemTxPin,
                            config::kModemRxPin, config::kModemBaudRate);
@@ -445,17 +455,25 @@ extern "C" void app_main(void) {
   static RemoteSchedule remoteSchedule(mqtt, scheduleStore, updateSignal,
                                        config::kScheduleTopic);
 
-  // The device's own presence messages - "online", and "offline because ..."
-  // before every sleep - plus the Last Will the broker publishes for us when we
-  // cannot. Sealed with the same crypto as the fixes. Constructed
-  // unconditionally (they hold a few pointers); with kStatusReportsEnabled off
-  // nothing below ever calls them and the sleeper is handed nullptr.
+  // The device's own status messages - "online", "offline because ..." before
+  // every sleep, each wake and each motion step - plus the Last Will the broker
+  // publishes for us when we cannot. Sealed with the same crypto as the fixes;
+  // everything but "online" goes through the event log, so out of range it
+  // waits on the card. Constructed unconditionally (they hold a few pointers);
+  // with kStatusReportsEnabled off nothing below ever calls them and the
+  // sleeper is handed nullptr.
   static StatusPublisher statusPublisher(mqtt, crypto, deviceClock,
                                          config::kStatusTopic,
                                          config::kDeviceId,
                                          config::kStatusPublishTimeoutMs);
-  static PresenceReporter presence(mqtt, statusPublisher,
+  static EventLog eventLog(mqtt, eventQueue, config::kStatusTopic,
+                           config::kStatusPublishTimeoutMs,
+                           config::kSdMaxBurstFixes,
+                           config::kBacklogFlushRetryMs,
+                           config::kBacklogFlushBudgetMs);
+  static PresenceReporter presence(mqtt, statusPublisher, eventLog,
                                    BootJournal::resetCauseName());
+  static ActivityReporter activity(statusPublisher, eventLog);
 
   // The one place that knows which of the three opinions about this device's
   // settings wins - see the banner on SettingsSelector.
@@ -531,6 +549,20 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MQTT disabled in Config.h.");
   }
 
+  // From here on every step of the motion state machine goes into the event
+  // history. Two things happened before anyone could listen, and are recorded
+  // by hand: the wake that started this boot, and the check MotionTracker began
+  // with it. Recorded after "online" so a restart reason still leads the boot;
+  // out of range they wait on the card like the rest.
+  if (config::kMqttEnabled && config::kStatusReportsEnabled) {
+    activity.recordWake();
+    if (motion.isChecking()) {
+      activity.recordMotion(MotionChange::Checking);
+    }
+    motion.setChangeHandler(
+        [](MotionChange change) { activity.recordMotion(change); });
+  }
+
   // First resolve of the run. Done outside the MQTT block so it also covers the
   // kMqttEnabled-off case, where it simply returns the documents loaded from the
   // card. The clock is almost certainly unseeded at this point on a cold boot,
@@ -538,7 +570,7 @@ extern "C" void app_main(void) {
   // evaluation happens after the first fix below.
   settings = selector.resolve();
   motion.update(settings);
-  settingsApplier.apply(settings, motion.activeMode(settings));
+  settingsApplier.apply(settings);
 
   // Owns the ordered shutdown for the sleep_between path. Only ever used when
   // that setting is on, but wiring it here keeps the loop below free of the
@@ -667,7 +699,7 @@ extern "C" void app_main(void) {
     // nothing having been delivered.
     settings = selector.resolve();
     motion.update(settings);
-    settingsApplier.apply(settings, motion.activeMode(settings));
+    settingsApplier.apply(settings);
 
     if (config::kGnssDebug) {
       BatteryStatus batteryStatus;
@@ -970,15 +1002,14 @@ extern "C" void app_main(void) {
     // common path and is simpler than tracking who took the message.
     settings = selector.resolve();
     motion.update(settings);
-    settingsApplier.apply(settings, motion.activeMode(settings));
+    settingsApplier.apply(settings);
 
     // Close a motion window whose deadline has passed - a check that found no
     // movement, or a trip that has stood still for the whole stop window. Asked
     // only now, after this cycle's fix has had its say, so a fast fix landing
-    // right at the deadline still counts.
-    if (motion.evaluate()) {
-      settingsApplier.apply(settings, motion.activeMode(settings));
-    }
+    // right at the deadline still counts. Nothing to re-apply when it closes:
+    // the settings SettingsApplier pushes are shared by both modes.
+    motion.evaluate();
 
     // Where this interval is measured from. With no report there is nothing to
     // measure from, so we start a fresh interval here instead - otherwise a
@@ -1021,7 +1052,6 @@ extern "C" void app_main(void) {
       // A motion window may have run out while we waited. Closing it here, not
       // only after the next acquire, is what makes a trip end on time.
       if (motion.evaluate()) {
-        settingsApplier.apply(settings, motion.activeMode(settings));
         motion.takeCheckAnchor(anchorUs);
       }
 
@@ -1043,9 +1073,7 @@ extern "C" void app_main(void) {
       // chunk boundary is one wake-up and one SUBSCRIBE - the entire ongoing
       // cost of the periodic check.
       const int64_t checkUs =
-          static_cast<int64_t>(
-              motion.activeMode(settings).configCheckSeconds()) *
-          1000000LL;
+          static_cast<int64_t>(settings.configCheckSeconds()) * 1000000LL;
       int64_t chunkUs = (checkUs > 0 && checkUs < remainingUs) ? checkUs
                                                               : remainingUs;
 
@@ -1109,7 +1137,7 @@ extern "C" void app_main(void) {
       if (selector.waitForChange(static_cast<uint32_t>(chunkUs / 1000))) {
         settings = selector.current();
         motion.update(settings);
-        settingsApplier.apply(settings, motion.activeMode(settings));
+        settingsApplier.apply(settings);
         continue;  // re-time against the settings we have just adopted
       }
 
@@ -1117,7 +1145,6 @@ extern "C" void app_main(void) {
       // over: go straight into an acquire, which is where the check begins.
       if (watchActivity && activityArmedSteps != 0 && accel.takeActivity()) {
         motion.onActivity(settings);
-        settingsApplier.apply(settings, motion.activeMode(settings));
         break;
       }
 
@@ -1127,7 +1154,7 @@ extern "C" void app_main(void) {
       const DeviceSettings previous = settings;
       settings                      = selector.resolve();
       motion.update(settings);
-      settingsApplier.apply(settings, motion.activeMode(settings));
+      settingsApplier.apply(settings);
       if (settings != previous) {
         continue;  // the schedule just moved us; re-time against the new interval
       }
@@ -1135,7 +1162,7 @@ extern "C" void app_main(void) {
       // Ask the broker to re-send the retained documents if the re-check is due;
       // it self-paces, so this is a no-op on a chunk that ended for any other
       // reason.
-      selector.resyncIfDue(motion.activeMode(settings).configCheckSeconds());
+      selector.resyncIfDue(settings.configCheckSeconds());
     }
 
     // Deep sleep narrows what peak tracking can see: the chip is powered down

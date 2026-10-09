@@ -25,4 +25,16 @@ public static class DeviceEventKindNames
     /// brown-out or a cold power-on — reported by the device itself once it reconnected.
     /// </summary>
     public const string Restart = "restart";
+
+    /// <summary>
+    /// The device woke from deep sleep: on its timer, because the car moved, or because
+    /// the power switch was turned back on.
+    /// </summary>
+    public const string Wake = "wake";
+
+    /// <summary>
+    /// A step of the device's motion-wake state machine: checking for movement, moving,
+    /// parked again, or motion wake switched on or off.
+    /// </summary>
+    public const string Motion = "motion";
 }

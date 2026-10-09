@@ -17,6 +17,12 @@ public static class DeviceEventReasonNames
     /// <summary>Offline: a planned deep sleep between reports. Normal.</summary>
     public const string Sleep = "sleep";
 
+    /// <summary>
+    /// Offline: a deep sleep because the car was found parked — motion wake is on and
+    /// the accelerometer is armed to wake it. Normal.
+    /// </summary>
+    public const string SleepNoMotion = "sleepNoMotion";
+
     /// <summary>Offline: the operator switched the unit off. Normal.</summary>
     public const string PowerOff = "powerOff";
 
@@ -40,4 +46,34 @@ public static class DeviceEventReasonNames
 
     /// <summary>Restart: a panic, a watchdog or a software reset. An error.</summary>
     public const string Crash = "crash";
+
+    /// <summary>Wake: the RTC timer — the regular wake for the next report. Normal.</summary>
+    public const string Timer = "timer";
+
+    /// <summary>Wake: the accelerometer — the car moved while the device slept. Normal.</summary>
+    public const string Accelerometer = "accelerometer";
+
+    /// <summary>Wake: the power switch was turned back on. Normal.</summary>
+    public const string PowerSwitch = "powerSwitch";
+
+    /// <summary>Motion: the boot began a check for movement (after any wake or a power-on). Normal.</summary>
+    public const string Checking = "checking";
+
+    /// <summary>Motion: the accelerometer tripped while the device was awake and parked — a check began. Normal.</summary>
+    public const string Activity = "activity";
+
+    /// <summary>Motion: a configuration switched motion wake on — a check began. Normal.</summary>
+    public const string MotionOn = "motionOn";
+
+    /// <summary>Motion: a fix faster than the speed threshold — the car is moving. Normal.</summary>
+    public const string Moving = "moving";
+
+    /// <summary>Motion: a check ended without a fast fix — the car is parked. Normal.</summary>
+    public const string NoMotion = "noMotion";
+
+    /// <summary>Motion: the car stood still for the whole stop window — the trip ended. Normal.</summary>
+    public const string Stopped = "stopped";
+
+    /// <summary>Motion: a configuration switched motion wake off. Normal.</summary>
+    public const string MotionOff = "motionOff";
 }

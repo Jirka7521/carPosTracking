@@ -4,7 +4,8 @@
 //  MotionTracker  -  Is the car parked, possibly moving, or driving?
 // -----------------------------------------------------------------------------
 //  Responsibility (single!): own the motion-wake state machine, and with it the
-//  answer to "which set of the seven reporting knobs is in force right now".
+//  answer to "which set of the three per-mode reporting knobs is in force right
+//  now".
 //  It decides; it does not act. main() asks it what to do with each fix and how
 //  to sleep, Adxl345 and DeepSleepController do the hardware.
 //
@@ -38,11 +39,18 @@
 //  With motion wake OFF this class is inert: STANDBY for ever, every fix
 //  published, the standby set in force - i.e. exactly the device as it was before
 //  motion wake existed.
+//
+//  Every transition is also REPORTED, as a MotionChange, to the handler set
+//  with setChangeHandler() - that is how the dashboard's event history learns
+//  when the car started moving and when it parked. Reporting is not acting:
+//  the handler only records, it never feeds back into the state machine.
 // =============================================================================
 
 #include <cstdint>
+#include <functional>
 
 #include "esp_sleep.h"
+#include "motion/MotionChange.h"
 #include "settings/DeviceSettings.h"
 #include "settings/ModeSettings.h"
 
@@ -54,12 +62,20 @@ class MotionTracker {
     Moving   = 2,
   };
 
+  // Called with every transition, on the caller's (main) task.
+  using ChangeHandler = std::function<void(MotionChange change)>;
+
   MotionTracker();
 
   // Read the wake cause and what RTC memory remembers, and pick the starting
   // state for `settings`. Call once, early: after the cached settings are loaded
   // and before anything asks activeMode().
   void begin(const DeviceSettings& settings);
+
+  // Start reporting transitions to `handler` (an empty one stops it). begin()
+  // runs before anyone can listen, so the check a boot starts with is NOT
+  // reported - the caller records that one itself (see isChecking()).
+  void setChangeHandler(ChangeHandler handler);
 
   // Adopt settings that may have changed - a config arrived, the schedule moved
   // to another profile. Turning motion wake ON starts a check at once; turning it
@@ -114,11 +130,18 @@ class MotionTracker {
   static const char* stateName(State state);
 
  private:
-  // Enter CHECKING for wake_wait_s. `reason` is for the log line.
-  void startChecking(const DeviceSettings& settings, const char* reason);
+  // Enter CHECKING for wake_wait_s. `reason` is for the log line, `change` is
+  // what gets reported.
+  void startChecking(const DeviceSettings& settings, const char* reason,
+                     MotionChange change);
+
+  // Hand `change` to the handler, if there is one.
+  void report(MotionChange change);
 
   // Why this boot happened, phrased for the motion log.
   static const char* wakeReason(esp_sleep_wakeup_cause_t cause);
+
+  ChangeHandler onChange_;
 
   bool    enabled_;
   State   state_;

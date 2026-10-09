@@ -15,8 +15,16 @@ namespace CarPosAPI.Services.Ingest;
 /// <para>
 /// Same failure classification as <see cref="IngestPipeline"/>: anything wrong with the
 /// message itself is poison (log, consume), a database outage is retryable (leave it
-/// for the broker to redeliver). There is <b>no delivery ack</b>: nothing on the device
-/// is waiting to hear about a status message, and it keeps no copy to clear.
+/// for the broker to redeliver). There is <b>no delivery ack</b>: a device that kept
+/// events on its SD card while out of range clears them on the broker's QoS-2 ack
+/// alone. This persistent session is what makes that safe — the broker holds the
+/// message through an API outage — and a rejection here is final, so an API verdict
+/// would give the device nothing to act on.
+/// </para>
+///
+/// <para>
+/// A message may carry many envelopes: a burst of events from the card, oldest first.
+/// They are stored in that order, so the row ids keep it as a tie-break.
 /// </para>
 ///
 /// <para>
@@ -100,8 +108,8 @@ internal sealed class StatusIngestPipeline : IStatusIngestPipeline
             return IngestOutcome.Success;
         }
 
-        // The firmware sends exactly one envelope per status message, but the array
-        // shape is shared with position batches, so every envelope is honoured.
+        // One envelope for a live status message, many for a backlog drained from the
+        // device's card - the array shape is shared with position batches.
         List<ValidatedDeviceStatus> validated = new List<ValidatedDeviceStatus>(decodeResult.Envelopes.Count);
         int rejected = decodeResult.RejectedEnvelopes;
         DateTime utcNow = DateTime.UtcNow;

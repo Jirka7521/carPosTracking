@@ -6,10 +6,12 @@
 
 static const char* TAG = "StatusPublisher";
 
-// The two message types. Spelled once so the Will and the live messages cannot
+// The message types. Spelled once so the Will and the live messages cannot
 // disagree on them - the API rejects anything else.
 static constexpr char kTypeOnline[]  = "online";
 static constexpr char kTypeOffline[] = "offline";
+static constexpr char kTypeWake[]    = "wake";
+static constexpr char kTypeMotion[]  = "motion";
 
 StatusPublisher::StatusPublisher(MqttClient& mqtt, PayloadCrypto& crypto,
                                  DeviceClock& clock, const char* topic,
@@ -25,6 +27,8 @@ const char* StatusPublisher::reasonName(OfflineReason reason) {
   switch (reason) {
     case OfflineReason::Sleep:
       return "sleep";
+    case OfflineReason::SleepNoMotion:
+      return "sleep_no_motion";
     case OfflineReason::PowerOff:
       return "power_off";
     case OfflineReason::BatteryLow:
@@ -35,6 +39,38 @@ const char* StatusPublisher::reasonName(OfflineReason reason) {
       return "connection_lost";
   }
   return "error";  // unreachable; keeps the compiler sure every path returns
+}
+
+const char* StatusPublisher::wakeName(WakeCause cause) {
+  switch (cause) {
+    case WakeCause::Timer:
+      return "timer";
+    case WakeCause::Accelerometer:
+      return "accelerometer";
+    case WakeCause::PowerSwitch:
+      return "power_switch";
+  }
+  return "timer";  // unreachable; keeps the compiler sure every path returns
+}
+
+const char* StatusPublisher::motionName(MotionChange change) {
+  switch (change) {
+    case MotionChange::Checking:
+      return "checking";
+    case MotionChange::Activity:
+      return "activity";
+    case MotionChange::MotionOn:
+      return "motion_on";
+    case MotionChange::Moving:
+      return "moving";
+    case MotionChange::NoMotion:
+      return "no_motion";
+    case MotionChange::Stopped:
+      return "stopped";
+    case MotionChange::MotionOff:
+      return "motion_off";
+  }
+  return "checking";  // unreachable; keeps the compiler sure every path returns
 }
 
 std::string StatusPublisher::buildJson(const char* type, const char* reason,
@@ -86,15 +122,23 @@ std::string StatusPublisher::buildJson(const char* type, const char* reason,
   return json;
 }
 
-bool StatusPublisher::seal(const std::string& plaintext,
-                           std::string& messageOut) {
+bool StatusPublisher::sealBare(const std::string& plaintext,
+                               std::string& envelopeOut) {
   if (plaintext.empty()) {
     ESP_LOGE(TAG, "failed to build status JSON");
     return false;
   }
-  std::string envelope;
-  if (!crypto_.encrypt(plaintext, envelope)) {
+  if (!crypto_.encrypt(plaintext, envelopeOut)) {
     ESP_LOGE(TAG, "status encryption failed");
+    return false;
+  }
+  return true;
+}
+
+bool StatusPublisher::seal(const std::string& plaintext,
+                           std::string& messageOut) {
+  std::string envelope;
+  if (!sealBare(plaintext, envelope)) {
     return false;
   }
   // One-element array: the shape the API's envelope decoder already expects
@@ -113,9 +157,9 @@ bool StatusPublisher::sealAndPublish(const char* what,
   if (!seal(plaintext, message)) {
     return false;
   }
-  // Confirmed (QoS 2, waits for PUBCOMP) because an offline message is followed
-  // immediately by a DISCONNECT and a power-down: "handed to the client" is not
-  // enough when the client is about to be switched off with it still queued.
+  // Confirmed (QoS 2, waits for PUBCOMP) because PresenceReporter only stops
+  // re-sending the reset reason once a delivery is confirmed - "handed to the
+  // client" would clear it while it could still die in the outbox.
   if (!mqtt_.publishConfirmed(topic_, message, timeoutMs_)) {
     ESP_LOGW(TAG, "%s status not confirmed by the broker", what);
     return false;
@@ -141,10 +185,26 @@ bool StatusPublisher::publishOnline(const char* resetReason) {
   return sealAndPublish("online", plaintext);
 }
 
-bool StatusPublisher::publishOffline(OfflineReason reason, uint32_t sleepS,
-                                     int batteryPct, const char* detail) {
+bool StatusPublisher::sealOffline(OfflineReason reason, uint32_t sleepS,
+                                  int batteryPct, const char* detail,
+                                  std::string& envelopeOut) {
   const std::string plaintext =
       buildJson(kTypeOffline, reasonName(reason), /*withTime=*/true, sleepS,
                 batteryPct, nullptr, detail);
-  return sealAndPublish(reasonName(reason), plaintext);
+  return sealBare(plaintext, envelopeOut);
+}
+
+bool StatusPublisher::sealWake(WakeCause cause, std::string& envelopeOut) {
+  const std::string plaintext =
+      buildJson(kTypeWake, wakeName(cause), /*withTime=*/true, 0, -1, nullptr,
+                nullptr);
+  return sealBare(plaintext, envelopeOut);
+}
+
+bool StatusPublisher::sealMotion(MotionChange change,
+                                 std::string& envelopeOut) {
+  const std::string plaintext =
+      buildJson(kTypeMotion, motionName(change), /*withTime=*/true, 0, -1,
+                nullptr, nullptr);
+  return sealBare(plaintext, envelopeOut);
 }

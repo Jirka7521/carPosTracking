@@ -1,16 +1,25 @@
 #pragma once
 
 // =============================================================================
-//  StatusPublisher  -  Seal and publish the device's own presence messages.
+//  StatusPublisher  -  Seal the device's own status messages.
 // -----------------------------------------------------------------------------
-//  Responsibility (single!): format one status message ("online", or "offline
-//  because ..."), end-to-end encrypt it exactly like a fix, and publish it to
-//  the status topic. It decides nothing about WHEN - that is PresenceReporter -
+//  Responsibility (single!): format one status message, end-to-end encrypt it
+//  exactly like a fix, and - for "online" - publish it to the status topic. It
+//  decides nothing about WHEN - that is PresenceReporter and ActivityReporter -
 //  and nothing about how serious a reason is - that is the API.
 //
 //      reason --(this class formats)--> plaintext JSON
-//             --(PayloadCrypto)-------> sealed envelope, wrapped as [envelope]
-//             --(MqttClient)----------> devices/<id>/status
+//             --(PayloadCrypto)-------> sealed envelope
+//             --(MqttClient)----------> devices/<id>/status       online
+//             --(EventLog)------------> the same topic, now or    offline, wake,
+//                                       later from the SD card    motion
+//
+//  Two delivery paths, because the messages mean different things. "online"
+//  is about the connection it travels on, so it is published live or not at
+//  all - replayed later it would describe a session long gone. Everything else
+//  is something that HAPPENED (a sleep, a wake, the car starting to move) and
+//  stays true however late it arrives, so it is handed back sealed for
+//  EventLog to deliver now or keep on the card until the link is back.
 //
 //  Why sealed, when nothing in it is a position: the project's promise is that
 //  the broker only ever sees ciphertext from the device. A status message is
@@ -23,11 +32,16 @@
 //      {"device":"GNSS01","type":"offline","reason":"sleep",
 //       "time_utc":"2026-10-09T12:00:00Z","battery_pct":57,"sleep_s":300}
 //      {"device":"GNSS01","type":"online","reset_reason":"PANIC"}
+//      {"device":"GNSS01","type":"wake","reason":"accelerometer",
+//       "time_utc":"2026-10-09T12:05:00Z"}
+//      {"device":"GNSS01","type":"motion","reason":"no_motion",
+//       "time_utc":"2026-10-09T12:06:00Z"}
 //
 //  Every member but device/type is optional and simply left out when unknown.
 //  time_utc in particular is only sent while DeviceClock trusts itself - a
-//  confidently wrong timestamp is worse than none, and the API stamps its own
-//  receive time either way.
+//  confidently wrong timestamp is worse than none. The API keeps its own receive
+//  time as the event's time, except for a message that plainly sat on the card:
+//  then time_utc is the only record of when it happened.
 //
 //  It also seals the LAST WILL. That one is built once, before the connection
 //  exists, and is replayed by the broker at some unknown later moment - so it
@@ -38,6 +52,8 @@
 #include <string>
 
 #include "crypto/PayloadCrypto.h"
+#include "events/WakeCause.h"
+#include "motion/MotionChange.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/OfflineReason.h"
 #include "util/DeviceClock.h"
@@ -68,22 +84,37 @@ class StatusPublisher {
   // or the timeout passes; returns true only on a confirmed delivery.
   bool publishOnline(const char* resetReason);
 
-  // Say why the device is about to go offline. Blocks like publishOnline().
+  // The three below seal one event into `envelopeOut` - a BARE envelope, not
+  // wrapped in an array, because EventLog may send it in a burst with others.
+  // Each returns false if sealing failed; nothing is published here.
+
+  // Why the device is about to go offline.
   //   sleepS     : how long it expects to be gone, in seconds; 0 = unknown
   //   batteryPct : last known percent (0 = the charging sentinel), -1 = omit
   //   detail     : short machine code for an Error ("gnss_init"), or nullptr
-  bool publishOffline(OfflineReason reason, uint32_t sleepS, int batteryPct,
-                      const char* detail);
+  bool sealOffline(OfflineReason reason, uint32_t sleepS, int batteryPct,
+                   const char* detail, std::string& envelopeOut);
+
+  // What woke the device from deep sleep.
+  bool sealWake(WakeCause cause, std::string& envelopeOut);
+
+  // A step of the motion-wake state machine.
+  bool sealMotion(MotionChange change, std::string& envelopeOut);
 
  private:
-  // The wire word for each reason - must match DeviceStatusValidator in the API.
+  // The wire words - must match DeviceEventClassifier in the API.
   static const char* reasonName(OfflineReason reason);
+  static const char* wakeName(WakeCause cause);
+  static const char* motionName(MotionChange change);
 
   // Build the plaintext JSON. Any optional argument at its "absent" value
   // (nullptr / 0 / -1, and withTime false) is left out of the document.
   std::string buildJson(const char* type, const char* reason, bool withTime,
                         uint32_t sleepS, int batteryPct,
                         const char* resetReason, const char* detail) const;
+
+  // Seal `plaintext` into one bare envelope.
+  bool sealBare(const std::string& plaintext, std::string& envelopeOut);
 
   // Seal `plaintext` and wrap the envelope as a one-element JSON array.
   bool seal(const std::string& plaintext, std::string& messageOut);

@@ -9,7 +9,7 @@ namespace CarPosAPI.Tests;
 /// Proves the two device-event reads run in the database, not in memory.
 ///
 /// <para>
-/// <c>device_events</c> grows by about one row per report on a device that sleeps
+/// <c>device_events</c> grows by several rows per report on a device that sleeps
 /// between reports, so it has the same failure mode as <c>positions</c>: a filter or a
 /// cap that EF quietly evaluates client-side drags the whole history home. As in
 /// <see cref="DeviceAccessCountsQueryTranslationTests"/>, <c>ToQueryString()</c> renders
@@ -48,11 +48,13 @@ public sealed class DeviceEventQueryTranslationTests
         string sql = query.ToQueryString();
 
         Assert.Contains("device_events", sql, StringComparison.OrdinalIgnoreCase);
-        // The severity filter, the time range, the order and the cap.
+        // The severity filter, the time range, the order and the cap - range and order
+        // by when it happened, the column the index covers, not by arrival.
         Assert.Contains("severity", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("received_at >=", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("received_at <=", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("occurred_at >=", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("occurred_at <=", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("occurred_at DESC", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -71,12 +73,12 @@ public sealed class DeviceEventQueryTranslationTests
             .Select(access => context.DeviceEvents
                 .Where(deviceEvent => deviceEvent.DeviceId == access.DeviceId
                     && deviceEvent.Kind == DeviceEventKindNames.Offline)
-                .OrderByDescending(deviceEvent => deviceEvent.ReceivedAt)
+                .OrderByDescending(deviceEvent => deviceEvent.OccurredAt)
                 .ThenByDescending(deviceEvent => deviceEvent.Id)
                 .Select(deviceEvent => new DeviceOfflineEventDto(
                     deviceEvent.Reason,
                     deviceEvent.Severity,
-                    deviceEvent.ReceivedAt,
+                    deviceEvent.OccurredAt,
                     deviceEvent.SleepSeconds))
                 .FirstOrDefault());
 

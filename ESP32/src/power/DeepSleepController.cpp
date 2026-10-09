@@ -191,7 +191,13 @@ void DeepSleepController::sleepFor(uint32_t durationMs,
 
   // sleep_s lets the dashboard say when to expect the device back - and notice
   // when it does not come back. A motion wake can only make that earlier.
-  sayGoodbye(OfflineReason::Sleep, durationMs / 1000);
+  //
+  // A threshold to arm means MotionTracker put us in STANDBY: the car was
+  // found parked, and that - not just the reporting interval - is why this
+  // sleep happens. The history tells the two apart.
+  sayGoodbye(motionThresholdSteps > 0 ? OfflineReason::SleepNoMotion
+                                      : OfflineReason::Sleep,
+             durationMs / 1000);
   shutdownPeripherals();
   holdModemOff(modemPwrKeyPin_);
 

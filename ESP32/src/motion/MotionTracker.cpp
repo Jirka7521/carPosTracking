@@ -1,6 +1,7 @@
 #include "motion/MotionTracker.h"
 
 #include <limits>
+#include <utility>
 
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -64,7 +65,11 @@ void MotionTracker::begin(const DeviceSettings& settings) {
     return;
   }
 
-  startChecking(settings, wakeReason(cause));
+  startChecking(settings, wakeReason(cause), MotionChange::Checking);
+}
+
+void MotionTracker::setChangeHandler(ChangeHandler handler) {
+  onChange_ = std::move(handler);
 }
 
 void MotionTracker::update(const DeviceSettings& settings) {
@@ -76,11 +81,12 @@ void MotionTracker::update(const DeviceSettings& settings) {
   enabled_ = wanted;
   if (enabled_) {
     // Nothing says the car is parked, so find out rather than assume.
-    startChecking(settings, "motion wake switched on");
+    startChecking(settings, "motion wake switched on", MotionChange::MotionOn);
   } else {
     state_              = State::Standby;
     checkAnchorPending_ = false;
     ESP_LOGI(TAG, "motion wake switched off - standby settings from now on.");
+    report(MotionChange::MotionOff);
   }
 }
 
@@ -103,13 +109,17 @@ bool MotionTracker::onFix(const DeviceSettings& settings, bool haveFix,
 
   const MotionSettings& motion = settings.motion();
   if (speedKmph > static_cast<double>(motion.speedKmph())) {
-    if (state_ != State::Moving) {
+    const bool started = state_ != State::Moving;
+    if (started) {
       ESP_LOGI(TAG, "%s -> MOVING (%.1f km/h).", stateName(state_), speedKmph);
     }
     state_              = State::Moving;
     deadlineUs_         = esp_timer_get_time() +
                           static_cast<int64_t>(motion.stopWaitSeconds()) * kUsPerS;
     checkAnchorPending_ = false;
+    if (started) {
+      report(MotionChange::Moving);  // only the start: every fast fix renews it
+    }
     return true;
   }
 
@@ -132,7 +142,7 @@ bool MotionTracker::onFix(const DeviceSettings& settings, bool haveFix,
 
 void MotionTracker::onActivity(const DeviceSettings& settings) {
   if (enabled_ && state_ == State::Standby) {
-    startChecking(settings, "accelerometer activity");
+    startChecking(settings, "accelerometer activity", MotionChange::Activity);
   }
 }
 
@@ -144,7 +154,8 @@ bool MotionTracker::evaluate() {
     return false;
   }
 
-  if (state_ == State::Checking) {
+  const bool wasChecking = state_ == State::Checking;
+  if (wasChecking) {
     ESP_LOGI(TAG, "no fix faster than the speed limit within the wake window - "
                   "CHECKING -> STANDBY.");
     checkAnchorPending_ = true;
@@ -152,6 +163,7 @@ bool MotionTracker::evaluate() {
     ESP_LOGI(TAG, "stationary for the whole stop window - MOVING -> STANDBY.");
   }
   state_ = State::Standby;
+  report(wasChecking ? MotionChange::NoMotion : MotionChange::Stopped);
   return true;
 }
 
@@ -208,7 +220,7 @@ const char* MotionTracker::stateName(State state) {
 }
 
 void MotionTracker::startChecking(const DeviceSettings& settings,
-                                  const char* reason) {
+                                  const char* reason, MotionChange change) {
   const int64_t nowUs = esp_timer_get_time();
   const uint32_t waitS = settings.motion().wakeWaitSeconds();
 
@@ -220,6 +232,15 @@ void MotionTracker::startChecking(const DeviceSettings& settings,
 
   ESP_LOGI(TAG, "CHECKING for movement for up to %us (%s).", (unsigned)waitS,
            reason);
+  report(change);
+}
+
+void MotionTracker::report(MotionChange change) {
+  // After the state is updated, never before: whatever the handler does, it
+  // sees the machine already in the state the change names.
+  if (onChange_) {
+    onChange_(change);
+  }
 }
 
 const char* MotionTracker::wakeReason(esp_sleep_wakeup_cause_t cause) {

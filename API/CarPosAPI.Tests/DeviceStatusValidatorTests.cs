@@ -97,6 +97,12 @@ public sealed class DeviceStatusValidatorTests
     [InlineData(TopicDeviceId, "offline", "napping", nameof(DeviceStatusRejectReason.UnknownReason))]
     // Case matters: the firmware's vocabulary is exact, and a near miss is not it.
     [InlineData(TopicDeviceId, "offline", "Sleep", nameof(DeviceStatusRejectReason.UnknownReason))]
+    [InlineData(TopicDeviceId, "wake", null, nameof(DeviceStatusRejectReason.MissingField))]
+    [InlineData(TopicDeviceId, "wake", "alarm_clock", nameof(DeviceStatusRejectReason.UnknownReason))]
+    [InlineData(TopicDeviceId, "motion", null, nameof(DeviceStatusRejectReason.MissingField))]
+    [InlineData(TopicDeviceId, "motion", "flying", nameof(DeviceStatusRejectReason.UnknownReason))]
+    // A word from another type's vocabulary is still unknown here.
+    [InlineData(TopicDeviceId, "motion", "timer", nameof(DeviceStatusRejectReason.UnknownReason))]
     public void RejectsWhatMakesAMessageMeaningless(
         string? device,
         string? type,
@@ -145,6 +151,55 @@ public sealed class DeviceStatusValidatorTests
         Assert.Equal(DeviceEventSeverityNames.Error, status.Event.Severity);
     }
 
+    [Fact]
+    public void AcceptsAWakeWithItsCauseAndTime()
+    {
+        DeviceStatusPayloadDto wake = new DeviceStatusPayloadDto(
+            TopicDeviceId, "wake", "accelerometer", TimeUtc: "2026-10-09T08:15:00Z");
+
+        bool valid = CreateValidator().TryValidate(
+            wake, TopicDeviceId, s_utcNow, out ValidatedDeviceStatus? status, out DeviceStatusRejectReason _);
+
+        Assert.True(valid);
+        // A wake says nothing about the connection - it may have come off the card
+        // hours late - so it must not move the device's online time.
+        Assert.False(status!.IsOnline);
+        Assert.NotNull(status.Event);
+        Assert.Equal(DeviceEventKindNames.Wake, status.Event.Kind);
+        Assert.Equal(DeviceEventReasonNames.Accelerometer, status.Event.Reason);
+        // Hours old, as an event kept on the card while out of range would be.
+        Assert.Equal(new DateTime(2026, 10, 9, 8, 15, 0, DateTimeKind.Utc), status.DeviceTimeUtc);
+    }
+
+    [Fact]
+    public void AcceptsAMotionStep()
+    {
+        DeviceStatusPayloadDto step = new DeviceStatusPayloadDto(TopicDeviceId, "motion", "no_motion");
+
+        bool valid = CreateValidator().TryValidate(
+            step, TopicDeviceId, s_utcNow, out ValidatedDeviceStatus? status, out DeviceStatusRejectReason _);
+
+        Assert.True(valid);
+        Assert.False(status!.IsOnline);
+        Assert.Equal(DeviceEventKindNames.Motion, status.Event!.Kind);
+        Assert.Equal(DeviceEventReasonNames.NoMotion, status.Event.Reason);
+        Assert.Equal(DeviceEventSeverityNames.Normal, status.Event.Severity);
+    }
+
+    [Fact]
+    public void ClassifiesASleepBecauseParked()
+    {
+        DeviceStatusPayloadDto payload = ValidOffline() with { Reason = "sleep_no_motion" };
+
+        bool valid = CreateValidator().TryValidate(
+            payload, TopicDeviceId, s_utcNow, out ValidatedDeviceStatus? status, out DeviceStatusRejectReason _);
+
+        Assert.True(valid);
+        Assert.Equal(DeviceEventKindNames.Offline, status!.Event!.Kind);
+        Assert.Equal(DeviceEventReasonNames.SleepNoMotion, status.Event.Reason);
+        Assert.Equal(300, status.SleepSeconds);
+    }
+
     [Theory]
     [InlineData(-1)]
     [InlineData(101)]
@@ -191,7 +246,7 @@ public sealed class DeviceStatusValidatorTests
     [InlineData("2026-10-09T11:59:30.000Z")]
     // Too far in the future, beyond the configured skew.
     [InlineData("2026-10-09T13:00:00Z")]
-    // Older than any live status message could be.
+    // Older than even an event kept on the card plausibly is.
     [InlineData("2026-08-01T00:00:00Z")]
     public void DropsAnUnusableDeviceTime(string timeUtc)
     {

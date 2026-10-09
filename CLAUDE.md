@@ -58,7 +58,7 @@ broker drops messages, the dashboard shows a fallback).
 | `ESP32/src/crypto/AckCrypto` | `API/CarPosAPI/Services/Ingest/AckSealer` | delivery-ack envelope |
 | `ESP32/src/settings/SettingsCodec` | `API/CarPosAPI/Dtos/DeviceConfigDocumentDto` | `devices/<id>/config` JSON |
 | `ESP32/src/settings/ScheduleCodec`, `ScheduleEvaluator` | `API/CarPosAPI/Dtos/DeviceScheduleBundleDto` + `ScheduleBundle*Dto`, `Services/Scheduling/ScheduleEvaluator.cs` | bundle shape **and** identical evaluation |
-| `ESP32/src/mqtt/StatusPublisher`, `OfflineReason` | `API/CarPosAPI/Services/Ingest/DeviceStatusValidator`, `DeviceEventClassifier`, `DeviceStatusTopic` → FE `src/utils/deviceEvents.ts` badge tables | `devices/<id>/status` message: reason words, detail codes |
+| `ESP32/src/mqtt/StatusPublisher`, `OfflineReason`, `ESP32/src/events/WakeCause`, `ESP32/src/motion/MotionChange` | `API/CarPosAPI/Services/Ingest/DeviceStatusValidator`, `DeviceEventClassifier`, `DeviceStatusTopic`, `Data/Configurations/DeviceEventConfiguration` (CHECKs) → FE `src/utils/deviceEvents.ts` label tables | `devices/<id>/status` message: types (online / offline / wake / motion), reason words, detail codes |
 | `ESP32/src/config/Config.example.h` | `API/CarPosAPI/Services/Provisioning/ConfigTemplate.h.txt` | generated copy: `dotnet build` refreshes it (warning `CARPOS001` when stale) — commit it |
 | any new or renamed MQTT topic | `Container/MQTTBroker/mosquitto/acl` | read/write grants — without one the broker ACKs and silently drops |
 | `API/CarPosAPI/Dtos/` | `FE/src/services/apiTypes.ts` | camelCase wire shapes |

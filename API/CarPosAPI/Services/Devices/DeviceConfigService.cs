@@ -427,11 +427,7 @@ internal sealed class DeviceConfigService : IDeviceConfigService
                 configVersion.MotionStopWaitSeconds,
                 configVersion.MovingIntervalSeconds,
                 configVersion.MovingSleepBetween,
-                configVersion.MovingFixTimeoutSeconds,
-                configVersion.MovingQueueMaxFixes,
-                configVersion.MovingRetryIntervalHours,
-                configVersion.MovingRetryMaxAgeHours,
-                configVersion.MovingConfigCheckSeconds),
+                configVersion.MovingFixTimeoutSeconds),
             configVersion.CreatedAt,
             _context.Users
                 .Where(user => user.Id == configVersion.CreatedByUserId)
@@ -471,10 +467,6 @@ internal sealed class DeviceConfigService : IDeviceConfigService
             request.MotionStopWaitSeconds,
             request.MovingIntervalSeconds,
             request.MovingSleepBetween,
-            request.MovingFixTimeoutSeconds,
-            request.MovingQueueMaxFixes,
-            request.MovingRetryIntervalHours,
-            request.MovingRetryMaxAgeHours,
-            request.MovingConfigCheckSeconds);
+            request.MovingFixTimeoutSeconds);
     }
 }

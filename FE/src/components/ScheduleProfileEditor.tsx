@@ -27,25 +27,21 @@ import { ConfigValuesFields } from './ConfigValuesFields'
 // from the API's DeviceConfigRules. A blank form would only invite a first save
 // that fails validation.
 const DEFAULT_VALUES: DeviceConfigValuesDto = {
-  intervalSeconds: 60,
+  intervalSeconds: 1200,
   sleepBetween: false,
   fixTimeoutSeconds: 180,
   queueMaxFixes: 20000,
   retryIntervalHours: 24,
   retryMaxAgeHours: 168,
   configCheckSeconds: 3600,
-  motionEnabled: false,
-  motionThresholdMg: 63,
+  motionEnabled: true,
+  motionThresholdMg: 188,
   motionSpeedKmph: 3,
-  motionWakeWaitSeconds: 240,
-  motionStopWaitSeconds: 600,
-  movingIntervalSeconds: 10,
+  motionWakeWaitSeconds: 600,
+  motionStopWaitSeconds: 900,
+  movingIntervalSeconds: 30,
   movingSleepBetween: false,
   movingFixTimeoutSeconds: 180,
-  movingQueueMaxFixes: 20000,
-  movingRetryIntervalHours: 24,
-  movingRetryMaxAgeHours: 168,
-  movingConfigCheckSeconds: 3600,
 }
 
 export type ScheduleProfileEditorProps = {

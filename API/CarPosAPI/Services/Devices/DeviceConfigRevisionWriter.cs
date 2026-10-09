@@ -133,10 +133,6 @@ internal sealed class DeviceConfigRevisionWriter : IDeviceConfigRevisionWriter
                         MovingIntervalSeconds = values.MovingIntervalSeconds,
                         MovingSleepBetween = values.MovingSleepBetween,
                         MovingFixTimeoutSeconds = values.MovingFixTimeoutSeconds,
-                        MovingQueueMaxFixes = values.MovingQueueMaxFixes,
-                        MovingRetryIntervalHours = values.MovingRetryIntervalHours,
-                        MovingRetryMaxAgeHours = values.MovingRetryMaxAgeHours,
-                        MovingConfigCheckSeconds = values.MovingConfigCheckSeconds,
                         CreatedByUserId = authorUserId,
                         CreatedAt = DateTime.UtcNow,
                         Source = source,
@@ -222,10 +218,6 @@ internal sealed class DeviceConfigRevisionWriter : IDeviceConfigRevisionWriter
             && stored.MotionStopWaitSeconds == values.MotionStopWaitSeconds
             && stored.MovingIntervalSeconds == values.MovingIntervalSeconds
             && stored.MovingSleepBetween == values.MovingSleepBetween
-            && stored.MovingFixTimeoutSeconds == values.MovingFixTimeoutSeconds
-            && stored.MovingQueueMaxFixes == values.MovingQueueMaxFixes
-            && stored.MovingRetryIntervalHours == values.MovingRetryIntervalHours
-            && stored.MovingRetryMaxAgeHours == values.MovingRetryMaxAgeHours
-            && stored.MovingConfigCheckSeconds == values.MovingConfigCheckSeconds;
+            && stored.MovingFixTimeoutSeconds == values.MovingFixTimeoutSeconds;
     }
 }

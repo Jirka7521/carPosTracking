@@ -5,13 +5,13 @@ namespace CarPosAPI.Services.Devices;
 
 /// <summary>
 /// Builds the nested <c>motion</c> object of the device-facing settings document from
-/// any of the three shapes the twelve motion values are held in.
+/// any of the three shapes the eight motion values are held in.
 ///
 /// <para>
 /// The same block has to be assembled at every place a document is built — the
 /// retained config, each profile and the override in the schedule bundle, the
 /// reconnect sweep, a revision just saved. Written out by hand at each one it would be
-/// five copies of a twelve-argument constructor call, and the sixth setting added to
+/// five copies of an eight-argument constructor call, and the next setting added to
 /// the motion block would be missed in exactly one of them: a device then receives a
 /// document that disagrees with its own database row, with nothing anywhere to say so.
 /// One mapper means the field-to-key mapping exists once.
@@ -41,11 +41,7 @@ internal static class DeviceMotionDocumentFactory
             configVersion.MotionStopWaitSeconds,
             configVersion.MovingIntervalSeconds,
             configVersion.MovingSleepBetween,
-            configVersion.MovingFixTimeoutSeconds,
-            configVersion.MovingQueueMaxFixes,
-            configVersion.MovingRetryIntervalHours,
-            configVersion.MovingRetryMaxAgeHours,
-            configVersion.MovingConfigCheckSeconds);
+            configVersion.MovingFixTimeoutSeconds);
     }
 
     /// <summary>Builds the motion block for a schedule profile.</summary>
@@ -63,11 +59,7 @@ internal static class DeviceMotionDocumentFactory
             profile.MotionStopWaitSeconds,
             profile.MovingIntervalSeconds,
             profile.MovingSleepBetween,
-            profile.MovingFixTimeoutSeconds,
-            profile.MovingQueueMaxFixes,
-            profile.MovingRetryIntervalHours,
-            profile.MovingRetryMaxAgeHours,
-            profile.MovingConfigCheckSeconds);
+            profile.MovingFixTimeoutSeconds);
     }
 
     /// <summary>Builds the motion block for the dashboard's flat settings shape.</summary>
@@ -85,15 +77,11 @@ internal static class DeviceMotionDocumentFactory
             values.MotionStopWaitSeconds,
             values.MovingIntervalSeconds,
             values.MovingSleepBetween,
-            values.MovingFixTimeoutSeconds,
-            values.MovingQueueMaxFixes,
-            values.MovingRetryIntervalHours,
-            values.MovingRetryMaxAgeHours,
-            values.MovingConfigCheckSeconds);
+            values.MovingFixTimeoutSeconds);
     }
 
     /// <summary>
-    /// The one place the twelve values meet the wire shape, so the three overloads above
+    /// The one place the eight values meet the wire shape, so the three overloads above
     /// can differ only in where they read from.
     /// </summary>
     /// <param name="enabled">Whether motion wake is on.</param>
@@ -104,10 +92,6 @@ internal static class DeviceMotionDocumentFactory
     /// <param name="movingIntervalSeconds">Moving report interval.</param>
     /// <param name="movingSleepBetween">Moving deep-sleep flag.</param>
     /// <param name="movingFixTimeoutSeconds">Moving GNSS acquire budget.</param>
-    /// <param name="movingQueueMaxFixes">Moving queue cap.</param>
-    /// <param name="movingRetryIntervalHours">Moving retry pacing.</param>
-    /// <param name="movingRetryMaxAgeHours">Moving give-up age.</param>
-    /// <param name="movingConfigCheckSeconds">Moving re-check interval.</param>
     /// <returns>The block.</returns>
     private static DeviceMotionDocumentDto Assemble(
         bool enabled,
@@ -117,11 +101,7 @@ internal static class DeviceMotionDocumentFactory
         int stopWaitSeconds,
         int movingIntervalSeconds,
         bool movingSleepBetween,
-        int movingFixTimeoutSeconds,
-        int movingQueueMaxFixes,
-        int movingRetryIntervalHours,
-        int movingRetryMaxAgeHours,
-        int movingConfigCheckSeconds)
+        int movingFixTimeoutSeconds)
     {
         return new DeviceMotionDocumentDto(
             enabled,
@@ -132,10 +112,6 @@ internal static class DeviceMotionDocumentFactory
             new DeviceModeDocumentDto(
                 movingIntervalSeconds,
                 movingSleepBetween,
-                movingFixTimeoutSeconds,
-                movingQueueMaxFixes,
-                movingRetryIntervalHours,
-                movingRetryMaxAgeHours,
-                movingConfigCheckSeconds));
+                movingFixTimeoutSeconds));
     }
 }

@@ -4,18 +4,17 @@ namespace CarPosAPI.Dtos;
 
 /// <summary>
 /// The <c>motion</c> object of the settings document: the motion-wake parameters plus
-/// a full MOVING copy of the seven runtime settings. It sits after
+/// a MOVING copy of the three per-mode runtime settings. It sits after
 /// <c>config_check_s</c> in <see cref="DeviceConfigDocumentDto"/>,
 /// <see cref="ScheduleBundleProfileDto"/> and <see cref="ScheduleBundleOverrideDto"/>
 /// alike, so a schedule profile switches the whole motion block along with the
 /// standby values.
 ///
 /// <para>
-/// With motion wake on, the device runs one of two sets: the top-level seven keys
-/// (STANDBY) while the vehicle is parked, and <see cref="Moving"/> while it is driving.
-/// Off, the device only ever runs the top-level set and everything in here is inert —
-/// which is why the factory default is <c>enabled: false</c> and why adding this block
-/// changes nothing a device does until somebody turns it on.
+/// With motion wake on, the device runs one of two sets: the top-level interval, sleep
+/// and fix timeout (STANDBY) while the vehicle is parked, and <see cref="Moving"/> while
+/// it is driving; the other four top-level settings apply in both. Off, the device only
+/// ever runs the top-level set and everything in here is inert.
 /// </para>
 ///
 /// <para>
@@ -29,7 +28,8 @@ namespace CarPosAPI.Dtos;
 /// <param name="Enabled">Whether motion wake is on.</param>
 /// <param name="ThresholdMg">
 /// Accelerometer wake threshold, in milli-g. The ADXL345 compares in 62.5 mg steps and
-/// the firmware rounds this to the nearest one (63 mg = step 1, the most sensitive).
+/// the firmware rounds this to the nearest one (63 mg = step 1, the most sensitive;
+/// the default 188 mg = step 3).
 /// </param>
 /// <param name="SpeedKmph">
 /// A fix counts as moving when its GNSS speed is strictly above this, in km/h. Not 0:

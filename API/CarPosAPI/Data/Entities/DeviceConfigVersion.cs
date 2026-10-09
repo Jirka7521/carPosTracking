@@ -67,16 +67,16 @@ public sealed class DeviceConfigVersion
     /// </summary>
     public int ConfigCheckSeconds { get; set; }
 
-    // The motion block. The seven values above are the STANDBY set — what the device
-    // runs while parked — and the Moving* values below are a full second copy of the
-    // same seven for while it is driving. Everything here travels in the document's
-    // nested "motion" object; see Dtos.DeviceMotionDocumentDto.
+    // The motion block. Interval, sleep and fix timeout above are the STANDBY set —
+    // what the device runs while parked — and the Moving* values below are a second
+    // copy of those three for while it is driving. The queue, retry and re-check values
+    // above have no moving copy: they apply in both modes. Everything here travels in
+    // the document's nested "motion" object; see Dtos.DeviceMotionDocumentDto.
 
     /// <summary>
-    /// Whether motion wake is on. Off by default: it changes how the device sleeps
-    /// (an accelerometer wake source, and the Moving* set while driving), so it is
-    /// switched on deliberately. While off, every other motion value is carried but
-    /// inert.
+    /// Whether motion wake is on. On by default: an accelerometer wake source, and the
+    /// Moving* set while driving, is what a freshly provisioned tracker is for. While
+    /// off, every other motion value is carried but inert.
     /// </summary>
     public bool MotionEnabled { get; set; }
 
@@ -107,26 +107,6 @@ public sealed class DeviceConfigVersion
 
     /// <summary>How long the device chases a GNSS lock while moving, in seconds.</summary>
     public int MovingFixTimeoutSeconds { get; set; }
-
-    /// <summary>
-    /// Undelivered-fix queue cap while moving. The cap in force on the device is the
-    /// LARGER of this and <see cref="QueueMaxFixes"/>, so a mode switch never trims
-    /// fixes the other mode was still allowed to hold.
-    /// </summary>
-    public int MovingQueueMaxFixes { get; set; }
-
-    /// <summary>Hours between attempts on a fix this API rejected, while moving.</summary>
-    public int MovingRetryIntervalHours { get; set; }
-
-    /// <summary>
-    /// Hours after which a still-rejected fix is abandoned, while moving; 0 means
-    /// never. The age in force on the device is the more lenient of this and
-    /// <see cref="RetryMaxAgeHours"/> (0 beats any number).
-    /// </summary>
-    public int MovingRetryMaxAgeHours { get; set; }
-
-    /// <summary>How often an awake device re-asks the broker for this document while moving, in seconds.</summary>
-    public int MovingConfigCheckSeconds { get; set; }
 
     /// <summary>
     /// Who saved this revision. Null for the row seeded by the migration and for rows

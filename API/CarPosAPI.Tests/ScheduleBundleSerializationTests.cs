@@ -29,7 +29,7 @@ public class ScheduleBundleSerializationTests
         3,
         240,
         600,
-        new DeviceModeDocumentDto(10, false, 180, 20000, 24, 168, 3600));
+        new DeviceModeDocumentDto(10, false, 180));
 
     /// <summary>
     /// The override's motion block, with every value different from
@@ -42,7 +42,7 @@ public class ScheduleBundleSerializationTests
         5,
         300,
         900,
-        new DeviceModeDocumentDto(20, true, 120, 8000, 6, 0, 900));
+        new DeviceModeDocumentDto(20, true, 120));
 
     /// <summary>Builds a bundle with one profile and one rule.</summary>
     /// <param name="withOverride">Whether to attach an override.</param>
@@ -119,9 +119,7 @@ public class ScheduleBundleSerializationTests
             "\"config_check_s\":3600,\"motion\":{"
                 + "\"enabled\":true,\"threshold_mg\":63,\"speed_kmph\":3,"
                 + "\"wake_wait_s\":240,\"stop_wait_s\":600,"
-                + "\"moving\":{\"interval_s\":10,\"sleep_between\":false,\"fix_timeout_s\":180,"
-                + "\"queue_max_fixes\":20000,\"retry_interval_h\":24,\"retry_max_age_h\":168,"
-                + "\"config_check_s\":3600}}",
+                + "\"moving\":{\"interval_s\":10,\"sleep_between\":false,\"fix_timeout_s\":180}}",
             json,
             StringComparison.Ordinal);
 
@@ -150,9 +148,7 @@ public class ScheduleBundleSerializationTests
             "\"config_check_s\":3600,\"motion\":{"
                 + "\"enabled\":false,\"threshold_mg\":125,\"speed_kmph\":5,"
                 + "\"wake_wait_s\":300,\"stop_wait_s\":900,"
-                + "\"moving\":{\"interval_s\":20,\"sleep_between\":true,\"fix_timeout_s\":120,"
-                + "\"queue_max_fixes\":8000,\"retry_interval_h\":6,\"retry_max_age_h\":0,"
-                + "\"config_check_s\":900}}",
+                + "\"moving\":{\"interval_s\":20,\"sleep_between\":true,\"fix_timeout_s\":120}}",
             json,
             StringComparison.Ordinal);
     }

@@ -51,11 +51,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
         DeviceConfigRules.DefaultMotionStopWaitSeconds,
         DeviceConfigRules.DefaultMovingIntervalSeconds,
         DeviceConfigRules.DefaultMovingSleepBetween,
-        DeviceConfigRules.DefaultMovingFixTimeoutSeconds,
-        DeviceConfigRules.DefaultMovingQueueMaxFixes,
-        DeviceConfigRules.DefaultMovingRetryIntervalHours,
-        DeviceConfigRules.DefaultMovingRetryMaxAgeHours,
-        DeviceConfigRules.DefaultMovingConfigCheckSeconds);
+        DeviceConfigRules.DefaultMovingFixTimeoutSeconds);
 
     private readonly IMasterKeyProtector _protector;
     private readonly ConfigSnippetBuilder _snippetBuilder;
@@ -222,11 +218,7 @@ internal sealed class DeviceProvisioningService : IDeviceProvisioningService
                         revision.MotionStopWaitSeconds,
                         revision.MovingIntervalSeconds,
                         revision.MovingSleepBetween,
-                        revision.MovingFixTimeoutSeconds,
-                        revision.MovingQueueMaxFixes,
-                        revision.MovingRetryIntervalHours,
-                        revision.MovingRetryMaxAgeHours,
-                        revision.MovingConfigCheckSeconds))
+                        revision.MovingFixTimeoutSeconds))
                     .FirstOrDefault()))
             .SingleOrDefaultAsync(cancellationToken);
 

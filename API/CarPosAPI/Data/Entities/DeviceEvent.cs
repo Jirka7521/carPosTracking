@@ -1,8 +1,9 @@
 namespace CarPosAPI.Data.Entities;
 
 /// <summary>
-/// One entry in a device's connection history: it went offline (and why), or it came
-/// back from a reset worth knowing about. Written only by the status ingest
+/// One entry in a device's history: it went offline (and why), it came back from a
+/// reset worth knowing about, it woke from deep sleep, or its motion-wake state machine
+/// moved on (checking, moving, parked). Written only by the status ingest
 /// (<see cref="Services.Ingest.DeviceStatusWriter"/>) from the device's own status
 /// messages and its Last Will; read by the dashboard's Events tab and status badge.
 /// Mapped by <see cref="Configurations.DeviceEventConfiguration"/>.
@@ -28,17 +29,24 @@ public sealed class DeviceEvent
     /// <summary>Navigation to the owning device.</summary>
     public Device? Device { get; set; }
 
-    /// <summary>
-    /// When the server received the message (UTC). The event's authoritative time: the
-    /// Last Will carries no clock, and every other kind is published at the moment it
-    /// describes.
-    /// </summary>
+    /// <summary>When the server received the message (UTC).</summary>
     public DateTime ReceivedAt { get; set; }
 
     /// <summary>The device's own clock at the time (UTC), when it trusted one.</summary>
     public DateTime? DeviceTime { get; set; }
 
-    /// <summary><see cref="Dtos.DeviceEventKindNames"/> — offline or restart.</summary>
+    /// <summary>
+    /// When it happened (UTC) — the event's time, which the history is ordered and
+    /// filtered by. Normally <see cref="ReceivedAt"/>: a live message is published at the
+    /// moment it describes, and the server's clock is the one every other timestamp
+    /// shares. Only a message that plainly sat on the device's SD card — its
+    /// <see cref="DeviceTime"/> well before the receive time — keeps the device's clock,
+    /// because that is the only record of when it happened. Set once, by
+    /// <see cref="Services.Ingest.DeviceStatusWriter"/>.
+    /// </summary>
+    public DateTime OccurredAt { get; set; }
+
+    /// <summary><see cref="Dtos.DeviceEventKindNames"/> — offline, restart, wake or motion.</summary>
     public string Kind { get; set; } = string.Empty;
 
     /// <summary><see cref="Dtos.DeviceEventReasonNames"/>.</summary>

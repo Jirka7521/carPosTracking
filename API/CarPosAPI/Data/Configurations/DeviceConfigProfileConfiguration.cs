@@ -69,18 +69,6 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
                     "ck_device_config_profiles_moving_fix_timeout_s",
                     $"moving_fix_timeout_s BETWEEN {DeviceConfigRules.MinFixTimeoutSeconds} AND {DeviceConfigRules.MaxFixTimeoutSeconds}");
                 table.HasCheckConstraint(
-                    "ck_device_config_profiles_moving_queue_max_fixes",
-                    $"moving_queue_max_fixes BETWEEN {DeviceConfigRules.MinQueueMaxFixes} AND {DeviceConfigRules.MaxQueueMaxFixes}");
-                table.HasCheckConstraint(
-                    "ck_device_config_profiles_moving_retry_interval_h",
-                    $"moving_retry_interval_h BETWEEN {DeviceConfigRules.MinRetryIntervalHours} AND {DeviceConfigRules.MaxRetryIntervalHours}");
-                table.HasCheckConstraint(
-                    "ck_device_config_profiles_moving_retry_max_age_h",
-                    $"moving_retry_max_age_h BETWEEN {DeviceConfigRules.MinRetryMaxAgeHours} AND {DeviceConfigRules.MaxRetryMaxAgeHours}");
-                table.HasCheckConstraint(
-                    "ck_device_config_profiles_moving_config_check_s",
-                    $"moving_config_check_s BETWEEN {DeviceConfigRules.MinConfigCheckSeconds} AND {DeviceConfigRules.MaxConfigCheckSeconds}");
-                table.HasCheckConstraint(
                     "ck_device_config_profiles_schedule_slot",
                     $"schedule_slot BETWEEN {ScheduleRules.MinScheduleSlot} AND {ScheduleRules.MaxScheduleSlot}");
             });
@@ -151,12 +139,19 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
 
         // The motion block. Unlike the seven columns above, every one of these carries
         // a default: they were added to a table that already held profiles, and the
-        // migration needs a value to backfill them with that leaves every existing
-        // profile behaving exactly as it did (motion off). The Moving* defaults are the
-        // firmware's, not copies of the standby ones.
+        // migration needed a value to backfill them with. The Moving* defaults are the
+        // firmware's, not copies of the standby ones. Only interval, sleep and fix
+        // timeout have a moving copy; the queue, retry and re-check columns above serve
+        // both modes.
+        //
+        // The sentinel on motion_enabled is set explicitly because its default is TRUE:
+        // EF's usual sentinel (false) would leave an explicit "off" out of the INSERT and
+        // let the database default turn it back on. See DeviceConfigVersionConfiguration
+        // for the full account.
         builder.Property(profile => profile.MotionEnabled)
             .HasColumnName("motion_enabled")
             .HasDefaultValue(DeviceConfigRules.DefaultMotionEnabled)
+            .HasSentinel(DeviceConfigRules.DefaultMotionEnabled)
             .IsRequired();
 
         builder.Property(profile => profile.MotionThresholdMg)
@@ -192,32 +187,6 @@ public sealed class DeviceConfigProfileConfiguration : IEntityTypeConfiguration<
         builder.Property(profile => profile.MovingFixTimeoutSeconds)
             .HasColumnName("moving_fix_timeout_s")
             .HasDefaultValue(DeviceConfigRules.DefaultMovingFixTimeoutSeconds)
-            .IsRequired();
-
-        builder.Property(profile => profile.MovingQueueMaxFixes)
-            .HasColumnName("moving_queue_max_fixes")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingQueueMaxFixes)
-            .IsRequired();
-
-        builder.Property(profile => profile.MovingRetryIntervalHours)
-            .HasColumnName("moving_retry_interval_h")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryIntervalHours)
-            .IsRequired();
-
-        // The sentinel is set explicitly, and for this column only: 0 is a real, chosen
-        // value ("never give up on a rejected fix") that differs from the default of
-        // 168, and EF's usual sentinel (the CLR default, 0) would leave it out of the
-        // INSERT so that the database default silently replaced it. See
-        // DeviceConfigVersionConfiguration for the full account.
-        builder.Property(profile => profile.MovingRetryMaxAgeHours)
-            .HasColumnName("moving_retry_max_age_h")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
-            .HasSentinel(DeviceConfigRules.DefaultMovingRetryMaxAgeHours)
-            .IsRequired();
-
-        builder.Property(profile => profile.MovingConfigCheckSeconds)
-            .HasColumnName("moving_config_check_s")
-            .HasDefaultValue(DeviceConfigRules.DefaultMovingConfigCheckSeconds)
             .IsRequired();
 
         builder.Property(profile => profile.CreatedByUserId)

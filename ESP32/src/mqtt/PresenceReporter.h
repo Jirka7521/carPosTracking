@@ -18,6 +18,13 @@
 //             also makes the broker discard the Last Will, so a planned sleep
 //             is never misreported as a lost connection.
 //
+//  The two travel differently. "online" is published live or not at all - it
+//  describes the connection it rides on. "offline" goes through EventLog: said
+//  out of range it waits on the SD card, and reaches the history with the next
+//  connection instead of being lost. That backlog is drained BEFORE a new
+//  connection is announced, so whatever it holds lands ahead of the "online"
+//  that ends it.
+//
 //  Everything runs on the MAIN task, never from MqttClient's event callback,
 //  for three reasons: publishConfirmed() polls for an ack that the event task
 //  delivers, so calling it from there would deadlock; PayloadCrypto's random
@@ -26,13 +33,14 @@
 //  overwrite. So the main loop calls service() at the points where it already
 //  wakes up, and a new connection is noticed by its counter changing.
 //
-//  Best effort throughout: a status message that cannot be delivered is logged
-//  and dropped. Nothing here may delay a sleep or a report for long - the
-//  publish timeout bounds every call.
+//  Best effort throughout: an online message that cannot be delivered is
+//  logged and dropped. Nothing here may delay a sleep or a report for long -
+//  the publish timeout and EventLog's flush budget bound every call.
 // =============================================================================
 
 #include <cstdint>
 
+#include "events/EventLog.h"
 #include "mqtt/MqttClient.h"
 #include "mqtt/OfflineReason.h"
 #include "mqtt/StatusPublisher.h"
@@ -40,23 +48,25 @@
 
 class PresenceReporter {
  public:
-  // Borrows `mqtt` and `publisher` (both must outlive this object).
+  // Borrows `mqtt`, `publisher` and `log` (all must outlive this object).
   //   resetReason : this boot's reset cause, sent with the first online
   //                 message (a string with static lifetime, or nullptr)
-  PresenceReporter(MqttClient& mqtt, StatusPublisher& publisher,
+  PresenceReporter(MqttClient& mqtt, StatusPublisher& publisher, EventLog& log,
                    const char* resetReason);
 
-  // Announce "online" if the client has connected since the last announcement.
-  // Cheap when there is nothing to do - two integer compares - so it is safe to
-  // call from every place the main loop passes through.
+  // Drain the event backlog, then announce "online" if the client has connected
+  // since the last announcement. Cheap when there is nothing to do - a few
+  // integer compares - so it is safe to call from every place the main loop
+  // passes through.
   void service();
 
   // Remember the latest battery reading, so a goodbye can say how full the pack
   // was. An invalid reading leaves the previous one in place.
   void noteBattery(const BatteryStatus& battery);
 
-  // Publish "offline because `reason`", if connected. A pending online
-  // announcement goes first, so a restart reason is never lost behind a sleep.
+  // Record "offline because `reason`" - published now if connected, kept on
+  // the card otherwise. A pending online announcement goes first, so a restart
+  // reason is never lost behind a sleep.
   //   sleepS : expected time away in seconds, 0 = unknown
   //   detail : short machine code for an Error, or nullptr
   void reportOffline(OfflineReason reason, uint32_t sleepS,
@@ -65,6 +75,7 @@ class PresenceReporter {
  private:
   MqttClient&      mqtt_;
   StatusPublisher& publisher_;
+  EventLog&        log_;
 
   // Sent with online messages until one is confirmed, then cleared - the reset
   // cause belongs to the boot, not to every reconnect within it.

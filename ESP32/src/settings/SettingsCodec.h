@@ -7,26 +7,31 @@
 //  the runtime settings, and nothing else. The MQTT config message and the
 //  cached file on the SD card are the *same* document:
 //
-//      { "version": 7, "interval_s": 60, "sleep_between": true,
+//      { "version": 7, "interval_s": 1200, "sleep_between": false,
 //        "fix_timeout_s": 180, "queue_max_fixes": 20000,
 //        "retry_interval_h": 24, "retry_max_age_h": 168,
 //        "config_check_s": 3600,
-//        "motion": { "enabled": false, "threshold_mg": 63, "speed_kmph": 3,
-//                    "wake_wait_s": 240, "stop_wait_s": 600,
-//                    "moving": { ...the same seven keys as above... } } }
+//        "motion": { "enabled": true, "threshold_mg": 188, "speed_kmph": 3,
+//                    "wake_wait_s": 600, "stop_wait_s": 900,
+//                    "moving": { "interval_s": 30, "sleep_between": false,
+//                                "fix_timeout_s": 180 } } }
 //
-//  The top-level seven are the STANDBY set; "motion.moving" is the same seven
-//  again for while the car is driving. Nesting the moving set rather than
-//  prefixing seven more keys is deliberate: one pair of helpers (encodeMode /
-//  decodeMode) handles both, so the two sets cannot disagree about a key name or
-//  a type. An older publisher that knows nothing of "motion" simply leaves it at
-//  its defaults - motion wake off - and older firmware ignores the key outright.
+//  interval_s, sleep_between and fix_timeout_s at the top level are the STANDBY
+//  set; "motion.moving" is the same three again for while the car is driving.
+//  The other four top-level keys (queue_max_fixes, the two retry_* and
+//  config_check_s) are shared by both modes and have no moving copy. Nesting the
+//  moving set rather than prefixing more keys is deliberate: one pair of helpers
+//  (encodeMode / decodeMode) handles both, so the two sets cannot disagree about
+//  a key name or a type. An older publisher that knows nothing of "motion" simply
+//  leaves it at its defaults, and older firmware ignores the key outright. A
+//  "moving" object that still carries the four shared keys (an older dashboard)
+//  is fine too: decodeMode() never looks them up there, so they are ignored.
 //
 //  Keeping both sides of that format in one class is the point: the file we
 //  write and the message we accept can never drift apart, because there is only
-//  one encoder and one decoder. Adding a knob is a field on ModeSettings or
-//  MotionSettings plus a key here - nothing else in the settings pipeline needs
-//  to know.
+//  one encoder and one decoder. Adding a knob is a field on ModeSettings,
+//  DeviceSettings or MotionSettings plus a key here - nothing else in the
+//  settings pipeline needs to know.
 //
 //  Unlike the telemetry payload this document is plaintext - it carries no
 //  position data, so there is nothing to encrypt end-to-end.
@@ -75,10 +80,10 @@ class SettingsCodec {
   static bool decode(const char* json, std::size_t length,
                      DeviceSettings& settings);
 
-  // Add the value keys - the standby seven and the "motion" object - to an
-  // existing cJSON object, plus "version" when `includeVersion` is set and the
-  // version is non-zero. Used by encode() above and by ScheduleCodec for each
-  // profile in a bundle.
+  // Add the value keys - the standby three, the shared four and the "motion"
+  // object - to an existing cJSON object, plus "version" when `includeVersion`
+  // is set and the version is non-zero. Used by encode() above and by
+  // ScheduleCodec for each profile in a bundle.
   static void encodeInto(cJSON* object, const DeviceSettings& settings,
                          bool includeVersion);
 
@@ -89,11 +94,16 @@ class SettingsCodec {
   static bool decodeObject(const cJSON* object, DeviceSettings& settings);
 
  private:
-  // The seven reporting keys, into or out of `object`. Used for the top level
+  // The three per-mode keys, into or out of `object`. Used for the top level
   // (standby) and for "motion.moving" alike. decodeMode() returns true when it
   // found at least one key it could use.
   static void encodeMode(cJSON* object, const ModeSettings& mode);
   static bool decodeMode(const cJSON* object, ModeSettings& mode);
+
+  // The four keys shared by both modes, which only ever appear at the top level.
+  // Same return contract as decodeMode().
+  static void encodeShared(cJSON* root, const DeviceSettings& settings);
+  static bool decodeShared(const cJSON* root, DeviceSettings& settings);
 
   // The "motion" object of `root`. decodeMotion() returns true when "motion" was
   // present and carried at least one usable key; an absent key is simply false,

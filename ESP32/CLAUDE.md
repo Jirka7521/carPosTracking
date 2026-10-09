@@ -32,7 +32,8 @@ src/
 ├── power/       battery sampling + reporting, charger, low-battery guard,
 │                power switch, deep sleep, boot journal
 ├── sensors/     ADXL345 accelerometer + peak tracking
-├── motion/      MotionTracker — motion-wake state machine
+├── motion/      MotionTracker — motion-wake state machine, reports each transition
+├── events/      wake / motion / offline events: when to record, SD-backed delivery
 ├── sdcard/      SD store-and-forward: fix queue, retry queue, index, forwarder
 ├── settings/    remote settings (codec / store / applier) and schedules
 │                (codec / store / evaluator / selector)
