@@ -2,7 +2,7 @@
 // TelemetryChart — one overlaid line chart with a Y axis per unit.
 //
 // The interesting problem here is that the selectable series do not share a
-// scale: 90 km/h, 420 m, 78 %, 41 °C and 0.03 g cannot sit on one axis without
+// scale: 90 km/h, 420 m, 78 % and 0.03 g cannot sit on one axis without
 // flattening everything but the largest into a straight line. Normalising them
 // to 0–100 % would fix the shape but throw away the numbers.
 //
@@ -10,7 +10,7 @@
 // each unit present gets its own <YAxis>, alternating left and right. All four
 // accelerometer series share a single "g" axis, which is what makes comparing
 // them meaningful. Recharts stacks multiple axes on the same side outward and
-// shrinks the plot area to fit, so the layout holds up to all five units.
+// shrinks the plot area to fit, so the layout holds up to all four units.
 //
 // This is the only file in the app that imports Recharts. The data shaping and
 // the series table live in utils/telemetry.ts.
@@ -53,7 +53,6 @@ const UNIT_AXIS: Record<SeriesUnit, { domain: [number | string, number | string]
   'm':    { domain: ['auto', 'auto'],      decimals: 0 },
   // A battery axis auto-scaled to 78–82 % turns normal drift into a cliff.
   '%':    { domain: [0, 100],              decimals: 0 },
-  '°C':   { domain: ['auto', 'auto'],      decimals: 1 },
   // Negative values are normal here — see the note above about clipping.
   'g':    { domain: ['auto', 'auto'],      decimals: 2 },
 }

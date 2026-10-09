@@ -106,7 +106,7 @@
         "title": "Why, and on what legal basis"
       },
       "locationData": {
-        "p1": "For every fix a tracker reports: latitude and longitude, speed, acceleration on three axes, altitude, the GNSS fix time and the server receive time, battery percentage, temperature, and the device identifier.",
+        "p1": "For every fix a tracker reports: latitude and longitude, speed, acceleration on three axes, altitude, the GNSS fix time and the server receive time, battery percentage, and the device identifier.",
         "p2": "A location history describes where a vehicle, and therefore usually a person, has been, when, and how they drove. It is treated as sensitive throughout: coordinates are never written to any log file.",
         "p3": "Each tracker also reports its own connection status: when it connects, when it goes offline and why (a planned sleep, being switched off, a low battery, a fault), and when it restarts after a crash or a power loss. If it drops off without saying so, the message broker reports that on its behalf. These records show when the vehicle was in use, so they are kept, exported and erased exactly like the positions.",
         "title": "Location and vehicle telemetry"
@@ -146,7 +146,7 @@
         "title": "Security"
       },
       "shareLinks": {
-        "p1": "You can create a link that shows one tracker to somebody who has no account here, for a period you choose. The link is guarded by two separate secrets: an unguessable address and a code generated for it, which you are meant to send by a different route. You decide whether the recipient sees only the current position or the whole track for that period, and whether speed, battery and temperature travel with it. They never learn the device identifier, only a name you choose.",
+        "p1": "You can create a link that shows one tracker to somebody who has no account here, for a period you choose. The link is guarded by two separate secrets: an unguessable address and a code generated for it, which you are meant to send by a different route. You decide whether the recipient sees only the current position or the whole track for that period, and whether speed and battery travel with it. They never learn the device identifier, only a name you choose.",
         "p2": "We store the device the link points at, the name you chose, the period, what it exposes, when it was created and withdrawn, how many times it was opened and when it was last opened. We also store the link and its code in readable form, so that you can look them up again — which means anyone with access to the database, or to a backup of it, could use a link that is still within its period. On the server, nothing at all is stored about the person who opens the link — no IP address, no browser details, no identifier. Their own browser keeps the link's session in a cookie for the link's period and, only if they choose to always load the map, that choice in a second cookie, both described under Cookies below.",
         "p3": "You can revoke a link at any time in the device settings, and it stops working immediately. It also stops on its own when the period ends. The record that a link existed and was withdrawn is kept so the history of who was given access stays answerable; if you delete your account, the links you created are deleted with it.",
         "title": "Temporary share links"

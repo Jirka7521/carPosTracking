@@ -88,7 +88,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
   const [scope, setScope] = useState<ShareScope>('latestOnly')
   const [includeSpeed, setIncludeSpeed] = useState<boolean>(false)
   const [includeBattery, setIncludeBattery] = useState<boolean>(false)
-  const [includeTemperature, setIncludeTemperature] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
   // The one-time reveal. Held in component state and nowhere else — not in
@@ -176,7 +175,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
           scope,
           includeSpeed,
           includeBattery,
-          includeTemperature,
         })
       } else {
         setCreated({
@@ -188,7 +186,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
             scope,
             includeSpeed,
             includeBattery,
-            includeTemperature,
           }),
           isReissue: false,
         })
@@ -212,7 +209,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
     setScope('latestOnly')
     setIncludeSpeed(false)
     setIncludeBattery(false)
-    setIncludeTemperature(false)
     setEditing(null)
     setCreated(null)
     setIsFormOpen(true)
@@ -234,7 +230,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
     setScope(link.scope)
     setIncludeSpeed(link.includeSpeed)
     setIncludeBattery(link.includeBattery)
-    setIncludeTemperature(link.includeTemperature)
     setEditing(link)
     // The one-time secrets belong to whichever link was just created; leaving them
     // on screen next to a different link's form invites pasting the wrong pair.
@@ -510,15 +505,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
               onChange={(event) => setIncludeBattery(event.target.checked)}
             />
             <span>{t('share:form.includeBattery')}</span>
-          </label>
-
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={includeTemperature}
-              onChange={(event) => setIncludeTemperature(event.target.checked)}
-            />
-            <span>{t('share:form.includeTemperature')}</span>
           </label>
 
           <p className="hint">{t('share:form.extrasHint')}</p>

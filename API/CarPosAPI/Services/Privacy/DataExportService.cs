@@ -303,7 +303,6 @@ internal sealed class DataExportService : IDataExportService
                     link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
                     link.IncludeSpeed,
                     link.IncludeBattery,
-                    link.IncludeTemperature,
                     link.CreatedAt,
                     link.RevokedAt,
                     link.SuccessfulRedeems,
@@ -323,7 +322,6 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteString("scope", link.Scope);
             writer.WriteBoolean("includeSpeed", link.IncludeSpeed);
             writer.WriteBoolean("includeBattery", link.IncludeBattery);
-            writer.WriteBoolean("includeTemperature", link.IncludeTemperature);
             writer.WriteString("createdAtUtc", link.CreatedAt);
 
             if (link.RevokedAt.HasValue)
@@ -547,7 +545,6 @@ internal sealed class DataExportService : IDataExportService
             WriteNullableDouble(writer, "accelXG", position.AccelXG);
             WriteNullableDouble(writer, "accelYG", position.AccelYG);
             WriteNullableDouble(writer, "accelZG", position.AccelZG);
-            WriteNullableDouble(writer, "temperatureC", position.TemperatureC);
             writer.WriteEndObject();
 
             written++;

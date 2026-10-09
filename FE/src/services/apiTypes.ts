@@ -109,10 +109,6 @@ export type PositionDto = {
   accelXG: number | null
   accelYG: number | null
   accelZG: number | null
-  // Modem die temperature at this fix in °C, or null when the device sent none
-  // (older firmware, or the SIM7000 AT+CPMUTEMP command unsupported). A proxy for
-  // how hot the tracker is running — a hot-car cut-off shows up here.
-  temperatureC: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -639,7 +635,6 @@ export interface ShareLinkDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
   status: ShareLinkStatus
   createdAt: string
   revokedAt: string | null
@@ -661,7 +656,6 @@ export interface ShareLinkCreateRequestDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }
 
 // The 201 body, and the only time the two secrets exist outside the creator's
@@ -692,11 +686,10 @@ export interface ShareSessionDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }
 
 // One fix as a visitor sees it. Compare PositionDto: no id, no deviceId, no
-// receivedAt, no altitude, no accelerometer. The three optional fields are null
+// receivedAt, no altitude, no accelerometer. The two optional fields are null
 // unless the creator opted in.
 export interface SharedPositionDto {
   timestamp: string
@@ -704,7 +697,6 @@ export interface SharedPositionDto {
   longitude: number
   speedKmph: number | null
   batteryPct: number | null
-  temperatureC: number | null
 }
 
 // GET /api/shares/view — the share and its fixes in one response, so a reload
@@ -726,5 +718,4 @@ export interface ShareLinkUpdateRequestDto {
   scope: ShareScope
   includeSpeed: boolean
   includeBattery: boolean
-  includeTemperature: boolean
 }

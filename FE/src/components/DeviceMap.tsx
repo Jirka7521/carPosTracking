@@ -41,7 +41,6 @@ export type MapPosition = {
   longitude: number
   speedKmph: number | null
   batteryPct: number | null
-  temperatureC: number | null
   altitudeMeters?: number | null
   accelXG?: number | null
   accelYG?: number | null
@@ -153,9 +152,6 @@ function buildInfoContent(position: MapPosition): HTMLElement {
       i18n.t('device:map.info.accel'),
       `${axis(position.accelXG)}, ${axis(position.accelYG)}, ${axis(position.accelZG)}`,
     )
-  }
-  if (position.temperatureC !== null) {
-    appendRow(i18n.t('device:map.info.temperature'), `${formatNumber(position.temperatureC, 1)} °C`)
   }
 
   const recorded = document.createElement('div')

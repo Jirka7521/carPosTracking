@@ -370,9 +370,9 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   `battery_pct` (nullable, 0–100 with `0` = *charging*), `accel_x_g`/`accel_y_g`/
   `accel_z_g` (nullable, ±16 g — the raw ADXL345 sample, or the strongest
   per-axis reading of the reporting interval when the device runs with
-  `kAccelPeakEnabled`) and `temperature_c`
-  (nullable, °C from the modem's `AT+CPMUTEMP`, [-40, 125] — the sensor that
-  explains a hot-car cut-off; all sensor columns CHECK-constrained),
+  `kAccelPeakEnabled`; all sensor columns CHECK-constrained; the modem
+  temperature column `temperature_c` was dropped by migration
+  `RemoveModemTemperature`),
   **UNIQUE (device_id, fix_time)** (the dedupe key), and a database-generated
   `location geography(Point,4326)` column + GIST index (derived from lat/lon —
   the app needs no spatial dependency). The sensor columns are nullable because

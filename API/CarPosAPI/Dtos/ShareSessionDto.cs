@@ -18,12 +18,10 @@ namespace CarPosAPI.Dtos;
 /// <param name="Scope">One of <see cref="ShareScopeNames"/>, so the page knows whether to offer a range at all.</param>
 /// <param name="IncludeSpeed">Whether speed will be present on each fix.</param>
 /// <param name="IncludeBattery">Whether the battery percentage will be present on each fix.</param>
-/// <param name="IncludeTemperature">Whether the temperature will be present on each fix.</param>
 public sealed record ShareSessionDto(
     string Label,
     DateTime ValidFrom,
     DateTime ValidUntil,
     string Scope,
     bool IncludeSpeed,
-    bool IncludeBattery,
-    bool IncludeTemperature);
+    bool IncludeBattery);

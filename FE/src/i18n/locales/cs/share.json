@@ -25,7 +25,6 @@
     "from": "Sdíleno od",
     "includeBattery": "Baterii",
     "includeSpeed": "Rychlost",
-    "includeTemperature": "Teplotu",
     "labelField": "Jak se to bude příjemci zobrazovat",
     "labelHint": "Nepovinné. Když necháte prázdné, použije se název zařízení. Je to jediný název, který se příjemce dozví — identifikátor zařízení nikdy nevidí.",
     "labelPlaceholder": "Auto",

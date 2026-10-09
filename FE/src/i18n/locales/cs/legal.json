@@ -106,7 +106,7 @@
         "title": "Proč a na jakém právním základě"
       },
       "locationData": {
-        "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie, teplota a identifikátor zařízení.",
+        "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie a identifikátor zařízení.",
         "p2": "Historie polohy popisuje, kde vozidlo, a tedy obvykle i člověk, bylo, kdy a jak se jelo. Podle toho se s ní zachází: souřadnice se nikdy nezapisují do žádného logu.",
         "p3": "Každý sledovač navíc hlásí stav svého připojení: kdy se připojí, kdy přejde do režimu offline a proč (plánovaný spánek, vypnutí, slabá baterie, chyba) a kdy se restartuje po pádu nebo výpadku napájení. Pokud se odpojí bez ohlášení, nahlásí to za něj zprostředkující broker. Tyto záznamy ukazují, kdy se vozidlo používalo, proto se uchovávají, exportují a mažou stejně jako polohy.",
         "title": "Poloha a telemetrie vozidla"
@@ -146,7 +146,7 @@
         "title": "Zabezpečení"
       },
       "shareLinks": {
-        "p1": "Můžete vytvořit odkaz, který ukáže jeden tracker někomu, kdo tu nemá účet, po dobu, kterou zvolíte. Odkaz chrání dvě oddělená tajemství: neuhodnutelná adresa a kód k ní vygenerovaný, který máte poslat jinou cestou. Vy rozhodujete, jestli příjemce uvidí jen aktuální polohu, nebo celou trasu za dané období, a jestli s ní půjde i rychlost, baterie a teplota. Identifikátor zařízení se nikdy nedozví, jen název, který zvolíte.",
+        "p1": "Můžete vytvořit odkaz, který ukáže jeden tracker někomu, kdo tu nemá účet, po dobu, kterou zvolíte. Odkaz chrání dvě oddělená tajemství: neuhodnutelná adresa a kód k ní vygenerovaný, který máte poslat jinou cestou. Vy rozhodujete, jestli příjemce uvidí jen aktuální polohu, nebo celou trasu za dané období, a jestli s ní půjde i rychlost a baterie. Identifikátor zařízení se nikdy nedozví, jen název, který zvolíte.",
         "p2": "Ukládáme zařízení, na které odkaz míří, zvolený název, období, co odkaz zpřístupňuje, kdy byl vytvořen a zrušen, kolikrát byl otevřen a kdy naposledy. Odkaz i jeho kód ukládáme v čitelné podobě, abyste si je mohli znovu zobrazit — což znamená, že kdokoli s přístupem k databázi nebo k její záloze by mohl použít odkaz, který je stále ve svém období. Na serveru se o člověku, který odkaz otevře, neukládá vůbec nic — žádná IP adresa, žádné údaje o prohlížeči, žádný identifikátor. Jeho vlastní prohlížeč si po dobu platnosti odkazu uchová relaci odkazu v cookie a jen pokud zvolí, že se mapa má načítat vždy, i tuto volbu v druhé cookie; obojí popisuje část o cookies níže.",
         "p3": "Odkaz můžete kdykoli zrušit v nastavení zařízení a okamžitě přestane fungovat. Sám od sebe přestane fungovat také po skončení období. Záznam o tom, že odkaz existoval a byl zrušen, zůstává, aby bylo dohledatelné, komu byl přístup dán; pokud smažete svůj účet, smažou se s ním i odkazy, které jste vytvořili.",
         "title": "Dočasné odkazy pro sdílení"

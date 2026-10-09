@@ -292,32 +292,4 @@ public sealed class PositionValidatorTests
         Assert.False(valid);
         Assert.Equal(PositionRejectReason.AccelOutOfRange, reason);
     }
-
-    [Fact]
-    public void CarriesTemperatureWhenPresent()
-    {
-        PositionPayloadDto payload = ValidPayload() with { TempC = 42.5 };
-
-        bool valid = CreateValidator().TryValidate(
-            payload, TopicDeviceId, s_utcNow, out ValidatedPosition? position, out PositionRejectReason _);
-
-        Assert.True(valid);
-        Assert.NotNull(position);
-        Assert.Equal(42.5, position.TemperatureC);
-    }
-
-    [Theory]
-    [InlineData(-40.1)]
-    [InlineData(125.1)]
-    [InlineData(double.NaN)]
-    public void RejectsTemperatureOutOfRange(double temperatureC)
-    {
-        PositionPayloadDto payload = ValidPayload() with { TempC = temperatureC };
-
-        bool valid = CreateValidator().TryValidate(
-            payload, TopicDeviceId, s_utcNow, out ValidatedPosition? _, out PositionRejectReason reason);
-
-        Assert.False(valid);
-        Assert.Equal(PositionRejectReason.TemperatureOutOfRange, reason);
-    }
 }

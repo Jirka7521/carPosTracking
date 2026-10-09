@@ -228,7 +228,6 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
             link.ValidUntil,
             link.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
             link.IncludeSpeed,
-            link.IncludeBattery,
-            link.IncludeTemperature);
+            link.IncludeBattery);
     }
 }

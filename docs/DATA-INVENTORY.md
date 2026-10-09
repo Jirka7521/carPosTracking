@@ -33,7 +33,7 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 | `speed_kmph`, `accel_x/y/z_g` | **P** | driving behaviour | as above |
 | `fix_time`, `received_at` | **P** | when the vehicle was where | as above |
 | `altitude_m` | **P** | | as above |
-| `battery_pct`, `temperature_c` | · | device health | as above |
+| `battery_pct` | · | device health | as above |
 
 Bounded on read at 1000 rows per query (`PositionQueryService.MaxPositionsPerQuery`); the data
 export deliberately bypasses that cap so portability is complete. **Never auto-deleted** — see
@@ -85,7 +85,7 @@ On account deletion the user's own rows are deleted; `granted_by` on *surviving*
 
 `device_id` p, `created_by_user_id` **P**, `label` **P** (free text, chosen by the creator and
 shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_speed` ·,
-`include_battery` ·, `include_temperature` ·, `revoked_at` p, `created_at` p, and three usage counters —
+`include_battery` ·, `revoked_at` p, `created_at` p, and three usage counters —
 `successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
 
 Three columns are **credentials, never personal data to export**: `selector` and `verifier`

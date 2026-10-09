@@ -29,8 +29,7 @@
       "altitudeMeters": "Nadmořská výška",
       "batteryPct": "Baterie",
       "legend": "Veličiny",
-      "speedKmph": "Rychlost",
-      "temperatureC": "Teplota modemu"
+      "speedKmph": "Rychlost"
     },
     "truncated": "Tento rozsah obsahuje víc než {{limit}} poloh, což je nejdál, kam jedno načtení dosáhne, takže graf začíná v {{start}} místo v čase „Od“, který jste zvolili. Zúžením rozsahu uvidíte starší data."
   },
@@ -109,7 +108,6 @@
       "longitude": "Zeměpisná délka",
       "recorded": "Zaznamenáno: {{when}}",
       "speed": "Rychlost",
-      "temperature": "Teplota modemu",
       "title": "Poloha"
     },
     "legend": "Legenda mapy",
@@ -151,7 +149,6 @@
       "latitude": "Šířka",
       "longitude": "Délka",
       "speed": "Rychlost",
-      "temperature": "Teplota modemu",
       "timestamp": "Čas"
     },
     "columnSeparator": "Oddělovač sloupců",

@@ -95,7 +95,6 @@ internal sealed class ShareLinkService : IShareLinkService
                 link.Scope,
                 link.IncludeSpeed,
                 link.IncludeBattery,
-                link.IncludeTemperature,
                 link.CreatedAt,
                 link.RevokedAt,
                 link.SuccessfulRedeems,
@@ -195,7 +194,6 @@ internal sealed class ShareLinkService : IShareLinkService
             Scope = scope,
             IncludeSpeed = request.IncludeSpeed,
             IncludeBattery = request.IncludeBattery,
-            IncludeTemperature = request.IncludeTemperature,
             CreatedAt = nowUtc,
         };
 
@@ -277,7 +275,6 @@ internal sealed class ShareLinkService : IShareLinkService
         link.Scope = scope;
         link.IncludeSpeed = request.IncludeSpeed;
         link.IncludeBattery = request.IncludeBattery;
-        link.IncludeTemperature = request.IncludeTemperature;
 
         // Deliberately untouched: Selector, Verifier and Passphrase, so the
         // link and code already in somebody's hands keep working; CreatedAt and the
@@ -564,7 +561,6 @@ internal sealed class ShareLinkService : IShareLinkService
             row.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,
             row.IncludeSpeed,
             row.IncludeBattery,
-            row.IncludeTemperature,
             ShareLinkStatusResolver.Resolve(row.RevokedAt, row.ValidFrom, row.ValidUntil, row.LockedUntil, nowUtc),
             row.CreatedAt,
             row.RevokedAt,

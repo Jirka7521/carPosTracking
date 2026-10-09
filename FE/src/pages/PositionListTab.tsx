@@ -66,7 +66,6 @@ type SortKey =
   | 'accelXG'
   | 'accelYG'
   | 'accelZG'
-  | 'temperatureC'
 
 type SortDir = 'asc' | 'desc'
 
@@ -103,7 +102,6 @@ const COLUMNS = [
   { key: 'accelXG',        labelKey: 'device:positions.column.accelX' },
   { key: 'accelYG',        labelKey: 'device:positions.column.accelY' },
   { key: 'accelZG',        labelKey: 'device:positions.column.accelZ' },
-  { key: 'temperatureC',   labelKey: 'device:positions.column.temperature' },
 ] as const satisfies readonly { key: SortKey; labelKey: string }[]
 
 // The single number a row is ranked by, or null when it has none to rank —
@@ -161,12 +159,6 @@ function formatBattery(value: number | null): string {
     : i18n.t('common:battery.percent', { value })
 }
 
-// Format the modem die temperature (°C) for the table, or an em dash when the
-// device sent no reading (older firmware or the sensor unsupported).
-function formatTemperature(value: number | null): string {
-  return value === null ? i18n.t('common:states.none') : `${formatNumber(value, 1)} °C`
-}
-
 // Formats an API timestamp to a readable local date/time string.
 function formatTimestamp(value: string): string {
   const parsed = parseApiTimestamp(value)
@@ -177,7 +169,7 @@ function formatTimestamp(value: string): string {
 
 // The header row, and with it the column order of the file. The keys of COLUMNS
 // are already the API's own field names and already carry their units
-// (speedKmph, altitudeMeters, temperatureC), which is exactly what belongs at
+// (speedKmph, altitudeMeters), which is exactly what belongs at
 // the top of a column something is going to compute on.
 //
 // "charging" is the one column with no counterpart on screen. A batteryPct of 0
@@ -884,7 +876,6 @@ export function PositionListTab() {
                       <td className="position-coord">{formatAccel(position.accelXG)}</td>
                       <td className="position-coord">{formatAccel(position.accelYG)}</td>
                       <td className="position-coord">{formatAccel(position.accelZG)}</td>
-                      <td className="position-coord">{formatTemperature(position.temperatureC)}</td>
                     </tr>
                   )
                 })}

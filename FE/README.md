@@ -286,7 +286,7 @@ FE/
 | `/profile` | protected | Edit first/last name, change password, and the privacy controls: export your data, revoke map consent, delete your account |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
-| `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, temperature, acceleration over time |
+| `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
 | `/device/:deviceId/events` | protected | Connection history — every time the tracker went offline and why, and notable restarts; filter to alerts and errors |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
 

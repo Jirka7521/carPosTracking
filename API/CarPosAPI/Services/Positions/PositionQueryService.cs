@@ -86,8 +86,7 @@ internal sealed class PositionQueryService : IPositionQueryService
                 position.BatteryPct,
                 position.AccelXG,
                 position.AccelYG,
-                position.AccelZG,
-                position.TemperatureC))
+                position.AccelZG))
             .ToListAsync(cancellationToken);
 
         return OperationResult<IReadOnlyList<PositionDto>>.Success(positions);

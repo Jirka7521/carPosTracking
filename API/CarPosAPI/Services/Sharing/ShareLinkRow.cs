@@ -22,7 +22,6 @@ namespace CarPosAPI.Services.Sharing;
 /// <param name="Scope">How much history the link exposes.</param>
 /// <param name="IncludeSpeed">Whether speed travels with each fix.</param>
 /// <param name="IncludeBattery">Whether the battery percentage travels with each fix.</param>
-/// <param name="IncludeTemperature">Whether the temperature travels with each fix.</param>
 /// <param name="CreatedAt">When the link was minted (UTC).</param>
 /// <param name="RevokedAt">When it was withdrawn (UTC), or null.</param>
 /// <param name="SuccessfulRedeems">How many times the code was entered correctly.</param>
@@ -40,7 +39,6 @@ internal sealed record ShareLinkRow(
     ShareScope Scope,
     bool IncludeSpeed,
     bool IncludeBattery,
-    bool IncludeTemperature,
     DateTime CreatedAt,
     DateTime? RevokedAt,
     int SuccessfulRedeems,
@@ -69,7 +67,6 @@ internal sealed record ShareLinkRow(
             link.Scope,
             link.IncludeSpeed,
             link.IncludeBattery,
-            link.IncludeTemperature,
             link.CreatedAt,
             link.RevokedAt,
             link.SuccessfulRedeems,

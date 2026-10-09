@@ -25,8 +25,7 @@
       "altitudeMeters": "Altitude",
       "batteryPct": "Battery",
       "legend": "Series",
-      "speedKmph": "Speed",
-      "temperatureC": "Modem temperature"
+      "speedKmph": "Speed"
     },
     "truncated": "This range holds more than {{limit}} fixes, which is as far back as one load goes, so the chart starts at {{start}} rather than at the “From” you chose. Narrow the range to see earlier data."
   },
@@ -99,7 +98,6 @@
       "longitude": "Longitude",
       "recorded": "Recorded: {{when}}",
       "speed": "Speed",
-      "temperature": "Modem temperature",
       "title": "Position"
     },
     "legend": "Map legend",
@@ -137,7 +135,6 @@
       "latitude": "Latitude",
       "longitude": "Longitude",
       "speed": "Speed",
-      "temperature": "Modem temp",
       "timestamp": "Timestamp"
     },
     "columnSeparator": "Column separator",

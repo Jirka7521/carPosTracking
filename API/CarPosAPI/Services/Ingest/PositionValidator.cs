@@ -49,12 +49,6 @@ internal sealed class PositionValidator
     /// <summary>Accel magnitude ceiling per axis — the ADXL345's widest range is ±16 g.</summary>
     public const double MaxAbsAccelG = 16.0;
 
-    /// <summary>Temperature floor in °C — below this is not a plausible modem reading.</summary>
-    public const double MinTemperatureC = -40.0;
-
-    /// <summary>Temperature ceiling in °C — the SIM7000 die sensor never legitimately exceeds this.</summary>
-    public const double MaxTemperatureC = 125.0;
-
     /// <summary>
     /// The firmware's exact timestamp shape (<c>TelemetryPublisher.cpp</c> emits
     /// <c>%04u-%02u-%02uT%02u:%02u:%02uZ</c>). Parsed exactly — anything looser
@@ -163,17 +157,6 @@ internal sealed class PositionValidator
             return false;
         }
 
-        // Temperature is optional too (older firmware and any non-SIM7000 modem
-        // omit it); when present it must be finite and within the sensor's range,
-        // so a corrupt reading never reaches the CHECK-constrained column.
-        if (payload.TempC is double temperatureC
-            && (!double.IsFinite(temperatureC)
-                || temperatureC < MinTemperatureC || temperatureC > MaxTemperatureC))
-        {
-            reason = PositionRejectReason.TemperatureOutOfRange;
-            return false;
-        }
-
         // AdjustToUniversal + AssumeUniversal yields DateTimeKind.Utc, which Npgsql
         // demands for timestamptz parameters — parsing and kind are settled here once.
         bool parsed = DateTime.TryParseExact(
@@ -208,7 +191,6 @@ internal sealed class PositionValidator
             payload.AccelXG,
             payload.AccelYG,
             payload.AccelZG,
-            payload.TempC,
             // Deliberately unvalidated beyond "is it a positive number". A revision the
             // server has never issued is not a reason to throw away a good position:
             // the worst case is that the dashboard shows the device as out of sync,

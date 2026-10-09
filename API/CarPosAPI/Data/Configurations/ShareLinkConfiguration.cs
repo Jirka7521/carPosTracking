@@ -82,23 +82,14 @@ public sealed class ShareLinkConfiguration : IEntityTypeConfiguration<ShareLink>
             .HasDefaultValue(ShareScope.LatestOnly)
             .IsRequired();
 
-        // All three opt-in fields default to off. A share that was created without
+        // Both opt-in fields default to off. A share that was created without
         // thinking about them discloses coordinates and nothing else.
-        //
-        // Battery and temperature are two columns rather than one because they
-        // answer different questions, and bundling them forced a creator who wanted
-        // to show the tracker still had charge to disclose the cabin temperature
-        // as well.
         builder.Property(link => link.IncludeSpeed)
             .HasColumnName("include_speed")
             .HasDefaultValue(false);
 
         builder.Property(link => link.IncludeBattery)
             .HasColumnName("include_battery")
-            .HasDefaultValue(false);
-
-        builder.Property(link => link.IncludeTemperature)
-            .HasColumnName("include_temperature")
             .HasDefaultValue(false);
 
         builder.Property(link => link.RevokedAt)

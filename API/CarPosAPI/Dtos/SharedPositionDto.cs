@@ -18,7 +18,7 @@ namespace CarPosAPI.Dtos;
 /// </para>
 ///
 /// <para>
-/// The three optional fields are null unless the creator opted in, decided inside
+/// The two optional fields are null unless the creator opted in, decided inside
 /// the SQL projection rather than blanked out afterwards — so a column the share
 /// does not cover is never read from the table at all, let alone serialised.
 /// <c>ShareViewQueryTranslationTests</c> asserts that against the generated SQL,
@@ -34,11 +34,9 @@ namespace CarPosAPI.Dtos;
 /// Battery state of charge 0–100, or null when the share does not include the
 /// battery. As elsewhere, 0 is the "charging" sentinel.
 /// </param>
-/// <param name="TemperatureC">Modem die temperature in °C, or null when the share does not include the temperature.</param>
 public sealed record SharedPositionDto(
     DateTime Timestamp,
     double Latitude,
     double Longitude,
     double? SpeedKmph,
-    int? BatteryPct,
-    double? TemperatureC);
+    int? BatteryPct);

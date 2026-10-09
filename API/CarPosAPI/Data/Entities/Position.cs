@@ -60,12 +60,4 @@ public sealed class Position
 
     /// <summary>Z-axis acceleration in g, or null when absent. CHECK-constrained to [-16, 16].</summary>
     public double? AccelZG { get; set; }
-
-    /// <summary>
-    /// Modem die temperature in °C at the fix (SIM7000 <c>AT+CPMUTEMP</c>), or null
-    /// when the device sent none (older firmware, or the command unsupported). It
-    /// is a proxy for how hot the tracker is running — a hot-car cut-off shows up
-    /// here. CHECK-constrained to [-40, 125].
-    /// </summary>
-    public double? TemperatureC { get; set; }
 }

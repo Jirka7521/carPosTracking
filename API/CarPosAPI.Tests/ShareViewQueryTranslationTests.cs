@@ -9,7 +9,7 @@ namespace CarPosAPI.Tests;
 /// Proves the visitor's position query actually becomes SQL.
 ///
 /// <para>
-/// <see cref="Services.Sharing.ShareViewService"/> decides the three optional
+/// <see cref="Services.Sharing.ShareViewService"/> decides the two optional
 /// fields inside the projection — <c>includeSpeed ? position.SpeedKmph : null</c>
 /// — so that a value the share does not cover has no path to a response. That is
 /// the right shape for the guarantee and a translation risk for EF: a conditional
@@ -42,23 +42,18 @@ public sealed class ShareViewQueryTranslationTests
         return new CarPosDbContext(options);
     }
 
-    // All eight combinations rather than a representative few. The four rows where
-    // battery and temperature disagree are the only thing in this build that would
-    // notice the two being wired to each other's flag — a mistake that compiles,
-    // translates to valid SQL, and hands a visitor a field the creator switched off.
+    // All four combinations rather than a representative few. The two rows where
+    // speed and battery disagree are the only thing in this build that would notice
+    // the two being wired to each other's flag — a mistake that compiles, translates
+    // to valid SQL, and hands a visitor a field the creator switched off.
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(false, false, true)]
-    [InlineData(true, true, false)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
     public void TheSharedProjectionTranslatesToSql(
         bool includeSpeed,
-        bool includeBattery,
-        bool includeTemperature)
+        bool includeBattery)
     {
         using CarPosDbContext context = CreateContext();
 
@@ -80,8 +75,7 @@ public sealed class ShareViewQueryTranslationTests
                 position.Latitude,
                 position.Longitude,
                 includeSpeed ? position.SpeedKmph : null,
-                includeBattery ? position.BatteryPct : null,
-                includeTemperature ? position.TemperatureC : null));
+                includeBattery ? position.BatteryPct : null));
 
         string sql = query.ToQueryString();
 
@@ -93,7 +87,6 @@ public sealed class ShareViewQueryTranslationTests
         // The columns the share does not cover must not be selected at all.
         AssertColumnPresence(sql, "speed_kmph", includeSpeed);
         AssertColumnPresence(sql, "battery_pct", includeBattery);
-        AssertColumnPresence(sql, "temperature_c", includeTemperature);
 
         // And the ones it never covers, whatever the flags say.
         Assert.DoesNotContain("altitude_m", sql, StringComparison.OrdinalIgnoreCase);
@@ -119,7 +112,6 @@ public sealed class ShareViewQueryTranslationTests
                 candidate.Scope,
                 candidate.IncludeSpeed,
                 candidate.IncludeBattery,
-                candidate.IncludeTemperature,
                 candidate.RevokedAt));
 
         string sql = query.ToQueryString();
@@ -160,6 +152,5 @@ public sealed class ShareViewQueryTranslationTests
         ShareScope Scope,
         bool IncludeSpeed,
         bool IncludeBattery,
-        bool IncludeTemperature,
         DateTime? RevokedAt);
 }
