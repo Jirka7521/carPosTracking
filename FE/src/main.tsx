@@ -7,6 +7,11 @@ import './index.css'
 import './i18n'
 import App from './App.tsx'
 import { BASE_PATH } from './services/runtimeConfig'
+import { forgetLegacyMapsConsent } from './utils/mapsConsent'
+
+// The map consent used to be a per-browser localStorage value. It now lives on
+// the account or in a share-page cookie, and the old answer is not carried over.
+forgetLegacyMapsConsent()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

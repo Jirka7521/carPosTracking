@@ -379,7 +379,9 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   older firmware and sensor-disabled devices omit them.
 - **users** — `id` (int identity PK), `email` (unique, stored lower-cased),
   `password_hash` (PBKDF2 via ASP.NET Core's `PasswordHasher`), `first_name`,
-  `last_name`, `created_at`.
+  `last_name`, `created_at`, and `maps_consent_version`/`maps_consent_granted_at`
+  (the account's standing consent to load the Google map — both null when there
+  is none, cleared on withdrawal; migration `AddMapsConsent`).
 - **accesses** — the entire authorisation model: one row per (user, device)
   with `can_read`/`can_delete`/`can_share`/`can_modify_settings`, `granted_by`
   for audit, and `is_active` for soft revocation. The unique index is
@@ -489,6 +491,9 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
 | `DELETE /api/me` | **permanently erase** the caller's account (GDPR Art. 17). Body carries the current password. Returns a summary of what went. Rate-limited per account (5 / 5 min) |
+| `GET /api/me/maps-consent` | the caller's standing agreement to load the Google map: `{ version, grantedAt }`, both null when there is none. Deliberately not on the profile DTO, which other users also receive |
+| `PUT /api/me/maps-consent` | record "Always load maps" for the account. Body `{ version }` — the dashboard's prompt version; the server stamps the time. Returns the stored agreement |
+| `DELETE /api/me/maps-consent` | withdraw it (GDPR Art. 7(3)); clears both columns. 204 either way |
 | `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
 | `GET /api/shares?deviceId=` | temporary share links on a device, live and dead; needs `CanShare`. **Never returns a link's secrets** |
 | `POST /api/shares` | mint a share link (201). **The only response that ever carries the link and its code** — neither is recoverable afterwards |

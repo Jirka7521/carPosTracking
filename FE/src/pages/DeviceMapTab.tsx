@@ -26,6 +26,7 @@ import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import DeviceMap from '../components/DeviceMap'
 import RangeToolbar from '../components/RangeToolbar'
+import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
@@ -77,6 +78,9 @@ export function DeviceMapTab() {
 
   // Bumped by the "Fit to positions" button; DeviceMap re-frames on a change
   const [fitToken, setFitToken] = useState<number>(0)
+
+  // Whether this account already said "always load maps" — on any device.
+  const mapsConsent = useAccountMapsConsent()
 
   // ---- Position loader ----
   // Called on mount, when dateRange changes, and when a refresh is triggered.
@@ -225,7 +229,20 @@ export function DeviceMapTab() {
           </div>
         ) : null}
 
-        {hasGoogleMapsKey() ? (
+        {!hasGoogleMapsKey() ? (
+          /* Without a key the Maps script fails and leaves a grey box that
+             looks like a bug. Say what is actually wrong instead. */
+          <div className="error-state">
+            <p>{t('device:map.noApiKey')}</p>
+          </div>
+        ) : mapsConsent.status === 'loading' ? (
+          /* DeviceMap reads the standing consent once, when it mounts. Mounting
+             it before the account has answered would flash the prompt at
+             somebody who already said "always". */
+          <div className="map-placeholder">
+            <p>{t('common:states.loading')}</p>
+          </div>
+        ) : (
           <DeviceMap
             /* Keyed by device so switching trackers starts a fresh map, which
                frames the new track. Without it the "already framed" flag would
@@ -234,13 +251,15 @@ export function DeviceMapTab() {
             positions={positions}
             apiKey={apiKey}
             fitToken={fitToken}
+            hasStandingConsent={mapsConsent.isStanding}
+            onGrantStandingConsent={() => {
+              // A failed save is not worth an error banner over a map that is
+              // already loading: the consent was given, only remembering it
+              // failed, and the prompt simply comes back next time.
+              mapsConsent.grant().catch(() => undefined)
+            }}
+            consentScope="account"
           />
-        ) : (
-          /* Without a key the Maps script fails and leaves a grey box that
-             looks like a bug. Say what is actually wrong instead. */
-          <div className="error-state">
-            <p>{t('device:map.noApiKey')}</p>
-          </div>
         )}
       </div>
 

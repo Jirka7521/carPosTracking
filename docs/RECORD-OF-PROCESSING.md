@@ -29,7 +29,7 @@
 |---|---|
 | **Purpose** | Let a person create an account, sign in, and be identified to people they share a device with |
 | **Data subjects** | Registered users |
-| **Categories of data** | Email address, first and last name, salted password hash, account creation time, privacy-policy version and acceptance timestamp |
+| **Categories of data** | Email address, first and last name, salted password hash, account creation time, privacy-policy version and acceptance timestamp; if the user chose "Always load maps", the version of that prompt and when they agreed (the Art. 7(1) record of the map consent, cleared on withdrawal) |
 | **Legal basis** | Art. 6(1)(b) contract; Art. 6(1)(f) legitimate interest for the security measures |
 | **Recipients** | Other users the subject shares a device with (name and email only). Cloudflare as TLS terminator. |
 | **Third-country transfers** | Cloudflare (USA) — EU–US Data Privacy Framework |

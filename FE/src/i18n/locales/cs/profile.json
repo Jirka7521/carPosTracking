@@ -46,10 +46,11 @@
     },
     "intro": "Tento projekt uchovává přesné údaje o poloze vozidel. Tyto ovládací prvky patří vám, fungují okamžitě a nikdo je nemusí schvalovat.",
     "maps": {
-      "allowed": "Mapy se načítají automaticky. Google při každém načtení dostane vaši IP adresu, údaje o prohlížeči a zobrazenou oblast.",
+      "allowed": "Mapy se načítají automaticky na každém zařízení, kde se přihlásíte. Google při každém načtení dostane vaši IP adresu, údaje o prohlížeči a zobrazenou oblast.",
       "notAllowed": "Mapy se nenačtou, dokud to pokaždé nepovolíte.",
       "revoke": "Ptát se pokaždé znovu",
-      "revoked": "Mapy se před načtením znovu zeptají.",
+      "revoked": "Mapy se před načtením znovu zeptají, a to na všech zařízeních.",
+      "revokeFailed": "Souhlas se nepodařilo odvolat. Zkuste to prosím znovu.",
       "title": "Načítání map"
     },
     "title": "Soukromí a vaše data"

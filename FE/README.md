@@ -366,10 +366,25 @@ token in the path rather than the fragment.
 `maps.googleapis.com` until the viewer agrees. Loading the Maps API tells Google
 the viewer's IP, browser and — through the viewport — roughly where the tracked
 vehicle is, so the tab shows a placeholder with "load once" and "always load"
-until somebody chooses. The standing answer lives in `localStorage` under
-`carpos.mapsConsent` ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)) and is
-revocable from `/profile`. It is per-browser on purpose: it is a preference of
-the person looking at the screen, not a property of the account.
+until somebody chooses. The prompt links the Google Maps Additional Terms of
+Service and Google's Privacy Policy, which the Maps Platform requires end users
+to be pointed to. "Load once" stores nothing. Where "always" is remembered
+depends on who is looking — the caller decides and hands `DeviceMap` the answer
+(`hasStandingConsent`, `onGrantStandingConsent`, `consentScope`):
+
+- **Signed in** — on the account, through `GET`/`PUT`/`DELETE /api/me/maps-consent`
+  ([`hooks/useAccountMapsConsent.ts`](src/hooks/useAccountMapsConsent.ts)), so one
+  "always" covers every device the user signs in on, and the prompt says so.
+  Revocable from `/profile`.
+- **Share-link visitor** — in the `carpos_maps_consent` cookie
+  ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)): 180 days, scoped to
+  `<base>/share` so it never rides along on `/api` calls. Revocable on the share
+  page itself, since a visitor has no profile.
+
+Both store the prompt's version (`MAPS_CONSENT_VERSION`); bump it when the
+prompt's wording changes materially and everyone is asked again. The old
+per-browser `carpos.mapsConsent` localStorage key is deleted at start-up and not
+carried over — it was given for one browser, not for an account.
 
 ---
 

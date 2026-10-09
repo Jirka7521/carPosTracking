@@ -556,6 +556,19 @@ export interface PrivacyPolicyDto {
   controllerContactEmail: string
 }
 
+// GET / PUT /api/me/maps-consent — the account's standing agreement to load the
+// Google map. Both null when there is none. Not on UserProfileDto, which is also
+// handed to other users.
+export interface MapsConsentDto {
+  version: string | null
+  grantedAt: string | null
+}
+
+// PUT /api/me/maps-consent — the prompt version the person was shown.
+export interface MapsConsentGrantRequestDto {
+  version: string
+}
+
 // DELETE /api/me — permanent account erasure. The password is proof of
 // identity: a stolen session cookie must not be enough to destroy an account.
 export interface DeleteAccountRequestDto {

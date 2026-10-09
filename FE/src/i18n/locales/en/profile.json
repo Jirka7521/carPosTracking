@@ -42,10 +42,11 @@
     },
     "intro": "This project stores precise vehicle location data. These controls are yours, they work immediately, and nobody has to approve them.",
     "maps": {
-      "allowed": "Maps load automatically. Google receives your IP address, browser details and the map area whenever one loads.",
+      "allowed": "Maps load automatically on every device you sign in on. Google receives your IP address, browser details and the map area whenever one loads.",
       "notAllowed": "Maps are not loaded until you allow it each time.",
       "revoke": "Ask me again every time",
-      "revoked": "Maps will ask before loading again.",
+      "revoked": "Maps will ask before loading again, on every device.",
+      "revokeFailed": "Could not withdraw your consent. Please try again.",
       "title": "Map loading"
     },
     "title": "Privacy and your data"

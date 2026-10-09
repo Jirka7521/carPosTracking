@@ -98,6 +98,8 @@
     "noPositions": "Za toto období zatím nejsou zaznamenané žádné polohy.",
     "loadFailed": "Sdílené polohy se nepodařilo načíst.",
     "leave": "Zavřít sdílení",
+    "mapsConsentRevoke": "Přestat načítat mapy automaticky",
+    "mapsConsentRevoked": "Hotovo. Mapa se před načtením znovu zeptá.",
     "privacyNote": "Toto vidíte proto, že to s vámi někdo na omezenou dobu sdílel. Nic o vás se nezaznamenává."
   }
 }

@@ -19,10 +19,10 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
+import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import { deleteMyAccount, exportMyData } from '../services/apiClient'
 import type { AccountErasureResultDto } from '../services/apiTypes'
 import { describeError } from '../utils/errors'
-import { hasStandingMapsConsent, revokeMapsConsent } from '../utils/mapsConsent'
 
 export function PrivacySection() {
   const { t } = useTranslation(['profile', 'common', 'errors'])
@@ -102,34 +102,55 @@ function ExportBlock() {
 
 // ---- 2. Map loading consent ----------------------------------------------
 
+// The consent is stored on the account, so withdrawing it here stops the map
+// loading by itself on every device this person signs in on, not just this one.
 function MapsConsentBlock() {
-  const { t } = useTranslation('profile')
+  const { t } = useTranslation(['profile', 'errors'])
+  const consent = useAccountMapsConsent()
 
-  const [isAllowed, setIsAllowed] = useState<boolean>(() => hasStandingMapsConsent())
   const [wasRevoked, setWasRevoked] = useState<boolean>(false)
+  const [isRevoking, setIsRevoking] = useState<boolean>(false)
+  const [errorMessage, setErrorMessage] = useState<string>('')
+
+  async function handleRevoke(): Promise<void> {
+    setErrorMessage('')
+    setIsRevoking(true)
+
+    try {
+      await consent.revoke()
+      setWasRevoked(true)
+    } catch (error) {
+      setErrorMessage(describeError(error, t('profile:privacy.maps.revokeFailed')))
+    } finally {
+      setIsRevoking(false)
+    }
+  }
 
   return (
     <div className="privacy-block">
-      <h4>{t('privacy.maps.title')}</h4>
-      <p className="hint">
-        {isAllowed ? t('privacy.maps.allowed') : t('privacy.maps.notAllowed')}
-      </p>
-
-      {wasRevoked ? (
-        <p className="form-message form-message--success" role="status">{t('privacy.maps.revoked')}</p>
+      <h4>{t('profile:privacy.maps.title')}</h4>
+      {consent.status === 'ready' ? (
+        <p className="hint">
+          {consent.isStanding ? t('profile:privacy.maps.allowed') : t('profile:privacy.maps.notAllowed')}
+        </p>
       ) : null}
 
-      {isAllowed ? (
+      {wasRevoked ? (
+        <p className="form-message form-message--success" role="status">{t('profile:privacy.maps.revoked')}</p>
+      ) : null}
+
+      {errorMessage ? (
+        <p className="form-message form-message--error" role="alert">{errorMessage}</p>
+      ) : null}
+
+      {consent.isStanding ? (
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => {
-            revokeMapsConsent()
-            setIsAllowed(false)
-            setWasRevoked(true)
-          }}
+          onClick={() => void handleRevoke()}
+          disabled={isRevoking}
         >
-          {t('privacy.maps.revoke')}
+          {t('profile:privacy.maps.revoke')}
         </button>
       ) : null}
     </div>

@@ -22,6 +22,7 @@ Legend — **P** = directly personal, **p** = pseudonymous or indirectly identif
 | `first_name`, `last_name` | **P** | visible to users you share a device with | deleted |
 | `created_at` | p | | deleted |
 | `privacy_policy_version`, `privacy_policy_accepted_at` | p | which version of the terms of use **and** privacy policy this account accepted, and when (column names are historical) | deleted |
+| `maps_consent_version`, `maps_consent_granted_at` | p | the account's standing consent to load the Google map: which prompt wording, and when. Null when none; **withdrawal nulls both**, no history kept | deleted |
 
 ### `positions` — the sensitive table
 
@@ -177,15 +178,19 @@ publishes an empty retained payload on both topics to clear them.
 
 `carpos_session` (`HttpOnly`, unreadable by script), `carpos_csrf`, `carpos_share` (`HttpOnly`;
 only on a browser that has opened a share link, and only for that link's remaining window),
-and three localStorage
-preferences: `carpos.language`, `carpos.csvDelimiter`, `carpos.mapsConsent`. None of the
-localStorage values is ever sent to the server.
+`carpos_maps_consent` (set by the dashboard's script, only when a share-link visitor chooses
+"Always load maps"; holds the prompt version and nothing else; `Path=<base>/share`, so it never
+travels with an `/api` request; 180 days; removed by the share page's "Stop loading maps
+automatically"), and two localStorage preferences: `carpos.language`, `carpos.csvDelimiter`.
+None of the localStorage values is ever sent to the server. The old `carpos.mapsConsent`
+localStorage key is deleted on start-up — a signed-in user's map consent now lives in `users`.
 
 ---
 
 ## 6. What the data export contains
 
-`GET /api/me/export` streams a JSON document with: the profile, every access grant held and
+`GET /api/me/export` streams a JSON document with: the profile (including the map consent's
+`mapsConsentVersion` and `mapsConsentGrantedAtUtc`), every access grant held and
 granted, device nicknames, the temporary share links this account created, metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
 history and connection history (`statusEvents`) of every readable device** — uncapped.

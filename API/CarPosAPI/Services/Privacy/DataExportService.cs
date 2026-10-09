@@ -128,7 +128,9 @@ internal sealed class DataExportService : IDataExportService
                 candidate.LastName,
                 candidate.CreatedAt,
                 candidate.PrivacyPolicyVersion,
-                candidate.PrivacyPolicyAcceptedAt))
+                candidate.PrivacyPolicyAcceptedAt,
+                candidate.MapsConsentVersion,
+                candidate.MapsConsentGrantedAt))
             .SingleOrDefaultAsync(cancellationToken);
 
         writer.WriteStartObject("profile");
@@ -142,6 +144,8 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteString("createdAtUtc", user.CreatedAt);
             writer.WriteString("privacyPolicyVersionAccepted", user.PrivacyPolicyVersion);
             WriteNullableDateTime(writer, "privacyPolicyAcceptedAtUtc", user.PrivacyPolicyAcceptedAt);
+            writer.WriteString("mapsConsentVersion", user.MapsConsentVersion);
+            WriteNullableDateTime(writer, "mapsConsentGrantedAtUtc", user.MapsConsentGrantedAt);
         }
 
         writer.WriteEndObject();

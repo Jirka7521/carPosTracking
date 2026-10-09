@@ -95,6 +95,8 @@
     "noPositions": "No positions recorded for this period yet.",
     "loadFailed": "Could not load the shared positions.",
     "leave": "Close this share",
+    "mapsConsentRevoke": "Stop loading maps automatically",
+    "mapsConsentRevoked": "Done. The map will ask before it loads again.",
     "privacyNote": "You are seeing this because somebody shared it with you for a limited time. Nothing about you is recorded."
   }
 }

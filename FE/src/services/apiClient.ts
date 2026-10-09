@@ -37,6 +37,8 @@ import type {
   DeviceProvisioningDto,
   DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
+  MapsConsentDto,
+  MapsConsentGrantRequestDto,
   PositionDto,
   PositionErasureResultDto,
   PrivacyPolicyDto,
@@ -669,6 +671,22 @@ export async function exportMyData(): Promise<{ fileName: string; blob: Blob }> 
     fileName: fileNameFromContentDisposition(response.headers.get('content-disposition')),
     blob: await response.blob(),
   }
+}
+
+// The signed-in user's standing agreement to load the Google map. Stored on the
+// account, so one "Always load maps" covers every browser they sign in on.
+export async function fetchMapsConsent(): Promise<MapsConsentDto> {
+  return request<MapsConsentDto>('GET', '/me/maps-consent')
+}
+
+export async function grantMapsConsent(version: string): Promise<MapsConsentDto> {
+  const body: MapsConsentGrantRequestDto = { version }
+  return request<MapsConsentDto>('PUT', '/me/maps-consent', { body })
+}
+
+// Withdrawal (GDPR Art. 7(3)). 204 whether or not there was anything to withdraw.
+export async function revokeMapsConsent(): Promise<void> {
+  await request<null>('DELETE', '/me/maps-consent')
 }
 
 // Permanently erases the signed-in user's account (GDPR Art. 17). The session

@@ -80,5 +80,14 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // put a false consent record in the table.
         builder.Property(user => user.PrivacyPolicyAcceptedAt)
             .HasColumnName("privacy_policy_accepted_at");
+
+        // Both nullable, and null together: "no standing consent" is the default
+        // and the state withdrawal returns to, so there is nothing to default to.
+        builder.Property(user => user.MapsConsentVersion)
+            .HasColumnName("maps_consent_version")
+            .HasMaxLength(PolicyVersionMaxLength);
+
+        builder.Property(user => user.MapsConsentGrantedAt)
+            .HasColumnName("maps_consent_granted_at");
     }
 }

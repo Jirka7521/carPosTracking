@@ -13,6 +13,8 @@ namespace CarPosAPI.Services.Privacy;
 /// <param name="CreatedAt">When the account was created (UTC).</param>
 /// <param name="PrivacyPolicyVersion">Policy version acknowledged at registration.</param>
 /// <param name="PrivacyPolicyAcceptedAt">When it was acknowledged (UTC), if ever.</param>
+/// <param name="MapsConsentVersion">Google Maps prompt version agreed to, or null when there is no standing consent.</param>
+/// <param name="MapsConsentGrantedAt">When that consent was given (UTC), or null.</param>
 public sealed record UserExportRow(
     int Id,
     string Email,
@@ -20,4 +22,6 @@ public sealed record UserExportRow(
     string LastName,
     DateTime CreatedAt,
     string PrivacyPolicyVersion,
-    DateTime? PrivacyPolicyAcceptedAt);
+    DateTime? PrivacyPolicyAcceptedAt,
+    string? MapsConsentVersion,
+    DateTime? MapsConsentGrantedAt);

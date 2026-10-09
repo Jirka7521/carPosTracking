@@ -88,6 +88,8 @@ public sealed class DataExportShapeTests
             "Person",
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             "2026-09-06",
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            "2026-10-09",
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         DeviceExportRow device = new DeviceExportRow(

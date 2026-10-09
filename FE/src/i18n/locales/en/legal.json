@@ -45,7 +45,7 @@
         "title": "Ending it"
       },
       "thirdParty": {
-        "p1": "The dashboard draws maps with the Google Maps JavaScript API, which is loaded only after you agree to it. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
+        "p1": "The dashboard draws maps with the Google Maps JavaScript API, which is loaded only after you agree to it. Once it loads, your use of the map is also subject to the <terms>Google Maps Additional Terms of Service</terms> and the <privacy>Google Privacy Policy</privacy>. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
         "p2": "The rest is open-source software used under its own licences.",
         "title": "Third-party components"
       },
@@ -75,7 +75,7 @@
     "controllerLabel": "Controller",
     "sections": {
       "accountData": {
-        "p1": "Because you created an account: your email address, which is your login identity; your first and last name, shown to people you share a device with; your password, stored only as a salted PBKDF2 hash and never in the clear; when the account was created; and which version of the terms and this policy you accepted, and when.",
+        "p1": "Because you created an account: your email address, which is your login identity; your first and last name, shown to people you share a device with; your password, stored only as a salted PBKDF2 hash and never in the clear; when the account was created; which version of the terms and this policy you accepted, and when; and, if you chose to always load the Google map, which version of that question you agreed to and when. Withdrawing that consent deletes both.",
         "title": "Account data"
       },
       "changes": {
@@ -96,13 +96,13 @@
       },
       "cookies": {
         "p1": "There are no advertising or analytics cookies, and so no cookie banner: there is nothing to consent to beyond what is strictly necessary and what you choose yourself.",
-        "p2": "Two cookies: your sign-in session, which no script can read, and a cross-site request forgery token. Three local preferences stored in your browser: your language, your CSV export separator, and whether you allowed the map to load. The local preferences never leave your browser. Clearing your site data removes all of them.",
+        "p2": "Up to four cookies. Signed in: your session, which no script can read, and a cross-site request forgery token. On a share link: that link's session, which no script can read either, lasting only for the link's period; and, only if you choose to always load the map there, a cookie that remembers that choice for six months. It holds nothing but the version of the question you answered, and nothing on the server reads or records it. Two local preferences stored in your browser: your language and your CSV export separator. The local preferences never leave your browser. Clearing your site data removes all of them.",
         "title": "Cookies and browser storage"
       },
       "legalBasis": {
         "p1": "Everything this system does for you rests on performing the contract you entered into by accepting the terms of use and creating an account (Art. 6(1)(b)): running your account, signing you in, storing and displaying the position history of a tracker you operate, and sharing a device with the people you choose.",
         "p2": "Security measures, meaning password hashing, CSRF protection and rate-limiting sign-ins, exports and erasures, rest on the legitimate interest of keeping other people out of your data (Art. 6(1)(f)).",
-        "p3": "The one thing that runs on consent (Art. 6(1)(a)) is loading the Google map, which is why the dashboard asks for it separately and remembers your answer. You can withdraw that in your profile at any time, and it costs you only the map.",
+        "p3": "The one thing that runs on consent (Art. 6(1)(a)) is loading the Google map, which is why the dashboard asks for it separately. If you choose to always load it, that answer is saved to your account and applies on every device you sign in on; a visitor using a share link has it remembered in a cookie on their own browser instead. You can withdraw it at any time, in your profile or on the share page, and it costs you only the map.",
         "title": "Why, and on what legal basis"
       },
       "locationData": {
@@ -123,7 +123,7 @@
       },
       "recipients": {
         "p1": "People you share a device with see that device’s positions and telemetry, plus your name and email address. Somebody you send a temporary share link to sees only what that link exposes, and nothing about you. You granted both, and you can revoke either at any time in the device’s settings.",
-        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
+        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile, or on the share page if you are viewing a share link. Once loaded, the map is provided under the <terms>Google Maps Additional Terms of Service</terms>, and Google handles what it receives under the <privacy>Google Privacy Policy</privacy>. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. It is likewise in the United States and likewise certified under the EU-US Data Privacy Framework. There are no other recipients. Nothing is sold.",
         "title": "Who else sees the data"
       },
@@ -136,7 +136,7 @@
       "rights": {
         "p1": "Access and portability (Art. 15 and 20): Profile, then Export my data, downloads a JSON file with everything held about you: profile, devices, permissions, nicknames, configuration history, and the complete, untruncated position history of every device you can read.",
         "p2": "Erasure (Art. 17): Profile, then Delete my account, asks for your password and then permanently deletes your account, your access grants and your nicknames. Any device only you could see is deleted with its entire position history; devices shared with others survive, with your access removed. This is a real delete, not a hidden flag. To erase only a location history, use Device, then Settings, then Erase position history.",
-        "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing your consent to load Google maps (Art. 7(3)) is done in your profile and affects nothing else.",
+        "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing your consent to load Google maps (Art. 7(3)) is done in your profile, or on the share page if you are viewing a share link, and affects nothing else.",
         "p4": "Requests sent to the contact address are answered within one month.",
         "title": "Your rights"
       },
@@ -146,10 +146,10 @@
         "title": "Security"
       },
       "shareLinks": {
-        "title": "Temporary share links",
         "p1": "You can create a link that shows one tracker to somebody who has no account here, for a period you choose. The link is guarded by two separate secrets: an unguessable address and a code generated for it, which you are meant to send by a different route. You decide whether the recipient sees only the current position or the whole track for that period, and whether speed, battery and temperature travel with it. They never learn the device identifier, only a name you choose.",
-        "p2": "We store the device the link points at, the name you chose, the period, what it exposes, when it was created and withdrawn, how many times it was opened and when it was last opened. We also store the link and its code in readable form, so that you can look them up again — which means anyone with access to the database, or to a backup of it, could use a link that is still within its period. Nothing at all is stored about the person who opens the link — no IP address, no browser details, no identifier.",
-        "p3": "You can revoke a link at any time in the device settings, and it stops working immediately. It also stops on its own when the period ends. The record that a link existed and was withdrawn is kept so the history of who was given access stays answerable; if you delete your account, the links you created are deleted with it."
+        "p2": "We store the device the link points at, the name you chose, the period, what it exposes, when it was created and withdrawn, how many times it was opened and when it was last opened. We also store the link and its code in readable form, so that you can look them up again — which means anyone with access to the database, or to a backup of it, could use a link that is still within its period. On the server, nothing at all is stored about the person who opens the link — no IP address, no browser details, no identifier. Their own browser keeps the link's session in a cookie for the link's period and, only if they choose to always load the map, that choice in a second cookie, both described under Cookies below.",
+        "p3": "You can revoke a link at any time in the device settings, and it stops working immediately. It also stops on its own when the period ends. The record that a link existed and was withdrawn is kept so the history of who was given access stays answerable; if you delete your account, the links you created are deleted with it.",
+        "title": "Temporary share links"
       },
       "sharingData": {
         "p1": "Which accounts may see which device and with what permissions; who granted that permission; your private nickname for a device; when the person who added a device confirmed they were entitled to track the vehicle; and the sampling intervals and weekly schedules configured for a device, which reveal when a vehicle is tracked closely.",

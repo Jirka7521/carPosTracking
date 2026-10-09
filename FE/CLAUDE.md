@@ -82,8 +82,10 @@ src/
 
 - A key used in code but missing from the English JSON is a **`tsc -b` error** (the
   types come from that file); a key missing from the catalogues fails `i18n:check`.
-- Google Maps loads only after the user consents (`utils/mapsConsent.ts`) — keep it that
-  way. A new external host must also be allowed by the CSP in
+- Google Maps loads only after the user consents — keep it that way. Signed-in users'
+  "always" is stored on the account (`hooks/useAccountMapsConsent.ts`), share visitors'
+  in a cookie (`utils/mapsConsent.ts`); bump `MAPS_CONSENT_VERSION` when the prompt's
+  wording changes. A new external host must also be allowed by the CSP in
   [nginx-security-headers.conf](nginx-security-headers.conf).
 - API error `detail` text is English; translated messages come from the error `code` via
   `utils/errors.ts` and `errors.json`.

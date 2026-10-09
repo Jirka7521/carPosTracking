@@ -25,7 +25,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
 import { parseApiTimestamp } from '../utils/dates'
-import { grantStandingMapsConsent, hasStandingMapsConsent } from '../utils/mapsConsent'
+import { GOOGLE_MAPS_TERMS_URL, GOOGLE_PRIVACY_POLICY_URL } from '../utils/mapsConsent'
 
 // What this map needs from a fix, which is less than a PositionDto carries.
 //
@@ -54,6 +54,15 @@ type DeviceMapProps = {
   // Bumped by the parent to re-frame the map on all positions. Starts at 0,
   // meaning "never asked" — the initial framing is handled internally.
   fitToken: number
+  // Whether this viewer already said "always". Read once, at mount — so the
+  // caller must know the answer before it renders this component.
+  hasStandingConsent: boolean
+  // "Always load maps" was pressed. The caller remembers it where it belongs:
+  // on the account, or in the share page's cookie.
+  onGrantStandingConsent: () => void
+  // Where "always" is remembered, which decides what the prompt promises about
+  // it: every device on the account, or this browser only.
+  consentScope: 'account' | 'browser'
 }
 
 // Live Google Maps objects for the current map instance.
@@ -438,19 +447,27 @@ function updateMapOverlays(state: MapState, positions: MapPosition[]): void {
 
 // ---- React component ----
 
-function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
+function DeviceMap({
+  positions,
+  apiKey,
+  fitToken,
+  hasStandingConsent,
+  onGrantStandingConsent,
+  consentScope,
+}: DeviceMapProps) {
   const { t } = useTranslation('device')
 
   const mapContainerRef           = useRef<HTMLDivElement | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Has this viewer agreed to contact Google at all? Seeded from the stored
-  // standing consent; the "just this once" button flips it for this tab only.
+  // Has this viewer agreed to contact Google at all? Seeded from the standing
+  // consent the caller holds; the "just this once" button flips it for this tab
+  // only.
   //
   // Everything below hangs off this flag: the loader effect returns early while
   // it is false, so opening a device's map tab makes no request to
   // maps.googleapis.com until somebody chooses. That is the whole gate.
-  const [hasConsented, setHasConsented] = useState<boolean>(() => hasStandingMapsConsent())
+  const [hasConsented, setHasConsented] = useState<boolean>(hasStandingConsent)
 
   const mapState = useMemo<MapState>(
     () => ({
@@ -527,13 +544,24 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
   }
 
   // The gate. Nothing has been sent to Google at this point, and the text says
-  // exactly what pressing either button will send.
+  // exactly what pressing either button will send, whose terms the map comes
+  // under, and how far "always" reaches.
   if (!hasConsented) {
     return (
       <div className="map-placeholder map-consent">
         <span style={{ fontSize: '2rem' }} aria-hidden="true">🗺</span>
         <h3 className="map-consent-title">{t('mapsConsent.title')}</h3>
         <p>{t('mapsConsent.body')}</p>
+        <p>
+          <Trans
+            i18nKey="mapsConsent.googleTerms"
+            ns="device"
+            components={{
+              terms: <a href={GOOGLE_MAPS_TERMS_URL} target="_blank" rel="noopener noreferrer" />,
+              privacy: <a href={GOOGLE_PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" />,
+            }}
+          />
+        </p>
 
         <div className="map-consent-actions">
           <button
@@ -547,7 +575,9 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => {
-              grantStandingMapsConsent()
+              // The map loads now whatever happens to the save: the consent given
+              // in this moment is real, and only remembering it can fail.
+              onGrantStandingConsent()
               setHasConsented(true)
             }}
           >
@@ -555,7 +585,9 @@ function DeviceMap({ positions, apiKey, fitToken }: DeviceMapProps) {
           </button>
         </div>
 
-        <p className="map-consent-hint">{t('mapsConsent.hint')}</p>
+        <p className="map-consent-hint">
+          {consentScope === 'account' ? t('mapsConsent.hintAccount') : t('mapsConsent.hintBrowser')}
+        </p>
       </div>
     )
   }

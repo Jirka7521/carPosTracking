@@ -281,6 +281,7 @@ builder.Services.AddScoped<IShareViewService, ShareViewService>();
 builder.Services.AddScoped<IPositionErasureService, PositionErasureService>();
 builder.Services.AddScoped<IDataExportService, DataExportService>();
 builder.Services.AddScoped<IAccountErasureService, AccountErasureService>();
+builder.Services.AddScoped<IMapsConsentService, MapsConsentService>();
 
 // ---------------------------------------------------------------------------
 // Settings schedules. The evaluator is pure arithmetic over a set of rules — no
