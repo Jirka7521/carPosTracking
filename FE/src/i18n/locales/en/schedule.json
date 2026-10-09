@@ -53,6 +53,7 @@
     "inForceWarning": "This profile is in force right now, so saving changes what the tracker is running immediately — not at the next switch.",
     "intro": "A profile is a complete set of this device’s settings under a name the rules refer to.",
     "isFallback": "fallback profile",
+    "motionTag": "reacts to motion",
     "name": "Profile name",
     "namePlaceholder": "Night",
     "nameRequired": "Give the profile a name — it is how the rules refer to it.",

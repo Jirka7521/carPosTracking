@@ -214,6 +214,20 @@ export function describeSeconds(seconds: number): string {
   return describeRounded(seconds / 86400, 'day')
 }
 
+// The "every 5 minutes · deep sleep" line a folded group of the form shows in its
+// header. Interval and sleep are what people tell one mode from another by — the
+// same reason the schedule's profile cards lead with them — and the reporting
+// group and the standby/moving blocks around it both show this, so it is built
+// once rather than worded twice.
+export function describeReportingSummary(values: DeviceConfigValuesDto, keys: ModeKeys): string {
+  return [
+    i18n.t('settings:config.everyDuration', { duration: describeSeconds(values[keys.interval]) }),
+    values[keys.sleepBetween]
+      ? i18n.t('settings:config.summary.sleepOn')
+      : i18n.t('settings:config.summary.sleepOff'),
+  ].join(' · ')
+}
+
 // Same idea for a count of hours, used by the two retry fields.
 export function describeHours(hours: number): string {
   if (!Number.isFinite(hours) || hours <= 0) {

@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
-// MotionWakeFields — the switch and the five knobs that decide when a tracker
-// counts as moving.
+// MotionWakeFields — the four knobs that decide when a tracker counts as moving.
 //
-// With the checkbox on, an ADXL345 accelerometer wakes the sleeping tracker as
+// With motion wake on, an ADXL345 accelerometer wakes the sleeping tracker as
 // the car starts to move. A wake proves only that something shook the sensor, so
 // the tracker then looks for a GNSS fix: faster than the speed below, it switches
 // to the MOVING settings; otherwise it goes back to standby. It falls back the
@@ -10,9 +9,10 @@
 // that governs those decisions is here; the two sets of settings they switch
 // between are ModeValuesFields.
 //
-// The detail fields appear only while the checkbox is on. Off, the device never
-// reads them, and a form full of inert numbers would only invite someone to tune
-// something that does nothing.
+// The switch itself is ConfigModeSwitch, at the top of the form, and this is
+// rendered only while it says "react to motion". Off, the device never reads
+// these values, and a form full of inert numbers would only invite someone to
+// tune something that does nothing.
 //
 // STATELESS, like ConfigValuesFields: it renders what it is given and reports
 // edits. `seedKey` is passed through to each DurationField's `key`.
@@ -28,7 +28,16 @@ import {
   describeSeconds,
 } from '../utils/deviceConfig'
 import type { TimeUnit } from '../utils/timeUnits'
+import { ConfigCollapsible } from './ConfigCollapsible'
 import { DurationField } from './DurationField'
+
+// The four settings this group edits, for its ⚠ header marker.
+const MOTION_KEYS: readonly (keyof DeviceConfigValuesDto)[] = [
+  'motionThresholdMg',
+  'motionSpeedKmph',
+  'motionWakeWaitSeconds',
+  'motionStopWaitSeconds',
+]
 
 // Both waits are stored as whole seconds and top out at two hours, so days would
 // only ever render as a fraction.
@@ -61,101 +70,95 @@ export function MotionWakeFields({
   const { t } = useTranslation(['settings'])
 
   return (
-    <fieldset className="config-fieldset" disabled={disabled}>
-      <legend className="config-group-title">{t('config.group.motion')}</legend>
+    <ConfigCollapsible
+      title={t('config.group.motion')}
+      summary={[
+        t('config.milliG', { value: values.motionThresholdMg }),
+        t('config.summary.movingAbove', {
+          speed: t('config.kilometresPerHour', { value: values.motionSpeedKmph }),
+        }),
+      ].join(' · ')}
+      hasPending={MOTION_KEYS.some((key) => pendingNote(key) !== null)}
+      defaultOpen
+      disabled={disabled}
+    >
+      <div className="config-grid">
+        <div className="form-field">
+          <label className="form-label" htmlFor={`${idPrefix}-motion-threshold`}>
+            {t('config.motionThresholdLabel')}
+          </label>
+          <input
+            id={`${idPrefix}-motion-threshold`}
+            className="form-input"
+            style={{ width: 'auto' }}
+            type="number"
+            min={CONFIG_LIMITS.motionThresholdMg.min}
+            max={CONFIG_LIMITS.motionThresholdMg.max}
+            step={1}
+            value={values.motionThresholdMg}
+            onChange={(event) => onChange('motionThresholdMg', Number(event.target.value))}
+            required
+          />
+          {/* What the typed number becomes on the sensor, which works in
+              62.5 mg steps — see describeMotionThreshold. */}
+          <span className="hint">{describeMotionThreshold(values.motionThresholdMg)}</span>
+          {pendingNote('motionThresholdMg')}
+        </div>
 
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={values.motionEnabled}
-          onChange={(event) => onChange('motionEnabled', event.target.checked)}
+        <div className="form-field">
+          <label className="form-label" htmlFor={`${idPrefix}-motion-speed`}>
+            {t('config.motionSpeedLabel')}
+          </label>
+          <input
+            id={`${idPrefix}-motion-speed`}
+            className="form-input"
+            style={{ width: 'auto' }}
+            type="number"
+            min={CONFIG_LIMITS.motionSpeedKmph.min}
+            max={CONFIG_LIMITS.motionSpeedKmph.max}
+            step={1}
+            value={values.motionSpeedKmph}
+            onChange={(event) => onChange('motionSpeedKmph', Number(event.target.value))}
+            required
+          />
+          {pendingNote('motionSpeedKmph')}
+        </div>
+      </div>
+      <p className="hint">{t('config.motionThresholdHint')}</p>
+      <p className="hint">{t('config.motionSpeedHint')}</p>
+
+      <div className="config-grid">
+        <DurationField
+          key={`motion-wake-wait-${seedKey}`}
+          id={`${idPrefix}-motion-wake-wait`}
+          label={t(CONFIG_FIELD_LABEL_KEYS.motionWakeWaitSeconds)}
+          value={values.motionWakeWaitSeconds}
+          baseUnit="seconds"
+          units={SECOND_UNITS}
+          min={CONFIG_LIMITS.motionWakeWaitSeconds.min}
+          max={CONFIG_LIMITS.motionWakeWaitSeconds.max}
+          onChange={(value) => onChange('motionWakeWaitSeconds', value)}
+          hint={describeSeconds(values.motionWakeWaitSeconds)}
+          pendingNote={pendingNote('motionWakeWaitSeconds')}
+          required
         />
-        <span>{t(CONFIG_FIELD_LABEL_KEYS.motionEnabled)}</span>
-      </label>
-      <p className="hint">{t('config.motionEnabledHint')}</p>
-      {pendingNote('motionEnabled')}
 
-      {values.motionEnabled ? (
-        <>
-          <div className="config-grid">
-            <div className="form-field">
-              <label className="form-label" htmlFor={`${idPrefix}-motion-threshold`}>
-                {t('config.motionThresholdLabel')}
-              </label>
-              <input
-                id={`${idPrefix}-motion-threshold`}
-                className="form-input"
-                style={{ width: 'auto' }}
-                type="number"
-                min={CONFIG_LIMITS.motionThresholdMg.min}
-                max={CONFIG_LIMITS.motionThresholdMg.max}
-                step={1}
-                value={values.motionThresholdMg}
-                onChange={(event) => onChange('motionThresholdMg', Number(event.target.value))}
-                required
-              />
-              {/* What the typed number becomes on the sensor, which works in
-                  62.5 mg steps — see describeMotionThreshold. */}
-              <span className="hint">{describeMotionThreshold(values.motionThresholdMg)}</span>
-              {pendingNote('motionThresholdMg')}
-            </div>
-
-            <div className="form-field">
-              <label className="form-label" htmlFor={`${idPrefix}-motion-speed`}>
-                {t('config.motionSpeedLabel')}
-              </label>
-              <input
-                id={`${idPrefix}-motion-speed`}
-                className="form-input"
-                style={{ width: 'auto' }}
-                type="number"
-                min={CONFIG_LIMITS.motionSpeedKmph.min}
-                max={CONFIG_LIMITS.motionSpeedKmph.max}
-                step={1}
-                value={values.motionSpeedKmph}
-                onChange={(event) => onChange('motionSpeedKmph', Number(event.target.value))}
-                required
-              />
-              {pendingNote('motionSpeedKmph')}
-            </div>
-          </div>
-          <p className="hint">{t('config.motionThresholdHint')}</p>
-          <p className="hint">{t('config.motionSpeedHint')}</p>
-
-          <div className="config-grid">
-            <DurationField
-              key={`motion-wake-wait-${seedKey}`}
-              id={`${idPrefix}-motion-wake-wait`}
-              label={t(CONFIG_FIELD_LABEL_KEYS.motionWakeWaitSeconds)}
-              value={values.motionWakeWaitSeconds}
-              baseUnit="seconds"
-              units={SECOND_UNITS}
-              min={CONFIG_LIMITS.motionWakeWaitSeconds.min}
-              max={CONFIG_LIMITS.motionWakeWaitSeconds.max}
-              onChange={(value) => onChange('motionWakeWaitSeconds', value)}
-              hint={describeSeconds(values.motionWakeWaitSeconds)}
-              pendingNote={pendingNote('motionWakeWaitSeconds')}
-              required
-            />
-
-            <DurationField
-              key={`motion-stop-wait-${seedKey}`}
-              id={`${idPrefix}-motion-stop-wait`}
-              label={t(CONFIG_FIELD_LABEL_KEYS.motionStopWaitSeconds)}
-              value={values.motionStopWaitSeconds}
-              baseUnit="seconds"
-              units={SECOND_UNITS}
-              min={CONFIG_LIMITS.motionStopWaitSeconds.min}
-              max={CONFIG_LIMITS.motionStopWaitSeconds.max}
-              onChange={(value) => onChange('motionStopWaitSeconds', value)}
-              hint={describeSeconds(values.motionStopWaitSeconds)}
-              pendingNote={pendingNote('motionStopWaitSeconds')}
-              required
-            />
-          </div>
-          <p className="hint">{t('config.motionWaitHint')}</p>
-        </>
-      ) : null}
-    </fieldset>
+        <DurationField
+          key={`motion-stop-wait-${seedKey}`}
+          id={`${idPrefix}-motion-stop-wait`}
+          label={t(CONFIG_FIELD_LABEL_KEYS.motionStopWaitSeconds)}
+          value={values.motionStopWaitSeconds}
+          baseUnit="seconds"
+          units={SECOND_UNITS}
+          min={CONFIG_LIMITS.motionStopWaitSeconds.min}
+          max={CONFIG_LIMITS.motionStopWaitSeconds.max}
+          onChange={(value) => onChange('motionStopWaitSeconds', value)}
+          hint={describeSeconds(values.motionStopWaitSeconds)}
+          pendingNote={pendingNote('motionStopWaitSeconds')}
+          required
+        />
+      </div>
+      <p className="hint">{t('config.motionWaitHint')}</p>
+    </ConfigCollapsible>
   )
 }

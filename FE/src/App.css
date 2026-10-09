@@ -2626,17 +2626,6 @@
 
 /* ---- The form itself ---- */
 
-.config-fieldset {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 0;
-  padding: 12px 0 4px;
-}
-
-.config-fieldset:disabled {
-  opacity: 0.6;
-}
-
 .config-group-title {
   padding: 0 8px 0 0;
   font-size: 12px;
@@ -2653,15 +2642,181 @@
   margin-bottom: 8px;
 }
 
-/* Names which of the two settings sets the groups beneath it belong to. Shown
-   only while motion wake is on — with it off there is a single set and a heading
-   would be noise — and a step up from .config-group-title, so the eye reads the
-   groups as sitting inside it. */
-.config-mode-title {
-  margin: 20px 0 0;
-  font-size: 1rem;
-  font-weight: 700;
+/* The settings-mode question at the top of the form (ConfigModeSwitch): the two
+   answers side by side as cards, the chosen one in the accent colour, each with
+   the sentence that says what the tracker then does. */
+.config-mode-switch {
+  border: none;
+  margin: 0 0 12px;
+  padding: 0;
+  min-width: 0;
+}
+
+.config-mode-switch:disabled {
+  opacity: 0.6;
+}
+
+.config-mode-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.config-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+
+.config-mode-option:hover {
+  border-color: var(--blue-200);
+}
+
+.config-mode-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.config-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.config-mode-switch:disabled .config-mode-option {
+  cursor: not-allowed;
+}
+
+.config-mode-option input[type='radio'] {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.config-mode-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.config-mode-option-label {
+  font-weight: 600;
   color: var(--text-h);
+}
+
+/* One folded group of the form (ConfigCollapsible). The header is the whole
+   <summary>: an arrow, the title, a ⚠ while something inside has not reached
+   the device, and the values summary pushed to the right — on a phone it wraps
+   under the title rather than squeezing it. */
+.config-collapsible {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-bg);
+  margin-bottom: 10px;
+}
+
+.config-collapsible-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.config-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-collapsible-summary::before {
+  content: '▸';
+  flex-shrink: 0;
+  width: 1em;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.config-collapsible[open] > .config-collapsible-summary::before {
+  transform: rotate(90deg);
+}
+
+.config-collapsible-summary:hover {
+  background: var(--gray-50);
+}
+
+.config-collapsible-summary:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.config-collapsible[open] > .config-collapsible-summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.config-collapsible-title {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.config-collapsible-pending {
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.config-collapsible-values {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.config-collapsible-body {
+  border: none;
+  margin: 0;
+  min-width: 0;
+  padding: 12px 14px 4px;
+}
+
+.config-collapsible-body:disabled {
+  opacity: 0.6;
+}
+
+/* A group inside a standby/moving block: no second card around it, just a
+   divider, so the block reads as one thing with sections rather than as boxes
+   in boxes. */
+.config-collapsible .config-collapsible {
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.config-collapsible .config-collapsible:first-child {
+  border-top: none;
+}
+
+.config-collapsible .config-collapsible-summary {
+  padding: 8px 0;
+  border-radius: 0;
+}
+
+.config-collapsible .config-collapsible[open] > .config-collapsible-summary {
+  border-bottom: none;
+  border-radius: 0;
+}
+
+.config-collapsible .config-collapsible-body {
+  padding: 4px 0 8px;
 }
 
 /* The notes about how the motion settings interact, stacked. A banner on its

@@ -13,13 +13,15 @@
 // profile editor is nearly none. Sharing the controls without sharing that logic
 // is the whole point of the split.
 //
-// What it renders is a composition. With motion wake off there is one set of
-// seven settings and the form looks exactly as it always did. With it on there
-// are two complete sets — STANDBY (parked) and MOVING — around the motion
-// settings that decide when the device passes from one to the other, plus the
-// notes about how those interact. The sets are ModeValuesFields, the motion
-// settings are MotionWakeFields; this file only arranges them and says what is
-// worth warning about.
+// What it renders is a composition, led by ConfigModeSwitch: the same settings
+// all the time, or react to motion wake? Answered "the same", there is one set
+// of seven settings. Answered "react", there are two complete sets — STANDBY
+// (parked) and MOVING — each folded into its own block, after the motion
+// settings that decide when the device passes from one to the other. The notes
+// about how those interact sit right under the switch, outside every block, so
+// folding a group can never be what hides a warning. The sets are
+// ModeValuesFields, the motion settings are MotionWakeFields; this file only
+// arranges them and says what is worth warning about.
 //
 // `seedKey` is passed straight through to each DurationField's `key`. Changing
 // it remounts them, which is how a field re-picks the unit that suits a value
@@ -32,7 +34,15 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatInteger } from '../i18n/format'
 import type { DeviceConfigValuesDto } from '../services/apiTypes'
-import { MOVING_KEYS, STANDBY_KEYS, describeSeconds } from '../utils/deviceConfig'
+import {
+  MOVING_KEYS,
+  STANDBY_KEYS,
+  describeReportingSummary,
+  describeSeconds,
+} from '../utils/deviceConfig'
+import type { ModeKeys } from '../utils/deviceConfig'
+import { ConfigCollapsible } from './ConfigCollapsible'
+import { ConfigModeSwitch } from './ConfigModeSwitch'
 import { ModeValuesFields } from './ModeValuesFields'
 import { MotionWakeFields } from './MotionWakeFields'
 
@@ -69,6 +79,12 @@ export function ConfigValuesFields({
     return renderPendingNote ? renderPendingNote(key) : null
   }
 
+  // Whether any of a mode's seven settings has not reached the device yet, for
+  // the ⚠ on that mode's folded block.
+  function isModePending(keys: ModeKeys): boolean {
+    return Object.values(keys).some((key) => pendingNote(key) !== null)
+  }
+
   // The device stays awake for up to the whole wait window after EVERY wake, and
   // a timer wake is a wake. A wait at least as long as the standby interval
   // therefore leaves no gap in which to sleep. Only worth saying when standby is
@@ -89,27 +105,11 @@ export function ConfigValuesFields({
 
   return (
     <>
-      {/* Only named while there is a second set to tell it apart from. */}
-      {values.motionEnabled ? (
-        <h4 className="config-mode-title">{t('config.mode.standby')}</h4>
-      ) : null}
-
-      <ModeValuesFields
-        values={values}
-        keys={STANDBY_KEYS}
-        onChange={onChange}
-        seedKey={seedKey}
+      <ConfigModeSwitch
+        motionEnabled={values.motionEnabled}
+        onChange={(motionEnabled) => onChange('motionEnabled', motionEnabled)}
         disabled={disabled}
-        pendingNote={pendingNote}
-        idPrefix={idPrefix}
-      />
-
-      <MotionWakeFields
-        values={values}
-        onChange={onChange}
-        seedKey={seedKey}
-        disabled={disabled}
-        pendingNote={pendingNote}
+        pendingNote={pendingNote('motionEnabled')}
         idPrefix={idPrefix}
       />
 
@@ -142,19 +142,63 @@ export function ConfigValuesFields({
 
       {values.motionEnabled ? (
         <>
-          <h4 className="config-mode-title">{t('config.mode.moving')}</h4>
-
-          <ModeValuesFields
+          <MotionWakeFields
             values={values}
-            keys={MOVING_KEYS}
             onChange={onChange}
             seedKey={seedKey}
             disabled={disabled}
             pendingNote={pendingNote}
-            idPrefix={`${idPrefix}-moving`}
+            idPrefix={idPrefix}
           />
+
+          {/* No `disabled` on the two mode blocks: the groups inside disable
+              their own fields. Standby starts open because it is the set the
+              tracker spends most of its life on; moving is one click away. */}
+          <ConfigCollapsible
+            title={t('config.mode.standby')}
+            summary={describeReportingSummary(values, STANDBY_KEYS)}
+            hasPending={isModePending(STANDBY_KEYS)}
+            defaultOpen
+          >
+            <ModeValuesFields
+              values={values}
+              keys={STANDBY_KEYS}
+              onChange={onChange}
+              seedKey={seedKey}
+              disabled={disabled}
+              pendingNote={pendingNote}
+              idPrefix={idPrefix}
+            />
+          </ConfigCollapsible>
+
+          <ConfigCollapsible
+            title={t('config.mode.moving')}
+            summary={describeReportingSummary(values, MOVING_KEYS)}
+            hasPending={isModePending(MOVING_KEYS)}
+          >
+            <ModeValuesFields
+              values={values}
+              keys={MOVING_KEYS}
+              onChange={onChange}
+              seedKey={seedKey}
+              disabled={disabled}
+              pendingNote={pendingNote}
+              idPrefix={`${idPrefix}-moving`}
+            />
+          </ConfigCollapsible>
         </>
-      ) : null}
+      ) : (
+        // One set and nothing to tell it apart from, so no block around it.
+        <ModeValuesFields
+          values={values}
+          keys={STANDBY_KEYS}
+          onChange={onChange}
+          seedKey={seedKey}
+          disabled={disabled}
+          pendingNote={pendingNote}
+          idPrefix={idPrefix}
+        />
+      )}
     </>
   )
 }

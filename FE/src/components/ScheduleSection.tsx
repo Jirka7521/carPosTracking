@@ -436,6 +436,13 @@ function ScheduleContent({
                           {profile.id === schedule.fallbackProfileId ? (
                             <span className="schedule-status-tag">{t('schedule:status.fallback')}</span>
                           ) : null}
+                          {/* The mode decides how to read the summary below:
+                              with motion wake on, those are only the parked
+                              values, and the card should not pass them off as
+                              the whole story. */}
+                          {profile.values.motionEnabled ? (
+                            <span className="schedule-status-tag">{t('schedule:profile.motionTag')}</span>
+                          ) : null}
                         </div>
 
                         <p className="schedule-card-summary">

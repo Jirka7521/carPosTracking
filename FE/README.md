@@ -510,7 +510,8 @@ storable.
 
 ### Motion wake: two sets of settings
 
-Ticking **Wake on motion** (`motionEnabled`) lets the tracker's accelerometer wake
+Choosing **React to motion wake-up** in the form's settings-mode switch
+(`motionEnabled`; the other answer is **Same settings all the time**) lets the tracker's accelerometer wake
 it from deep sleep when the car starts to move, and gives it a second, complete
 copy of the seven reporting settings — the **moving** set (`movingIntervalSeconds`,
 `movingSleepBetween`, …) — to run while driving. The original seven become the
@@ -533,12 +534,22 @@ schedule's profile editor shows them too: a profile holds the same values.
   queue caps, and the more lenient rejected-fix give-up age (0 = never), whichever
   mode is running. The form says so when the two queue caps differ.
 
-On the page, [`ConfigValuesFields`](src/components/ConfigValuesFields.tsx) composes
-[`ModeValuesFields`](src/components/ModeValuesFields.tsx) — the seven controls,
-rendered once for the standby keys and once for the moving keys (`STANDBY_KEYS` /
-`MOVING_KEYS`, with the moving ids prefixed `…-moving-`) — around
-[`MotionWakeFields`](src/components/MotionWakeFields.tsx). Only the checkbox shows
-while motion wake is off, so the form is the one it always was.
+On the page, [`ConfigValuesFields`](src/components/ConfigValuesFields.tsx) opens with
+[`ConfigModeSwitch`](src/components/ConfigModeSwitch.tsx) — the two modes as radio
+cards — and composes [`ModeValuesFields`](src/components/ModeValuesFields.tsx) — the
+seven controls, rendered once for the standby keys and once for the moving keys
+(`STANDBY_KEYS` / `MOVING_KEYS`, with the moving ids prefixed `…-moving-`) — after
+[`MotionWakeFields`](src/components/MotionWakeFields.tsx). With motion wake off only
+the standby set shows, without a block around it.
+
+Every group of the form is a [`ConfigCollapsible`](src/components/ConfigCollapsible.tsx):
+a `<details>` that folds to its title and a one-line summary of the values
+(`describeReportingSummary` in [`utils/deviceConfig.ts`](src/utils/deviceConfig.ts)
+for interval · sleep). Reporting and power, the motion knobs and the standby block
+start open; the rest start folded. A group opens itself when it holds a change the
+device has not applied yet (and shows ⚠ in its header), and when a field inside fails
+browser validation — a closed `<details>` cannot be focused, so Save would otherwise
+silently do nothing. The schedule's profile cards tag profiles that react to motion.
 
 ---
 

@@ -64,10 +64,9 @@
     "group": {
       "gnss": "GNSS",
       "motion": "Probuzení pohybem",
-      "power": "Napájení",
       "queue": "Nedoručené polohy",
       "rejected": "Odmítnuté polohy",
-      "reporting": "Hlášení",
+      "reportingPower": "Hlášení a napájení",
       "updates": "Aktualizace konfigurace"
     },
     "intro": "Jak často tento tracker hlásí polohu, zda mezi hlášeními spí a co dělá s polohami, které se nepodařilo doručit. Změny se publikují na broker, který je podrží — zařízení tedy nemusí být právě teď online a nic se nemusí přehrávat do firmwaru. Bdělý tracker změnu použije během několika sekund, spící při nejbližším probuzení.",
@@ -78,7 +77,13 @@
       "moving": "Za jízdy",
       "standby": "Pohotovostní režim (zaparkováno)"
     },
-    "motionEnabledHint": "Akcelerometr v trackeru ho probudí z hlubokého spánku, jakmile se auto rozjede. Tracker pak používá samostatné nastavení „Za jízdy“ níže a po zastavení auta se vrátí k nastavení pohotovostního režimu výše.",
+    "modeSwitch": {
+      "constant": "Stále stejné nastavení",
+      "constantHint": "Tracker používá jednu sadu nastavení, ať auto stojí, nebo jede.",
+      "legend": "Režim nastavení",
+      "motion": "Reagovat na probuzení pohybem",
+      "motionHint": "Akcelerometr v trackeru ho probudí z hlubokého spánku, jakmile se auto rozjede. Tracker pak používá samostatnou sadu „Za jízdy“ a po zastavení auta se vrátí k sadě „Pohotovostní režim (zaparkováno)“."
+    },
     "motionPollingNote": "Hluboký spánek v pohotovostním režimu je vypnutý, takže tracker zůstává vzhůru a pohyb zjišťuje dotazováním akcelerometru jednou za sekundu. Akcelerometr šetří baterii jen tehdy, když je v pohotovostním režimu zapnutý hluboký spánek — jen tehdy totiž může tracker spát, dokud ho něco neprobudí.",
     "motionQueueCapNote": "Limity fronty v pohotovostním režimu a za jízdy se liší. Tracker v obou režimech používá ten větší ({{cap}}), takže přepnutí režimu nikdy nesmaže polohy ve frontě.",
     "motionSpeedHint": "GNSS poloha se počítá jako pohyb, jen když je její rychlost přísně nad touto hodnotou. Polohy zaparkovaného auta stále kolísají o km/h či dva, proto ji nechte nad touto úrovní, jinak tracker zaparkované auto splete s jedoucím.",
@@ -89,6 +94,7 @@
     "motionWaitHint": "Čekat na pohyb: po každém probuzení z pohotovostního režimu — akcelerometrem i časovačem — tracker zůstane vzhůru nejvýše po tuto dobu, hledá GNSS polohu a publikuje jen první, kterou získá. Jakmile je kterákoli poloha v té době rychlejší než rychlost výše, přepne se do režimu jízdy; není-li žádná, vrátí se do pohotovosti. Zpět do pohotovosti: za jízdy tracker drží nastavení „Za jízdy“, dokud po tuto dobu žádná poloha nepřekročila uvedenou rychlost.",
     "motionWakeWindowWarning": "Po každém probuzení zůstane tracker vzhůru až {{wait}} a hledá polohu v pohybu. To je stejně dlouho nebo déle než interval hlášení v pohotovostním režimu ({{interval}}), takže prakticky nikdy neusne. Zkraťte čekání nebo prodlužte interval.",
     "outOfRange": "„{{field}}“ musí být celé číslo mezi {{min}} a {{max}}.",
+    "pendingBadge": "čeká na zařízení",
     "queueMaxHint": "Dokud je broker nedostupný, každá poloha se zašifruje a zařadí do fronty na SD kartě. Nad tímto počtem se nejstarší zahazují, aby se karta nikdy nezaplnila. Je to počet, ne doba, protože položka ve frontě je holý šifrový text bez časového razítka.",
     "queueMaxLabel": "Uchovat nejvýše (poloh)",
     "queueSpan": "≈ {{duration}} při současném intervalu",
@@ -100,6 +106,13 @@
     "scheduledDetail": "Uložení se projeví okamžitě, ale při nejbližším přepnutí profilu bude nahrazeno. Chcete-li změnu natrvalo, upravte profil v sekci <em>Rozvrh nastavení</em> výše.",
     "scheduledWithProfile": "Rozvrh na tomto zařízení právě používá profil <strong>{{profile}}</strong>.",
     "sleepBetweenHint": "Vypne modem a při probuzení tracker restartuje. Nad zhruba pěti minutami je to velká úspora baterie, ale každý cyklus pak platí za studenou GNSS fixaci a nové TLS handshake — pod touto hranicí to může stát víc, než to ušetří.",
+    "summary": {
+      "fixTimeout": "limit {{duration}}",
+      "maxAge": "max. stáří {{duration}}",
+      "movingAbove": "jízda nad {{speed}}",
+      "sleepOff": "bez spánku",
+      "sleepOn": "hluboký spánek"
+    },
     "title": "Hlášení a napájení",
     "updatesHint": "Nastavení se k tomuto trackeru běžně dostane <strong>během sekundy</strong>: drží otevřené odebírání, takže broker změnu odešle ve chvíli uložení, a zařízení, které se znovu připojí, dostane aktuální nastavení automaticky. Hodnota níže je jen pojistka — jak často si o nastavení řekne znovu pro případ, že spojení bylo tiše mrtvé."
   },

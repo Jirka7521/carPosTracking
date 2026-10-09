@@ -13,20 +13,29 @@
 // standby one keeps the prefix the form always had, the moving one gets its own,
 // so a label never points at the other mode's input. `seedKey` is passed
 // straight through to each DurationField's `key`; see ConfigValuesFields.
+//
+// Each group is a ConfigCollapsible that folds to a one-line summary. Only
+// reporting and power start open: they are what people come here to change,
+// and the rest — GNSS, the two queues, the re-check backstop — are tuned once,
+// if ever, and read fine as a summary until then. Interval and sleep share a
+// group because neither means much without the other; see sleepBetweenHint.
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { formatInteger } from '../i18n/format'
 import type { DeviceConfigValuesDto } from '../services/apiTypes'
 import {
   CONFIG_FIELD_LABEL_KEYS,
   CONFIG_LIMITS,
   describeHours,
+  describeReportingSummary,
   describeSeconds,
   estimateQueueSpan,
 } from '../utils/deviceConfig'
 import type { ModeKeys } from '../utils/deviceConfig'
 import type { TimeUnit } from '../utils/timeUnits'
+import { ConfigCollapsible } from './ConfigCollapsible'
 import { DurationField } from './DurationField'
 
 // The settings the API stores as whole seconds. Hours is the coarsest unit any
@@ -69,11 +78,22 @@ export function ModeValuesFields({
 }: ModeValuesFieldsProps) {
   const { t } = useTranslation(['settings'])
 
+  // Whether any of these keys carries a "device still on …" note. Read off the
+  // note itself rather than a second list of pending keys, so a group's ⚠ and
+  // the notes inside it come from one answer.
+  function isPending(...pendingKeys: (keyof DeviceConfigValuesDto)[]): boolean {
+    return pendingKeys.some((key) => pendingNote(key) !== null)
+  }
+
   return (
     <>
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.reporting')}</legend>
-
+      <ConfigCollapsible
+        title={t('config.group.reportingPower')}
+        summary={describeReportingSummary(values, keys)}
+        hasPending={isPending(keys.interval, keys.sleepBetween)}
+        defaultOpen
+        disabled={disabled}
+      >
         <div className="config-grid">
           <DurationField
             key={`interval-${seedKey}`}
@@ -94,10 +114,6 @@ export function ModeValuesFields({
             required
           />
         </div>
-      </fieldset>
-
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.power')}</legend>
 
         <label className="checkbox-field">
           <input
@@ -109,11 +125,14 @@ export function ModeValuesFields({
         </label>
         <p className="hint">{t('config.sleepBetweenHint')}</p>
         {pendingNote(keys.sleepBetween)}
-      </fieldset>
+      </ConfigCollapsible>
 
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.gnss')}</legend>
-
+      <ConfigCollapsible
+        title={t('config.group.gnss')}
+        summary={t('config.summary.fixTimeout', { duration: describeSeconds(values[keys.fixTimeout]) })}
+        hasPending={isPending(keys.fixTimeout)}
+        disabled={disabled}
+      >
         <div className="config-grid">
           <DurationField
             key={`fix-timeout-${seedKey}`}
@@ -131,11 +150,17 @@ export function ModeValuesFields({
           />
         </div>
         <p className="hint">{t('config.fixTimeoutHint')}</p>
-      </fieldset>
+      </ConfigCollapsible>
 
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.queue')}</legend>
-
+      <ConfigCollapsible
+        title={t('config.group.queue')}
+        summary={t('config.fixesCount', {
+          count: values[keys.queueMax],
+          value: formatInteger(values[keys.queueMax]),
+        })}
+        hasPending={isPending(keys.queueMax)}
+        disabled={disabled}
+      >
         <div className="config-grid">
           <div className="form-field">
             <label className="form-label" htmlFor={`${idPrefix}-queue-max`}>
@@ -160,11 +185,19 @@ export function ModeValuesFields({
           </div>
         </div>
         <p className="hint">{t('config.queueMaxHint')}</p>
-      </fieldset>
+      </ConfigCollapsible>
 
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.rejected')}</legend>
-
+      <ConfigCollapsible
+        title={t('config.group.rejected')}
+        summary={[
+          t('config.everyDuration', { duration: describeHours(values[keys.retryInterval]) }),
+          values[keys.retryMaxAge] === 0
+            ? t('config.retryForever')
+            : t('config.summary.maxAge', { duration: describeHours(values[keys.retryMaxAge]) }),
+        ].join(' · ')}
+        hasPending={isPending(keys.retryInterval, keys.retryMaxAge)}
+        disabled={disabled}
+      >
         <div className="config-grid">
           <DurationField
             key={`retry-interval-${seedKey}`}
@@ -204,11 +237,14 @@ export function ModeValuesFields({
           />
         </div>
         <p className="hint">{t('config.rejectedHint')}</p>
-      </fieldset>
+      </ConfigCollapsible>
 
-      <fieldset className="config-fieldset" disabled={disabled}>
-        <legend className="config-group-title">{t('config.group.updates')}</legend>
-
+      <ConfigCollapsible
+        title={t('config.group.updates')}
+        summary={t('config.everyDuration', { duration: describeSeconds(values[keys.configCheck]) })}
+        hasPending={isPending(keys.configCheck)}
+        disabled={disabled}
+      >
         {/* <Trans> rather than t(): the sentence carries a <strong> in the
             middle of it, and splitting it into three keys would leave the
             translator with fragments that cannot be reordered. */}
@@ -241,7 +277,7 @@ export function ModeValuesFields({
             {t('config.configCheckSleepNote')}
           </div>
         ) : null}
-      </fieldset>
+      </ConfigCollapsible>
     </>
   )
 }
