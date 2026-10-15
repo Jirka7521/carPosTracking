@@ -8,7 +8,7 @@
 // alone.
 //
 // The popover behaviour and most of its styling are the ones the CSV export
-// menu in PositionListTab already established — same classes, same
+// menu (CsvExportMenu) already established — same classes, same
 // outside-click and Escape handling. There is one menu pattern in this app and
 // this is it.
 // ============================================================

@@ -37,8 +37,11 @@
     "percent": "{{value}} %"
   },
   "csv": {
+    "columnSeparator": "Oddělovač sloupců",
     "comma": "Čárka",
     "commaHint": "Standardní CSV",
+    "export": "Exportovat CSV",
+    "exporting": "Exportuji…",
     "semicolon": "Středník",
     "semicolonHint": "Excel v ČR / DE",
     "tab": "Tabulátor",

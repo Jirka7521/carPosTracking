@@ -15,8 +15,10 @@
 //     "Latest" badge in the timestamp column, whichever way the table is sorted
 //   • Coordinates displayed in monospace for alignment
 //   • Pagination: N rows per page with Prev / Next controls
-//   • "Export CSV" writes the WHOLE selected range to a file; the click opens a
-//     small menu that asks which column separator the reader's spreadsheet wants
+//   • "Export CSV" writes the selected range to a file; the click opens a small
+//     menu that asks which column separator the reader's spreadsheet wants and,
+//     when the range holds more than the table has loaded, a popup that asks
+//     whether the file should hold all of it (the Events tab asks the same)
 //
 // The API hands out at most 1000 fixes per request, so a wide range holds more
 // than one answer's worth. Rather than fetching all of them up front, the table
@@ -31,12 +33,14 @@ import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
+import { CsvExportMenu } from '../components/CsvExportMenu'
+import { ExportLengthDialog } from '../components/ExportLengthDialog'
 import RangeToolbar from '../components/RangeToolbar'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import type { CsvDelimiter } from '../utils/csv'
-import { buildCsv, CSV_DELIMITERS, isCsvDelimiter } from '../utils/csv'
+import { buildCsv, csvFileName } from '../utils/csv'
 import type { DateRange } from '../utils/dates'
 import { datetimeLocalToIso, parseApiTimestamp } from '../utils/dates'
 import { downloadTextFile } from '../utils/downloadTextFile'
@@ -49,10 +53,6 @@ export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
 // the Charts and Map tabs. Fifty sequential requests is already a long wait; a
 // table sorted across more rows than this is not what anyone is asking for.
 const MAX_TABLE_ROWS = 50_000
-
-// Where the chosen CSV separator is remembered. It is a property of the
-// reader's spreadsheet rather than of this session, so it outlives the tab.
-const CSV_DELIMITER_KEY = 'carpos.csvDelimiter'
 
 // ---- Sorting ----
 
@@ -212,21 +212,6 @@ function positionToCsvRow(position: PositionDto): string[] {
   return cells
 }
 
-// A file name that says which device and when. A device id is user-chosen text,
-// so anything outside the safe set becomes an underscore rather than a filename
-// some operating system refuses to write.
-function csvFileName(deviceId: string): string {
-  const safeDevice: string = deviceId.replace(/[^A-Za-z0-9_-]/g, '_')
-
-  const now: Date = new Date()
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  const stamp: string =
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}`
-
-  return `positions_${safeDevice}_${stamp}.csv`
-}
-
 export function PositionListTab() {
   const { t } = useTranslation(['device', 'common', 'errors'])
 
@@ -263,29 +248,12 @@ export function PositionListTab() {
   // load. Keeps the table on screen while it runs.
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false)
 
-  // Which separator the exported CSV uses, and whether an export is running.
-  // The choice is read back from storage on mount: a reader whose spreadsheet
-  // wants semicolons wants them every time, not once per visit.
-  const [csvDelimiter, setCsvDelimiter] = useState<CsvDelimiter>(() => {
-    try {
-      const stored: string | null = window.localStorage.getItem(CSV_DELIMITER_KEY)
-      if (stored !== null && isCsvDelimiter(stored)) {
-        return stored
-      }
-    } catch {
-      // Storage can be unavailable (private mode, blocked cookies). The default
-      // separator is a perfectly good answer.
-    }
-    return ','
-  })
-  const [isExporting, setIsExporting] = useState<boolean>(false)
-
-  // The separator menu. It is asked for on the way OUT rather than sitting in
-  // the toolbar: it is a question with an answer most of the time, and a control
-  // that is only relevant for two seconds should not occupy the bar all day.
-  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false)
-  const exportMenuRef = useRef<HTMLDivElement | null>(null)
-  const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // The export. `pendingDelimiter` is the separator the reader picked while the
+  // "more than the table has loaded" popup is open — null when no popup is, so it
+  // is also the popup's open flag. (The separator menu itself, and the remembering
+  // of its answer, live in CsvExportMenu.)
+  const [pendingDelimiter, setPendingDelimiter] = useState<CsvDelimiter | null>(null)
+  const [isExporting, setIsExporting]           = useState<boolean>(false)
 
   // Current page index (0-based). Local, unlike the page size: the rows are
   // fetched afresh on every visit, so the page the reader left means nothing
@@ -320,39 +288,6 @@ export function PositionListTab() {
   useEffect(() => {
     sortRef.current = sort
   }, [sort])
-
-  // A popover closes on the two things every popover closes on: a click
-  // somewhere else, and Escape. Neither is a React event — the click that
-  // dismisses it lands on whatever else the reader aimed at — so both are
-  // listened for on the document, and only while the menu is actually open.
-  useEffect(() => {
-    if (!isMenuOpen) {
-      return
-    }
-
-    function handlePointerDown(event: MouseEvent): void {
-      const menu: HTMLDivElement | null = exportMenuRef.current
-      if (menu !== null && !menu.contains(event.target as Node)) {
-        setIsMenuOpen(false)
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        setIsMenuOpen(false)
-        // Escape threw focus away with the panel that had it; put it back on the
-        // control the reader opened, not at the top of the document.
-        exportTriggerRef.current?.focus()
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isMenuOpen])
 
   function applyPositions(next: PositionDto[]): void {
     positionsRef.current = next
@@ -445,33 +380,35 @@ export function PositionListTab() {
     }
   }
 
-  // Picking a separator IS the confirmation: the export starts on the click that
-  // chooses it, rather than asking for a second one that could only ever mean
-  // "yes, the one I just picked".
-  function handleDelimiterPick(next: CsvDelimiter): void {
-    setIsMenuOpen(false)
-    setCsvDelimiter(next)
-
-    try {
-      window.localStorage.setItem(CSV_DELIMITER_KEY, next)
-    } catch {
-      // Failing to REMEMBER the choice must not stop the reader making it.
+  // Picking a separator in the menu IS the export request. A range that has been
+  // loaded whole is written out as it stands; one with older rows still on the
+  // server may hold more than the reader meant to ask for, which is theirs to say
+  // — hence the popup.
+  function handleExportPick(delimiter: CsvDelimiter): void {
+    if (cursorRef.current === null) {
+      void handleExportCsv(delimiter, 'all')
+      return
     }
 
-    // Passed along rather than read back from state: setCsvDelimiter above has
-    // not landed yet, and the export needs the separator that was just clicked.
-    void handleExportCsv(next)
+    setPendingDelimiter(delimiter)
   }
 
-  // Writes every fix in the selected range to a .csv file.
+  // Writes the selected range to a .csv file.
   //
-  // "Every fix in the range" is the whole point of the button, and it is why
-  // this is not simply a map over what is on screen: the table holds only the
-  // chunks the reader has paged into, so exporting those would quietly be
+  // With scope 'all' that is every fix in the range, which is the point of the
+  // button and why it is not simply a map over what is on screen: the table holds
+  // only the chunks the reader has paged into, so exporting those would quietly be
   // exporting the newest thousand rows and calling it the range. The rest of the
   // window is pulled in first — the same walk a non-default sort triggers, for
   // the same reason — and those rows stay in the table afterwards.
-  async function handleExportCsv(delimiter: CsvDelimiter): Promise<void> {
+  //
+  // With scope 'loaded' — the popup's "just what is loaded" answer — the walk is
+  // skipped and the file holds what the table holds.
+  async function handleExportCsv(
+    delimiter: CsvDelimiter,
+    scope: 'all' | 'loaded',
+  ): Promise<void> {
+    setPendingDelimiter(null)
     if (isExporting) {
       return
     }
@@ -480,7 +417,7 @@ export function PositionListTab() {
     setIsExporting(true)
 
     try {
-      if (cursorRef.current !== null) {
+      if (scope === 'all' && cursorRef.current !== null) {
         setStatusMessage(t('device:positions.loadingForExport'))
         // Reports its own failures in the status line and leaves the cursor
         // untouched, so a blip mid-walk becomes a short export rather than a
@@ -506,7 +443,7 @@ export function PositionListTab() {
       }
 
       downloadTextFile(
-        csvFileName(device.deviceId),
+        csvFileName('positions', device.deviceId),
         buildCsv(CSV_HEADERS, rows.map(positionToCsvRow), delimiter),
         // Named rather than left as text/plain: spreadsheets and "open with"
         // rules key off the MIME type as much as off the extension.
@@ -519,10 +456,12 @@ export function PositionListTab() {
               count: rows.length,
               value: formatInteger(rows.length),
             })
-          : t('device:positions.exportedCapped', {
-              value: formatInteger(rows.length),
-              limit: formatInteger(MAX_TABLE_ROWS),
-            }),
+          : scope === 'loaded'
+            ? t('device:positions.exportedLoaded', { value: formatInteger(rows.length) })
+            : t('device:positions.exportedCapped', {
+                value: formatInteger(rows.length),
+                limit: formatInteger(MAX_TABLE_ROWS),
+              }),
       )
     } finally {
       setIsExporting(false)
@@ -711,52 +650,16 @@ export function PositionListTab() {
         /* A quiet text button, not a third solid one: exporting is something the
            reader does occasionally, and the toolbar's weight should go to the
            range pickers they use every visit. The separator question waits until
-           the button is actually pressed. */
+           the button is actually pressed.
+
+           Blocked while a chunk walk is already running: loadMoreChunks drops a
+           second one, which would export a partial range. */
         extra={
-          <div className="export-menu" ref={exportMenuRef}>
-            <button
-              ref={exportTriggerRef}
-              type="button"
-              className="export-trigger"
-              onClick={() => setIsMenuOpen((open) => !open)}
-              /* Blocked while a chunk walk is already running: loadMoreChunks
-                 drops a second one, which would export a partial range. */
-              disabled={isExporting || isLoadingMore || positions.length === 0}
-              aria-haspopup="true"
-              aria-expanded={isMenuOpen}
-            >
-              <span className="export-trigger-icon" aria-hidden="true">⤓</span>
-              {isExporting ? t('device:positions.exporting') : t('device:positions.exportCsv')}
-            </button>
-
-            {isMenuOpen ? (
-              <div className="export-menu-panel" aria-labelledby="pos-export-heading">
-                <p className="export-menu-heading" id="pos-export-heading">
-                  {t('device:positions.columnSeparator')}
-                </p>
-
-                {CSV_DELIMITERS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className="export-menu-item"
-                    onClick={() => handleDelimiterPick(option.value)}
-                  >
-                    {/* The tick marks the one used last time, which is the only
-                        sense in which there is a "current" separator here. */}
-                    <span className="export-menu-check" aria-hidden="true">
-                      {option.value === csvDelimiter ? '✓' : ''}
-                    </span>
-                    <span className="export-menu-label">{t(option.labelKey)}</span>
-                    <span className="export-menu-sample" aria-hidden="true">
-                      {option.sample}
-                    </span>
-                    <span className="export-menu-hint">{t(option.hintKey)}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <CsvExportMenu
+            onExport={handleExportPick}
+            disabled={isExporting || isLoadingMore || positions.length === 0}
+            isExporting={isExporting}
+          />
         }
       />
 
@@ -952,6 +855,21 @@ export function PositionListTab() {
           </div>
         </>
       )}
+
+      {/* Raised by "Export CSV" when older rows are still on the server, i.e. the
+          range holds more than the table has loaded. */}
+      {pendingDelimiter !== null ? (
+        <ExportLengthDialog
+          title={t('device:positions.exportDialog.title')}
+          intro={t('device:positions.exportDialog.intro', { loaded: formatInteger(positions.length) })}
+          allNote={t('device:positions.exportDialog.allNote', { max: formatInteger(MAX_TABLE_ROWS) })}
+          allLabel={t('device:positions.exportDialog.all')}
+          shownLabel={t('device:positions.exportDialog.loadedOnly', { loaded: formatInteger(positions.length) })}
+          onExportAll={() => void handleExportCsv(pendingDelimiter, 'all')}
+          onExportShown={() => void handleExportCsv(pendingDelimiter, 'loaded')}
+          onCancel={() => setPendingDelimiter(null)}
+        />
+      ) : null}
     </div>
   )
 }

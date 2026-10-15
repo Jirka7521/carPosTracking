@@ -61,6 +61,19 @@
     "emptyBody": "The device reported no events in the selected time range.",
     "emptyProblemsBody": "No alerts or errors in the selected time range.",
     "emptyTitle": "No events",
+    "exportDialog": {
+      "all": "Export all events",
+      "allNote": "Exporting all loads the rest of the range from the server first, which takes a while for a long range. It stops at {{max}} events.",
+      "intro": "The table shows only the newest {{limit}} events, and this time range may hold more. What should the file contain?",
+      "newestOnly": "Only the newest {{limit}}",
+      "title": "More events than the table shows"
+    },
+    "exported_one": "Exported {{value}} event.",
+    "exported_other": "Exported {{value}} events.",
+    "exportedCapped": "Exported the newest {{value}} events — the range holds more than the {{limit}}-event limit.",
+    "exportedNewest": "Exported the {{value}} newest events shown in the table.",
+    "exportProgress_one": "Loading the range for the export… {{value}} event so far.",
+    "exportProgress_other": "Loading the range for the export… {{value}} events so far.",
     "filter": {
       "all": "All events",
       "label": "Show",
@@ -69,6 +82,8 @@
     "loadedCount_one": "{{value}} event.",
     "loadedCount_other": "{{value}} events.",
     "loading": "Loading events…",
+    "loadingForExport": "Loading the whole range for the export…",
+    "nothingToExport": "Nothing to export — no events in this time range.",
     "reason": {
       "accelerometer": "Woken by movement (accelerometer)",
       "activity": "Jolt — checking for movement",
@@ -148,14 +163,19 @@
       "speed": "Speed",
       "timestamp": "Timestamp"
     },
-    "columnSeparator": "Column separator",
     "emptyBody": "No GPS fixes were recorded in the selected time range.",
     "emptyTitle": "No positions",
-    "exportCsv": "Export CSV",
+    "exportDialog": {
+      "all": "Export all positions",
+      "allNote": "Exporting all loads the rest of the range from the server first, which takes a while for a long range. It stops at {{max}} positions.",
+      "intro": "The table has loaded the newest {{loaded}} positions, and this time range may hold more. What should the file contain?",
+      "loadedOnly": "Only the {{loaded}} loaded",
+      "title": "More positions than the table has loaded"
+    },
     "exported_one": "Exported {{value}} position.",
     "exported_other": "Exported {{value}} positions.",
     "exportedCapped": "Exported the newest {{value}} positions — the range holds more than the {{limit}}-row limit.",
-    "exporting": "Exporting…",
+    "exportedLoaded": "Exported the {{value}} positions loaded in the table.",
     "latest": "Latest",
     "latestFull": "Latest position",
     "loadedCount_one": "{{value}} position loaded.",

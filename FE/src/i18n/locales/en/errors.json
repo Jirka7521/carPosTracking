@@ -76,6 +76,7 @@
   },
   "changePasswordFailed": "Failed to change password.",
   "deleteDeviceFailed": "Failed to delete device.",
+  "exportEventsFailed": "Failed to export the device's events.",
   "generateKeyFailed": "Could not generate a key pair in this browser.",
   "loadAccessFailed": "Failed to load access list.",
   "loadConfigFailed": "Failed to load the device settings.",

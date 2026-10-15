@@ -80,6 +80,7 @@
   },
   "changePasswordFailed": "Heslo se nepodařilo změnit.",
   "deleteDeviceFailed": "Zařízení se nepodařilo smazat.",
+  "exportEventsFailed": "Události zařízení se nepodařilo exportovat.",
   "generateKeyFailed": "V tomto prohlížeči se nepodařilo vygenerovat pár klíčů.",
   "loadAccessFailed": "Seznam přístupů se nepodařilo načíst.",
   "loadConfigFailed": "Nastavení zařízení se nepodařilo načíst.",

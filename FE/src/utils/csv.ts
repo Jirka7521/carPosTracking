@@ -31,6 +31,12 @@ export const CSV_DELIMITERS = [
 
 export type CsvDelimiter = (typeof CSV_DELIMITERS)[number]['value']
 
+// Where the chosen separator is remembered. It is a property of the reader's
+// spreadsheet rather than of one tab or one session, so every export menu reads
+// and writes this one key — pick ";" on the Events tab and Positions offers it
+// too.
+export const CSV_DELIMITER_STORAGE_KEY: string = 'carpos.csvDelimiter'
+
 // Narrows an arbitrary string — one read back out of localStorage, say — to a
 // delimiter this module actually offers.
 export function isCsvDelimiter(value: string): value is CsvDelimiter {
@@ -84,4 +90,20 @@ export function buildCsv(
 
   // A trailing separator so the file ends on a newline, as a text file should.
   return BOM + lines.join(ROW_SEPARATOR) + ROW_SEPARATOR
+}
+
+// A file name that says what was exported, for which device, and when. A device
+// id is user-chosen text, so anything outside the safe set becomes an underscore
+// rather than a filename some operating system refuses to write. The stamp is the
+// reader's local time, to the minute — it is for telling two downloads apart.
+export function csvFileName(prefix: string, deviceId: string): string {
+  const safeDevice: string = deviceId.replace(/[^A-Za-z0-9_-]/g, '_')
+
+  const now: Date = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const stamp: string =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}`
+
+  return `${prefix}_${safeDevice}_${stamp}.csv`
 }
