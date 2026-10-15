@@ -5,3 +5,6 @@
 *.sh text eol=lf
 Dockerfile text eol=lf
 *.conf text eol=lf
+# Not executed, but parsed line by line inside the broker container: a CR would
+# end up in usernames and topics there, and no rule would ever match.
+Container/MQTTBroker/mosquitto/acl text eol=lf

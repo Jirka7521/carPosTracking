@@ -88,8 +88,8 @@ matching rule is denied, so each account can touch only what is listed for it:
 | account       | may publish        | may subscribe        |
 |---------------|--------------------|----------------------|
 | `admin`       | everything         | everything, `$SYS/#` |
-| `GNSS01`      | `devices/GNSS01`, `devices/GNSS01/status` (incl. its Last Will) | `devices/GNSS01/cmd` |
-| `dashboard`   | `devices/+/cmd`    | `devices/#`          |
+| `GNSS01`      | `devices/GNSS01`, `devices/GNSS01/status` (incl. its Last Will) | `devices/GNSS01/cmd`, `…/config`, `…/schedule`, `…/ack` |
+| `dashboard`   | `devices/+/cmd`, `devices/+/ack`, `devices/+/config`, `devices/+/schedule` | `devices/#` |
 | `healthcheck` | `healthcheck/probe`| `healthcheck/probe`  |
 
 All four are mandatory — an empty user or password in `.env` aborts the boot

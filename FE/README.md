@@ -458,7 +458,20 @@ when it arrived. Both kinds of sleep read "Sleeping" on the badge.
 The **Events** tab lists the history behind it, newest first by `occurredAt`,
 sharing the date range with the other tabs, plus a filter for alerts and errors
 only — a tracker that sleeps between reports logs several routine events every
-cycle.
+cycle. The table shows the newest 1000 events of the range (the API's cap per
+request); **Export CSV** writes a file, and when the range may hold more than the
+table shows it asks whether the file should hold all of it — in which case
+[`eventPager`](src/services/eventPager.ts) walks the range back a thousand events
+at a time, up to 50 000. The file carries the API's own keys (`reason`,
+`severity`), ISO-8601 UTC times and empty cells for missing values, so it reads
+the same whatever language the dashboard was in.
+
+The **Positions** tab exports the same way and asks the same question when older
+fixes are still on the server (its "all" answer loads them into the table, up to
+50 000). The button and separator menu are
+[`CsvExportMenu`](src/components/CsvExportMenu.tsx), the question is
+[`ExportLengthDialog`](src/components/ExportLengthDialog.tsx) — one of each,
+shared by both tabs.
 
 ### The settings form under a refresh
 

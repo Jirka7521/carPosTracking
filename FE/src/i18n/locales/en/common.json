@@ -31,8 +31,11 @@
     "percent": "{{value}}%"
   },
   "csv": {
+    "columnSeparator": "Column separator",
     "comma": "Comma",
     "commaHint": "Standard CSV",
+    "export": "Export CSV",
+    "exporting": "Exporting…",
     "semicolon": "Semicolon",
     "semicolonHint": "Excel in CZ / DE",
     "tab": "Tab",
