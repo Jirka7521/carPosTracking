@@ -42,7 +42,6 @@ import {
   STANDBY_KEYS,
   describeHours,
   describeReportingSummary,
-  describeSeconds,
 } from '../utils/deviceConfig'
 import type { ModeKeys } from '../utils/deviceConfig'
 import { ConfigCollapsible } from './ConfigCollapsible'
@@ -93,15 +92,6 @@ export function ConfigValuesFields({
   // The same for the block of settings shared by both modes.
   const isSharedPending: boolean = SHARED_KEYS.some((key) => pendingNote(key) !== null)
 
-  // The device stays awake for up to the whole wait window after EVERY wake, and
-  // a timer wake is a wake. A wait at least as long as the standby interval
-  // therefore leaves no gap in which to sleep. Only worth saying when standby is
-  // meant to sleep at all — an awake standby has nothing to lose here.
-  const isWakeWindowTooLong: boolean =
-    values.motionEnabled &&
-    values.sleepBetween &&
-    values.intervalSeconds <= values.motionWakeWaitSeconds
-
   // An awake standby device has no interrupt to wait for; see the note's text.
   const isStandbyAwake: boolean = values.motionEnabled && !values.sleepBetween
 
@@ -115,22 +105,11 @@ export function ConfigValuesFields({
         idPrefix={idPrefix}
       />
 
-      {isWakeWindowTooLong || isStandbyAwake ? (
+      {isStandbyAwake ? (
         <div className="config-notes">
-          {isWakeWindowTooLong ? (
-            <div className="banner banner--warning" role="status">
-              {t('config.motionWakeWindowWarning', {
-                wait: describeSeconds(values.motionWakeWaitSeconds),
-                interval: describeSeconds(values.intervalSeconds),
-              })}
-            </div>
-          ) : null}
-
-          {isStandbyAwake ? (
-            <div className="banner banner--info" role="status">
-              {t('config.motionPollingNote')}
-            </div>
-          ) : null}
+          <div className="banner banner--info" role="status">
+            {t('config.motionPollingNote')}
+          </div>
         </div>
       ) : null}
 

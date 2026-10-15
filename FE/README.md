@@ -542,12 +542,13 @@ settings have **one value for both modes**. All eight new values are flat fields
 schedule's profile editor shows them too: a profile holds the same values. It is
 the default for a new device and a new profile.
 
-- **What the tracker does with them.** After any wake from standby — the
-  accelerometer or the standby timer — it looks for a GNSS fix for up to
-  `motionWakeWaitSeconds` and publishes only the first. A fix strictly faster than
-  `motionSpeedKmph` switches it to moving; otherwise it goes back to sleep. Moving,
-  it falls back to standby once no fix has been above that speed for
-  `motionStopWaitSeconds`.
+- **What the tracker does with them.** After an accelerometer wake from standby it
+  looks for a GNSS fix for up to `motionWakeWaitSeconds` and publishes only the
+  first. A fix strictly faster than `motionSpeedKmph` switches it to moving;
+  otherwise it goes back to sleep. A wake from the standby timer does not wait: it
+  takes one fix, publishes it and sleeps again, unless that fix is already faster
+  than `motionSpeedKmph`. Moving, it falls back to standby once no fix has been
+  above that speed for `motionStopWaitSeconds`.
 - **The threshold is entered in mg, but the sensor counts in 62.5 mg steps.** The
   firmware rounds to the nearest, `clamp(round(mg / 62.5), 1, 255)`, and the form
   shows where the typed value lands (`motionThresholdStep` in
