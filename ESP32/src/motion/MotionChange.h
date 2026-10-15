@@ -8,7 +8,8 @@
 //  that into the wire word, and the API decides what it means for the history.
 //  The target state is implied by the change, so the change alone is the event.
 //
-//      Checking   -> CHECKING: the boot began a check (any wake, a power-on)
+//      Checking   -> CHECKING: the boot began a check (accelerometer or power-switch
+//                                wake, a power-on - not a timer wake)
 //      Activity   -> CHECKING: the accelerometer tripped while awake in standby
 //      MotionOn   -> CHECKING: a config switched motion wake on
 //      Moving     -> MOVING:   a fix faster than speed_kmph

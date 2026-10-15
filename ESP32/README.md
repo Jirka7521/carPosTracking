@@ -969,14 +969,16 @@ and the broker says it for the device when it cannot. Everything goes to
 | `offline` + `error` (+ `detail`) | a fault the firmware caught — today `gnss_init`, when the modem/GNSS cannot be started | `DeepSleepController` |
 | `offline` + `connection_lost` | the **Last Will**: published **by the broker**, about 1.5 × `kMqttKeepaliveSeconds` after the session dies without a goodbye (crash, power cut, lost link) | Mosquitto |
 | `wake` + `timer` / `accelerometer` / `power_switch` | once per wake from deep sleep, naming the source that fired (a power-on or a crash is not a wake — that is `reset_reason`) | [`ActivityReporter`](src/events/ActivityReporter.h) |
-| `motion` + `checking` | the boot began a check for movement (any wake, a power-on) | `ActivityReporter`, from [`MotionTracker`](src/motion/MotionTracker.h) |
+| `motion` + `checking` | the boot began a check for movement (an accelerometer or power-switch wake, a power-on — not a timer wake) | `ActivityReporter`, from [`MotionTracker`](src/motion/MotionTracker.h) |
 | `motion` + `activity` / `motion_on` | a check began because the accelerometer tripped while awake / because a config switched motion wake on | `ActivityReporter` |
 | `motion` + `moving` | a fix faster than `speed_kmph` — the trip started (not repeated for every fast fix) | `ActivityReporter` |
 | `motion` + `no_motion` / `stopped` | back to STANDBY: a check found no movement / a trip stood still for `stop_wait_s` | `ActivityReporter` |
 | `motion` + `motion_off` | a config switched motion wake off | `ActivityReporter` |
 
-A parked car with motion wake on therefore logs, per wake: `wake` → `motion
-checking` → `motion no_motion` → `offline sleep_no_motion`.
+A parked car with motion wake on therefore logs, per accelerometer wake: `wake` →
+`motion checking` → `motion no_motion` → `offline sleep_no_motion`. A timer wake
+skips the check: `wake` → `offline sleep_no_motion`, with `motion moving` in
+between only if its fix turns out to be fast.
 
 Each one is built by [`StatusPublisher`](src/mqtt/StatusPublisher.h) and **sealed
 exactly like a fix**, so the broker still sees only ciphertext and the API reuses
@@ -1646,7 +1648,7 @@ interval with it off — the defaults are 20 min parked and 30 s, awake, moving.
 ### The state machine
 
 ```
-                  [1] any wake                 [3] a fast fix
+              [1] a non-timer wake             [3] a fast fix
   ┌─────────────┐ ───────────▶ ┌─────────────┐ ───────────▶ ┌─────────────┐
   │   STANDBY   │              │  CHECKING   │              │   MOVING    │◀─┐
   │ standby set │ ◀─────────── │ moving set  │              │ moving set  │──┘ [5]
@@ -1658,7 +1660,7 @@ interval with it off — the defaults are 20 min parked and 30 s, awake, moving.
 
 | | Transition |
 |---|---|
-| **[1]** | **Any wake from standby**: the accelerometer, the RTC timer, a power-on or reset, the power switch coming back on — or, for a device that stayed awake, its activity latch reading as set. Switching motion wake on in the settings does the same. Every one starts a *check*; none is trusted on its own to mean "moving". |
+| **[1]** | **A wake that hints at movement, or says nothing about the car**: the accelerometer, a power-on or reset, the power switch coming back on — or, for a device that stayed awake, its activity latch reading as set. Switching motion wake on in the settings does the same. Every one starts a *check*; none is trusted on its own to mean "moving". The **RTC timer is not one of them**: a timer wake stays in STANDBY and reports once (see [Timer wakes](#timer-wakes)). |
 | **[2]** | The wake window (`wake_wait_s`) closes without a fast fix. A false wake — a door, someone leaning on the car — costs one window and no more. |
 | **[3]** | A fix whose speed is **strictly greater** than `speed_kmph`. (A standby report that happens to see one goes straight to MOVING as well — the safety net for a trip the accelerometer missed. Not drawn.) |
 | **[4]** | `stop_wait_s` passes since the last fast fix. |
@@ -1666,7 +1668,8 @@ interval with it off — the defaults are 20 min parked and 30 s, awake, moving.
 
 - **STANDBY** runs the standby set. Asleep (standby `sleep_between` on) it has two
   wake sources: the RTC timer at the standby interval, and the accelerometer.
-  Awake, it polls the accelerometer — see below.
+  Awake, it polls the accelerometer — see below. A timer wake stays here and
+  reports once — see [Timer wakes](#timer-wakes).
 - **CHECKING** runs the moving set but **never deep-sleeps**: the point of a check
   is to watch the receiver, and sleeping would throw away the lock it has just
   acquired. It acquires, waits `kMotionCheckPollMs` (5 s) and acquires again, for
@@ -1772,28 +1775,47 @@ on [`DeviceSettings`](src/settings/DeviceSettings.h), not in a `ModeSettings`, a
 [`SettingsApplier`](src/settings/SettingsApplier.h) applies them without asking
 which mode is in force.
 
+### Timer wakes
+
+A **timer wake does not open a wake window.** The accelerometer was armed for the
+whole sleep and did not fire, so nothing says the car moved; waiting `wake_wait_s`
+for it would only keep the modem and GNSS on for a parked car. The device stays in
+STANDBY, takes one fix, publishes it and goes back to sleep.
+
+The movement check is that fix. `onFix()` sends one faster than `speed_kmph`
+straight to MOVING — the first report of the trip, `motion moving` in the history —
+and from there it is the same as after an accelerometer wake: the moving set,
+`stop_wait_s`, and the timer-only sleeps of
+[Moving and sleeping between reports](#moving-and-sleeping-between-reports).
+What a timer wake gives up is a trip that has not started *yet* when its fix is
+taken and that the accelerometer also misses: that one is caught by the next timer
+wake instead of inside the same window. A trip that carries on moving after the
+fix still trips the accelerometer when it is armed for the sleep that follows.
+
+Timer wakes after a sleep that had no accelerometer armed (a GNSS-init error
+retry, a low-battery re-check, a sensor that failed to arm) are plain reports too;
+their fix is still the movement check.
+
 ### What it costs
 
-**Timer wakes get the full window**, exactly like accelerometer wakes. That is
-deliberate — the timer is the safety net for a trip the interrupt somehow missed —
-but it is the main thing to budget for. A parked car woken by the timer finds no
-movement and stays awake, modem and GNSS on, for the whole `wake_wait_s` instead
-of the few seconds a plain report takes. At the default 600 s window and the
-default 20-minute standby interval that is **up to 50 % of the time awake**. False
-accelerometer wakes add to it: the analysis found about two a day at the default
-188 mg (step 3), each costing up to a window — roughly 20 minutes a day.
+Only wakes that **hint at movement** — the accelerometer, a power-on, the power
+switch — open a window, and each can cost up to `wake_wait_s` of modem and GNSS
+time. Timer wakes cost a plain report. The accelerometer is the one to budget for:
+the analysis found about two false wakes a day at the default 188 mg (step 3), each
+costing up to a window — roughly 20 minutes a day.
 
 The standby interval is measured from when a check **began** (the wake), not from
 when it ended, so the standby cadence stays steady however long each check took.
 If the standby `interval_s` is no longer than `wake_wait_s`, the next report is
-already due when the window closes and the device **practically never sleeps**;
-the dashboard warns about that combination.
+already due when a check's window closes: the device sleeps only the minimum
+(`kMinDeepSleepMs`), wakes on the timer and sends that report plainly, then sleeps
+a full interval. It is one extra boot after each such check, not a device that
+never sleeps.
 
-The levers, in the order they are worth reaching for: a **longer standby
-interval**; a **higher `threshold_mg`** (the analysis found every step from 63 to
-188 mg catches the same trips after two minutes, with fewer false wakes the higher
-it goes — 3.1 a day at step 1, 2.1 at step 3 — but beyond step 3 it no longer
-recommends going);
+The levers, in the order they are worth reaching for: a **higher `threshold_mg`**
+(the analysis found every step from 63 to 188 mg catches the same trips after two
+minutes, with fewer false wakes the higher it goes — 3.1 a day at step 1, 2.1 at
+step 3 — but beyond step 3 it no longer recommends going);
 a **shorter `wake_wait_s`**, at the price of missing a driver who sits in the car
 for minutes before pulling away, which costs one extra wake cycle but never a trip.
 
@@ -1802,7 +1824,7 @@ for minutes before pulling away, which costs one extra wake cycle but never a tr
 Nothing about the switch changes, and it has priority in every state: its
 checkpoints run during CHECKING and MOVING like anywhere else. Switching off
 sleeps with **ext0 alone** — the accelerometer is never armed for it, because off
-means off. Switching back on is an ext0 wake, and like any wake from standby it
+means off. Switching back on is an ext0 wake, and like an accelerometer wake it
 starts a check.
 
 ### How to verify on hardware
@@ -1814,8 +1836,8 @@ The motion log lines carry the tag `Motion`. On a bench, `wake_wait_s = 30` and
    `{"motion":{"enabled":true}}` retained (it merges). A device that is awake
    logs `CHECKING for movement for up to 600s (motion wake switched on).`; one
    that boots with it already on gives the reason for its wake instead
-   (`power-on / reset`, `timer wake`, …), and its `GNSS ready` summary line ends
-   in `motion wake: CHECKING`.
+   (`power-on / reset`, `accelerometer wake`, …), and its `GNSS ready` summary line
+   ends in `motion wake: CHECKING`.
 2. **Sleep with the accelerometer armed.** Turn standby `sleep_between` on, with an
    interval longer than the window. Expect `Sleeping for 540s or until motion;
    modem and card going down first.`, then
@@ -1828,7 +1850,10 @@ The motion log lines carry the tag `Motion`. On a bench, `wake_wait_s = 30` and
    `no fix faster than the speed limit within the wake window - CHECKING ->
    STANDBY.` — and the device sleeps again.
 4. **Wake it with the timer** by leaving it alone for one standby interval:
-   `wake=timer`, then `CHECKING … (timer wake)` and the same full window.
+   `wake=timer`, then `STANDBY after a timer wake - one plain report, no wake
+   window.`, one `Fix:` line and `Sleeping for …s or until motion` — no `CHECKING`
+   line and no wait. If the car is moving at that moment the first fix instead logs
+   `STANDBY -> MOVING (12.4 km/h).` and the device carries on as in step 5.
 5. **Move it faster than `speed_kmph`** (a short drive): `CHECKING -> MOVING
    (12.4 km/h).`, then a report every moving interval.
 6. **Stop.** After `stop_wait_s` with no fast fix:

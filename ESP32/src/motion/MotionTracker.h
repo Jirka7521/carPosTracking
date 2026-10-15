@@ -11,12 +11,15 @@
 //
 //      STANDBY   the car is parked. The STANDBY set is in force. Asleep, the
 //                device wakes on its timer or on the accelerometer; awake, main()
-//                polls the accelerometer and calls onActivity().
-//      CHECKING  something woke us - accelerometer, timer, power-on, the switch.
-//                The MOVING set is in force but the device never sleeps: it
-//                acquires every kMotionCheckPollMs for up to wake_wait_s, looking
-//                for a fix faster than speed_kmph. Only the FIRST fix of a check
-//                is published - one report per wake, not one per poll.
+//                polls the accelerometer and calls onActivity(). A TIMER wake
+//                stays here: one plain report, then back to sleep - its fix is
+//                the movement check, and a fast one moves on to MOVING.
+//      CHECKING  something that hints at movement - or says nothing about the
+//                car - woke us: the accelerometer, a power-on or reset, the
+//                switch. The MOVING set is in force but the device never sleeps:
+//                it acquires every kMotionCheckPollMs for up to wake_wait_s,
+//                looking for a fix faster than speed_kmph. Only the FIRST fix of
+//                a check is published - one report per wake, not one per poll.
 //      MOVING    a fast fix was seen. The MOVING set is in force and every fix is
 //                published. Each fast fix pushes the deadline to now +
 //                stop_wait_s; once it passes, back to STANDBY.
@@ -27,14 +30,17 @@
 //  loses the sky eventually sleeps; the accelerometer wakes it again if the car
 //  is in fact still moving.
 //
-//  Surviving deep sleep. CHECKING never sleeps and STANDBY needs no memory (every
-//  wake from it starts a check), so only MOVING with moving.sleep_between has
-//  anything to carry across: the time left on its deadline, kept in RTC memory.
+//  Surviving deep sleep. CHECKING never sleeps and STANDBY needs no memory (a
+//  timer wake just reports again, any other wake starts a check), so only MOVING
+//  with moving.sleep_between has anything to carry across: the time left on its
+//  deadline, kept in RTC memory.
 //  It is stored as a REMAINDER with the sleep already subtracted, not as a
 //  timestamp - esp_timer restarts at zero on wake, and the wall clock jumps when
 //  DeviceClock is first seeded from GNSS, so neither is a usable time base across
 //  a reboot. Only a TIMER wake resumes MOVING; any other cause means something
-//  else happened (switch, reset, power loss) and starts a fresh check.
+//  else happened (switch, reset, power loss, the accelerometer) and starts a fresh
+//  check. A timer wake that finds no MOVING record is a parked car's routine
+//  report and stays in STANDBY.
 //
 //  With motion wake OFF this class is inert: STANDBY for ever, every fix
 //  published, the standby set in force - i.e. exactly the device as it was before

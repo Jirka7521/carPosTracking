@@ -997,11 +997,14 @@ constexpr uint32_t kMinDeepSleepMs = 1000;
 //                TWO wake sources: the RTC timer at the standby interval, and the
 //                ADXL345 activity interrupt on INT1 (ext1 on kMotionWakePin).
 //                Awake, it polls the same interrupt every kMotionActivityPollMs.
-//      CHECKING  entered on every wake from standby - accelerometer, timer or
-//                power-on alike. Stays awake for up to wake_wait_s, acquiring
-//                GNSS every kMotionCheckPollMs and publishing only the FIRST fix.
-//                A fix faster than speed_kmph moves on to MOVING; otherwise the
-//                device goes back to STANDBY.
+//                A timer wake stays in STANDBY: one plain report, then back to
+//                sleep - unless that fix is faster than speed_kmph, which goes
+//                straight to MOVING.
+//      CHECKING  entered on an accelerometer wake, a power-on or a power-switch
+//                wake (not a timer wake). Stays awake for up to wake_wait_s,
+//                acquiring GNSS every kMotionCheckPollMs and publishing only the
+//                FIRST fix. A fix faster than speed_kmph moves on to MOVING;
+//                otherwise the device goes back to STANDBY.
 //      MOVING    runs the moving set and publishes every fix. Each fix faster than
 //                speed_kmph pushes the deadline out to now + stop_wait_s; once it
 //                passes, back to STANDBY.
