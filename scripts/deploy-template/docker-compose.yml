@@ -129,6 +129,20 @@ services:
       retries: 3
       # RSA key generation and the first EF model build make a cold start slow.
       start_period: 40s
+    # Least privilege. The server writes no files (only the schema-sync CLI mode
+    # does), so the image is read-only and /tmp the one writable place the .NET
+    # runtime needs. It runs as the image's non-root `app` user and needs no
+    # capabilities at all.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   fe:
     build:
@@ -197,6 +211,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # Least privilege. Not read_only: the entrypoint writes /config.js and stamps
+    # index.html at start, and nginx writes /var/cache/nginx and /var/run. The
+    # master process binds :80 and then drops to the nginx user, which is what
+    # these capabilities are for.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
 networks:
   # Created by the Mosquitto broker stack (docker network create MQTTpublic);

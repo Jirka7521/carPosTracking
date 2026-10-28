@@ -26,7 +26,8 @@ browser / desktop ──wss://jimajer.cz/mqttBroker──►    │
 - **nginx** — accepts the plain HTTP that the Cloudflare tunnel delivers and
   upgrades `/mqttBroker` to a WebSocket against the broker. TLS is terminated by
   Cloudflare, so nothing here needs certificates.
-- **autoheal** — restarts a container that has gone unhealthy (see below).
+- **autoheal** — restarts a container that has gone unhealthy. Opt-in via the
+  `autoheal` profile, because there must be only one per host (see below).
 - **MQTTpublic** — the shared Docker network. Both this and the Postgres stack
   join it as `external`, so it has to exist before either comes up. It is a
   **macvlan** network on the LAN, so every container is an ordinary device on
@@ -50,7 +51,7 @@ resolve to. Pinning them makes start order irrelevant:
 | `192.168.124.5` | `carpos-api` | the deployment bundle / `Container/App` |
 | `192.168.124.6` | `carpos-fe` | the deployment bundle / `Container/App` |
 
-`carpos-autoheal` is `network_mode: none` and has no address at all.
+`carpos-autoheal` (when enabled) is `network_mode: none` and has no address at all.
 
 Two consequences of macvlan worth knowing before debugging anything: the **Pi
 itself cannot reach its own containers** on these addresses (that is how macvlan
@@ -128,18 +129,26 @@ Two guarantees on top of that:
   a dead broker converts a clean connection refusal into 502s.
 - **An unhealthy container gets restarted.** Docker's `restart: unless-stopped`
   only reacts to a container *exiting* — a container that is running but unhealthy
-  is left alone forever. The `autoheal` sidecar watches health status and restarts
+  is left alone forever. An autoheal container watches health status and restarts
   anything labelled `autoheal=true`, which is both mosquitto and nginx.
 
+autoheal watches **the whole host**, not just this stack, so run exactly one per
+host — two of them restart every unhealthy container twice. On dormServer0 that one
+is `temp-autoheal` from the temperatureSensor stack, so this stack's copy is off by
+default. On a host where nothing else runs autoheal, start it with the profile:
+
+```bash
+docker compose --profile autoheal up -d
+```
+
 The cost of autoheal is that it mounts the Docker socket (read-only, but that is
-still effectively root on the host). If you would rather not pay that, delete the
-`autoheal` service — the healthchecks keep working, they just stop triggering a
-restart.
+still effectively root on the host). If you would rather not pay that, leave the
+profile off — the healthchecks keep working, they just stop triggering a restart.
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' carpos-mosquitto
 docker inspect --format '{{json .State.Health}}' carpos-mosquitto   # last probe output
-docker compose logs -f autoheal                                     # what it restarted, and when
+docker logs -f temp-autoheal                                        # what it restarted, and when (dormServer0)
 ```
 
 ## Cloudflare tunnel
