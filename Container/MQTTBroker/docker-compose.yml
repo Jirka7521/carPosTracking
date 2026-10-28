@@ -68,11 +68,24 @@ services:
       timeout: 15s
       retries: 3
       start_period: 15s
+    # Least privilege. The entrypoint rebuilds the password file as root and
+    # hands the files to the mosquitto user, then mosquitto drops to that user:
+    # that is all these five capabilities are for.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
   nginx:
     # Terminates the plain-HTTP side of the Cloudflare tunnel and upgrades
     # /mqttBroker to a WebSocket connection against the broker's 9001 listener.
-    image: nginx:1.27-alpine
+    # 1.30 is the stable branch; 1.27 (mainline) has been end of life since
+    # 2025-06 and gets no security fixes.
+    image: nginx:1.30-alpine
     container_name: carpos-mqtt-nginx
     restart: unless-stopped
     # Bounded logs. The default json-file driver never rotates, and these logs
@@ -115,10 +128,26 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # The master process binds :80 and then drops to the nginx user.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64m
 
   autoheal:
     # Watches container health and restarts anything labelled autoheal=true that has
     # gone unhealthy. Docker Engine has no built-in "restart when unhealthy".
+    #
+    # Opt-in (`docker compose --profile autoheal up -d`). It watches the whole
+    # host, not just this stack, so there must be exactly one per host: on
+    # dormServer0 that is temp-autoheal from the temperatureSensor stack, and a
+    # second copy here restarted every unhealthy container twice. Enable it only
+    # on a host where nothing else runs autoheal.
+    profiles: ["autoheal"]
     image: willfarrell/autoheal:latest
     container_name: carpos-autoheal
     restart: unless-stopped
