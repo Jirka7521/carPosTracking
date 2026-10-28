@@ -28,7 +28,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Runtime image
 # ---------------------------------------------------------------------------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.30-alpine AS runtime
 
 COPY --from=build /src/dist /usr/share/nginx/html
 # Not straight into conf.d/: this is a template whose backend address is filled in
