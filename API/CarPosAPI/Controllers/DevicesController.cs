@@ -1,11 +1,13 @@
 using CarPosAPI.Dtos;
 using CarPosAPI.Middleware;
+using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Devices;
 using CarPosAPI.Services.Positions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CarPosAPI.Controllers;
 
@@ -65,11 +67,16 @@ public sealed class DevicesController : ApiControllerBase
     /// </summary>
     /// <param name="request">Device id, optional display name, optional co-owners.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>201 with the device and its provisioning payload, or 409 if the id is taken.</returns>
+    /// <returns>
+    /// 201 with the device and its provisioning payload, or 409 if the id is taken or
+    /// the account is at its device limit.
+    /// </returns>
     [HttpPost]
+    [EnableRateLimiting(RateLimitPolicies.DeviceRegistration)]
     [ProducesResponseType(typeof(DeviceCreatedDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<DeviceCreatedDto>> CreateAsync(
         [FromBody] CreateDeviceRequestDto request,
         CancellationToken cancellationToken)

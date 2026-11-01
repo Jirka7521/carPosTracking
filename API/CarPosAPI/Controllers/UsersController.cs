@@ -1,9 +1,11 @@
 using System.ComponentModel.DataAnnotations;
 using CarPosAPI.Dtos;
+using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CarPosAPI.Controllers;
 
@@ -45,9 +47,15 @@ public sealed class UsersController : ApiControllerBase
     /// rather than 400-ing.
     /// </param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>200 with the match — an empty list when there is none.</returns>
+    /// <returns>
+    /// 200 with the match — an empty list when there is none, names blank unless the
+    /// two accounts already share a device; 403 when the caller can share nothing.
+    /// </returns>
     [HttpGet]
+    [EnableRateLimiting(RateLimitPolicies.UserLookup)]
     [ProducesResponseType(typeof(IReadOnlyList<UserProfileDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<IReadOnlyList<UserProfileDto>>> SearchAsync(
         [FromQuery][Required][StringLength(256, MinimumLength = 1)] string email,
         [FromQuery] bool exactMatch,
@@ -55,12 +63,12 @@ public sealed class UsersController : ApiControllerBase
     {
         _ = exactMatch;
 
-        IReadOnlyList<UserProfileDto> matches =
-            await _accounts.SearchByEmailAsync(email, cancellationToken);
+        OperationResult<IReadOnlyList<UserProfileDto>> result =
+            await _accounts.SearchByEmailAsync(RequireUserId(_currentUser), email, cancellationToken);
 
         // "No such user" is 200-with-empty-list, not 404: the caller asked a
         // question ("who matches?") and got a complete answer.
-        return Ok(matches);
+        return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }
 
     /// <summary>Loads one user's profile, if the caller is entitled to see it.</summary>

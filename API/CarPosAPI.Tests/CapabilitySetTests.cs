@@ -1,3 +1,4 @@
+using CarPosAPI.Dtos;
 using CarPosAPI.Services.Authorization;
 
 namespace CarPosAPI.Tests;
@@ -55,5 +56,44 @@ public sealed class CapabilitySetTests
         Assert.True(capabilities.CanDelete);
         Assert.True(capabilities.CanShare);
         Assert.True(capabilities.CanModifySettings);
+    }
+
+    [Fact]
+    public void AGainIsMeasuredAgainstTheGranter()
+    {
+        CapabilitySet granter = new CapabilitySet(CanDelete: false, CanShare: true, CanModifySettings: true);
+
+        Assert.True(CapabilitySet.Full().GainsBeyond(granter, CapabilitySet.None()));
+        Assert.False(new CapabilitySet(false, true, true).GainsBeyond(granter, CapabilitySet.None()));
+    }
+
+    [Fact]
+    public void KeepingOrDroppingAnExistingCapabilityIsNotAGain()
+    {
+        CapabilitySet granter = CapabilitySet.None();
+        CapabilitySet current = CapabilitySet.Full();
+
+        Assert.False(CapabilitySet.Full().GainsBeyond(granter, current));
+        Assert.False(CapabilitySet.None().GainsBeyond(granter, current));
+    }
+
+    [Fact]
+    public void EachCapabilityIsCheckedOnItsOwn()
+    {
+        // One test per flag, so a refactor that drops one of the three clauses fails
+        // here instead of in production.
+        CapabilitySet nothing = CapabilitySet.None();
+
+        Assert.True(new CapabilitySet(true, false, false).GainsBeyond(nothing, nothing));
+        Assert.True(new CapabilitySet(false, true, false).GainsBeyond(nothing, nothing));
+        Assert.True(new CapabilitySet(false, false, true).GainsBeyond(nothing, nothing));
+    }
+
+    [Fact]
+    public void OfReadsTheThreeFlagsOfAGrant()
+    {
+        CapabilitySet capabilities = CapabilitySet.Of(new DevicePermissionsDto(true, true, false, true));
+
+        Assert.Equal(new CapabilitySet(true, false, true), capabilities);
     }
 }

@@ -48,6 +48,9 @@ public static class ErrorCodes
     /// <summary>Account erasure confirmed with a wrong password.</summary>
     public const string WrongPassword = "wrongPassword";
 
+    /// <summary>A user lookup by an account that cannot share any device.</summary>
+    public const string UserLookupNotAllowed = "userLookupNotAllowed";
+
     // ----- Devices and provisioning -----
 
     /// <summary>The device does not exist, or the caller has no grant on it.</summary>
@@ -58,6 +61,9 @@ public static class ErrorCodes
 
     /// <summary>Device registration without the tracking declaration.</summary>
     public const string TrackingDeclarationRequired = "trackingDeclarationRequired";
+
+    /// <summary>The account already has as many active devices as allowed. Params: <c>limit</c>.</summary>
+    public const string DeviceLimitReached = "deviceLimitReached";
 
     /// <summary>The caller lacks the delete capability on the device.</summary>
     public const string NoPermissionDeleteDevice = "noPermissionDeleteDevice";
@@ -169,6 +175,12 @@ public static class ErrorCodes
 
     /// <summary>The access grant does not exist, or is not the caller's to manage.</summary>
     public const string NoSuchAccessGrant = "noSuchAccessGrant";
+
+    /// <summary>A sharer editing the capabilities on their own grant.</summary>
+    public const string CannotChangeOwnAccess = "cannotChangeOwnAccess";
+
+    /// <summary>Granting a capability the caller does not hold themselves.</summary>
+    public const string CannotGrantUnheldCapability = "cannotGrantUnheldCapability";
 
     // ----- Share links -----
 

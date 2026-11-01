@@ -1,3 +1,5 @@
+using CarPosAPI.Dtos;
+
 namespace CarPosAPI.Services.Authorization;
 
 /// <summary>
@@ -9,6 +11,13 @@ namespace CarPosAPI.Services.Authorization;
 /// points that create grants — provisioning a device with
 /// <c>additionalAccesses</c>, and <c>POST</c>/<c>PUT /api/access</c> — funnel
 /// through <see cref="FromRequest"/>, so neither can forget it.
+///
+/// It also answers the escalation question, <see cref="GainsBeyond"/>: a sharer may
+/// hand out only what they hold. Coercion alone never made that true — a sharer
+/// without <c>CanDelete</c> could tick it for somebody else, or for a second account
+/// of their own. Provisioning cannot escalate (the creator holds the full set), so
+/// only the sharing endpoints need the check; see
+/// <see cref="Sharing.GrantChangePolicy"/>.
 /// </summary>
 /// <param name="CanDelete">May soft-delete the device.</param>
 /// <param name="CanShare">May grant and revoke others' access.</param>
@@ -39,5 +48,43 @@ public sealed record CapabilitySet(bool CanDelete, bool CanShare, bool CanModify
     public static CapabilitySet Full()
     {
         return new CapabilitySet(true, true, true);
+    }
+
+    /// <summary>The empty set: what a user who has no grant yet holds.</summary>
+    /// <returns>A set with every capability disabled.</returns>
+    public static CapabilitySet None()
+    {
+        return new CapabilitySet(false, false, false);
+    }
+
+    /// <summary>The set an existing grant, or a caller's resolved permissions, carries.</summary>
+    /// <param name="permissions">The grant's flags.</param>
+    /// <returns>The three capabilities, read access left out as everywhere else.</returns>
+    public static CapabilitySet Of(DevicePermissionsDto permissions)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
+        return new CapabilitySet(permissions.CanDelete, permissions.CanShare, permissions.CanModifySettings);
+    }
+
+    /// <summary>
+    /// Whether storing this set would give the grantee a capability that neither
+    /// they already had nor the granter holds — that is, whether it would hand out
+    /// something the granter does not have to give.
+    ///
+    /// A capability the grantee already holds may be kept (a full-replacement
+    /// <c>PUT</c> has to echo it back) or taken away; only a <em>gain</em> is
+    /// measured against the granter.
+    /// </summary>
+    /// <param name="granter">What the caller holds on the device.</param>
+    /// <param name="current">What the grantee holds now; <see cref="None"/> for a new grant.</param>
+    /// <returns>True when at least one capability would be gained beyond the granter's own.</returns>
+    public bool GainsBeyond(CapabilitySet granter, CapabilitySet current)
+    {
+        ArgumentNullException.ThrowIfNull(granter);
+        ArgumentNullException.ThrowIfNull(current);
+
+        return (CanDelete && !current.CanDelete && !granter.CanDelete)
+            || (CanShare && !current.CanShare && !granter.CanShare)
+            || (CanModifySettings && !current.CanModifySettings && !granter.CanModifySettings);
     }
 }

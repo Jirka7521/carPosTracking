@@ -18,4 +18,14 @@ public interface IPasswordHasher
     /// <param name="password">The plaintext supplied by the caller.</param>
     /// <returns>Whether it matched, and whether the stored hash should be upgraded.</returns>
     PasswordCheckResult Check(string storedHash, string password);
+
+    /// <summary>
+    /// Does the work of <see cref="Check"/> against a hash no password matches. For
+    /// the sign-in path when the email has no account: without it that answer came
+    /// back a full PBKDF2 run faster than a wrong password, and the difference told
+    /// anyone with a stopwatch which addresses are registered here.
+    /// </summary>
+    /// <param name="password">The plaintext supplied by the caller.</param>
+    /// <returns>Always <see cref="PasswordCheckResult.Failed"/> in practice.</returns>
+    PasswordCheckResult SimulateCheck(string password);
 }

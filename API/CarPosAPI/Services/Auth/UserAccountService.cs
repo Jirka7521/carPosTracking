@@ -121,11 +121,13 @@ internal sealed class UserAccountService : IUserAccountService
 
         if (user is null)
         {
-            // No password check to skip past here, so this path is faster than a
-            // real failure. That timing difference is a weak enumeration signal;
-            // rate limiting on the endpoint (see Program.cs) is what actually
-            // closes it, since a constant-time fake hash would still leak through
-            // other channels.
+            // Spend the same PBKDF2 work a wrong password costs. Skipping it made
+            // this answer a full hash run faster than a real failure, and that gap is
+            // measurable over the internet: a stopwatch was enough to tell which
+            // addresses have an account. The rate limit on the endpoint slows such a
+            // probe down; this removes what it was measuring.
+            _passwordHasher.SimulateCheck(request.Password);
+
             _logger.LogInformation("Sign-in attempt for an unknown email address");
             return OperationResult<User>.Invalid(ErrorCodes.InvalidCredentials, InvalidCredentialsMessage);
         }
@@ -168,17 +170,32 @@ internal sealed class UserAccountService : IUserAccountService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<UserProfileDto>> SearchByEmailAsync(
+    public async Task<OperationResult<IReadOnlyList<UserProfileDto>>> SearchByEmailAsync(
+        int callerId,
         string email,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(email);
 
+        // The lookup exists for one form — "share this device with…" — so only an
+        // account that could submit that form may use it. Anyone else asking whether
+        // an address is registered here has no reason to but enumeration.
+        bool canShareSomething = await _context.Accesses
+            .AsNoTracking()
+            .AnyAsync(access => access.UserId == callerId && access.IsActive && access.CanShare, cancellationToken);
+
+        if (!canShareSomething)
+        {
+            return OperationResult<IReadOnlyList<UserProfileDto>>.Forbidden(
+                ErrorCodes.UserLookupNotAllowed,
+                "Only an account that can share a device may look other users up.");
+        }
+
         string needle = NormaliseEmail(email);
 
         if (needle.Length == 0)
         {
-            return [];
+            return OperationResult<IReadOnlyList<UserProfileDto>>.Success([]);
         }
 
         // EXACT MATCH ONLY, deliberately. This used to also offer a capped
@@ -188,11 +205,27 @@ internal sealed class UserAccountService : IUserAccountService
         // for a convenience the dashboard never used (it always passed a full
         // address). Exact match reveals nothing the caller did not already know:
         // they had to type the address to ask.
-        return await _context.Users
+        UserProfileDto? match = await _context.Users
             .AsNoTracking()
             .Where(user => user.Email == needle)
             .Select(user => new UserProfileDto(user.Id, user.Email, user.FirstName, user.LastName))
-            .ToListAsync(cancellationToken);
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (match is null)
+        {
+            return OperationResult<IReadOnlyList<UserProfileDto>>.Success([]);
+        }
+
+        // Sharing needs the id and nothing else. The name is a stranger's personal
+        // data until the two accounts share a device — the same line
+        // GetVisibleProfileAsync draws — so before then it is withheld. The fields
+        // stay in the shape (empty) so the wire contract does not change.
+        if (match.Id != callerId && !await SharesADeviceAsync(callerId, match.Id, cancellationToken))
+        {
+            match = match with { FirstName = string.Empty, LastName = string.Empty };
+        }
+
+        return OperationResult<IReadOnlyList<UserProfileDto>>.Success([match]);
     }
 
     /// <inheritdoc />
@@ -211,17 +244,7 @@ internal sealed class UserAccountService : IUserAccountService
         // the case the endpoint exists for — rendering the names on a device's
         // sharing list — and nothing wider. Without this check a plain integer scan
         // over /api/users/{id} dumps the whole user table, one row per request.
-        bool sharesADevice = await _context.Accesses
-            .AsNoTracking()
-            .Where(theirs => theirs.UserId == userId && theirs.IsActive)
-            .AnyAsync(
-                theirs => _context.Accesses.Any(mine =>
-                    mine.UserId == callerId
-                    && mine.IsActive
-                    && mine.DeviceId == theirs.DeviceId),
-                cancellationToken);
-
-        if (!sharesADevice)
+        if (!await SharesADeviceAsync(callerId, userId, cancellationToken))
         {
             // 404, not 403: a 403 would confirm the id belongs to a real account,
             // which is the same enumeration hint the device endpoints refuse to give.
@@ -298,6 +321,27 @@ internal sealed class UserAccountService : IUserAccountService
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
         return OperationResult<bool>.Success(true);
+    }
+
+    /// <summary>
+    /// Whether two accounts both hold an active grant on the same device — the line
+    /// between a stranger and somebody whose name the caller may see.
+    /// </summary>
+    /// <param name="callerId">The authenticated caller.</param>
+    /// <param name="userId">The other account.</param>
+    /// <param name="cancellationToken">Cancels the database work.</param>
+    /// <returns>True when they share at least one device.</returns>
+    private Task<bool> SharesADeviceAsync(int callerId, int userId, CancellationToken cancellationToken)
+    {
+        return _context.Accesses
+            .AsNoTracking()
+            .Where(theirs => theirs.UserId == userId && theirs.IsActive)
+            .AnyAsync(
+                theirs => _context.Accesses.Any(mine =>
+                    mine.UserId == callerId
+                    && mine.IsActive
+                    && mine.DeviceId == theirs.DeviceId),
+                cancellationToken);
     }
 
     /// <summary>

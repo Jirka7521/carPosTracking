@@ -26,7 +26,7 @@ using CarPosAPI.Services.Security;
 using CarPosAPI.Services.Sharing;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
@@ -104,6 +104,23 @@ builder.Services.AddOptions<HostingOptions>()
     .Validate(
         static (HostingOptions options) => options.HasValidPathBase(),
         "Hosting:PathBase must be empty or an absolute path with no trailing slash, e.g. \"/carPosAPI\".")
+    .ValidateOnStart();
+
+// Which peers may say who the real client is. Validated because a typo must fail
+// the deployment: silently trusting nobody puts every internet visitor in the
+// tunnel's one rate-limit bucket, and the opposite lets the VLAN forge addresses.
+builder.Services.AddOptions<ReverseProxyOptions>()
+    .BindConfiguration(ReverseProxyOptions.SectionName)
+    .Validate(
+        static (ReverseProxyOptions options) => options.HasValidAddresses(),
+        "ReverseProxy:TrustedProxies and ReverseProxy:CloudflareTunnelProxies must be comma-separated IP addresses (no CIDR ranges, no host names).")
+    .ValidateOnStart();
+
+// Per-account ceiling on registered devices. Policy, not a secret, like the
+// sharing limits below.
+builder.Services.AddOptions<DeviceRegistrationOptions>()
+    .BindConfiguration(DeviceRegistrationOptions.SectionName)
+    .ValidateDataAnnotations()
     .ValidateOnStart();
 
 // Ceilings on temporary share links. No secret here — these are policy limits, and
@@ -398,7 +415,16 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization();
+// Deny by default. An endpoint with no [Authorize] or [AllowAnonymous] of its own
+// now requires a signed-in user instead of being quietly public, so forgetting the
+// attribute on a new controller fails closed. The anonymous surface is spelled out
+// where it lives: AuthController, PrivacyController, the share redeem/leave
+// actions and /health. The share view names its own scheme in its [Authorize], so
+// the fallback (which uses the default, session scheme) never applies to it.
+builder.Services.AddAuthorization((AuthorizationOptions options) =>
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build());
 
 // ---------------------------------------------------------------------------
 // Rate limiting on the unauthenticated front door. Everything else needs a valid
@@ -448,7 +474,7 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
     options.AddPolicy(RateLimitPolicies.Authentication, (HttpContext context) =>
         RateLimitPartition.GetFixedWindowLimiter(
             // Behind the reverse proxy this is the real client address only because
-            // UseForwardedHeaders runs first — see the pipeline below.
+            // ForwardedClientMiddleware runs first — see the pipeline below.
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: static _ => new FixedWindowRateLimiterOptions
             {
@@ -469,9 +495,7 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
     // behind one NAT would share a single bucket again.
     options.AddPolicy(RateLimitPolicies.PrivacyOperations, (HttpContext context) =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "unknown",
+            partitionKey: AccountPartitionKey(context),
             factory: static _ => new FixedWindowRateLimiterOptions
             {
                 // An export is a full history dump and a deletion is final: nobody
@@ -501,6 +525,34 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 // has to leave room for that as well as for the redeem.
                 PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
+    // Looking a user up by email. Per account for the same reason as the GDPR
+    // policy above. The sharing form makes one lookup per invitation, so twenty in
+    // five minutes is room for a typo-ridden afternoon of sharing and a crawl for
+    // anyone testing a list of addresses.
+    options.AddPolicy(RateLimitPolicies.UserLookup, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: AccountPartitionKey(context),
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(5),
+                QueueLimit = 0,
+            }));
+
+    // Registering a device: an RSA-3072 key generation per call. Ten an hour is more
+    // than anyone provisioning real hardware needs, including the retries after a
+    // taken device id, and caps the CPU one account can burn at a few seconds a
+    // minute.
+    options.AddPolicy(RateLimitPolicies.DeviceRegistration, (HttpContext context) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: AccountPartitionKey(context),
+            factory: static _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromHours(1),
                 QueueLimit = 0,
             }));
 });
@@ -575,8 +627,8 @@ if (DeviceKeyImportCommand.IsRequested(args))
 
 // Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).
 //
-// First in the pipeline, above even UsePathBase and UseForwardedHeaders. Those two
-// can throw — a malformed X-Forwarded-For is the realistic way — and anything
+// First in the pipeline, above even UsePathBase and the forwarded-client resolver.
+// Those can throw — a malformed request is the realistic way — and anything
 // thrown above this line escapes to Kestrel instead, which answers a bare 500 and
 // logs it somewhere this application never sees. The whole point of the handler is
 // that no failure is invisible, so it has to be the outermost thing there is.
@@ -613,25 +665,25 @@ if (configuredPathBase.Length > 0)
     app.UsePathBase(configuredPathBase);
 }
 
-// Runs next so everything downstream — rate-limiting partitions, cookie Secure
-// decisions, generated URLs — sees the browser's real address and scheme rather
-// than the reverse proxy's. KnownNetworks/Proxies are cleared because the only
-// thing that can reach this container's port is the proxy in front of it; leaving
-// the default loopback-only list would make it ignore the headers entirely.
-ForwardedHeadersOptions forwardedHeaders = new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
-};
-forwardedHeaders.KnownIPNetworks.Clear();
-forwardedHeaders.KnownProxies.Clear();
-app.UseForwardedHeaders(forwardedHeaders);
+// Runs next so everything downstream — rate-limiting partitions, the HSTS decision,
+// generated URLs — sees the browser's real address and scheme rather than the
+// reverse proxy's. Forwarding headers are believed only from the proxies listed in
+// ReverseProxyOptions (the frontend's nginx and the Cloudflare tunnel connector);
+// this container sits on a macvlan VLAN where any host can reach the port, so a
+// header from anyone else is ignored. See ForwardedClientResolver for the rules.
+app.UseMiddleware<ForwardedClientMiddleware>();
+
+// Baseline response headers on everything the API answers, error pages included.
+// After the resolver, because HSTS depends on the scheme it settles.
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
     // The OpenAPI document describes every endpoint including request shapes, so
     // it stays in Development. It is also not proxied publicly by the frontend's
-    // nginx — belt and braces.
-    app.MapOpenApi();
+    // nginx — belt and braces. Anonymous explicitly, or the fallback policy would
+    // hide it from the developer it exists for.
+    app.MapOpenApi().AllowAnonymous();
 }
 else
 {
@@ -663,19 +715,33 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Health endpoint (unauthenticated by design). The body is a JSON report with one
-// entry per dependency, written by HealthReportWriter — which copies only what this
-// codebase wrote, never an exception message, precisely because nothing authenticates
-// here. Not proxied to the public internet either; see the frontend's nginx.conf.
+// Health endpoint (unauthenticated by design, hence AllowAnonymous against the
+// fallback policy). The tunnel publishes it as /carPosAPI/health, so what a stranger
+// gets is the overall status and nothing else; the full report, one entry per
+// dependency with versions, counters and pending migrations, goes only to a caller
+// inside the container itself — the compose healthcheck and `docker exec`. See
+// HealthDetailPolicy. Even the full report copies only what this codebase wrote,
+// never an exception message.
 //
 // The default ResultStatusCodes are left alone on purpose: Healthy and Degraded both
 // answer 200 and only Unhealthy answers 503, which is the contract the container
-// healthcheck reads.
+// healthcheck reads — and which the summary carries just as well as the report.
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResponseWriter = HealthReportWriter.WriteAsync,
     AllowCachingResponses = false,
-});
+})
+    .AllowAnonymous();
 
 await app.RunAsync();
 return 0;
+
+// The partition for the per-account rate limits: the session's user id, or — on the
+// off chance one of those endpoints is reached without a session — the address the
+// request was attributed to.
+static string AccountPartitionKey(HttpContext context)
+{
+    return context.User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+        ?? context.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
+}
