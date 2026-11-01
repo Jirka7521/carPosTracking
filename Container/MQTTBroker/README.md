@@ -14,18 +14,24 @@ The broker stack for carPosTracking, built for **arm64 Linux** (Raspberry Pi &
 friends) — both images are multi-arch and run natively there.
 
 ```
-ESP32 / LAN  ──mqtt://…:1883──────────────────────────┐
+CarPosAPI, LAN ──mqtt://mqtt.local:1883───────────────┐
                                                       ├─► mosquitto ─► (MQTTpublic) ─► carpos-postgres, CarPosAPI
-browser / desktop ──wss://jimajer.cz/mqttBroker──►    │
+tracker (internet) ──wss://jimajer.cz/mqttBroker──►   │
                     Cloudflare ─► cloudflared ─► nginx ─► ws://mqtt.local:9001/
 ```
 
-- **mosquitto** — listens on `1883` (plain MQTT, published to the LAN) and `9001`
-  (WebSocket, *not* published: only nginx reaches it). It answers to `mqtt.local`
-  on the Docker network via a network alias, which is the name nginx proxies to.
+- **mosquitto** (2.1) — listens on `1883` (plain MQTT on the container network:
+  the API, the healthcheck, LAN clients — never routed through the tunnel) and
+  `9001` (WebSocket, *not* published: only nginx reaches it). It answers to
+  `mqtt.local` on the Docker network via a network alias, which is the name nginx
+  proxies to. **Each listener has its own password file** — see
+  [Accounts & authorization](#accounts--authorization).
 - **nginx** — accepts the plain HTTP that the Cloudflare tunnel delivers and
   upgrades `/mqttBroker` to a WebSocket against the broker. TLS is terminated by
-  Cloudflare, so nothing here needs certificates.
+  Cloudflare, so nothing here needs certificates. It takes the visitor's address
+  from `CF-Connecting-IP` (believed from cloudflared, `192.168.122.50`, only) and
+  caps each address at 10 concurrent connections and 30 upgrades a minute (burst
+  10), so one client cannot use up the broker's 100 WebSocket slots.
 - **autoheal** — restarts a container that has gone unhealthy. Opt-in via the
   `autoheal` profile, because there must be only one per host (see below).
 - **MQTTpublic** — the shared Docker network. Both this and the Postgres stack
@@ -96,12 +102,30 @@ matching rule is denied, so each account can touch only what is listed for it:
 All four are mandatory — an empty user or password in `.env` aborts the boot
 rather than producing a broker with an account nobody can log into.
 
+**Which listener each account may log in on** (`per_listener_settings true`, one
+password file per listener):
+
+| account | `1883` (internal) | `9001` (WebSocket, from the internet) |
+|---|---|---|
+| `admin` | yes | **no** |
+| `GNSS01` | yes | yes |
+| `dashboard` | yes | only while `DASHBOARD_ON_WEBSOCKETS=true` (the default) |
+| `healthcheck` | yes | **no** |
+
+`admin` holds `readwrite #`; it can no longer be tried from the internet at all.
+The API's `dashboard` account stays on the WebSocket listener by default so an
+API still configured for `ws://mqtt.local:9001` keeps working; once its
+`MQTT_BROKER_URI` is `mqtt://mqtt.local:1883`, set `DASHBOARD_ON_WEBSOCKETS=false`
+in `.env` and recreate the broker. (`per_listener_settings` is deprecated in 2.1
+and slated for removal in 3.0; the broker logs a notice about it at start.)
+
 The usernames in the ACL are literal: if you rename a `*_USER` in `.env`, rename
 it in the ACL too, or that account keeps its login but loses every permission.
 
 Passwords are hashed into a named volume at boot by
 [`mosquitto/entrypoint-passwd.sh`](mosquitto/entrypoint-passwd.sh), straight from
-`.env`. The file is rebuilt from scratch each boot rather than patched, so
+`.env`, and handed to `mosquitto_passwd` on stdin — never as an argument, which
+every process on the host could read. The file is rebuilt from scratch each boot rather than patched, so
 rotating a password — or deleting an account — is an edit to `.env` plus
 `docker compose up -d --force-recreate mosquitto`.
 
@@ -115,7 +139,10 @@ password file, a mistyped ACL or a wedged broker all leave the TCP socket
 cheerfully accepting connections, and only a real round-trip catches them.
 
 The probe authenticates like every other client; there is no unauthenticated path
-into the broker, not even for its own healthcheck. It holds one throwaway topic
+into the broker, not even for its own healthcheck. Its credentials come from an
+options file the entrypoint writes (`mosquitto_pub -o`), not from `-u`/`-P`: a
+command-line argument is visible in the host's process list, and this one ran
+every 30 seconds. It holds one throwaway topic
 and nothing else, so those credentials give no access to device data.
 
 nginx's healthcheck likewise checks both that it serves and that it can still open
@@ -186,7 +213,8 @@ A round-trip through the LAN listener, using the broker's own CLI so no client
 install is needed:
 
 ```bash
-# terminal 1 - subscribe as dashboard
+# terminal 1 - subscribe as dashboard (-P shows the password in the host's
+# process list while it runs: fine for a one-off test, not for anything scripted)
 docker compose exec mosquitto mosquitto_sub -h localhost -u dashboard -P '…' -t 'devices/#' -v
 
 # terminal 2 - publish as the tracker

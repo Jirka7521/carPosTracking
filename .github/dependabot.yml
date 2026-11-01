@@ -1,0 +1,55 @@
+# Dependabot: weekly update PRs for every dependency this repo pins.
+#
+# Base images are pinned as image:tag@sha256:<digest> — the digest is what a
+# rebuild fetches, so it only changes when a PR here changes it. Dependabot
+# updates the digest (and the tag, within the same major line) in Dockerfiles and
+# compose files alike.
+#
+# Grouped so each ecosystem is one PR a week rather than one per package, and
+# NEVER auto-merged: every update is reviewed and merged by hand, like any other
+# change to main. There is no auto-merge workflow in this repository on purpose.
+version: 2
+updates:
+  # --- Container images ---------------------------------------------------
+  - package-ecosystem: docker
+    directory: /API
+    schedule:
+      interval: weekly
+    groups:
+      api-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /FE
+    schedule:
+      interval: weekly
+    groups:
+      fe-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /Container/MQTTBroker
+      - /Container/Postgres
+    schedule:
+      interval: weekly
+    groups:
+      compose-images:
+        patterns: ["*"]
+
+  # --- Application dependencies --------------------------------------------
+  - package-ecosystem: nuget
+    directory: /API
+    schedule:
+      interval: weekly
+    groups:
+      nuget:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /FE
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]

@@ -1,7 +1,15 @@
 services:
   mosquitto:
-    # eclipse-mosquitto 2.0 is multi-arch; the arm64 variant runs natively on the Pi.
-    image: eclipse-mosquitto:2.0
+    # eclipse-mosquitto is multi-arch; the arm64 variant runs natively on the Pi.
+    # Every image here is pinned by digest as well as tag, so a re-pull fetches the
+    # reviewed bytes; Dependabot proposes the bumps (.github/dependabot.yml).
+    #
+    # 2.1 notes, checked against this config: max_packet_size is set explicitly
+    # (2.1's new 2 MB default is not relied on); no TLS client or bridge, so the
+    # new OpenSSL hostname verification does not apply; the config, ACL and
+    # password files are regular copies made by the entrypoint, never symlinks, so
+    # the 2.1 symlink refusal needs no MOSQUITTO_UNSAFE_ALLOW_SYMLINKS.
+    image: eclipse-mosquitto:2.1.2-alpine@sha256:860aeb5d63ce509508f6dcfb2bc8a1c1dd2bc60555b562b45ce90e52d8dabb0f
     container_name: carpos-mosquitto
     restart: unless-stopped
     # Bounded logs. The default json-file driver never rotates, and these logs
@@ -33,9 +41,15 @@ services:
       DEVICE_PASSWORD: ${DEVICE_PASSWORD:?set DEVICE_PASSWORD in .env}
       DASHBOARD_USER: ${DASHBOARD_USER:?set DASHBOARD_USER in .env}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
-      # Read by healthcheck.sh; the probe authenticates like any other client.
+      # The probe's account. The entrypoint writes it into an options file that
+      # healthcheck.sh hands to mosquitto_pub/_sub, so it is never an argument.
       HEALTHCHECK_USER: ${HEALTHCHECK_USER:?set HEALTHCHECK_USER in .env}
       HEALTHCHECK_PASSWORD: ${HEALTHCHECK_PASSWORD:?set HEALTHCHECK_PASSWORD in .env}
+      # Whether the API's dashboard account may also log in over the public
+      # WebSocket listener. true keeps an API still configured for
+      # ws://mqtt.local:9001 working; once its MQTT_BROKER_URI is
+      # mqtt://mqtt.local:1883, set false and that account is internal-only.
+      DASHBOARD_ON_WEBSOCKETS: ${DASHBOARD_ON_WEBSOCKETS:-true}
     ports:
       # Plain MQTT for LAN clients (the ESP32) and local tests. The WebSocket
       # listener (9001) is deliberately NOT published: it is reached only through
@@ -75,6 +89,8 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     security_opt:
       - no-new-privileges:true
+    # A broker is one process; the headroom is for the healthcheck's clients.
+    pids_limit: 64
     deploy:
       resources:
         limits:
@@ -85,7 +101,7 @@ services:
     # /mqttBroker to a WebSocket connection against the broker's 9001 listener.
     # 1.30 is the stable branch; 1.27 (mainline) has been end of life since
     # 2025-06 and gets no security fixes.
-    image: nginx:1.30-alpine
+    image: nginx:1.30-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
     container_name: carpos-mqtt-nginx
     restart: unless-stopped
     # Bounded logs. The default json-file driver never rotates, and these logs
@@ -133,6 +149,8 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID, NET_BIND_SERVICE]
     security_opt:
       - no-new-privileges:true
+    # A master plus one worker per core.
+    pids_limit: 64
     deploy:
       resources:
         limits:
@@ -148,7 +166,7 @@ services:
     # second copy here restarted every unhealthy container twice. Enable it only
     # on a host where nothing else runs autoheal.
     profiles: ["autoheal"]
-    image: willfarrell/autoheal:latest
+    image: willfarrell/autoheal:latest@sha256:a4645c87683564c02154fbfb056eba3431cdb32b48c923359c3d55c4ec56ce89
     container_name: carpos-autoheal
     restart: unless-stopped
     # Bounded logs. The default json-file driver never rotates, and these logs
@@ -174,6 +192,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     # Talks only to the socket; it needs no network at all.
     network_mode: none
+    pids_limit: 32
 
 volumes:
   mosquitto_data:

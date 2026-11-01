@@ -152,8 +152,14 @@ docker compose logs fe | grep Proxying   # confirms the backend address in use
 
 # Resolve the alias from inside the network, then use it the way nginx does:
 docker exec carpos-fe getent hosts carposbe.local
-docker exec carpos-fe wget -qO- http://carposbe.local:8080/health
+docker exec carpos-fe wget -qO- http://carposbe.local:8080/health   # {"status":"Healthy"}
+
+# The full health report answers only inside the API container:
+docker exec carpos-api wget -qO- http://127.0.0.1:8080/health
 ```
+
+From anywhere but the API container itself, `/health` answers with the overall
+status only — the tunnel publishes it as `/carPosAPI/health`.
 
 If that `getent` prints nothing, the network alias is missing — check that
 `BE_HOST` is set in `.env` and that the containers were recreated
@@ -167,6 +173,18 @@ when a container joins the network, not on a plain restart.
   at `${BE_BIND_ADDR}:${BE_PORT}` so readiness can be probed from the LAN. Moving
   `BE_BIND_ADDR` off loopback publishes the **whole** API on that interface in
   plaintext, sign-in endpoints included — trusted networks only.
+
+- **Host names.** The API answers only the `Host` headers in `AllowedHosts`
+  (`API_ALLOWED_HOSTS`, default `jimajer.cz;localhost;127.0.0.1;<BE_HOST>;<FE_HOST>`)
+  and 400s anything else. If a new name or a raw IP has to reach it, add it there;
+  `API_ALLOWED_HOSTS=*` switches the check off.
+
+- **Hardening.** Both containers run with a read-only root filesystem, no
+  capabilities, `no-new-privileges` and a `pids_limit`. The frontend runs nginx
+  as uid 101 (nginx-unprivileged) and still listens on port 80 thanks to the
+  namespaced sysctl `net.ipv4.ip_unprivileged_port_start=0`. A server-local
+  `docker-compose.override.yml` that still adds `cap_add` to `fe` is harmless but
+  no longer needed.
 
 - **`carpos-fe`** — published on `${FE_BIND_ADDR}:${FE_PORT}`. A LAN address
   serves the dashboard over plain HTTP, so `AUTH_SECURE_COOKIES` must be `false`

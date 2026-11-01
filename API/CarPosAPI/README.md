@@ -324,13 +324,15 @@ dials, **and** what device provisioning writes into the firmware snippet as
 container network, so no MQTT traffic leaves the host:
 
 ```jsonc
-"Mqtt": { "BrokerUri": "ws://mqtt.local:9001/" }
+"Mqtt": { "BrokerUri": "mqtt://mqtt.local:1883" }
 ```
 
 `mqtt.local` is the network alias the broker stack gives the Mosquitto service
-and `9001` is its WebSocket listener. Development keeps whatever
+and `1883` is its internal TCP listener. Not the WebSocket listener (`9001`):
+that is the internet's entrance through the tunnel, with its own, smaller set of
+accounts and its share of everyone's connection limit. Development keeps whatever
 `appsettings.Local.json` sets (normally the public `wss://` URI), because outside
-Docker that alias does not resolve and 9001 is not published to the host.
+Docker that alias does not resolve.
 
 **Plaintext schemes are accepted** (`ws`, `mqtt`) alongside the TLS ones. TLS is
 not required because the deployed hop stays on the host's container network, and
@@ -341,7 +343,7 @@ anything outside `ws`/`wss`/`mqtt`/`mqtts`, so a typo fails fast.
 
 > ⚠️ **Provisioning caveat.** Because devices are handed this same value, an
 > address that only resolves inside the container network is **not reachable by a
-> device**. With `ws://mqtt.local:9001/` configured, the `kMqttBrokerUri` line in
+> device**. With `mqtt://mqtt.local:1883` configured, the `kMqttBrokerUri` line in
 > a generated snippet must be replaced by hand with something the device can
 > actually reach before flashing it.
 
