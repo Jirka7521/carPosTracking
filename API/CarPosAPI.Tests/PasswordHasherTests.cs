@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
+using CarPosAPI.Data.Entities;
 using CarPosAPI.Services.Auth;
+using Microsoft.AspNetCore.Identity;
 
 namespace CarPosAPI.Tests;
 
@@ -60,5 +63,55 @@ public sealed class PasswordHasherTests
         Assert.NotEqual(first, second);
         Assert.Equal(PasswordCheckResult.Valid, hasher.Check(first, Password));
         Assert.Equal(PasswordCheckResult.Valid, hasher.Check(second, Password));
+    }
+
+    [Fact]
+    public void HashesAtTheRaisedIterationCount()
+    {
+        IPasswordHasher hasher = new PasswordHasher();
+
+        Assert.Equal(PasswordHasher.IterationCount, IterationCountOf(hasher.Hash(Password)));
+        Assert.True(PasswordHasher.IterationCount >= 210_000);
+    }
+
+    [Fact]
+    public void AnOlderHashStillVerifiesAndAsksToBeUpgraded()
+    {
+        // A hash written before the raise, with the framework's own default count.
+        // Raising the count must not lock its owner out; it must make the next
+        // sign-in rewrite it (UserAccountService handles ValidNeedsRehash).
+        string legacy = new PasswordHasher<User>().HashPassword(new User(), Password);
+        Assert.True(IterationCountOf(legacy) < PasswordHasher.IterationCount);
+
+        IPasswordHasher hasher = new PasswordHasher();
+
+        Assert.Equal(PasswordCheckResult.ValidNeedsRehash, hasher.Check(legacy, Password));
+        Assert.Equal(PasswordCheckResult.Failed, hasher.Check(legacy, "wrong"));
+    }
+
+    [Fact]
+    public void TheSimulatedCheckMatchesNothing()
+    {
+        // It exists to cost the same as a real check for an email with no account;
+        // it must never be mistakable for a successful one.
+        IPasswordHasher hasher = new PasswordHasher();
+
+        Assert.Equal(PasswordCheckResult.Failed, hasher.SimulateCheck(Password));
+        Assert.Equal(PasswordCheckResult.Failed, hasher.SimulateCheck(string.Empty));
+    }
+
+    /// <summary>
+    /// Reads the PBKDF2 round count out of an Identity V3 hash: a format marker byte,
+    /// then the PRF, the iteration count and the salt length as big-endian uint32s.
+    /// </summary>
+    /// <param name="hash">The base64 hash as stored.</param>
+    /// <returns>The embedded iteration count.</returns>
+    private static int IterationCountOf(string hash)
+    {
+        byte[] bytes = Convert.FromBase64String(hash);
+
+        Assert.Equal(0x01, bytes[0]);
+
+        return (int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(5, 4));
     }
 }

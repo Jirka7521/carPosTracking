@@ -289,6 +289,33 @@ startup.
 The frontend does not use this: its nginx proxies `<prefix>/api/` to the API as
 `/api/`, so the dashboard works whether or not the API's own tunnel route exists.
 
+### `ReverseProxy` and `AllowedHosts` — behind the proxies
+
+Requests reach the API through two proxies: the frontend's nginx
+(`192.168.124.6`, for `/carPosFE/api/*`) and the Cloudflare tunnel connector
+(`192.168.122.50`, which routes `/carPosAPI/*` here directly). The containers sit
+on a macvlan VLAN, so other hosts can reach port 8080 as well — which is why
+forwarding headers are believed **only from those two addresses**
+([`Middleware/ForwardedClientResolver.cs`](Middleware/ForwardedClientResolver.cs)):
+
+| Peer | Client address used for rate limits and logs |
+|---|---|
+| a `CloudflareTunnelProxies` address | `CF-Connecting-IP` (Cloudflare sets it; a visitor cannot) |
+| a `TrustedProxies` address | the right-most `X-Forwarded-For` entry (nginx writes exactly one) |
+| anyone else | the peer itself — its headers are ignored |
+
+`X-Forwarded-Proto` follows the same trust, and decides whether HSTS is sent.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ReverseProxy:TrustedProxies` | `192.168.124.6,192.168.122.50` | Comma-separated IPs whose `X-Forwarded-*` headers are believed. Empty trusts nobody. Invalid entries (a CIDR, a host name) fail start-up. |
+| `ReverseProxy:CloudflareTunnelProxies` | `192.168.122.50` | Comma-separated IPs whose `CF-Connecting-IP` is believed and preferred. |
+| `AllowedHosts` | `*` | Host headers the API answers (others get **400**). The deployment bundle sets it from `API_ALLOWED_HOSTS`, defaulting to `jimajer.cz;localhost;127.0.0.1;<BE_HOST>;<FE_HOST>` — the tunnel's host, loopback, the name the healthcheck and nginx's upstream use, and the frontend's LAN name (nginx forwards the browser's `Host`). |
+| `DeviceRegistration:MaxActiveDevicesPerUser` | `20` | Active devices one account may have registered itself. Deleting one frees a slot. |
+
+Override from the environment as `ReverseProxy__TrustedProxies` etc. — the lists
+are plain strings so an environment variable replaces them whole.
+
 ### `Mqtt:BrokerUri` — one address, two consumers
 
 There is a single broker address, and it does two jobs: it is what this API
@@ -297,13 +324,15 @@ dials, **and** what device provisioning writes into the firmware snippet as
 container network, so no MQTT traffic leaves the host:
 
 ```jsonc
-"Mqtt": { "BrokerUri": "ws://mqtt.local:9001/" }
+"Mqtt": { "BrokerUri": "mqtt://mqtt.local:1883" }
 ```
 
 `mqtt.local` is the network alias the broker stack gives the Mosquitto service
-and `9001` is its WebSocket listener. Development keeps whatever
+and `1883` is its internal TCP listener. Not the WebSocket listener (`9001`):
+that is the internet's entrance through the tunnel, with its own, smaller set of
+accounts and its share of everyone's connection limit. Development keeps whatever
 `appsettings.Local.json` sets (normally the public `wss://` URI), because outside
-Docker that alias does not resolve and 9001 is not published to the host.
+Docker that alias does not resolve.
 
 **Plaintext schemes are accepted** (`ws`, `mqtt`) alongside the TLS ones. TLS is
 not required because the deployed hop stays on the host's container network, and
@@ -314,7 +343,7 @@ anything outside `ws`/`wss`/`mqtt`/`mqtts`, so a typo fails fast.
 
 > ⚠️ **Provisioning caveat.** Because devices are handed this same value, an
 > address that only resolves inside the container network is **not reachable by a
-> device**. With `ws://mqtt.local:9001/` configured, the `kMqttBrokerUri` line in
+> device**. With `mqtt://mqtt.local:1883` configured, the `kMqttBrokerUri` line in
 > a generated snippet must be replaced by hand with something the device can
 > actually reach before flashing it.
 
@@ -480,8 +509,17 @@ never auto-migrated; this mode exists to make that review possible, not to repla
 ## REST API
 
 Every endpoint requires a session except `POST /api/auth/register`,
-`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/privacy/policy` and
-`GET /health`.
+`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/privacy/policy`,
+`POST /api/shares/redeem`, `POST /api/shares/leave` and `GET /health`
+(`GET /api/shares/view` takes the share cookie instead). This is enforced by an
+authorization **fallback policy**: an endpoint with no `[Authorize]` or
+`[AllowAnonymous]` of its own requires a session, so a forgotten attribute fails
+closed. `EndpointAccessMetadataTests` lists the anonymous actions by name.
+
+Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy: default-src
+'none'; frame-ancestors 'none'`, plus `Strict-Transport-Security` when the client
+came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/SecurityHeadersMiddleware.cs)).
 
 | Method & route | Purpose |
 |---|---|
@@ -490,10 +528,10 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
 | `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
-| `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
+| `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. Needs `CanShare` on at least one device (else **403** `userLookupNotAllowed`); first/last name come back **empty** unless the two accounts already share a device. Rate-limited per account (20 / 5 min). `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
-| `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row |
+| `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row. Rate-limited per account (10 / hour); an account with `DeviceRegistration:MaxActiveDevicesPerUser` active devices of its own answers **409** `deviceLimitReached` |
 | `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
 | `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
@@ -524,7 +562,7 @@ Every endpoint requires a session except `POST /api/auth/register`,
 | `POST /api/shares/redeem` | **unauthenticated**: open a link with its code. Token in the **body**, never the URL. Sets the `carpos_share` cookie |
 | `GET /api/shares/view?from=&to=` | the shared positions. Share-token scheme only; range clamped to the window |
 | `POST /api/shares/leave` | **unauthenticated**: clear the share cookie (204) |
-| `GET /health` | health report (unauthenticated; JSON, one entry per dependency) |
+| `GET /health` | health (unauthenticated). From outside the container just `{ "status" }`; the full report, one entry per dependency, only over loopback or from the container's own address — see [The health endpoint](#the-health-endpoint) |
 
 ### Errors
 
@@ -680,7 +718,16 @@ The check only applies when a session cookie is present — without one there is
 no ambient authority to abuse, and requiring a token would break sign-in itself.
 
 `POST /api/auth/*` is rate-limited per client address (20/minute); it is the
-only place an *unauthenticated* attacker gets free guesses.
+only place an *unauthenticated* attacker gets free guesses. A sign-in for an
+email with no account still runs a full PBKDF2 verification (against a dummy
+hash), so the answer takes as long as a wrong password and timing does not tell
+registered addresses apart. Passwords are hashed with PBKDF2-HMAC-SHA512 at
+**210,000** iterations; older hashes still verify and are rewritten at the
+owner's next sign-in.
+
+"Client address" is the real client only because the forwarding headers are
+believed from the configured proxies alone — see
+[`ReverseProxy` and `AllowedHosts`](#reverseproxy-and-allowedhosts--behind-the-proxies).
 
 `GET /api/me/export` and `DELETE /api/me` are rate-limited per **account**
 (5 requests / 5 minutes, partitioned on the `sub` claim). Holding a session is not
@@ -702,6 +749,17 @@ Two invariants are enforced server-side and never taken from the client:
 - **`CanShare` coerces `CanModifySettings` on** — being able to hand out a right
   you do not hold makes no sense. See
   [`Services/Authorization/CapabilitySet.cs`](Services/Authorization/CapabilitySet.cs).
+
+`CanShare` is not a master key either
+([`Services/Sharing/GrantChangePolicy.cs`](Services/Sharing/GrantChangePolicy.cs)):
+
+- **Nobody edits their own grant** (`PUT /api/access/{id}` on it answers **403**
+  `cannotChangeOwnAccess`). Revoking one's own grant is still allowed — it only
+  takes rights away.
+- **A grant may only gain capabilities the caller holds** (**403**
+  `cannotGrantUnheldCapability`), on `POST` and `PUT` alike. Keeping or removing a
+  capability the grantee already has is not a gain. Registering a device with
+  `additionalAccesses` cannot escalate: the creator holds the full set.
 
 A device you cannot see answers **404**, not 403 — a 403 would confirm it
 exists. The last account able to share a device cannot be revoked or demoted:
@@ -1332,9 +1390,20 @@ dotnet format                      # before finishing a change
 
 ### The health endpoint
 
-`GET /health` is unauthenticated and returns a **JSON report with one entry per
-dependency**, written by
-[`Services/Health/HealthReportWriter.cs`](Services/Health/HealthReportWriter.cs):
+`GET /health` is unauthenticated. The tunnel publishes it as
+`jimajer.cz/carPosAPI/health`, so a caller from **outside the container** gets
+the overall status only — `{ "status": "Healthy" }` — with the same status code.
+Over **loopback, or from the container's own address** (the bundle's healthcheck
+probes `BE_URL`, which the network alias resolves back to the container) it
+returns a **JSON report with one entry per dependency**, written by
+[`Services/Health/HealthReportWriter.cs`](Services/Health/HealthReportWriter.cs).
+Anything that arrived through a proxy is never "internal"
+([`Services/Health/HealthDetailPolicy.cs`](Services/Health/HealthDetailPolicy.cs)).
+To read the full report on the server:
+
+```bash
+docker exec carpos-api wget -qO- http://127.0.0.1:8080/health
+```
 
 ```json
 {
@@ -1384,8 +1453,9 @@ change only when someone runs `--schema-sync`, while the container probes every
 30 s. It degrades rather than fails when it cannot read `__EFMigrationsHistory`,
 so a least-privilege runtime role cannot take a healthy container down.
 
-OpenAPI is mapped in Development only. Neither it nor `/health` is proxied to the
-public internet — the frontend's nginx serves `/api/` and nothing else.
+OpenAPI is mapped in Development only. The frontend's nginx serves `/api/` and
+nothing else, but the tunnel's own `/carPosAPI` route does reach `/health` —
+hence the summary-only answer above.
 
 To run the whole stack in containers (API + frontend + nginx), see
 [`../../Container/App/docker-compose.yml`](../../Container/App/docker-compose.yml).

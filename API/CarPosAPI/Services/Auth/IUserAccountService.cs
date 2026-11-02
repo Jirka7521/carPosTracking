@@ -37,14 +37,17 @@ public interface IUserAccountService
     /// <summary>
     /// Finds the user with exactly this email address, for the sharing picker.
     /// </summary>
+    /// <param name="callerId">The authenticated caller; must hold <c>CanShare</c> on at least one device.</param>
     /// <param name="email">The full address. Matched for equality, never as a prefix.</param>
     /// <param name="cancellationToken">Cancels the database work.</param>
     /// <returns>
-    /// The single matching profile, or an empty list. Never an error — "no match" is
-    /// a valid answer, and one that does not confirm whether the address is
-    /// registered any more than it has to.
+    /// The single matching profile, or an empty list — "no match" is a valid answer.
+    /// The names are blank unless the two accounts already share a device: the
+    /// sharing form needs only the id. <see cref="OperationOutcome.Forbidden"/> when
+    /// the caller cannot share anything and so has no use for the lookup.
     /// </returns>
-    Task<IReadOnlyList<UserProfileDto>> SearchByEmailAsync(
+    Task<OperationResult<IReadOnlyList<UserProfileDto>>> SearchByEmailAsync(
+        int callerId,
         string email,
         CancellationToken cancellationToken);
 

@@ -18,6 +18,14 @@ namespace CarPosAPI.Services.Health;
 /// </para>
 ///
 /// <para>
+/// <b>Strangers get the status only.</b> A caller outside the container — which
+/// includes everyone on the internet, since the tunnel publishes
+/// <c>/carPosAPI/health</c> — receives a <see cref="HealthSummaryDto"/>; the report
+/// below is for loopback and the container's own healthcheck. See
+/// <see cref="HealthDetailPolicy"/>. The status code is the same either way.
+/// </para>
+///
+/// <para>
 /// <b>It is a filter, not a dump.</b> The endpoint is unauthenticated, so
 /// <see cref="HealthReportEntry.Exception"/> is deliberately dropped: an Npgsql
 /// failure message carries the host, the database and the role, and a JWT or key
@@ -59,6 +67,15 @@ internal static class HealthReportWriter
         // A cached health answer is a lie about the present, and probes are the one
         // thing that must never be served from anyone's buffer.
         context.Response.Headers.CacheControl = "no-store, no-cache";
+
+        if (!HealthDetailPolicy.MayReadDetails(context))
+        {
+            return JsonSerializer.SerializeAsync(
+                context.Response.Body,
+                new HealthSummaryDto(report.Status.ToString()),
+                s_jsonOptions,
+                context.RequestAborted);
+        }
 
         Dictionary<string, HealthCheckEntryDto> checks =
             new Dictionary<string, HealthCheckEntryDto>(report.Entries.Count, StringComparer.Ordinal);

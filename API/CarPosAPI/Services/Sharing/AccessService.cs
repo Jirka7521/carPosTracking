@@ -10,12 +10,14 @@ namespace CarPosAPI.Services.Sharing;
 /// <summary>
 /// Implements <see cref="IAccessService"/>.
 ///
-/// Two safeguards run through it. Every path resolves the caller's own grant
+/// Three safeguards run through it. Every path resolves the caller's own grant
 /// first and requires <c>CanShare</c> — the id in the URL is never trusted to
-/// imply permission. And the last remaining sharer on a device cannot be removed
-/// or demoted: a device with no one able to share it can never be given away or
-/// recovered, and since devices are only ever soft-deleted, that state is
-/// permanent.
+/// imply permission. <c>CanShare</c> is not a master key: nobody edits their own
+/// grant, and nobody hands out a capability they do not hold
+/// (<see cref="GrantChangePolicy"/>). And the last remaining sharer on a device
+/// cannot be removed or demoted: a device with no one able to share it can never be
+/// given away or recovered, and since devices are only ever soft-deleted, that
+/// state is permanent.
 ///
 /// Scoped — it owns a scoped <see cref="CarPosDbContext"/>.
 /// </summary>
@@ -114,6 +116,13 @@ internal sealed class AccessService : IAccessService
             request.CanShare,
             request.CanModifySettings);
 
+        ServiceError? refusal = GrantChangePolicy.CheckCreate(CapabilitySet.Of(caller.Permissions), capabilities);
+
+        if (refusal is not null)
+        {
+            return OperationResult<AccessDto>.Forbidden(refusal);
+        }
+
         // A previously revoked grant is reactivated rather than duplicated. The
         // partial unique index only covers active rows, so inserting would succeed
         // and leave two rows for one pair — one of which the authorizer's
@@ -201,6 +210,18 @@ internal sealed class AccessService : IAccessService
             request.CanShare,
             request.CanModifySettings);
 
+        ServiceError? refusal = GrantChangePolicy.CheckUpdate(
+            userId,
+            CapabilitySet.Of(caller.Permissions),
+            grant.UserId,
+            new CapabilitySet(grant.CanDelete, grant.CanShare, grant.CanModifySettings),
+            capabilities);
+
+        if (refusal is not null)
+        {
+            return OperationResult<AccessDto>.Forbidden(refusal);
+        }
+
         if (!capabilities.CanShare && grant.CanShare)
         {
             bool wouldOrphan = await IsLastSharerAsync(grant, cancellationToken);
@@ -242,6 +263,9 @@ internal sealed class AccessService : IAccessService
 
         Access grant = lookup.Grant!;
 
+        // Revoking is allowed whatever the grant carries, the caller's own included:
+        // it only ever takes rights away, so it cannot escalate anything. What it can
+        // do is orphan the device, which is the one thing checked here.
         if (grant.CanShare && await IsLastSharerAsync(grant, cancellationToken))
         {
             return OperationResult<bool>.Invalid(

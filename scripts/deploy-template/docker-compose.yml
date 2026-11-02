@@ -54,8 +54,10 @@ services:
 
       # --- MQTT ------------------------------------------------------------
       # Points at Mosquitto on the shared network, so no MQTT traffic leaves the
-      # host — which is why plaintext ws:// is accepted here. Payloads are
-      # end-to-end encrypted by the firmware regardless.
+      # host — which is why plaintext is accepted here. Payloads are end-to-end
+      # encrypted by the firmware regardless. Use the internal TCP listener,
+      # mqtt://mqtt.local:1883: the WebSocket listener (9001) is the internet's
+      # entrance, shared with every client the tunnel lets in.
       #
       # This same value is written into firmware as kMqttBrokerUri, and a
       # container-internal address is NOT reachable by a device — generated
@@ -85,6 +87,21 @@ services:
       # prefix are affected: /health from inside this network and
       # /carPosAPI/health through the tunnel both work. Empty to turn it off.
       Hosting__PathBase: ${API_PATH_BASE-/carPosAPI}
+
+      # --- Host names and proxies -----------------------------------------
+      # The Host headers the API answers; anything else gets a 400. jimajer.cz is
+      # what the tunnel forwards (directly, and through the frontend's nginx, which
+      # passes the browser's Host on); BE_HOST is the name the healthcheck and the
+      # nginx upstream use; FE_HOST is the dashboard's LAN name, which nginx also
+      # passes on; loopback is `docker exec`. Set API_ALLOWED_HOSTS in .env to
+      # override the whole list ("*" switches the filter off).
+      AllowedHosts: ${API_ALLOWED_HOSTS:-jimajer.cz;localhost;127.0.0.1;${BE_HOST};${FE_HOST}}
+      # The only peers whose X-Forwarded-For / CF-Connecting-IP are believed: the
+      # frontend's nginx and the cloudflared container. Everyone else on the VLAN
+      # is attributed to its own address. Comma-separated IPs; the defaults are the
+      # pinned addresses of those two containers.
+      ReverseProxy__TrustedProxies: ${API_TRUSTED_PROXIES:-192.168.124.6,192.168.122.50}
+      ReverseProxy__CloudflareTunnelProxies: ${API_CLOUDFLARE_PROXIES:-192.168.122.50}
     ports:
       # Normal traffic reaches the API through the frontend's nginx. This mapping
       # exists for what nginx deliberately will not forward: /health and /openapi.
@@ -139,6 +156,9 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    # Threads count as pids. The .NET thread pool, Kestrel and the two workers sit
+    # well under a hundred; a runaway (or a fork bomb after a compromise) stops here.
+    pids_limit: 256
     deploy:
       resources:
         limits:
@@ -211,14 +231,29 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    # Least privilege. Not read_only: the entrypoint writes /config.js and stamps
-    # index.html at start, and nginx writes /var/cache/nginx and /var/run. The
-    # master process binds :80 and then drops to the nginx user, which is what
-    # these capabilities are for.
+    # Least privilege. The image is nginx-unprivileged: nginx runs as uid 101 from
+    # the start and needs no capabilities at all. The root filesystem is read-only;
+    # the three tmpfs mounts are everything it writes — its pid file and temp
+    # paths (/tmp), the cache directory, and the site config the entrypoint renders
+    # at start (/etc/nginx/conf.d). The last two are owned by uid 101 explicitly:
+    # a fresh tmpfs is root's, and the entrypoint could not write the config.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx:uid=101,gid=101
+      - /etc/nginx/conf.d:uid=101,gid=101
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID, NET_BIND_SERVICE]
     security_opt:
       - no-new-privileges:true
+    # Port 80 stays (the tunnel ingress targets http://carPosFE.local). A non-root
+    # process may bind it because this lowers the unprivileged-port floor for the
+    # container's own network namespace only — a namespaced sysctl, so it works on
+    # macvlan and changes nothing on the host. Chosen over cap_add
+    # NET_BIND_SERVICE, which Docker does not hand to a non-root process anyway.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    # A master plus one worker per core.
+    pids_limit: 64
     deploy:
       resources:
         limits:

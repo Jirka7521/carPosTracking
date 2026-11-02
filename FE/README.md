@@ -634,7 +634,7 @@ Output goes to `dist/`. TypeScript strict mode is on and the build runs `tsc -b`
 
 ## Deployment
 
-The app ships as a Docker image that bundles nginx:
+The app ships as a Docker image that bundles nginx — `nginxinc/nginx-unprivileged`, so nginx runs as uid 101 rather than root. It still listens on port 80 (the tunnel's ingress targets it); the compose files lower the container's `net.ipv4.ip_unprivileged_port_start` to `0`, a namespaced sysctl that changes nothing on the host. The deployment bundle also runs it with a read-only root filesystem and tmpfs for `/tmp`, `/var/cache/nginx` and `/etc/nginx/conf.d` (where the entrypoint renders the site config). The image's `npm ci` runs with `--ignore-scripts`, and both base images are pinned by digest.
 
 ```bash
 # from the repository root
@@ -645,7 +645,8 @@ See [`Container/App/.env.example`](../Container/App/.env.example) for the variab
 
 - serves the SPA with an `index.html` fallback so deep links and reloads work;
 - serves it at the root **and** under `$CARPOS_BASE_PATH` (`/carPosFE`, the tunnel's route), stripping the prefix and stamping it into the page's `<base href>`;
-- proxies `/api/` to the `api` container (`http://api:8080`), passing `X-Forwarded-*`;
+- proxies `/api/` to the `api` container (`http://api:8080`), **setting** `X-Forwarded-For` to the client address rather than appending to whatever the client sent; that address comes from `CF-Connecting-IP` when the request came through the Cloudflare tunnel connector (`set_real_ip_from 192.168.122.50`) and is the TCP peer otherwise;
+- answers with relative redirects (`absolute_redirect off`), so a redirect behind the TLS-terminating tunnel never points at `http://`;
 - does **not** proxy `/health` or `/openapi` — those are for the operator, not the internet;
 - sends a strict CSP and the usual security headers on every response;
 - caches `/assets/*` for a year (Vite fingerprints the filenames) and never caches `index.html` or `config.js`.

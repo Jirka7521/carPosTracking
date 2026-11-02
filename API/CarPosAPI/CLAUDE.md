@@ -137,8 +137,12 @@ dotnet format                       # before finishing
 - Validation lives on the request DTO (DataAnnotations); `[ApiController]` returns the
   400 for you.
 - `[Authorize]` everywhere; `[AllowAnonymous]` only on auth, the privacy policy, share-link
-  redemption and `/health`. Auth, share redemption and the GDPR operations carry a
-  `RateLimitPolicies` policy — give any new endpoint of that kind one too.
+  redemption and `/health` (a fallback policy denies anything unattributed, and
+  `EndpointAccessMetadataTests` lists the anonymous actions — update it deliberately).
+  Auth, share redemption, the GDPR operations, the user lookup and device registration
+  carry a `RateLimitPolicies` policy — give any new endpoint of that kind one too.
+- `CanShare` never lets a caller edit their own grant or hand out a capability they
+  lack — keep new grant paths behind `GrantChangePolicy`.
 - Passwords go through the existing `Services/Auth/PasswordHasher`; don't add another.
 - `ILogger<T>` with structured templates (`"Device {DeviceId} deactivated"`), never
   interpolation. **Never log secrets, PII or coordinates** — ingest logs device ids,

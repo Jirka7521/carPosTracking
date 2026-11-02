@@ -380,6 +380,13 @@ try {
         Write-Warning ("FE_PORT is {0}, not {1}: from the LAN the dashboard is on port {0}, but inside Docker the FE_HOST alias reaches port {1}." -f $values['FE_PORT'], $FeContainerPort)
     }
 
+    # The broker's WebSocket listener is its public entrance (the tunnel feeds it);
+    # the API belongs on the internal TCP listener. A bundle written before that
+    # split still carries the old address as its "current" value, so say so.
+    if ($values['MQTT_BROKER_URI'] -match '^wss?://mqtt\.local(:9001)?(/|$)') {
+        Write-Warning ("MQTT_BROKER_URI is {0}, the broker's public WebSocket listener. Use the internal listener instead: mqtt://mqtt.local:1883" -f $values['MQTT_BROKER_URI'])
+    }
+
     if ($values['MQTT_USERNAME'] -notin $KnownMqttAccounts) {
         Write-Warning ("MQTT_USERNAME '{0}' is not one of the broker's known accounts ({1}). Add it to Container/MQTTBroker/mosquitto/acl (read on devices/#) or the API cannot connect." -f $values['MQTT_USERNAME'], ($KnownMqttAccounts -join ', '))
     }

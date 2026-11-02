@@ -52,9 +52,7 @@ public sealed class DeviceConfigMotionModelTests
         // the usual sentinel a revision saved with motion wake off would be stored as
         // on, with no error anywhere and a dashboard that still says off.
         Assert.Equal(DeviceConfigRules.DefaultMotionEnabled, property.GetDefaultValue());
-        Assert.NotEqual(
-            false,
-            Assert.IsType<bool>(property.Sentinel));
+        Assert.True(Assert.IsType<bool>(property.Sentinel));
     }
 
     [Fact]

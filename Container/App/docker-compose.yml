@@ -151,6 +151,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # The image runs nginx as uid 101 (nginx-unprivileged) and still listens on 80;
+    # this lowers the unprivileged-port floor inside the container's own network
+    # namespace so it may. Without it nginx fails to start with "Permission denied".
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
 
 networks:
   # Created by the Mosquitto broker stack (docker network create MQTTpublic);

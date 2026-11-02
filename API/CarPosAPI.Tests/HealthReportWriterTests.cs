@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using CarPosAPI.Services.Health;
@@ -89,6 +90,34 @@ public sealed class HealthReportWriterTests
     }
 
     [Fact]
+    public async Task AStrangerGetsTheStatusAndNothingElse()
+    {
+        // The tunnel publishes /carPosAPI/health. Versions, counters and pending
+        // migration ids are for the operator, so a caller from outside the container
+        // gets one field — and the same status code, which is all a probe reads.
+        HealthReport report = ReportWith(
+            ("process", Entry(HealthStatus.Healthy, "running", new Dictionary<string, object>
+            {
+                ["version"] = "1.2.3",
+            })),
+            ("mqtt", Entry(HealthStatus.Degraded, "disconnected", null)));
+
+        DefaultHttpContext context = ContextWithBodyBuffer();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.9");
+        context.Connection.LocalIpAddress = IPAddress.Parse("192.168.124.5");
+
+        await HealthReportWriter.WriteAsync(context, report);
+
+        string raw = Encoding.UTF8.GetString(((MemoryStream)context.Response.Body).ToArray());
+        using JsonDocument document = JsonDocument.Parse(raw);
+
+        Assert.Equal("Degraded", document.RootElement.GetProperty("status").GetString());
+        Assert.Single(document.RootElement.EnumerateObject());
+        Assert.DoesNotContain("1.2.3", raw, StringComparison.Ordinal);
+        Assert.Contains("no-store", context.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
     public async Task SetsAJsonContentTypeAndForbidsCaching()
     {
         DefaultHttpContext context = ContextWithBodyBuffer();
@@ -127,12 +156,17 @@ public sealed class HealthReportWriterTests
         return new HealthReportEntry(status, description, TimeSpan.FromMilliseconds(1), null, data);
     }
 
-    /// <summary>An HTTP context whose response body can be read back.</summary>
+    /// <summary>
+    /// An HTTP context whose response body can be read back, arriving over loopback —
+    /// the caller the full report is written for (see <see cref="HealthDetailPolicy"/>).
+    /// </summary>
     /// <returns>The context.</returns>
     private static DefaultHttpContext ContextWithBodyBuffer()
     {
         DefaultHttpContext context = new DefaultHttpContext();
         context.Response.Body = new MemoryStream();
+        context.Connection.RemoteIpAddress = IPAddress.Loopback;
+        context.Connection.LocalIpAddress = IPAddress.Loopback;
         return context;
     }
 

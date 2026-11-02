@@ -43,4 +43,20 @@ public static class RateLimitPolicies
     /// </para>
     /// </summary>
     public const string ShareRedemption = "share";
+
+    /// <summary>
+    /// Applied to <c>GET /api/users?email=</c>. The lookup answers whether an address
+    /// has an account here, so every call is one guess in an enumeration — cheap to
+    /// make from any account, since sign-up is open. Partitioned by account, like
+    /// <see cref="PrivacyOperations"/>: the account is what is being used to ask.
+    /// </summary>
+    public const string UserLookup = "user-lookup";
+
+    /// <summary>
+    /// Applied to <c>POST /api/devices</c>. Each registration generates an RSA-3072
+    /// key pair, seconds of CPU on the Pi, so a loop of them from one account is a
+    /// denial of service. Partitioned by account; the per-account device cap
+    /// (<c>DeviceRegistrationOptions</c>) is the second half of the same defence.
+    /// </summary>
+    public const string DeviceRegistration = "device-registration";
 }

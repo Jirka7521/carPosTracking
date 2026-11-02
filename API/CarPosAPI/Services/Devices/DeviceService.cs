@@ -1,11 +1,13 @@
 using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
+using CarPosAPI.Options;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Provisioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 
 namespace CarPosAPI.Services.Devices;
 
@@ -24,22 +26,28 @@ internal sealed class DeviceService : IDeviceService
     private readonly CarPosDbContext _context;
     private readonly IDeviceAccessAuthorizer _authorizer;
     private readonly IDeviceProvisioningService _provisioningService;
+    private readonly DeviceRegistrationOptions _registration;
     private readonly ILogger<DeviceService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="authorizer">Resolves the caller's grant on a device.</param>
     /// <param name="provisioningService">Generates and renders device key material.</param>
+    /// <param name="registration">The per-account device ceiling.</param>
     /// <param name="logger">Structured logger (never receives key material).</param>
     public DeviceService(
         CarPosDbContext context,
         IDeviceAccessAuthorizer authorizer,
         IDeviceProvisioningService provisioningService,
+        IOptions<DeviceRegistrationOptions> registration,
         ILogger<DeviceService> logger)
     {
+        ArgumentNullException.ThrowIfNull(registration);
+
         _context = context;
         _authorizer = authorizer;
         _provisioningService = provisioningService;
+        _registration = registration.Value;
         _logger = logger;
     }
 
@@ -149,6 +157,29 @@ internal sealed class DeviceService : IDeviceService
                 ErrorCodes.TrackingDeclarationRequired,
                 "You must confirm that you are entitled to track this vehicle and will " +
                 "tell the people who drive it before a device can be registered.");
+        }
+
+        // Also before any key is generated: the ceiling exists to bound what one
+        // account can make this server do, and the RSA key pair is most of it.
+        // Counted over the devices this account registered itself — the grant it got
+        // at registration is the only one anybody grants to themselves — that are
+        // still active, so deleting one frees a slot. How fast slots can be churned
+        // is the rate limiter's job (RateLimitPolicies.DeviceRegistration).
+        int registeredDevices = await _context.Accesses
+            .AsNoTracking()
+            .CountAsync(
+                access => access.UserId == userId
+                    && access.GrantedBy == userId
+                    && access.IsActive
+                    && access.Device!.IsActive,
+                cancellationToken);
+
+        if (registeredDevices >= _registration.MaxActiveDevicesPerUser)
+        {
+            return OperationResult<DeviceCreatedDto>.Conflict(
+                ErrorCodes.DeviceLimitReached,
+                $"You already have {_registration.MaxActiveDevicesPerUser} active devices, the most one account may register. Delete one before registering another.",
+                new Dictionary<string, object> { ["limit"] = _registration.MaxActiveDevicesPerUser });
         }
 
         // Required because the connection retries transient faults (Program.cs): EF
