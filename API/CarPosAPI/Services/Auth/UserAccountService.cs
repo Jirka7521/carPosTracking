@@ -28,17 +28,20 @@ internal sealed class UserAccountService : IUserAccountService
 
     private readonly CarPosDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly ISessionRegistry _sessions;
     private readonly PrivacyOptions _privacy;
     private readonly ILogger<UserAccountService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="passwordHasher">Hashes and verifies passwords.</param>
+    /// <param name="sessions">Told when a password change ends a user's sessions.</param>
     /// <param name="privacy">Supplies the privacy-policy version registration must match.</param>
     /// <param name="logger">Structured logger — never receives passwords or hashes.</param>
     public UserAccountService(
         CarPosDbContext context,
         IPasswordHasher passwordHasher,
+        ISessionRegistry sessions,
         IOptions<PrivacyOptions> privacy,
         ILogger<UserAccountService> logger)
     {
@@ -46,6 +49,7 @@ internal sealed class UserAccountService : IUserAccountService
 
         _context = context;
         _passwordHasher = passwordHasher;
+        _sessions = sessions;
         _privacy = privacy.Value;
         _logger = logger;
     }
@@ -78,6 +82,7 @@ internal sealed class UserAccountService : IUserAccountService
         {
             Email = email,
             PasswordHash = _passwordHasher.Hash(request.Password),
+            SecurityStamp = SecurityStamps.New(),
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
             PrivacyPolicyVersion = _privacy.PolicyVersion,
@@ -290,7 +295,7 @@ internal sealed class UserAccountService : IUserAccountService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<bool>> ChangePasswordAsync(
+    public async Task<OperationResult<User>> ChangePasswordAsync(
         int userId,
         ChangePasswordRequestDto request,
         CancellationToken cancellationToken)
@@ -302,7 +307,7 @@ internal sealed class UserAccountService : IUserAccountService
 
         if (user is null)
         {
-            return OperationResult<bool>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
+            return OperationResult<User>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
         }
 
         PasswordCheckResult check = _passwordHasher.Check(user.PasswordHash, request.CurrentPassword);
@@ -312,15 +317,20 @@ internal sealed class UserAccountService : IUserAccountService
             // Proof-of-identity failed. Without this gate a stolen session cookie
             // would be upgradable into permanent account takeover.
             _logger.LogInformation("Password change refused for user {UserId}: current password did not match", userId);
-            return OperationResult<bool>.Invalid(ErrorCodes.WrongCurrentPassword, "Your current password is not correct.");
+            return OperationResult<User>.Invalid(ErrorCodes.WrongCurrentPassword, "Your current password is not correct.");
         }
 
+        // A new stamp ends every session issued under the old password, in every
+        // browser — the usual reason for changing a password is that someone else
+        // may know it. The caller gets a fresh session from the controller.
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.SecurityStamp = SecurityStamps.New();
         await _context.SaveChangesAsync(cancellationToken);
+        _sessions.ForgetUser(userId);
 
-        _logger.LogInformation("Password changed for user {UserId}", userId);
+        _logger.LogInformation("Password changed for user {UserId}; earlier sessions ended", userId);
 
-        return OperationResult<bool>.Success(true);
+        return OperationResult<User>.Success(user);
     }
 
     /// <summary>

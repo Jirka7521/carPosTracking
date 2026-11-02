@@ -61,36 +61,26 @@ public sealed class ShareLink
     /// <summary>
     /// Lookup half of the link secret — Base64Url of 16 random bytes, unique.
     ///
-    /// The token stays split in two even though both halves are now readable,
-    /// because the split is what keeps finding a link an indexed equality probe
-    /// rather than a scan: the selector is indexed, the verifier is not.
+    /// Stored in the clear on purpose: it only finds the row (an indexed equality
+    /// probe); the verifier, stored as a digest, is what authorises.
     /// </summary>
     public string Selector { get; set; } = string.Empty;
 
     /// <summary>
-    /// Authorising half of the link secret — Base64Url of 32 random bytes, stored
-    /// in the clear.
-    ///
-    /// Presented alongside <see cref="Selector"/> as <c>selector.verifier</c> and
-    /// compared in constant time. Constant-time comparison is kept even though the
-    /// value is no longer a digest: it costs nothing and still denies an attacker
-    /// the byte-at-a-time timing signal that would turn a 256-bit search into a
-    /// 43-step one.
+    /// SHA-256 (hex) of the authorising half of the link secret — Base64Url of 32
+    /// random bytes. The verifier itself is shown once, when the link is created or
+    /// reissued, and never stored: a copy of this table no longer contains working
+    /// links. Compared in constant time; see <see cref="Services.Sharing.ShareSecretHash"/>.
     /// </summary>
-    public string Verifier { get; set; } = string.Empty;
+    public string VerifierHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// The visitor's code, stored in the clear so the creator can look it up
-    /// again.
-    ///
-    /// Server-generated from an unambiguous alphabet
-    /// (<see cref="Services.Sharing.IPassphraseGenerator"/>), never chosen by a
-    /// person — which is why storing it readable carries none of the reused-password
-    /// risk that makes hashing account passwords non-negotiable. Account passwords
-    /// are unaffected by this and are still PBKDF2; see
-    /// <see cref="Services.Auth.IPasswordHasher"/>.
+    /// SHA-256 (hex) of the visitor's code in its normalised form (see
+    /// <see cref="Services.Sharing.IPassphraseGenerator.Normalise"/>). Like the
+    /// verifier, the code is shown once and never stored. Account passwords are a
+    /// different matter and still PBKDF2; see <see cref="Services.Auth.IPasswordHasher"/>.
     /// </summary>
-    public string Passphrase { get; set; } = string.Empty;
+    public string PassphraseHash { get; set; } = string.Empty;
 
     /// <summary>
     /// The device being shared — the internal <see cref="Device.Id"/> Guid, never

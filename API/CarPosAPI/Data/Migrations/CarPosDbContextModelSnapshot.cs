@@ -17,7 +17,7 @@ namespace CarPosAPI.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -75,6 +75,12 @@ namespace CarPosAPI.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsOwner")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_owner");
+
                     b.Property<int>("UserId")
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
@@ -88,6 +94,10 @@ namespace CarPosAPI.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_accesses_user_id_device_id_active")
                         .HasFilter("is_active");
+
+                    b.HasIndex(new[] { "DeviceId" }, "ux_accesses_device_owner")
+                        .IsUnique()
+                        .HasFilter("is_owner AND is_active");
 
                     b.ToTable("accesses", (string)null);
                 });
@@ -786,6 +796,25 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.RevokedSession", b =>
+                {
+                    b.Property<string>("TokenId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_id");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.HasKey("TokenId");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_revoked_sessions_expires_at");
+
+                    b.ToTable("revoked_sessions", (string)null);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.ShareLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -839,11 +868,11 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("locked_until");
 
-                    b.Property<string>("Passphrase")
+                    b.Property<string>("PassphraseHash")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("passphrase");
+                        .HasColumnName("passphrase_hash");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
@@ -875,11 +904,11 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("valid_until");
 
-                    b.Property<string>("Verifier")
+                    b.Property<string>("VerifierHash")
                         .IsRequired()
-                        .HasMaxLength(43)
-                        .HasColumnType("character varying(43)")
-                        .HasColumnName("verifier");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("verifier_hash");
 
                     b.HasKey("Id");
 
@@ -952,6 +981,12 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("character varying(32)")
                         .HasDefaultValue("")
                         .HasColumnName("privacy_policy_version");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("security_stamp");
 
                     b.HasKey("Id");
 

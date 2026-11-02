@@ -93,16 +93,14 @@ public sealed class PassphraseGeneratorTests
     [Fact]
     public void AGeneratedCodeMatchesItselfThroughTheStoredDisplayForm()
     {
-        // The round trip the redeem path actually performs, and the one that broke
-        // when the code moved from a PBKDF2 hash to plain storage: the stored value
-        // keeps its hyphens so it can be shown back, while the visitor's typing
-        // arrives normalised. Comparing the two raw forms would reject every
-        // correctly typed code, and would do it in the one place where failures look
-        // like an attack.
+        // The round trip the redeem path actually performs: the stored value is the
+        // digest of the NORMALISED code, and the visitor's typing arrives normalised.
+        // Hashing the display form instead would reject every correctly typed code,
+        // and would do it in the one place where failures look like an attack.
         string code = _generator.Generate();
 
         Assert.Contains('-', code);
-        Assert.True(_generator.Matches(code, _generator.Normalise(code)));
+        Assert.True(_generator.Matches(Stored(code), _generator.Normalise(code)));
     }
 
     [Theory]
@@ -111,18 +109,26 @@ public sealed class PassphraseGeneratorTests
     [InlineData("4XKD9TQMR7VP")]
     public void AnyLegibleSpellingOfTheRightCodeMatches(string typed)
     {
-        Assert.True(_generator.Matches("4XKD-9TQM-R7VP", _generator.Normalise(typed)));
+        Assert.True(_generator.Matches(Stored("4XKD-9TQM-R7VP"), _generator.Normalise(typed)));
     }
 
     [Fact]
     public void AWrongCodeDoesNotMatch()
     {
-        Assert.False(_generator.Matches("4XKD-9TQM-R7VP", _generator.Normalise("4XKD-9TQM-R7VQ")));
-        Assert.False(_generator.Matches("4XKD-9TQM-R7VP", _generator.Normalise(string.Empty)));
+        Assert.False(_generator.Matches(Stored("4XKD-9TQM-R7VP"), _generator.Normalise("4XKD-9TQM-R7VQ")));
+        Assert.False(_generator.Matches(Stored("4XKD-9TQM-R7VP"), _generator.Normalise(string.Empty)));
 
         // A prefix of the right answer must not pass. Constant-time comparison
         // returns false on a length mismatch without comparing at all, which is what
         // makes walking the code out one character at a time impossible.
-        Assert.False(_generator.Matches("4XKD-9TQM-R7VP", _generator.Normalise("4XKD")));
+        Assert.False(_generator.Matches(Stored("4XKD-9TQM-R7VP"), _generator.Normalise("4XKD")));
+    }
+
+    /// <summary>What ShareLinkService stores for a code: the digest of its normalised form.</summary>
+    /// <param name="code">The code as handed to the creator.</param>
+    /// <returns>The stored digest.</returns>
+    private string Stored(string code)
+    {
+        return ShareSecretHash.Of(_generator.Normalise(code));
     }
 }

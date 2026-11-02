@@ -54,6 +54,10 @@ public sealed class AccessConfiguration : IEntityTypeConfiguration<Access>
             .HasColumnName("is_active")
             .HasDefaultValue(true);
 
+        builder.Property(access => access.IsOwner)
+            .HasColumnName("is_owner")
+            .HasDefaultValue(false);
+
         builder.Property(access => access.DateRegistration)
             .HasColumnName("date_registration")
             .HasDefaultValueSql("now()");
@@ -84,5 +88,14 @@ public sealed class AccessConfiguration : IEntityTypeConfiguration<Access>
         // "everyone who can see this device" (GET /api/access?deviceId=).
         builder.HasIndex(access => access.DeviceId)
             .HasDatabaseName("ix_accesses_device_id");
+
+        // At most one active owner per device. Not "exactly one" — the database
+        // cannot say that — but the registration path always writes one and the
+        // sharing endpoints never move or remove it. The named overload keeps it a
+        // second index beside ix_accesses_device_id rather than a reconfiguration
+        // of that one.
+        builder.HasIndex(access => access.DeviceId, "ux_accesses_device_owner")
+            .IsUnique()
+            .HasFilter("is_owner AND is_active");
     }
 }

@@ -133,13 +133,11 @@ public sealed class DataExportShapeTests
         // projection dance became unnecessary -- worth knowing, and worth deleting.
         // Until then it is the reason the records above exist at all.
         //
-        // ShareLink holds its two secrets in the CLEAR since 2026-09-12, which makes
-        // keeping them out of the export more important rather than less: an export
-        // is a file that leaves the system, and a readable share link in one is a
-        // working credential in somebody's downloads folder.
+        // ShareLink holds digests of its two secrets; even those stay out of an
+        // export, which is a file that leaves the system.
         Assert.NotNull(typeof(User).GetProperty(nameof(User.PasswordHash)));
         Assert.NotNull(typeof(Device).GetProperty(nameof(Device.PrivateKeyCiphertext)));
-        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.Verifier)));
-        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.Passphrase)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.VerifierHash)));
+        Assert.NotNull(typeof(ShareLink).GetProperty(nameof(ShareLink.PassphraseHash)));
     }
 }

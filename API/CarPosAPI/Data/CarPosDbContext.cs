@@ -38,6 +38,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Per-user private nicknames for devices.</summary>
     public DbSet<DeviceAlias> DeviceAliases => Set<DeviceAlias>();
 
+    /// <summary>Session tokens ended by sign-out before they expired; pruned once they would have.</summary>
+    public DbSet<RevokedSession> RevokedSessions => Set<RevokedSession>();
+
     /// <summary>Temporary, account-less links onto a device's positions.</summary>
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
 

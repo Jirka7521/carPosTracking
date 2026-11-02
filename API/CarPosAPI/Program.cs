@@ -48,6 +48,20 @@ if (SchemaSyncCommand.IsRequested(args))
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+// Secrets as files. The deployment mounts each secret read-only under /run/secrets
+// with the configuration key as its file name (ConnectionStrings__CarPos,
+// Mqtt__Password, Jwt__SigningKey, DeviceKeyProtection__MasterKeyBase64); the
+// key-per-file provider turns "__" into the section separator, so each lands on
+// its key with no mapping code. Files rather than environment variables because
+// Docker keeps a container's environment in plain text in its config on the
+// host's disk and prints it in `docker inspect`; a mounted file is neither.
+//
+// Added after the environment, so a file wins over a variable of the same name —
+// and optional, so a deployment that still passes environment variables (or
+// development, where the directory does not exist) works exactly as before.
+const string ContainerSecretsPath = "/run/secrets";
+builder.Configuration.AddKeyPerFile(ContainerSecretsPath, optional: true, reloadOnChange: false);
+
 // Local developer overrides. appsettings.json is committed and secret-free (it
 // doubles as the example: every key is listed, secrets left empty); the real
 // values live here. The file is git-ignored and optional, so a fresh clone still
@@ -173,7 +187,7 @@ string? connectionString = builder.Configuration.GetConnectionString("CarPos");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        "Connection string 'CarPos' is missing. Set it in appsettings.Local.json (or with 'dotnet user-secrets set \"ConnectionStrings:CarPos\" \"...\"') in development, or as the ConnectionStrings__CarPos environment variable in production.");
+        "Connection string 'CarPos' is missing. Set it in appsettings.Local.json (or with 'dotnet user-secrets set \"ConnectionStrings:CarPos\" \"...\"') in development, or in production as the file /run/secrets/ConnectionStrings__CarPos (or the ConnectionStrings__CarPos environment variable).");
 }
 
 // Transient faults are retried in-process rather than surfacing as a 500 on the
@@ -251,6 +265,12 @@ builder.Services.AddScoped<IDeviceProvisioningService, DeviceProvisioningService
 // ---------------------------------------------------------------------------
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenIssuer, JwtTokenIssuer>();
+// Revocable sessions: every validated session token is checked against the user's
+// security stamp and the sign-out deny-list (OnTokenValidated below), through a
+// short process-wide cache. Singletons, reaching the database via the factory.
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ISessionStateSource, DbSessionStateSource>();
+builder.Services.AddSingleton<ISessionRegistry, SessionRegistry>();
 builder.Services.AddSingleton<ISessionCookieWriter, SessionCookieWriter>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
@@ -367,6 +387,21 @@ builder.Services
 
                 context.Token = context.Request.Cookies[cookieOptions.SessionCookieName];
                 return Task.CompletedTask;
+            },
+            // A valid signature is not enough any more: the token must still be a
+            // live session — not signed out, not issued before the last password
+            // change, not for an account that has been erased. Failing here makes
+            // the request anonymous, so [Authorize] answers 401 as for no cookie.
+            OnTokenValidated = async (TokenValidatedContext context) =>
+            {
+                ISessionRegistry sessions = context.HttpContext.RequestServices
+                    .GetRequiredService<ISessionRegistry>();
+
+                if (context.Principal is null
+                    || !await sessions.IsCurrentAsync(context.Principal, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("The session has ended.");
+                }
             },
         };
     })

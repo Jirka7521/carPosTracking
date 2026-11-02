@@ -26,7 +26,7 @@ public sealed class EndpointAccessMetadataTests
     private static readonly string[] ExpectedAnonymousActions =
     [
         "AuthController.LoginAsync",
-        "AuthController.Logout",
+        "AuthController.LogoutAsync",
         "AuthController.RegisterAsync",
         "PrivacyController.GetPolicy",
         "ShareAccessController.Leave",

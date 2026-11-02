@@ -63,6 +63,15 @@ public sealed class Access
     /// </summary>
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// True on the grant of the account that registered the device — at most one
+    /// active grant per device (a partial unique index). The owner's grant cannot be
+    /// edited or revoked through the sharing endpoints, and only the owner may give
+    /// or take <see cref="CanDelete"/>: <c>CanShare</c> alone no longer lets a
+    /// co-sharer remove the person whose tracker it is.
+    /// </summary>
+    public bool IsOwner { get; set; }
+
     /// <summary>When the grant was created (UTC). DB-generated default.</summary>
     public DateTime DateRegistration { get; set; }
 }

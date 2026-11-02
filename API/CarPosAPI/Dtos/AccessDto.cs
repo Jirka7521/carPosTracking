@@ -18,6 +18,7 @@ namespace CarPosAPI.Dtos;
 /// <param name="CanDelete">May soft-delete the device.</param>
 /// <param name="CanShare">May re-share the device; implies <paramref name="CanModifySettings"/>.</param>
 /// <param name="CanModifySettings">May change settings and read the firmware block.</param>
+/// <param name="IsOwner">The grant of the account that registered the device; not editable or revocable here.</param>
 public sealed record AccessDto(
     int Id,
     int UserId,
@@ -27,4 +28,5 @@ public sealed record AccessDto(
     bool CanRead,
     bool CanDelete,
     bool CanShare,
-    bool CanModifySettings);
+    bool CanModifySettings,
+    bool IsOwner);

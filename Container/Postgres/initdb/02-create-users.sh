@@ -7,13 +7,18 @@
 #   BE - read/write (SELECT, INSERT, UPDATE, DELETE) on all current and future
 #        tables. No DDL: it can't DROP or ALTER anything (owner-only).
 #
-# Its username/password come from the BE_USER / BE_PASSWORD env vars, which
-# docker-compose injects from .env. This is a .sh (not .sql) script precisely
-# so it can read those env vars; plain .sql files can't.
+# Its username comes from BE_USER (.env); its password from the file named by
+# BE_PASSWORD_FILE (compose mounts secrets/BE_PASSWORD there), or from BE_PASSWORD
+# for a setup that still passes it as a variable. This is a .sh (not .sql) script
+# precisely so it can read those; plain .sql files can't.
 set -euo pipefail
 
+if [ -n "${BE_PASSWORD_FILE:-}" ]; then
+  BE_PASSWORD="$(cat "$BE_PASSWORD_FILE")"
+fi
+
 : "${BE_USER:?BE_USER must be set in .env}"
-: "${BE_PASSWORD:?BE_PASSWORD must be set in .env}"
+: "${BE_PASSWORD:?BE_PASSWORD must be set - secrets/BE_PASSWORD (or .env)}"
 
 # Connect as the admin superuser against the app database. The username is
 # interpolated as a quoted identifier (:"...") and the password via format(%L)

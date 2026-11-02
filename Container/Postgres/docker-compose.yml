@@ -17,15 +17,23 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
-      # admin is the bootstrap superuser / owner the image creates.
+      # admin is the bootstrap superuser / owner the image creates. Its password
+      # is a file (see `secrets:` below), read by the image's own entrypoint via
+      # the _FILE convention: Docker keeps a container's environment in plain text
+      # in its config on the host and prints it in `docker inspect`. Both
+      # passwords are only read when an EMPTY data directory is initialised.
       POSTGRES_USER: ${ADMIN_USER}
-      POSTGRES_PASSWORD: ${ADMIN_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/ADMIN_PASSWORD
       POSTGRES_DB: ${POSTGRES_DB}
-      # BE (read/write, no DDL) is created by initdb/02-create-users.sh.
+      # BE (read/write, no DDL) is created by initdb/02-create-users.sh, which
+      # reads BE_PASSWORD_FILE the same way.
       BE_USER: ${BE_USER}
-      BE_PASSWORD: ${BE_PASSWORD}
+      BE_PASSWORD_FILE: /run/secrets/BE_PASSWORD
       # Keep the data dir in a subfolder so the volume mount root stays clean.
       PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - ADMIN_PASSWORD
+      - BE_PASSWORD
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -48,6 +56,16 @@ services:
 
 volumes:
   pgdata:
+
+# Passwords, one file each in ./secrets (gitignored). A file secret without Swarm
+# is a plain bind mount with the host file's owner and mode, and the image reads
+# them as the postgres user, so the files must be 0644 inside a 0700 directory:
+#   chmod 700 secrets && chmod 644 secrets/*
+secrets:
+  ADMIN_PASSWORD:
+    file: ./secrets/ADMIN_PASSWORD
+  BE_PASSWORD:
+    file: ./secrets/BE_PASSWORD
 
 networks:
   # Shared network created by the Mosquitto broker stack; joined, not created here.

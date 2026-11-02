@@ -82,8 +82,12 @@ public interface IUserAccountService
     /// <param name="userId">The user being changed (must be the caller).</param>
     /// <param name="request">Current and new password.</param>
     /// <param name="cancellationToken">Cancels the database work.</param>
-    /// <returns>Success, or <see cref="OperationOutcome.Invalid"/> when the current password is wrong.</returns>
-    Task<OperationResult<bool>> ChangePasswordAsync(
+    /// <returns>
+    /// The user, whose security stamp has been replaced — every earlier session is
+    /// over, and the caller needs a new one — or <see cref="OperationOutcome.Invalid"/>
+    /// when the current password is wrong.
+    /// </returns>
+    Task<OperationResult<User>> ChangePasswordAsync(
         int userId,
         ChangePasswordRequestDto request,
         CancellationToken cancellationToken);

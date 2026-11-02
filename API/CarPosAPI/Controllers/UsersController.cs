@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
@@ -29,14 +30,24 @@ public sealed class UsersController : ApiControllerBase
 {
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IUserAccountService _accounts;
+    private readonly IJwtTokenIssuer _tokenIssuer;
+    private readonly ISessionCookieWriter _cookieWriter;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="currentUser">Supplies the caller's id.</param>
     /// <param name="accounts">Does the account work.</param>
-    public UsersController(ICurrentUserAccessor currentUser, IUserAccountService accounts)
+    /// <param name="tokenIssuer">Mints the replacement session after a password change.</param>
+    /// <param name="cookieWriter">Writes it.</param>
+    public UsersController(
+        ICurrentUserAccessor currentUser,
+        IUserAccountService accounts,
+        IJwtTokenIssuer tokenIssuer,
+        ISessionCookieWriter cookieWriter)
     {
         _currentUser = currentUser;
         _accounts = accounts;
+        _tokenIssuer = tokenIssuer;
+        _cookieWriter = cookieWriter;
     }
 
     /// <summary>Finds the user with exactly this email address, for the "share with…" picker.</summary>
@@ -134,10 +145,18 @@ public sealed class UsersController : ApiControllerBase
             return Forbid();
         }
 
-        OperationResult<bool> result =
+        OperationResult<User> result =
             await _accounts.ChangePasswordAsync(userId, request, cancellationToken);
 
-        return result.IsSuccess ? NoContent() : Failure(result);
+        if (!result.IsSuccess)
+        {
+            return Failure(result);
+        }
+
+        // The change ended every session under the old stamp, this one included;
+        // the person who just proved they know the password keeps working.
+        _cookieWriter.Issue(Response, _tokenIssuer.Issue(result.Value!));
+        return NoContent();
     }
 
     /// <summary>Checks that a route id refers to the caller themselves.</summary>

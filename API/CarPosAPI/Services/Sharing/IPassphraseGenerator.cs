@@ -36,8 +36,8 @@ internal interface IPassphraseGenerator
     /// position — twelve times thirty-one guesses instead of thirty-one to the
     /// twelfth. The cooldown makes that slow; this makes it useless.
     /// </summary>
-    /// <param name="storedPassphrase">The code from the database, in its grouped display form.</param>
+    /// <param name="storedPassphraseHash">The code from the database, in its grouped display form.</param>
     /// <param name="normalisedPassphrase">The visitor's code, already through <see cref="Normalise"/>.</param>
     /// <returns>True when they match.</returns>
-    bool Matches(string storedPassphrase, string normalisedPassphrase);
+    bool Matches(string storedPassphraseHash, string normalisedPassphrase);
 }

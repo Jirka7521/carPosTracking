@@ -9,9 +9,11 @@
 # with the ownership Mosquitto wants. Mounting outside /mosquitto also stops the
 # image's own entrypoint tripping over `chown -R /mosquitto`.
 #
-# Credentials live in .env only; the hashed password files are regenerated on
-# every boot into a named volume, so changing a password is just
-# `docker compose up -d --force-recreate mosquitto`. Every account is mandatory:
+# Usernames live in .env, passwords in ./secrets/<NAME> (compose `secrets:`,
+# mounted at /run/secrets/<NAME>); an <NAME> environment variable is still read
+# when there is no file, so an older deployment keeps booting. The hashed password
+# files are regenerated on every boot into a named volume, so changing a password
+# is just `docker compose up -d --force-recreate mosquitto`. Every account is mandatory:
 # a missing or empty password aborts the boot rather than starting a broker with
 # an account that cannot log in.
 #
@@ -36,22 +38,49 @@ PASSWD_WS=/mosquitto/secrets/passwd-ws
 # appears on a command line either. Root-only; the probe runs as root.
 HEALTHCHECK_OPTS=/mosquitto/healthcheck.opts
 
+SECRETS=/run/secrets
+
 require() {
 	# $1 = env var name, $2 = its value
 	if [ -z "$2" ]; then
-		echo "entrypoint-passwd: $1 is empty - set it in .env" >&2
+		echo "entrypoint-passwd: $1 is empty - set it in secrets/$1 (or .env)" >&2
 		exit 1
 	fi
 }
 
+# secret <NAME>: the content of /run/secrets/<NAME> when that file exists, else
+# the <NAME> environment variable. $(cat) drops the trailing newline an editor
+# may have added; a newline INSIDE a password is refused, because mosquitto_passwd
+# reads the password as a single line.
+secret() {
+	if [ -f "$SECRETS/$1" ]; then
+		_value=$(cat "$SECRETS/$1")
+	else
+		eval "_value=\${$1:-}"
+	fi
+	case "$_value" in
+		*"
+"*)
+			echo "entrypoint-passwd: $1 contains a line break" >&2
+			exit 1
+			;;
+	esac
+	printf '%s' "$_value"
+}
+
+ADMIN_PASSWORD=$(secret ADMIN_PASSWORD)
+DEVICE_PASSWORD=$(secret DEVICE_PASSWORD)
+DASHBOARD_PASSWORD=$(secret DASHBOARD_PASSWORD)
+HEALTHCHECK_PASSWORD=$(secret HEALTHCHECK_PASSWORD)
+
 require ADMIN_USER "${ADMIN_USER:-}"
-require ADMIN_PASSWORD "${ADMIN_PASSWORD:-}"
+require ADMIN_PASSWORD "$ADMIN_PASSWORD"
 require DEVICE_USER "${DEVICE_USER:-}"
-require DEVICE_PASSWORD "${DEVICE_PASSWORD:-}"
+require DEVICE_PASSWORD "$DEVICE_PASSWORD"
 require DASHBOARD_USER "${DASHBOARD_USER:-}"
-require DASHBOARD_PASSWORD "${DASHBOARD_PASSWORD:-}"
+require DASHBOARD_PASSWORD "$DASHBOARD_PASSWORD"
 require HEALTHCHECK_USER "${HEALTHCHECK_USER:-}"
-require HEALTHCHECK_PASSWORD "${HEALTHCHECK_PASSWORD:-}"
+require HEALTHCHECK_PASSWORD "$HEALTHCHECK_PASSWORD"
 
 case "${DASHBOARD_ON_WEBSOCKETS:-true}" in
 	true|false) ;;

@@ -212,6 +212,9 @@ export type AccessDto = {
   canDelete: boolean
   canShare: boolean
   canModifySettings: boolean
+  // The grant of the account that registered the device. The API refuses to
+  // edit or revoke it, so the dashboard does not offer to.
+  isOwner: boolean
 }
 
 // POST /api/devices. additionalAccesses is optional; the server automatically
@@ -654,12 +657,9 @@ export interface ShareLinkDto {
   deviceId: string
   // What the visitor sees the tracker called, and the creator's own note.
   label: string
-  // The link secret and the code, readable because the server stores them in the
-  // clear (decision of 2026-09-12) so they can be looked up again after the
-  // one-time reveal has gone. This makes GET /api/shares a credential-bearing
-  // response; it stays behind the session cookie and CanShare on the device.
-  token: string
-  passphrase: string
+  // No link and no code: the server keeps only digests of them, so they exist
+  // only in the ShareLinkCreatedDto of the create or reissue that minted them. A
+  // lost link is reissued, not looked up.
   validFrom: string
   validUntil: string
   scope: ShareScope

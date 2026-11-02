@@ -182,6 +182,12 @@ public static class ErrorCodes
     /// <summary>Granting a capability the caller does not hold themselves.</summary>
     public const string CannotGrantUnheldCapability = "cannotGrantUnheldCapability";
 
+    /// <summary>Editing or revoking the owner's grant.</summary>
+    public const string OwnerAccessImmutable = "ownerAccessImmutable";
+
+    /// <summary>A non-owner giving or taking <c>CanDelete</c>.</summary>
+    public const string OnlyOwnerManagesDelete = "onlyOwnerManagesDelete";
+
     // ----- Share links -----
 
     /// <summary>The share link does not exist, or is not the caller's to manage.</summary>

@@ -6,109 +6,111 @@ namespace CarPosAPI.Tests;
 
 /// <summary>
 /// Pins the escalation rules on sharing grants. Before them, <c>CanShare</c> was a
-/// master key: a sharer could tick <c>CanDelete</c> on their own grant, or hand it to
-/// a second account of their own, though nobody had ever given it to them. Neither
-/// shows up as an error anywhere — only as a permission that should not exist — so
-/// each path is asserted here rather than assumed.
+/// master key: a sharer could tick <c>CanDelete</c> on their own grant, hand it to a
+/// second account of their own, or remove the person who registered the device.
+/// None of that shows up as an error anywhere — only as a permission that should
+/// not exist — so each path is asserted here rather than assumed.
 /// </summary>
 public sealed class GrantChangePolicyTests
 {
-    private const int Caller = 7;
-    private const int Other = 8;
+    /// <summary>A co-sharer who may not delete: share implies settings, delete not held.</summary>
+    private static readonly GrantParty Sharer = new GrantParty(7, new CapabilitySet(false, true, true), IsOwner: false);
 
-    /// <summary>A sharer who may not delete: share implies settings, delete not held.</summary>
-    private static readonly CapabilitySet SharerWithoutDelete = new CapabilitySet(false, true, true);
+    /// <summary>The account that registered the device.</summary>
+    private static readonly GrantParty Owner = new GrantParty(1, CapabilitySet.Full(), IsOwner: true);
+
+    /// <summary>A co-sharer who was given the delete right by the owner.</summary>
+    private static readonly GrantParty SharerWithDelete = new GrantParty(9, CapabilitySet.Full(), IsOwner: false);
+
+    /// <summary>A read-only viewer.</summary>
+    private static readonly GrantParty Viewer = new GrantParty(8, CapabilitySet.None(), IsOwner: false);
 
     [Fact]
     public void ASharerCannotEditTheirOwnGrant()
     {
         // The headline case: promoting oneself to CanDelete.
-        ServiceError? refusal = GrantChangePolicy.CheckUpdate(
-            Caller,
-            SharerWithoutDelete,
-            Caller,
-            SharerWithoutDelete,
-            CapabilitySet.Full());
+        ServiceError? refusal = GrantChangePolicy.CheckUpdate(Sharer, Sharer, CapabilitySet.Full());
 
-        Assert.NotNull(refusal);
-        Assert.Equal(ErrorCodes.CannotChangeOwnAccess, refusal.Code);
+        Assert.Equal(ErrorCodes.CannotChangeOwnAccess, refusal?.Code);
     }
 
     [Fact]
     public void EvenADemotionOfOnesOwnGrantIsRefused()
     {
-        // "Never your own" rather than "never your own upwards": one rule with no
-        // exceptions to get wrong. Leaving is a revoke, which stays allowed.
-        ServiceError? refusal = GrantChangePolicy.CheckUpdate(
-            Caller,
-            CapabilitySet.Full(),
-            Caller,
-            CapabilitySet.Full(),
-            new CapabilitySet(false, false, false));
+        ServiceError? refusal = GrantChangePolicy.CheckUpdate(Owner, Owner, CapabilitySet.None());
 
-        Assert.NotNull(refusal);
-        Assert.Equal(ErrorCodes.CannotChangeOwnAccess, refusal.Code);
+        Assert.Equal(ErrorCodes.CannotChangeOwnAccess, refusal?.Code);
+    }
+
+    [Fact]
+    public void TheOwnersGrantCannotBeEditedOrRevoked()
+    {
+        Assert.Equal(
+            ErrorCodes.OwnerAccessImmutable,
+            GrantChangePolicy.CheckUpdate(SharerWithDelete, Owner, CapabilitySet.None())?.Code);
+
+        Assert.Equal(ErrorCodes.OwnerAccessImmutable, GrantChangePolicy.CheckRevoke(Owner)?.Code);
+        Assert.Null(GrantChangePolicy.CheckRevoke(Sharer));
+    }
+
+    [Fact]
+    public void OnlyTheOwnerGivesTheDeleteRight()
+    {
+        CapabilitySet withDelete = CapabilitySet.FromRequest(canDelete: true, canShare: false, canModifySettings: false);
+
+        // Not even a co-sharer who holds CanDelete themselves.
+        Assert.Equal(ErrorCodes.OnlyOwnerManagesDelete, GrantChangePolicy.CheckCreate(SharerWithDelete, withDelete)?.Code);
+        Assert.Equal(ErrorCodes.OnlyOwnerManagesDelete, GrantChangePolicy.CheckUpdate(SharerWithDelete, Viewer, withDelete)?.Code);
+
+        Assert.Null(GrantChangePolicy.CheckCreate(Owner, withDelete));
+        Assert.Null(GrantChangePolicy.CheckUpdate(Owner, Viewer, withDelete));
+    }
+
+    [Fact]
+    public void OnlyTheOwnerTakesTheDeleteRightAway()
+    {
+        Assert.Equal(
+            ErrorCodes.OnlyOwnerManagesDelete,
+            GrantChangePolicy.CheckUpdate(Sharer, SharerWithDelete, new CapabilitySet(false, true, true))?.Code);
+
+        Assert.Null(GrantChangePolicy.CheckUpdate(Owner, SharerWithDelete, new CapabilitySet(false, true, true)));
     }
 
     [Fact]
     public void ACapabilityTheCallerLacksCannotBeGranted()
     {
-        ServiceError? onCreate = GrantChangePolicy.CheckCreate(
-            SharerWithoutDelete,
-            CapabilitySet.FromRequest(canDelete: true, canShare: false, canModifySettings: false));
+        GrantParty settingsOnly = new GrantParty(10, new CapabilitySet(false, false, true), IsOwner: false);
 
-        ServiceError? onUpdate = GrantChangePolicy.CheckUpdate(
-            Caller,
-            SharerWithoutDelete,
-            Other,
-            CapabilitySet.None(),
-            CapabilitySet.FromRequest(canDelete: true, canShare: false, canModifySettings: false));
-
-        Assert.NotNull(onCreate);
-        Assert.Equal(ErrorCodes.CannotGrantUnheldCapability, onCreate.Code);
-        Assert.NotNull(onUpdate);
-        Assert.Equal(ErrorCodes.CannotGrantUnheldCapability, onUpdate.Code);
+        Assert.Equal(
+            ErrorCodes.CannotGrantUnheldCapability,
+            GrantChangePolicy.CheckCreate(settingsOnly, CapabilitySet.FromRequest(false, true, false))?.Code);
+        Assert.Equal(
+            ErrorCodes.CannotGrantUnheldCapability,
+            GrantChangePolicy.CheckUpdate(settingsOnly, Viewer, CapabilitySet.FromRequest(false, true, false))?.Code);
     }
 
     [Fact]
     public void WhatTheCallerHoldsCanBeGranted()
     {
-        Assert.Null(GrantChangePolicy.CheckCreate(
-            SharerWithoutDelete,
-            CapabilitySet.FromRequest(canDelete: false, canShare: true, canModifySettings: false)));
-
-        Assert.Null(GrantChangePolicy.CheckCreate(CapabilitySet.Full(), CapabilitySet.Full()));
+        Assert.Null(GrantChangePolicy.CheckCreate(Sharer, CapabilitySet.FromRequest(false, true, false)));
+        Assert.Null(GrantChangePolicy.CheckCreate(Owner, CapabilitySet.Full()));
     }
 
     [Fact]
-    public void ACapabilityTheGranteeAlreadyHasMayBeKeptOrRemoved()
+    public void ACapabilityTheGranteeAlreadyHasMayBeKept()
     {
-        // PUT is a full replacement, so a sharer without CanDelete editing somebody
-        // who has it must be able to echo it back unchanged — that is not a grant.
-        CapabilitySet current = new CapabilitySet(true, false, false);
+        // PUT is a full replacement, so a sharer editing somebody who holds
+        // CanDelete must be able to echo it back unchanged — that is not a grant.
+        GrantParty grantee = new GrantParty(11, new CapabilitySet(true, false, false), IsOwner: false);
 
-        Assert.Null(GrantChangePolicy.CheckUpdate(
-            Caller,
-            SharerWithoutDelete,
-            Other,
-            current,
-            new CapabilitySet(true, false, true)));
-
-        // Taking it away only ever reduces what exists.
-        Assert.Null(GrantChangePolicy.CheckUpdate(
-            Caller,
-            SharerWithoutDelete,
-            Other,
-            current,
-            CapabilitySet.None()));
+        Assert.Null(GrantChangePolicy.CheckUpdate(Sharer, grantee, new CapabilitySet(true, false, true)));
     }
 
     [Fact]
     public void ARevokedGrantIsNotARightToItsOldCapabilities()
     {
-        // Re-granting reactivates the revoked row, but its old flags are history:
-        // CheckCreate measures against nothing, so CanDelete cannot ride back in on
-        // a reactivation by a sharer who does not hold it.
-        Assert.NotNull(GrantChangePolicy.CheckCreate(SharerWithoutDelete, CapabilitySet.Full()));
+        // Re-granting reactivates the revoked row, but CheckCreate measures against
+        // nothing, so a capability cannot ride back in on a reactivation.
+        Assert.NotNull(GrantChangePolicy.CheckCreate(Sharer, CapabilitySet.Full()));
     }
 }

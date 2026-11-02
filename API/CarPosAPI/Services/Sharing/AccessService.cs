@@ -74,7 +74,8 @@ internal sealed class AccessService : IAccessService
                 access.CanRead,
                 access.CanDelete,
                 access.CanShare,
-                access.CanModifySettings))
+                access.CanModifySettings,
+                access.IsOwner))
             .ToListAsync(cancellationToken);
 
         return OperationResult<IReadOnlyList<AccessDto>>.Success(grants);
@@ -116,7 +117,7 @@ internal sealed class AccessService : IAccessService
             request.CanShare,
             request.CanModifySettings);
 
-        ServiceError? refusal = GrantChangePolicy.CheckCreate(CapabilitySet.Of(caller.Permissions), capabilities);
+        ServiceError? refusal = GrantChangePolicy.CheckCreate(Party(userId, caller), capabilities);
 
         if (refusal is not null)
         {
@@ -210,12 +211,7 @@ internal sealed class AccessService : IAccessService
             request.CanShare,
             request.CanModifySettings);
 
-        ServiceError? refusal = GrantChangePolicy.CheckUpdate(
-            userId,
-            CapabilitySet.Of(caller.Permissions),
-            grant.UserId,
-            new CapabilitySet(grant.CanDelete, grant.CanShare, grant.CanModifySettings),
-            capabilities);
+        ServiceError? refusal = GrantChangePolicy.CheckUpdate(Party(userId, caller), Party(grant), capabilities);
 
         if (refusal is not null)
         {
@@ -263,9 +259,16 @@ internal sealed class AccessService : IAccessService
 
         Access grant = lookup.Grant!;
 
-        // Revoking is allowed whatever the grant carries, the caller's own included:
-        // it only ever takes rights away, so it cannot escalate anything. What it can
-        // do is orphan the device, which is the one thing checked here.
+        // Revoking only ever takes rights away, so it cannot escalate anything —
+        // except against the owner, whose grant nobody removes.
+        ServiceError? refusal = GrantChangePolicy.CheckRevoke(Party(grant));
+
+        if (refusal is not null)
+        {
+            return OperationResult<bool>.Forbidden(refusal);
+        }
+
+        // What a revoke can still do is orphan the device's sharing.
         if (grant.CanShare && await IsLastSharerAsync(grant, cancellationToken))
         {
             return OperationResult<bool>.Invalid(
@@ -376,6 +379,27 @@ internal sealed class AccessService : IAccessService
             grant.CanRead,
             grant.CanDelete,
             grant.CanShare,
-            grant.CanModifySettings);
+            grant.CanModifySettings,
+            grant.IsOwner);
+    }
+
+    /// <summary>The caller as the grant policy sees them.</summary>
+    /// <param name="userId">The authenticated caller.</param>
+    /// <param name="caller">Their resolved context on the device.</param>
+    /// <returns>The policy's view of the caller.</returns>
+    private static GrantParty Party(int userId, DeviceAccessContext caller)
+    {
+        return new GrantParty(userId, CapabilitySet.Of(caller.Permissions), caller.IsOwner);
+    }
+
+    /// <summary>A grant's holder as the grant policy sees them.</summary>
+    /// <param name="grant">The stored grant.</param>
+    /// <returns>The policy's view of the grantee.</returns>
+    private static GrantParty Party(Access grant)
+    {
+        return new GrantParty(
+            grant.UserId,
+            new CapabilitySet(grant.CanDelete, grant.CanShare, grant.CanModifySettings),
+            grant.IsOwner);
     }
 }

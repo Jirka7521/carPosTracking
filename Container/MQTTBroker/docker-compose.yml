@@ -33,18 +33,17 @@ services:
       # one that is still running.
       autoheal: "true"
     environment:
-      # All four are mandatory - the entrypoint aborts the boot if any is empty,
-      # rather than starting a broker with an account nobody can log into.
+      # All four accounts are mandatory - the entrypoint aborts the boot if any
+      # user or password is empty, rather than starting a broker with an account
+      # nobody can log into. The usernames are here; the passwords are files (see
+      # `secrets:` below), because Docker keeps a container's environment in plain
+      # text in its config on the host and prints it in `docker inspect`.
       ADMIN_USER: ${ADMIN_USER:?set ADMIN_USER in .env}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       DEVICE_USER: ${DEVICE_USER:?set DEVICE_USER in .env}
-      DEVICE_PASSWORD: ${DEVICE_PASSWORD:?set DEVICE_PASSWORD in .env}
       DASHBOARD_USER: ${DASHBOARD_USER:?set DASHBOARD_USER in .env}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
       # The probe's account. The entrypoint writes it into an options file that
       # healthcheck.sh hands to mosquitto_pub/_sub, so it is never an argument.
       HEALTHCHECK_USER: ${HEALTHCHECK_USER:?set HEALTHCHECK_USER in .env}
-      HEALTHCHECK_PASSWORD: ${HEALTHCHECK_PASSWORD:?set HEALTHCHECK_PASSWORD in .env}
       # Whether the API's dashboard account may also log in over the public
       # WebSocket listener. true keeps an API still configured for
       # ws://mqtt.local:9001 working; once its MQTT_BROKER_URI is
@@ -75,6 +74,13 @@ services:
           # resolve inside a container. This alias makes the name resolve to this
           # service on the Docker network, so the proxy config works either way.
           - mqtt.local
+    secrets:
+      # Mounted read-only at /run/secrets/<name>; entrypoint-passwd.sh reads each
+      # one there (an *_PASSWORD environment variable still works as a fallback).
+      - ADMIN_PASSWORD
+      - DEVICE_PASSWORD
+      - DASHBOARD_PASSWORD
+      - HEALTHCHECK_PASSWORD
     healthcheck:
       # Authenticated publish/subscribe round-trip. See healthcheck.sh.
       test: ["CMD", "/bin/sh", "/config-src/healthcheck.sh"]
@@ -197,6 +203,20 @@ services:
 volumes:
   mosquitto_data:
   mosquitto_secrets:
+
+# Passwords, one file each in ./secrets (not committed - see .gitignore). Without
+# Swarm a file secret is a plain bind mount with the host file's owner and mode;
+# the entrypoint reads them as root, so 0600 is enough, but keep the directory
+# 0700 either way:   chmod 700 secrets && chmod 600 secrets/*
+secrets:
+  ADMIN_PASSWORD:
+    file: ./secrets/ADMIN_PASSWORD
+  DEVICE_PASSWORD:
+    file: ./secrets/DEVICE_PASSWORD
+  DASHBOARD_PASSWORD:
+    file: ./secrets/DASHBOARD_PASSWORD
+  HEALTHCHECK_PASSWORD:
+    file: ./secrets/HEALTHCHECK_PASSWORD
 
 networks:
   # Created outside this stack, so both this and the Postgres stack just join it:

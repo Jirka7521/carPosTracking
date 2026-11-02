@@ -55,6 +55,12 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(PasswordHashMaxLength)
             .IsRequired();
 
+        // 32 hex characters (a GUID without separators), see SecurityStamps.
+        builder.Property(user => user.SecurityStamp)
+            .HasColumnName("security_stamp")
+            .HasMaxLength(32)
+            .IsRequired();
+
         builder.Property(user => user.FirstName)
             .HasColumnName("first_name")
             .HasMaxLength(NameMaxLength)
