@@ -46,13 +46,15 @@ internal sealed class JwtTokenIssuer : IJwtTokenIssuer
         DateTime issuedAtUtc = DateTime.UtcNow;
         DateTime expiresAtUtc = issuedAtUtc.Add(lifetime);
 
-        // 'sub' is the user id and 'jti' a unique token id — the latter is not used
-        // for revocation today (there is no deny-list), but it makes two tokens
-        // issued in the same second distinguishable in a log or a support ticket.
+        // 'sub' is the user id, 'jti' the token's own id — what sign-out puts on
+        // the deny-list — and 'stamp' the user's security stamp, which a password
+        // change replaces to end every older session. ISessionRegistry checks both
+        // on every request; a token without them is refused.
         Claim[] claims =
         [
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString(CultureInfo.InvariantCulture)),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
+            new Claim(SessionClaims.SecurityStamp, user.SecurityStamp),
         ];
 
         JwtSecurityToken token = new JwtSecurityToken(

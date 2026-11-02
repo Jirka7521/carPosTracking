@@ -28,19 +28,23 @@ public sealed class AuthController : ApiControllerBase
     private readonly IUserAccountService _accounts;
     private readonly IJwtTokenIssuer _tokenIssuer;
     private readonly ISessionCookieWriter _cookieWriter;
+    private readonly ISessionRegistry _sessions;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="accounts">Registration and credential checking.</param>
     /// <param name="tokenIssuer">Mints the session token.</param>
     /// <param name="cookieWriter">Writes and clears the session cookies.</param>
+    /// <param name="sessions">Revokes the session being signed out.</param>
     public AuthController(
         IUserAccountService accounts,
         IJwtTokenIssuer tokenIssuer,
-        ISessionCookieWriter cookieWriter)
+        ISessionCookieWriter cookieWriter,
+        ISessionRegistry sessions)
     {
         _accounts = accounts;
         _tokenIssuer = tokenIssuer;
         _cookieWriter = cookieWriter;
+        _sessions = sessions;
     }
 
     /// <summary>Creates an account and signs the new user in immediately.</summary>
@@ -86,15 +90,24 @@ public sealed class AuthController : ApiControllerBase
         return SignIn(result.Value!);
     }
 
-    /// <summary>Ends the session by expiring its cookies.</summary>
+    /// <summary>Ends the session: revokes its token and expires its cookies.</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>204, whether or not there was a session to end.</returns>
     [HttpPost("logout")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public IActionResult Logout()
+    public async Task<IActionResult> LogoutAsync(CancellationToken cancellationToken)
     {
         // Deliberately unauthenticated and idempotent: logging out must work even
         // when the token has already expired, which is exactly when a user is most
-        // likely to click the button.
+        // likely to click the button. When the cookie still holds a live session,
+        // that token is put on the deny-list first: deleting the cookie only stops
+        // THIS browser sending it, and a copy taken earlier would otherwise keep
+        // working for the rest of its eight hours.
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            await _sessions.RevokeAsync(User, cancellationToken);
+        }
+
         _cookieWriter.Clear(Response);
         return NoContent();
     }

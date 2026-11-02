@@ -265,6 +265,12 @@ builder.Services.AddScoped<IDeviceProvisioningService, DeviceProvisioningService
 // ---------------------------------------------------------------------------
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenIssuer, JwtTokenIssuer>();
+// Revocable sessions: every validated session token is checked against the user's
+// security stamp and the sign-out deny-list (OnTokenValidated below), through a
+// short process-wide cache. Singletons, reaching the database via the factory.
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ISessionStateSource, DbSessionStateSource>();
+builder.Services.AddSingleton<ISessionRegistry, SessionRegistry>();
 builder.Services.AddSingleton<ISessionCookieWriter, SessionCookieWriter>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
@@ -381,6 +387,21 @@ builder.Services
 
                 context.Token = context.Request.Cookies[cookieOptions.SessionCookieName];
                 return Task.CompletedTask;
+            },
+            // A valid signature is not enough any more: the token must still be a
+            // live session — not signed out, not issued before the last password
+            // change, not for an account that has been erased. Failing here makes
+            // the request anonymous, so [Authorize] answers 401 as for no cookie.
+            OnTokenValidated = async (TokenValidatedContext context) =>
+            {
+                ISessionRegistry sessions = context.HttpContext.RequestServices
+                    .GetRequiredService<ISessionRegistry>();
+
+                if (context.Principal is null
+                    || !await sessions.IsCurrentAsync(context.Principal, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("The session has ended.");
+                }
             },
         };
     })

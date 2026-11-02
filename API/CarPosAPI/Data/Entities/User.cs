@@ -25,6 +25,14 @@ public sealed class User
     /// </summary>
     public string PasswordHash { get; set; } = string.Empty;
 
+    /// <summary>
+    /// A random value every session token carries as its <c>stamp</c> claim and is
+    /// checked against on every request. Replacing it — on a password change — ends
+    /// every session issued before, wherever it is. Not a secret on its own (it is
+    /// inside a signed token), but no reason to show it anywhere either.
+    /// </summary>
+    public string SecurityStamp { get; set; } = string.Empty;
+
     /// <summary>Given name shown in the UI header and the sharing list.</summary>
     public string FirstName { get; set; } = string.Empty;
 

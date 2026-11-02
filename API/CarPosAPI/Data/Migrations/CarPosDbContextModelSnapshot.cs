@@ -17,7 +17,7 @@ namespace CarPosAPI.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -786,6 +786,25 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.RevokedSession", b =>
+                {
+                    b.Property<string>("TokenId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_id");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.HasKey("TokenId");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_revoked_sessions_expires_at");
+
+                    b.ToTable("revoked_sessions", (string)null);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.ShareLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -952,6 +971,12 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("character varying(32)")
                         .HasDefaultValue("")
                         .HasColumnName("privacy_policy_version");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("security_stamp");
 
                     b.HasKey("Id");
 

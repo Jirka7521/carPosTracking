@@ -719,6 +719,24 @@ would be judged there — and a server running more than `Jwt:LifetimeHours`
 behind would hand out cookies that are already expired on arrival, making every
 sign-in look successful and every request after it 401.
 
+**Sessions are revocable** although the token is a stateless JWT
+([`Services/Auth/SessionRegistry.cs`](Services/Auth/SessionRegistry.cs), checked in
+`OnTokenValidated`). Each token carries the user's **security stamp** (`stamp`) and
+its own id (`jti`):
+
+- **Sign-out** puts the token's `jti` on a deny-list (`revoked_sessions`) until the
+  token would have expired, so a copied cookie stops working with it; the user's
+  other browsers stay signed in. Expired entries are pruned on every sign-out.
+- **A password change** replaces the stamp, ending every session of the account;
+  the caller gets a fresh cookie in the same response.
+- A token without a stamp (anything issued before this existed), for an erased
+  account, or with a superseded stamp is refused with 401.
+
+Both lookups go through a 30-second in-memory cache that this process updates or
+evicts as it writes, so a revocation takes effect on the very next request. Share
+tokens are not covered — a share session re-checks its link on every request, so
+revoking the link already ends it.
+
 The cost of cookies is CSRF, so every mutating request must also echo the
 readable `carpos_csrf` cookie in an **`X-CSRF-Token`** header
 ([`Middleware/CsrfProtectionMiddleware.cs`](Middleware/CsrfProtectionMiddleware.cs)).
