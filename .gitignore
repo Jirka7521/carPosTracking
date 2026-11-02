@@ -44,8 +44,10 @@ pnpm-debug.log*
 # ─────────────────────────────────────────────────────────────
 # Covers Postgres, MQTTBroker and App. Each stack keeps a committed
 # .env.example listing every key with the secret values left empty; the real
-# .env sits beside it and stays out of git.
+# .env sits beside it and stays out of git. Passwords are files in each stack's
+# secrets/ directory (mounted read-only into the containers), never committed.
 Container/**/.env
+Container/**/secrets/
 
 # ─────────────────────────────────────────────────────────────
 # ESP32 firmware (PlatformIO / ESP-IDF)

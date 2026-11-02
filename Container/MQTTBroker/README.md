@@ -122,11 +122,14 @@ and slated for removal in 3.0; the broker logs a notice about it at start.)
 The usernames in the ACL are literal: if you rename a `*_USER` in `.env`, rename
 it in the ACL too, or that account keeps its login but loses every permission.
 
-Passwords are hashed into a named volume at boot by
-[`mosquitto/entrypoint-passwd.sh`](mosquitto/entrypoint-passwd.sh), straight from
-`.env`, and handed to `mosquitto_passwd` on stdin — never as an argument, which
+Passwords are files in `./secrets/` (`ADMIN_PASSWORD`, `DEVICE_PASSWORD`,
+`DASHBOARD_PASSWORD`, `HEALTHCHECK_PASSWORD`; directory 0700, files 0600, never
+committed), mounted read-only at `/run/secrets` — not `.env` values, which Docker
+keeps in plain text in the container config. They are hashed into a named volume
+at boot by [`mosquitto/entrypoint-passwd.sh`](mosquitto/entrypoint-passwd.sh), and
+handed to `mosquitto_passwd` on stdin — never as an argument, which
 every process on the host could read. The file is rebuilt from scratch each boot rather than patched, so
-rotating a password — or deleting an account — is an edit to `.env` plus
+rotating a password — or deleting an account — is an edit to `secrets/` (or `.env` for a user name) plus
 `docker compose up -d --force-recreate mosquitto`.
 
 ## Health & self-healing

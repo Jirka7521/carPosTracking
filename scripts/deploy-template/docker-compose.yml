@@ -44,13 +44,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
 
-      # --- Database -------------------------------------------------------
-      # The runtime role is BE (DML only, no DDL). Migrations are applied by
-      # hand as admin — never automatically on start-up, so a deploy can never
-      # rewrite the schema by surprise. "postgres" resolves on the shared
-      # network below.
-      ConnectionStrings__CarPos: >-
-        Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${BE_USER:?set BE_USER in .env};Password=${BE_PASSWORD:?set BE_PASSWORD in .env}
+      # --- Secrets: files, not variables -----------------------------------
+      # The connection string (BE role, DML only — migrations are applied by hand
+      # as admin, never on start-up), the broker password, the master key and the
+      # JWT signing key are NOT here. Each is a file under ./secrets, mounted
+      # read-only at /run/secrets/<config key> (see `secrets:` below) and read by
+      # the API's key-per-file configuration provider. An environment variable
+      # is kept in plain text in the container's config on the host's disk and
+      # printed by `docker inspect`; a mounted file is neither.
 
       # --- MQTT ------------------------------------------------------------
       # Points at Mosquitto on the shared network, so no MQTT traffic leaves the
@@ -64,14 +65,6 @@ services:
       # provisioning snippets need that line replaced by hand.
       Mqtt__BrokerUri: ${MQTT_BROKER_URI:?set MQTT_BROKER_URI in .env}
       Mqtt__Username: ${MQTT_USERNAME:?set MQTT_USERNAME in .env}
-      Mqtt__Password: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
-
-      # --- Secrets --------------------------------------------------------
-      # Both validated at start-up: the master key must decode to exactly 32
-      # bytes, the signing key must be at least 32. A deployment missing either
-      # fails fast instead of running broken.
-      DeviceKeyProtection__MasterKeyBase64: ${DEVICE_KEY_MASTER_KEY:?set DEVICE_KEY_MASTER_KEY in .env}
-      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
 
       # --- Session cookie --------------------------------------------------
       # A browser will not store or return a Secure cookie over plain http://, so
@@ -127,6 +120,19 @@ services:
           # host's published port: that is exactly what left the API "unhealthy"
           # while it was in fact serving fine.
           - ${BE_HOST:?set BE_HOST in .env}
+    secrets:
+      # The file name is the configuration key: key-per-file turns "__" into ":".
+      # All four are validated at start-up (the master key must decode to 32
+      # bytes, the signing key must be at least 32), so a missing or empty file
+      # fails fast instead of running broken.
+      - source: api_connection_string
+        target: ConnectionStrings__CarPos
+      - source: api_mqtt_password
+        target: Mqtt__Password
+      - source: api_master_key
+        target: DeviceKeyProtection__MasterKeyBase64
+      - source: api_jwt_signing_key
+        target: Jwt__SigningKey
     healthcheck:
       # /health checks the database connection and the MQTT ingest's state, so
       # this is real readiness, not "the process is up".
@@ -258,6 +264,26 @@ services:
       resources:
         limits:
           memory: 128m
+
+# ---------------------------------------------------------------------------
+# Secrets, as files. Written into ./secrets by scripts/Publish-Deployment.ps1 and
+# mounted read-only at /run/secrets/<target>.
+#
+# Without Swarm a file secret is a plain bind mount: the container sees the host
+# file's owner and mode (the long-syntax uid/gid/mode are ignored). The API reads
+# them as the image's non-root `app` user, so the files must be 0644; the 0700
+# on the secrets/ directory is what keeps other host users out:
+#   chmod 700 secrets && chmod 644 secrets/*
+# ---------------------------------------------------------------------------
+secrets:
+  api_connection_string:
+    file: ./secrets/ConnectionStrings__CarPos
+  api_mqtt_password:
+    file: ./secrets/Mqtt__Password
+  api_master_key:
+    file: ./secrets/DeviceKeyProtection__MasterKeyBase64
+  api_jwt_signing_key:
+    file: ./secrets/Jwt__SigningKey
 
 networks:
   # Created by the Mosquitto broker stack (docker network create MQTTpublic);

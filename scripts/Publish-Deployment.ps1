@@ -16,10 +16,18 @@
     be derived or when this PC's DNS disagrees with the previous bundle.
 
     It only READS the dev config (appsettings.Local.json, FE/public/config.js,
-    the Container/*/.env files); it never writes back to them. The output is an
-    Application/ folder you copy whole to /mnt/externalSSD0/dockerScripts/MQTT/Application
-    on the Raspberry Pi and bring up there with `docker compose up -d --build`.
-    Application/ is git-ignored because its .env holds real secrets.
+    the Container/*/.env and secrets/ files); it never writes back to them. The
+    output is an Application/ folder you copy whole to
+    /mnt/externalSSD0/dockerScripts/MQTT/Application on the Raspberry Pi and bring
+    up there with `docker compose up -d --build`.
+
+    The four secrets (the database connection string, the broker password, the
+    device-key master key and the JWT signing key) are written to
+    Application/secrets/ as one file each, named by the API's configuration key,
+    and never into .env: the compose file mounts them read-only at /run/secrets.
+    A previous bundle's .env that still carries them is read once, as the current
+    values, and then rewritten without them. Application/ is git-ignored because
+    secrets/ holds real secrets.
 
 .PARAMETER SkipSourceCopy
     Write the .env, compose file and README but skip copying api-src/ + fe-src/.
@@ -49,8 +57,12 @@ $LocalSettings  = Join-Path $RepoRoot 'API\CarPosAPI\appsettings.Local.json'
 $ConfigJs       = Join-Path $RepoRoot 'FE\public\config.js'
 $PgEnvPath      = Join-Path $RepoRoot 'Container\Postgres\.env'
 $MqttEnvPath    = Join-Path $RepoRoot 'Container\MQTTBroker\.env'
+# The two stacks keep their passwords as files beside their .env.
+$PgSecretsDir   = Join-Path $RepoRoot 'Container\Postgres\secrets'
+$MqttSecretsDir = Join-Path $RepoRoot 'Container\MQTTBroker\secrets'
 $ExampleEnvPath = Join-Path $TemplateDir '.env.example'
 $PriorEnvPath   = Join-Path $DeployDir '.env'
+$SecretsDir     = Join-Path $DeployDir 'secrets'
 
 # The ports the two containers listen on *inside* the network. Fixed by the
 # images (ASPNETCORE_HTTP_PORTS=8080; nginx on 80), not configurable, and not the
@@ -69,8 +81,13 @@ $FePinnedIp  = '192.168.124.6'
 # only feeds the "Next steps" printout, so the instructions name the real path.
 $PiDeployDir = '/mnt/externalSSD0/dockerScripts/MQTT/Application'
 
-# The keys whose values must never be echoed in full.
+# The keys whose values must never be echoed in full - and never written to .env:
+# each goes to its own file under secrets/ instead (see $SecretFiles).
 $SecretKeys = @('BE_PASSWORD', 'MQTT_PASSWORD', 'DEVICE_KEY_MASTER_KEY', 'JWT_SIGNING_KEY')
+
+# The files under Application/secrets/, named by the API configuration key each
+# one is mounted as (/run/secrets/<name>, read by the key-per-file provider).
+$SecretFiles = @('ConnectionStrings__CarPos', 'Mqtt__Password', 'DeviceKeyProtection__MasterKeyBase64', 'Jwt__SigningKey')
 
 # Accounts the broker's ACL actually authorizes (Container/MQTTBroker/mosquitto/acl).
 $KnownMqttAccounts = @('admin', 'dashboard', 'GNSS01', 'healthcheck')
@@ -207,6 +224,16 @@ function Write-Utf8NoBom {
     [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+# The content of secrets/<Name> under -Root (default: the previous bundle's), or
+# '' when there is none. No trailing newline is ever written, but one added by
+# hand is tolerated.
+function Read-SecretFile {
+    param([string]$Name, [string]$Root = $SecretsDir)
+    $path = Join-Path $Root $Name
+    if (-not (Test-Path -LiteralPath $path)) { return '' }
+    return ([System.IO.File]::ReadAllText($path)).TrimEnd("`r", "`n")
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -248,12 +275,15 @@ try {
     $cur = @{}
     $cur.PostgresDb = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'POSTGRES_DB'), (Get-TableValue $pgEnv 'POSTGRES_DB'), (Get-TableValue $devConn 'database'), (Get-TableValue $exampleEnv 'POSTGRES_DB'))
     $cur.BeUser     = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'BE_USER'), (Get-TableValue $pgEnv 'BE_USER'), (Get-TableValue $devConn 'username'), (Get-TableValue $exampleEnv 'BE_USER'))
-    $cur.BePass     = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'BE_PASSWORD'), (Get-TableValue $pgEnv 'BE_PASSWORD'), (Get-TableValue $devConn 'password'))
+    # The secrets: the previous bundle's secrets/ first, then a pre-secrets bundle's
+    # .env (read once, so upgrading needs no retyping), then the dev config.
+    $priorConn = ConvertFrom-ConnectionString (Read-SecretFile 'ConnectionStrings__CarPos')
+    $cur.BePass     = Get-FirstNonEmpty @((Get-TableValue $priorConn 'password'), (Get-TableValue $priorEnv 'BE_PASSWORD'), (Read-SecretFile 'BE_PASSWORD' $PgSecretsDir), (Get-TableValue $pgEnv 'BE_PASSWORD'), (Get-TableValue $devConn 'password'))
     $cur.MqttUri    = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_BROKER_URI'), (Get-JsonPath $localJson 'Mqtt.BrokerUri'), (Get-TableValue $exampleEnv 'MQTT_BROKER_URI'))
     $cur.MqttUser   = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_USERNAME'), (Get-JsonPath $localJson 'Mqtt.Username'), (Get-TableValue $exampleEnv 'MQTT_USERNAME'))
-    $cur.MqttPass   = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_PASSWORD'), (Get-JsonPath $localJson 'Mqtt.Password'), (Get-TableValue $mqttEnv 'DASHBOARD_PASSWORD'))
-    $cur.MasterKey  = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'DEVICE_KEY_MASTER_KEY'), (Get-JsonPath $localJson 'DeviceKeyProtection.MasterKeyBase64'))
-    $cur.JwtKey     = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'JWT_SIGNING_KEY'), (Get-JsonPath $localJson 'Jwt.SigningKey'))
+    $cur.MqttPass   = Get-FirstNonEmpty @((Read-SecretFile 'Mqtt__Password'), (Get-TableValue $priorEnv 'MQTT_PASSWORD'), (Get-JsonPath $localJson 'Mqtt.Password'), (Read-SecretFile 'DASHBOARD_PASSWORD' $MqttSecretsDir), (Get-TableValue $mqttEnv 'DASHBOARD_PASSWORD'))
+    $cur.MasterKey  = Get-FirstNonEmpty @((Read-SecretFile 'DeviceKeyProtection__MasterKeyBase64'), (Get-TableValue $priorEnv 'DEVICE_KEY_MASTER_KEY'), (Get-JsonPath $localJson 'DeviceKeyProtection.MasterKeyBase64'))
+    $cur.JwtKey     = Get-FirstNonEmpty @((Read-SecretFile 'Jwt__SigningKey'), (Get-TableValue $priorEnv 'JWT_SIGNING_KEY'), (Get-JsonPath $localJson 'Jwt.SigningKey'))
     $cur.MapsKey    = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'CARPOS_GOOGLE_MAPS_API_KEY'), $devMapsKey)
     $cur.FeHost     = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'FE_HOST'), (Get-TableValue $exampleEnv 'FE_HOST'))
     $cur.BeHost     = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'BE_HOST'), (Get-TableValue $exampleEnv 'BE_HOST'))
@@ -383,6 +413,12 @@ try {
     # The broker's WebSocket listener is its public entrance (the tunnel feeds it);
     # the API belongs on the internal TCP listener. A bundle written before that
     # split still carries the old address as its "current" value, so say so.
+    # The connection string goes into a file whole, and Npgsql reads ';' as the
+    # separator between keywords: a password containing one would be cut short.
+    if ($values['BE_PASSWORD'].Contains(';')) {
+        Write-Warning 'BE_PASSWORD contains a semicolon, which ends a connection-string value early. Choose a password without one.'
+    }
+
     if ($values['MQTT_BROKER_URI'] -match '^wss?://mqtt\.local(:9001)?(/|$)') {
         Write-Warning ("MQTT_BROKER_URI is {0}, the broker's public WebSocket listener. Use the internal listener instead: mqtt://mqtt.local:1883" -f $values['MQTT_BROKER_URI'])
     }
@@ -449,14 +485,32 @@ try {
     New-Item -ItemType Directory -Force -Path $DeployDir | Out-Null
 
     $envLines = @(
-        '# Generated by scripts/Publish-Deployment.ps1 - do NOT commit (holds real secrets).',
+        '# Generated by scripts/Publish-Deployment.ps1 - do NOT commit.',
         ('# Written ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')),
+        '# Nothing here is secret: the secrets are files under secrets/.',
         '# FE_BIND_ADDR, BE_BIND_ADDR, BE_URL and FE_URL are derived from the host',
         '# names and ports above them - edit the name, re-run the wizard.',
         ''
     )
-    foreach ($key in $values.Keys) { $envLines += ('{0}={1}' -f $key, $values[$key]) }
+    foreach ($key in $values.Keys) {
+        if ($key -in $SecretKeys) { continue }
+        $envLines += ('{0}={1}' -f $key, $values[$key])
+    }
     Write-Utf8NoBom -Path $PriorEnvPath -Content (($envLines -join "`n") + "`n")
+
+    # One file per secret, no trailing newline (the key-per-file provider would
+    # keep anything but a single one). "postgres" is the database's name on the
+    # shared network, as before.
+    New-Item -ItemType Directory -Force -Path $SecretsDir | Out-Null
+    $secretValues = [ordered]@{
+        'ConnectionStrings__CarPos'            = ('Host=postgres;Port=5432;Database={0};Username={1};Password={2}' -f $values['POSTGRES_DB'], $values['BE_USER'], $values['BE_PASSWORD'])
+        'Mqtt__Password'                       = $values['MQTT_PASSWORD']
+        'DeviceKeyProtection__MasterKeyBase64' = $values['DEVICE_KEY_MASTER_KEY']
+        'Jwt__SigningKey'                      = $values['JWT_SIGNING_KEY']
+    }
+    foreach ($name in $SecretFiles) {
+        Write-Utf8NoBom -Path (Join-Path $SecretsDir $name) -Content $secretValues[$name]
+    }
 
     Copy-Item -LiteralPath (Join-Path $TemplateDir 'docker-compose.yml') -Destination (Join-Path $DeployDir 'docker-compose.yml') -Force
     Copy-Item -LiteralPath (Join-Path $TemplateDir 'README.md')          -Destination (Join-Path $DeployDir 'README.md') -Force
@@ -499,10 +553,12 @@ try {
     Write-Host '  3. Make sure the MQTTpublic network + the Postgres and MQTTBroker stacks are up.'
     Write-Host '     MQTTpublic must be macvlan with a configured subnet, or the pinned addresses'
     Write-Host '     are rejected:  docker network inspect MQTTpublic --format ''{{.Driver}} {{json .IPAM.Config}}'''
-    Write-Host ('  4. cd {0} && docker compose up -d --build' -f $PiDeployDir)
+    Write-Host ('  4. cd {0} && chmod 700 secrets && chmod 644 secrets/*' -f $PiDeployDir)
+    Write-Host '     (the API reads the files as its non-root user; the 0700 keeps other host users out)'
+    Write-Host '  5. docker compose up -d --build'
     Write-Host '  See Application/README.md for the full checklist.'
     Write-Host ''
-    Write-Host 'Reminder: Application/ is git-ignored - its .env holds real secrets.' -ForegroundColor DarkGray
+    Write-Host 'Reminder: Application/ is git-ignored - its secrets/ holds real secrets.' -ForegroundColor DarkGray
 
     exit 0
 }

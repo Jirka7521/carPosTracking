@@ -11,8 +11,12 @@
 > See the [privacy policy](../../docs/PRIVACY.md).
 
 This folder is **self-contained**: it carries the built sources (`api-src/`,
-`fe-src/`), the combined `docker-compose.yml`, and a `.env` with the real
-secrets. It was produced on the dev machine by `scripts/Publish-Deployment.ps1`
+`fe-src/`), the combined `docker-compose.yml`, a `.env` with the non-secret
+settings and **`secrets/`** — the connection string, broker password, master key
+and JWT signing key, one file each, mounted read-only into the API at
+`/run/secrets/<key>`. Before the first `up`, and after every copy:
+`chmod 700 secrets && chmod 644 secrets/*` (the API reads them as its non-root
+user; the 0700 keeps other host users out). It was produced on the dev machine by `scripts/Publish-Deployment.ps1`
 (Ctrl+Shift+M) — you do not edit anything here by hand.
 
 Copy the whole folder to `/mnt/externalSSD0/dockerScripts/MQTT/Application` on
