@@ -74,7 +74,7 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
         ShareLink? link = await _context.ShareLinks
             .SingleOrDefaultAsync(candidate => candidate.Selector == selector, cancellationToken);
 
-        if (link is null || !_tokens.VerifierMatches(link.Verifier, verifier))
+        if (link is null || !_tokens.VerifierMatches(link.VerifierHash, verifier))
         {
             return NoSuchLink();
         }
@@ -116,7 +116,7 @@ internal sealed class ShareRedemptionService : IShareRedemptionService
         // character-at-a-time timing walk far more tractable than for the verifier.
         string normalised = _passphrases.Normalise(passphrase);
 
-        if (!_passphrases.Matches(link.Passphrase, normalised))
+        if (!_passphrases.Matches(link.PassphraseHash, normalised))
         {
             return await RecordFailureAsync(link, nowUtc, cancellationToken);
         }

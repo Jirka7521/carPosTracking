@@ -26,8 +26,8 @@ internal interface IShareTokenFactory
     /// <summary>
     /// Compares a presented verifier against the stored one in constant time.
     /// </summary>
-    /// <param name="storedVerifier">The verifier half from the database.</param>
+    /// <param name="storedVerifierHash">The verifier half from the database.</param>
     /// <param name="presentedVerifier">The verifier half the visitor supplied.</param>
     /// <returns>True when they match.</returns>
-    bool VerifierMatches(string storedVerifier, string presentedVerifier);
+    bool VerifierMatches(string storedVerifierHash, string presentedVerifier);
 }

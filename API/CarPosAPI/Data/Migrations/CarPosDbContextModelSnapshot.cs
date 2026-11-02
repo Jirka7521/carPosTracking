@@ -868,11 +868,11 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("locked_until");
 
-                    b.Property<string>("Passphrase")
+                    b.Property<string>("PassphraseHash")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("passphrase");
+                        .HasColumnName("passphrase_hash");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
@@ -904,11 +904,11 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("valid_until");
 
-                    b.Property<string>("Verifier")
+                    b.Property<string>("VerifierHash")
                         .IsRequired()
-                        .HasMaxLength(43)
-                        .HasColumnType("character varying(43)")
-                        .HasColumnName("verifier");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("verifier_hash");
 
                     b.HasKey("Id");
 

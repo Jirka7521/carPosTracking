@@ -77,9 +77,8 @@ internal sealed class ShareLinkService : IShareLinkService
 
         DateTime nowUtc = DateTime.UtcNow;
 
-        // The projection now carries the link and code, because looking them up
-        // again is the point of storing them readable. It still stops short of the
-        // internal device Guid and anything else the wire has no use for.
+        // No secret in the projection: only digests are stored, and the link and
+        // code were shown once, when the link was created or reissued.
         List<ShareLinkRow> rows = await _context.ShareLinks
             .AsNoTracking()
             .Where(link => link.DeviceId == caller.DeviceRowId)
@@ -87,9 +86,6 @@ internal sealed class ShareLinkService : IShareLinkService
             .Select(link => new ShareLinkRow(
                 link.Id,
                 link.Label,
-                link.Selector,
-                link.Verifier,
-                link.Passphrase,
                 link.ValidFrom,
                 link.ValidUntil,
                 link.Scope,
@@ -180,12 +176,10 @@ internal sealed class ShareLinkService : IShareLinkService
         {
             Id = Guid.NewGuid(),
             Selector = token.Selector,
-            Verifier = token.Verifier,
-            // Stored in its grouped display form, hyphens and all, so it can be
-            // shown back later exactly as the creator first received it.
-            // IPassphraseGenerator.Matches normalises both sides at comparison time,
-            // so a visitor who types it without the hyphens is still right.
-            Passphrase = passphrase,
+            // Digests only. The plain verifier and code go back to the creator once,
+            // in this response, and nowhere else.
+            VerifierHash = ShareSecretHash.Of(token.Verifier),
+            PassphraseHash = ShareSecretHash.Of(_passphrases.Normalise(passphrase)),
             DeviceId = caller.DeviceRowId,
             CreatedByUserId = userId,
             Label = label,
@@ -332,8 +326,8 @@ internal sealed class ShareLinkService : IShareLinkService
         // lookup it depends on simply finds nothing. The old code stops mattering
         // with it.
         link.Selector = token.Selector;
-        link.Verifier = token.Verifier;
-        link.Passphrase = passphrase;
+        link.VerifierHash = ShareSecretHash.Of(token.Verifier);
+        link.PassphraseHash = ShareSecretHash.Of(_passphrases.Normalise(passphrase));
 
         // Cleared, and this is the one place clearing them is right: the cooldown
         // accrued against a code that no longer exists. Carrying it over would lock
@@ -554,8 +548,6 @@ internal sealed class ShareLinkService : IShareLinkService
             row.Id,
             deviceId,
             row.Label,
-            ShareToken.Compose(row.Selector, row.Verifier),
-            row.Passphrase,
             row.ValidFrom,
             row.ValidUntil,
             row.Scope == ShareScope.FullTrack ? ShareScopeNames.FullTrack : ShareScopeNames.LatestOnly,

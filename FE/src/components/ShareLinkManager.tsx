@@ -103,10 +103,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
 
   const [confirmingRevoke, setConfirmingRevoke] = useState<string | null>(null)
   const [confirmingReissue, setConfirmingReissue] = useState<string | null>(null)
-  // Which row is currently showing its link and code. Collapsed by default —
-  // these are live credentials now that the server stores them readable, and a
-  // list that displays several of them at once is a list nobody can screen-share.
-  const [revealed, setRevealed] = useState<string | null>(null)
 
   // Hides the links that can no longer be opened. On by default because this list
   // only ever grows: every two-hour link ever made stays in it, and what the
@@ -590,14 +586,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setRevealed(revealed === link.id ? null : link.id)}
-              >
-                {revealed === link.id ? t('share:row.hideSecrets') : t('share:row.showSecrets')}
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
                 onClick={() => { setConfirmingReissue(link.id); setCreated(null) }}
               >
                 {t('share:row.reissue')}
@@ -613,36 +601,6 @@ export function ShareLinkManager({ deviceId, canShare }: ShareLinkManagerProps) 
                 </button>
               )}
             </div>
-          </div>
-        )}
-
-        {revealed === link.id && (
-          <div className="share-row-secrets">
-            <div className="form-field">
-              <span className="form-label">{t('share:created.linkLabel')}</span>
-              <code className="share-secret">{shareUrl(link.token)}</code>
-              <button
-                type="button"
-                className="btn btn-quiet btn-sm"
-                onClick={() => void copy(shareUrl(link.token), 'link')}
-              >
-                {copied === 'link' ? t('share:created.copied') : t('share:created.copyLink')}
-              </button>
-            </div>
-
-            <div className="form-field">
-              <span className="form-label">{t('share:created.codeLabel')}</span>
-              <code className="share-secret share-secret--code">{link.passphrase}</code>
-              <button
-                type="button"
-                className="btn btn-quiet btn-sm"
-                onClick={() => void copy(link.passphrase, 'code')}
-              >
-                {copied === 'code' ? t('share:created.copied') : t('share:created.copyCode')}
-              </button>
-            </div>
-
-            <p className="hint">{t('share:created.channelAdvice')}</p>
           </div>
         )}
 

@@ -92,19 +92,17 @@ shown to the recipient), `valid_from` / `valid_until` p, `scope` ·, `include_sp
 `include_battery` ·, `revoked_at` p, `created_at` p, and three usage counters —
 `successful_redeems` ·, `last_accessed_at` p, `failed_attempts` ·, `locked_until` ·.
 
-Three columns are **credentials, never personal data to export**: `selector` and `verifier`
-(the two halves of the link, joined as `selector.verifier` in the URL) and `passphrase` (the
-visitor's code). **All three are stored in the clear** since 2026-09-12, so the creating user
-can retrieve a link after the one-time reveal.
+Three columns are **credentials, never personal data to export**: `selector`,
+`verifier_hash` and `passphrase_hash` (the link is `selector.verifier` in the URL; the
+passphrase is the visitor's code). Since the 2026-11 security review **only SHA-256 digests**
+of the verifier and of the normalised code are stored (migration `HashShareSecrets` converted
+existing rows in place, so live links kept working): the link and code are shown once, when a
+link is created or reissued, and a copy of the database no longer contains working links. A
+creator who lost a link reissues it.
 
-That is a deliberate trade. For: this table sits in a database that already holds the position
-history in the clear, so a dump is a serious disclosure either way, and the codes are
-machine-generated rather than user-chosen, so there is no password-reuse risk. Against, and
-accepted: a dump is a snapshot but a live link is ongoing access, so an old backup that leaks
-now yields working credentials to the running system for any share still inside its window,
-reachable anonymously without further database access. Bounded by `Sharing:MaxWindowDays`.
-Reading them back needs the creator's session and `CanShare`; they stay out of the Art. 15
-export, where they would leave the system in a downloadable file.
+(Until then all three were stored in the clear, from 2026-09-12, so a creator could look a link
+up again; the accepted risk was that a leaked dump or backup was live access to every link still
+inside its window. That trade is reversed.)
 
 **Nothing about the recipient is stored.** No IP, no user agent, no identifier of any kind —
 the three counters above are the entire record that a link was used. That is deliberate: a

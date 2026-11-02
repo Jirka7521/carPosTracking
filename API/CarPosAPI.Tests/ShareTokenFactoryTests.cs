@@ -79,8 +79,12 @@ public sealed class ShareTokenFactoryTests
         Assert.True(_factory.TryParse(token.Token, out string _, out string verifier));
         Assert.True(_factory.TryParse(other.Token, out string _, out string otherVerifier));
 
-        Assert.True(_factory.VerifierMatches(token.Verifier, verifier));
-        Assert.False(_factory.VerifierMatches(token.Verifier, otherVerifier));
+        // The database holds only the digest of the verifier.
+        Assert.True(_factory.VerifierMatches(ShareSecretHash.Of(token.Verifier), verifier));
+        Assert.False(_factory.VerifierMatches(ShareSecretHash.Of(token.Verifier), otherVerifier));
+
+        // And the plain verifier, were it ever stored again, matches nothing.
+        Assert.False(_factory.VerifierMatches(token.Verifier, verifier));
     }
 
     [Fact]

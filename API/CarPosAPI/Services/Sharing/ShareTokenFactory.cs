@@ -104,20 +104,14 @@ internal sealed class ShareTokenFactory : IShareTokenFactory
     }
 
     /// <inheritdoc />
-    public bool VerifierMatches(string storedVerifier, string presentedVerifier)
+    public bool VerifierMatches(string storedVerifierHash, string presentedVerifier)
     {
-        ArgumentNullException.ThrowIfNull(storedVerifier);
+        ArgumentNullException.ThrowIfNull(storedVerifierHash);
         ArgumentNullException.ThrowIfNull(presentedVerifier);
 
-        byte[] expected = Encoding.UTF8.GetBytes(storedVerifier);
-        byte[] actual = Encoding.UTF8.GetBytes(presentedVerifier);
-
-        // FixedTimeEquals returns false for a length mismatch without comparing, so
-        // the lengths themselves are not hidden — they are fixed by construction and
-        // public knowledge anyway. What it does hide is WHICH byte differs, and that
-        // is the signal that would otherwise let an attacker walk a verifier out one
-        // character at a time instead of guessing all 256 bits at once.
-        return CryptographicOperations.FixedTimeEquals(expected, actual);
+        // Only the digest is stored (ShareSecretHash), so the comparison is of
+        // digests — fixed-length, constant-time.
+        return ShareSecretHash.Matches(storedVerifierHash, presentedVerifier);
     }
 
     /// <summary>
