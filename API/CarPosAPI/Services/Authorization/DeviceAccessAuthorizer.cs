@@ -54,7 +54,8 @@ internal sealed class DeviceAccessAuthorizer : IDeviceAccessAuthorizer
                         access.CanRead,
                         access.CanDelete,
                         access.CanShare,
-                        access.CanModifySettings)))
+                        access.CanModifySettings),
+                    access.IsOwner))
             .SingleOrDefaultAsync(cancellationToken);
     }
 }

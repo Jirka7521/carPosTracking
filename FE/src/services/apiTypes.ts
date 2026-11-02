@@ -212,6 +212,9 @@ export type AccessDto = {
   canDelete: boolean
   canShare: boolean
   canModifySettings: boolean
+  // The grant of the account that registered the device. The API refuses to
+  // edit or revoke it, so the dashboard does not offer to.
+  isOwner: boolean
 }
 
 // POST /api/devices. additionalAccesses is optional; the server automatically

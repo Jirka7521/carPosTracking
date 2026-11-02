@@ -349,6 +349,7 @@ export function DeviceSettingsTab() {
             canDelete:         grant.canDelete,
             canShare:          grant.canShare,
             canModifySettings: grant.canModifySettings,
+            isOwner:           grant.isOwner,
           }
         })
         .filter((row): row is SharedUserData => row !== null)
@@ -811,7 +812,7 @@ export function DeviceSettingsTab() {
                     <SharedUserCard
                       key={row.userId}
                       row={row}
-                      canEdit={canEditAccess}
+                      canEdit={canEditAccess && !row.isOwner}
                       isSaving={savingUserId === row.userId}
                       onToggleFlag={(flag) => toggleFlag(row.userId, flag)}
                       onSave={() => void saveUserRow(row)}

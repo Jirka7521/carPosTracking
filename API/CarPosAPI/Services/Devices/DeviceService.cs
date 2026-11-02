@@ -161,15 +161,14 @@ internal sealed class DeviceService : IDeviceService
 
         // Also before any key is generated: the ceiling exists to bound what one
         // account can make this server do, and the RSA key pair is most of it.
-        // Counted over the devices this account registered itself — the grant it got
-        // at registration is the only one anybody grants to themselves — that are
+        // Counted over the devices this account owns (registered itself) that are
         // still active, so deleting one frees a slot. How fast slots can be churned
         // is the rate limiter's job (RateLimitPolicies.DeviceRegistration).
         int registeredDevices = await _context.Accesses
             .AsNoTracking()
             .CountAsync(
                 access => access.UserId == userId
-                    && access.GrantedBy == userId
+                    && access.IsOwner
                     && access.IsActive
                     && access.Device!.IsActive,
                 cancellationToken);
@@ -227,7 +226,7 @@ internal sealed class DeviceService : IDeviceService
                 // The creator's grant is built from CapabilitySet.Full(), never from the
                 // request: a client that could talk the server into registering a device it
                 // then cannot administer would have created an orphan.
-                AddGrant(provisioning.DeviceRowId, userId, userId, CapabilitySet.Full());
+                AddGrant(provisioning.DeviceRowId, userId, userId, CapabilitySet.Full(), isOwner: true);
 
                 // Revision 1, in the same transaction. Every device must always point at a row
                 // that exists — the settings endpoints and the retained-config sweep both
@@ -527,7 +526,8 @@ internal sealed class DeviceService : IDeviceService
                 deviceRowId,
                 user.Id,
                 grantedBy,
-                CapabilitySet.FromRequest(entry.CanDelete, entry.CanShare, entry.CanModifySettings));
+                CapabilitySet.FromRequest(entry.CanDelete, entry.CanShare, entry.CanModifySettings),
+                isOwner: false);
         }
 
         // Unmatched addresses are skipped in silence, by contract: reporting them
@@ -552,7 +552,8 @@ internal sealed class DeviceService : IDeviceService
     /// <param name="userId">Who is being granted access.</param>
     /// <param name="grantedBy">Who granted it, recorded for audit.</param>
     /// <param name="capabilities">The coerced capability set.</param>
-    private void AddGrant(Guid deviceRowId, int userId, int grantedBy, CapabilitySet capabilities)
+    /// <param name="isOwner">True only for the registering account's own grant.</param>
+    private void AddGrant(Guid deviceRowId, int userId, int grantedBy, CapabilitySet capabilities, bool isOwner)
     {
         _context.Accesses.Add(new Access
         {
@@ -564,6 +565,7 @@ internal sealed class DeviceService : IDeviceService
             CanShare = capabilities.CanShare,
             CanModifySettings = capabilities.CanModifySettings,
             IsActive = true,
+            IsOwner = isOwner,
             DateRegistration = DateTime.UtcNow,
         });
     }

@@ -50,13 +50,13 @@ public sealed class DeviceRegistrationOptionsTests
         string sql = context.Accesses
             .AsNoTracking()
             .Where(access => access.UserId == userId
-                && access.GrantedBy == userId
+                && access.IsOwner
                 && access.IsActive
                 && access.Device!.IsActive)
             .Select(access => access.Id)
             .ToQueryString();
 
-        Assert.Contains("granted_by", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("is_owner", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("devices", sql, StringComparison.OrdinalIgnoreCase);
     }
 

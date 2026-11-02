@@ -16,8 +16,10 @@ namespace CarPosAPI.Services.Authorization;
 /// <param name="DeviceId">The device's MQTT identity, as it appears on the wire.</param>
 /// <param name="IsActive">False when the device has been soft-deleted.</param>
 /// <param name="Permissions">What the caller may do, from their active grant.</param>
+/// <param name="IsOwner">Whether the caller's grant is the device's owner grant.</param>
 public sealed record DeviceAccessContext(
     Guid DeviceRowId,
     string DeviceId,
     bool IsActive,
-    DevicePermissionsDto Permissions);
+    DevicePermissionsDto Permissions,
+    bool IsOwner = false);

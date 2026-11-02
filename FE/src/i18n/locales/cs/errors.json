@@ -49,6 +49,8 @@
     "noSuchShareLink": "Takový odkaz pro sdílení neexistuje.",
     "noSuchUser": "Takový uživatel neexistuje.",
     "notFound": "Požadovaná položka nebyla nalezena.",
+    "onlyOwnerManagesDelete": "Právo zařízení smazat může dát nebo odebrat jen ten, kdo zařízení zaregistroval.",
+    "ownerAccessImmutable": "Přístup člověka, který zařízení zaregistroval, nelze změnit ani odebrat.",
     "privacyPolicyChanged": "Zásady ochrany osobních údajů se od otevření této stránky změnily. Před registrací stránku prosím obnovte a přečtěte si je znovu.",
     "profileInUse_one": "Profil „{{name}}“ používá {{count}} pravidlo. Nejdřív ho smažte nebo přepněte na jiný profil.",
     "profileInUse_few": "Profil „{{name}}“ používají {{count}} pravidla. Nejdřív je smažte nebo přepněte na jiný profil.",

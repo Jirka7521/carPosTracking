@@ -75,6 +75,12 @@ namespace CarPosAPI.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsOwner")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_owner");
+
                     b.Property<int>("UserId")
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
@@ -88,6 +94,10 @@ namespace CarPosAPI.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_accesses_user_id_device_id_active")
                         .HasFilter("is_active");
+
+                    b.HasIndex(new[] { "DeviceId" }, "ux_accesses_device_owner")
+                        .IsUnique()
+                        .HasFilter("is_owner AND is_active");
 
                     b.ToTable("accesses", (string)null);
                 });

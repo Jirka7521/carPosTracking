@@ -22,6 +22,8 @@ export type SharedUserData = {
   canDelete:         boolean
   canShare:          boolean
   canModifySettings: boolean
+  // The device's owner: their row is shown read-only (the API refuses changes).
+  isOwner:           boolean
 }
 
 type SharedUserCardProps = {

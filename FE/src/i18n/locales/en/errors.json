@@ -49,6 +49,8 @@
     "noSuchShareLink": "No such share link.",
     "noSuchUser": "No such user.",
     "notFound": "The requested item was not found.",
+    "onlyOwnerManagesDelete": "Only the person who registered this device can give or take the right to delete it.",
+    "ownerAccessImmutable": "The access of the person who registered this device cannot be changed or removed.",
     "privacyPolicyChanged": "The privacy policy has changed since this page was opened. Please reload and read it again before registering.",
     "profileInUse_one": "\"{{name}}\" is used by {{count}} rule. Delete or repoint it first.",
     "profileInUse_other": "\"{{name}}\" is used by {{count}} rules. Delete or repoint them first.",

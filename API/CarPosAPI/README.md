@@ -763,8 +763,7 @@ the sign-in limiter never sees.
 
 ### Authorisation
 
-There is no ownership column anywhere. What a user may do is entirely decided by
-their active row in `accesses`, resolved on **every** request by
+What a user may do is entirely decided by their active row in `accesses`, resolved on **every** request by
 [`Services/Authorization/DeviceAccessAuthorizer.cs`](Services/Authorization/DeviceAccessAuthorizer.cs).
 Reading it from the database each time (rather than baking it into the token) is
 what makes a revoked share stop working immediately.
@@ -782,6 +781,11 @@ Two invariants are enforced server-side and never taken from the client:
 - **Nobody edits their own grant** (`PUT /api/access/{id}` on it answers **403**
   `cannotChangeOwnAccess`). Revoking one's own grant is still allowed — it only
   takes rights away.
+- **The owner** — the account that registered the device (`accesses.is_owner`,
+  one active owner per device) — **cannot be edited or revoked** through sharing,
+  by anyone (**403** `ownerAccessImmutable`); ownership cannot be handed over yet.
+  `AccessDto.isOwner` tells the dashboard which row to show read-only.
+- **Only the owner gives or takes `CanDelete`** (**403** `onlyOwnerManagesDelete`).
 - **A grant may only gain capabilities the caller holds** (**403**
   `cannotGrantUnheldCapability`), on `POST` and `PUT` alike. Keeping or removing a
   capability the grantee already has is not a gain. Registering a device with
