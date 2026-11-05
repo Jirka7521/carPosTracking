@@ -164,11 +164,13 @@ services:
       - no-new-privileges:true
     # Threads count as pids. The .NET thread pool, Kestrel and the two workers sit
     # well under a hundred; a runaway (or a fork bomb after a compromise) stops here.
-    pids_limit: 256
+    # Set under deploy, not as pids_limit: Compose refuses a service that has both
+    # pids_limit and a deploy.resources.limits block ("can't set distinct values").
     deploy:
       resources:
         limits:
           memory: 512m
+          pids: 256
 
   fe:
     build:
@@ -259,11 +261,11 @@ services:
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0
     # A master plus one worker per core.
-    pids_limit: 64
     deploy:
       resources:
         limits:
           memory: 128m
+          pids: 64
 
 # ---------------------------------------------------------------------------
 # Secrets, as files. Written into ./secrets by scripts/Publish-Deployment.ps1 and

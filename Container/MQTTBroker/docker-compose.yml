@@ -98,11 +98,13 @@ services:
     security_opt:
       - no-new-privileges:true
     # A broker is one process; the headroom is for the healthcheck's clients.
-    pids_limit: 64
+    # Set under deploy, not as pids_limit: Compose refuses a service that has both
+    # pids_limit and a deploy.resources.limits block ("can't set distinct values").
     deploy:
       resources:
         limits:
           memory: 128m
+          pids: 64
 
   nginx:
     # Terminates the plain-HTTP side of the Cloudflare tunnel and upgrades
@@ -158,11 +160,11 @@ services:
     security_opt:
       - no-new-privileges:true
     # A master plus one worker per core.
-    pids_limit: 64
     deploy:
       resources:
         limits:
           memory: 64m
+          pids: 64
 
   autoheal:
     # Watches container health and restarts anything labelled autoheal=true that has
