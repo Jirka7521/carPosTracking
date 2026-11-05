@@ -53,3 +53,9 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # typescript-eslint declares peer typescript ">=4.8.4 <6.1.0", so a newer
+      # typescript makes `npm ci` fail with ERESOLVE (the FE image build breaks).
+      # Drop this once a typescript-eslint release widens that peer range.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
