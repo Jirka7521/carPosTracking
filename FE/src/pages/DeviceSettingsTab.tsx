@@ -1,7 +1,13 @@
 // ============================================================
 // DeviceSettingsTab — the "Settings" tab inside DevicePage.
 //
-// Six permission-gated sections are shown conditionally:
+// Seven permission-gated sections are shown conditionally. The Normal / Expert
+// switch (uiMode/context.ts) hides two more on top of the permissions: section 4
+// is Expert only, and section 3 is hidden in Normal mode while the schedule is
+// on — the schedule's profiles are then where settings are edited, and a manual
+// save that the next switch undoes is an Expert's tool, not a default.
+// Sections 3 and 2 also show fewer fields in Normal mode; ConfigValuesFields
+// decides that for both.
 //
 //   1. Device Information  (always visible — every user with canRead sees this)
 //      Device ID, registration date, status, last fix, the caller's own alias
@@ -40,7 +46,10 @@
 //      also invite new users and edit / revoke existing grants.
 //      If they only have canModifySettings they can view the list but not edit.
 //
-//   6. Danger Zone         (visible only if canDelete)
+//   6. Temporary share links (same visibility as section 5)
+//      Owned by ShareLinkManager.
+//
+//   7. Danger Zone         (visible only if canDelete)
 //      A confirmation-required button to soft-delete (deactivate) the device.
 //      After deletion the page shows a success banner and the device status
 //      is updated in the parent via reloadDevice().
@@ -107,6 +116,7 @@ import type {
 import { formatRelativeTime } from '../utils/dates'
 import { describeError } from '../utils/errors'
 import { useAuth } from '../auth/useAuth'
+import { useUiMode } from '../uiMode/useUiMode'
 
 // ============================================================
 // Main component
@@ -121,6 +131,7 @@ export function DeviceSettingsTab() {
     isRefreshingDevice,
   } = useOutletContext<DevicePageContext>()
   const { currentUser } = useAuth()
+  const { isExpert }    = useUiMode()
   const navigate        = useNavigate()
   const { t }           = useTranslation(['settings', 'common', 'errors', 'share'])
   const perms           = device.permissions
@@ -709,8 +720,11 @@ export function DeviceSettingsTab() {
        * page stays the composition it already was rather than growing a second
        * set of loading/saving flags. It only borrows the tab's refresh token,
        * and decides for itself what a tick may safely touch.
+       *
+       * Hidden in Normal mode while the schedule is on; see the banner. A
+       * schedule not read yet counts as off, as it does inside the panel.
        * ================================================================ */}
-      {perms.canModifySettings ? (
+      {perms.canModifySettings && (isExpert || schedule?.enabled !== true) ? (
         <DeviceConfigSection
           deviceId={device.deviceId}
           refreshToken={autoRefresh.token}
@@ -721,9 +735,10 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 4: Firmware configuration — visible if canModifySettings
+       * Section 4: Firmware configuration — visible if canModifySettings,
+       * in Expert mode only
        * ================================================================ */}
-      {perms.canModifySettings ? (
+      {perms.canModifySettings && isExpert ? (
         <div className="settings-section">
           <div className="settings-section-header">
             <span className="settings-section-icon" aria-hidden="true">🔧</span>

@@ -207,6 +207,9 @@ FE/
 │   ├── auth/
 │   │   ├── AuthContext.tsx        Session probe, current user, login/logout helpers
 │   │   └── RequireAuth.tsx        Route guard — waits for the probe, then redirects
+│   ├── uiMode/                    Normal / Expert switch — see "Normal and Expert mode" below
+│   │   ├── UiModeProvider.tsx     Holds the mode, remembers it in localStorage (carpos.uiMode)
+│   │   └── useUiMode.ts           { mode, isExpert, setMode }
 │   ├── i18n/                      See "Languages" above
 │   │   ├── index.ts               i18next set-up, SUPPORTED_LANGUAGES, locale discovery
 │   │   ├── resources.ts           The English catalogue — also the type every t() key is checked against
@@ -225,6 +228,8 @@ FE/
 │   │   ├── BatteryBadge.tsx       Battery level pill (⚡ when charging; 0 = charging sentinel)
 │   │   ├── DeviceLinkBadge.tsx    Connection pill: Online, or offline and why (Sleeping, Battery low, Connection lost…)
 │   │   ├── DurationField.tsx      Number input plus a seconds/minutes/hours combobox — stores canonical units
+│   │   ├── BasicConfigFields.tsx  Normal-mode settings form: motion switch, report interval(s), wake wait
+│   │   ├── ExpertOnly.tsx         Route guard — Expert mode renders the tab, Normal redirects to ../map
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
@@ -241,7 +246,7 @@ FE/
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
 │   │   ├── DeviceEventsTab.tsx    Events tab — device history: offline and why, restarts, wakes, motion steps
-│   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config, sharing, delete
+│   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config (Expert mode), sharing, delete
 │   ├── services/
 │   │   ├── apiClient.ts           All fetch calls; cookies + CSRF header
 │   │   ├── apiTypes.ts            TypeScript DTOs matching the backend contracts
@@ -287,8 +292,8 @@ FE/
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
-| `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors |
-| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config, sharing, erase position history, delete) |
+| `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors. Expert mode only: in Normal mode the tab is hidden and the route redirects to `map` |
+| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config in Expert mode, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
 
@@ -297,6 +302,33 @@ FE/
 `AppLayout`, for the same reason the auth pages do: `AppLayout` lives behind
 `<RequireAuth>`, and somebody deciding whether to register has to be able to read
 what happens to their data first.
+
+### Normal and Expert mode
+
+The dashboard has two levels of detail, switched by **Expert mode** in the account
+menu (the person icon in the header) and remembered per browser in `localStorage`
+(`carpos.uiMode`, [`uiMode/`](src/uiMode/)). It is a display preference, not an
+account setting, and it only **hides** controls — the API and the permission flags
+are unchanged.
+
+| | Normal (default) | Expert |
+|---|---|---|
+| Device tabs | Map, Positions, Charts, Settings | + Events |
+| Reporting & Power | Wake-on-motion switch, report interval (parked + moving when motion wake is on), wait for movement after a wake ([`BasicConfigFields`](src/components/BasicConfigFields.tsx)) | Every setting ([`ConfigValuesFields`](src/components/ConfigValuesFields.tsx)) |
+| Reporting & Power while a schedule is on | Hidden — settings come from the profiles | Shown, as a temporary override |
+| Firmware configuration | Hidden | Shown |
+| Schedule rule priority | Hidden (existing value kept, new rules get 100) | Shown |
+
+A value hidden in Normal mode is never reset: the form still carries all fifteen and
+saves them as they are. Device information, access management, temporary share links
+and the danger zone look the same in both modes.
+
+The **schedule** sits behind its own switch in both modes, *Use different settings at
+different times*, off by default. Off, the section is that switch and a hint; profiles
+and rules are kept on the server and come back with it. The first switch-on saves the
+device's current settings as a profile called *Default* and makes it the fallback, so
+nothing changes on the tracker until a rule is added
+([`ScheduleSection`](src/components/ScheduleSection.tsx)).
 
 ### Temporary share links
 
@@ -567,7 +599,10 @@ keys (`STANDBY_KEYS` / `MOVING_KEYS`, with the moving ids prefixed `…-moving-`
 after [`MotionWakeFields`](src/components/MotionWakeFields.tsx), and then
 [`SharedValuesFields`](src/components/SharedValuesFields.tsx) — the queue, retry and
 re-check groups, once, in a **Both modes** block. With motion wake off only the
-standby set and the shared groups show, without a block around them.
+standby set and the shared groups show, without a block around them. That is the
+Expert mode form; in Normal mode `ConfigValuesFields` hands the same props to
+[`BasicConfigFields`](src/components/BasicConfigFields.tsx) instead (see "Normal and
+Expert mode" above).
 
 Every group of the form is a [`ConfigCollapsible`](src/components/ConfigCollapsible.tsx):
 a `<details>` that folds to its title and a one-line summary of the values

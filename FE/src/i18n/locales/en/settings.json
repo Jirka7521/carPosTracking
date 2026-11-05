@@ -28,6 +28,10 @@
     "tooLong_other": "Name must be {{count}} characters or fewer."
   },
   "config": {
+    "basic": {
+      "intervalParked": "Report every (parked)",
+      "wakeWaitHint": "When the accelerometer wakes the tracker, it stays awake this long looking for movement. If the car is moving it reports at the moving interval; if not, it goes back to sleep."
+    },
     "configCheckLabel": "Re-check every",
     "configCheckSleepNote": "Deep sleep is on, so this setting does nothing. A sleeping tracker has no connection to re-check — it reads its configuration afresh on every wake, which already makes this redundant.",
     "deviceStillOn": "Device still on {{value}}",

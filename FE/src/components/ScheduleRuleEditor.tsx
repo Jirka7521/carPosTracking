@@ -16,11 +16,16 @@
 // earns its place on the days rather than the times: people tick day boxes,
 // then change the hours, and lose track of which combination they have actually
 // described.
+//
+// Priority is an Expert mode field (uiMode/context.ts): it only matters when
+// windows overlap. Normal mode still sends the value it was seeded with — the
+// rule's own, or the default — so editing a rule there never reorders it.
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useUiMode } from '../uiMode/useUiMode'
 import type {
   DeviceConfigProfileDto,
   DeviceScheduleRuleDto,
@@ -58,6 +63,7 @@ export function ScheduleRuleEditor({
   onCancel,
 }: ScheduleRuleEditorProps) {
   const { t } = useTranslation(['schedule', 'common'])
+  const { isExpert } = useUiMode()
 
   // Seeded once from the rule. The panel gives this component a `key` tied to
   // the rule id, so opening a different rule remounts it rather than needing an
@@ -217,21 +223,23 @@ export function ScheduleRuleEditor({
           </select>
         </div>
 
-        <div className="form-field">
-          <label className="form-label" htmlFor="rule-priority">{t('schedule:rule.priority')}</label>
-          <input
-            id="rule-priority"
-            className="form-input"
-            style={{ width: 'auto' }}
-            type="number"
-            min={0}
-            max={1000}
-            value={priority}
-            onChange={(event) => setPriority(Number(event.target.value))}
-            required
-          />
-          <span className="hint">{t('schedule:rule.priorityHint')}</span>
-        </div>
+        {isExpert ? (
+          <div className="form-field">
+            <label className="form-label" htmlFor="rule-priority">{t('schedule:rule.priority')}</label>
+            <input
+              id="rule-priority"
+              className="form-input"
+              style={{ width: 'auto' }}
+              type="number"
+              min={0}
+              max={1000}
+              value={priority}
+              onChange={(event) => setPriority(Number(event.target.value))}
+              required
+            />
+            <span className="hint">{t('schedule:rule.priorityHint')}</span>
+          </div>
+        ) : null}
       </div>
 
       <label className="checkbox-field">

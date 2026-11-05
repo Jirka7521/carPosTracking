@@ -14,6 +14,7 @@
 //     /positions      — paginated GPS position list
 //     /charts         — telemetry series plotted over time
 //     /events         — connection history: why it went offline, restarts
+//                       (Expert mode only; Normal mode redirects to /map)
 //     /settings       — device info, sharing, delete
 //
 // Auth guard: <RequireAuth> redirects unauthenticated users to
@@ -30,7 +31,9 @@ import { AuthProvider } from './auth/AuthContext'
 import { useAuth } from './auth/useAuth'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppLayout } from './components/AppLayout'
+import { ExpertOnly } from './components/ExpertOnly'
 import { SessionLoading } from './components/SessionLoading'
+import { UiModeProvider } from './uiMode/UiModeProvider'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { PrivacyPage } from './pages/PrivacyPage'
@@ -145,7 +148,7 @@ function AppRoutes() {
           <Route path="map"       element={<DeviceMapTab />} />
           <Route path="positions" element={<PositionListTab />} />
           <Route path="charts"    element={<DeviceChartsTab />} />
-          <Route path="events"    element={<DeviceEventsTab />} />
+          <Route path="events"    element={<ExpertOnly><DeviceEventsTab /></ExpertOnly>} />
           <Route path="settings"  element={<DeviceSettingsTab />} />
         </Route>
       </Route>
@@ -190,7 +193,11 @@ function App() {
       {/* AuthProvider stores the current user profile and exposes
           login / register / logout helpers to all descendant components. */}
       <AuthProvider>
-        <AppChrome />
+        {/* UiModeProvider holds the Normal / Expert choice the account menu
+            switches and the device pages read. */}
+        <UiModeProvider>
+          <AppChrome />
+        </UiModeProvider>
       </AuthProvider>
     </I18nextProvider>
   )
