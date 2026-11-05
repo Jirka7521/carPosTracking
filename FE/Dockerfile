@@ -17,7 +17,7 @@
 # (.github/dependabot.yml) proposes the bumps.
 # ---------------------------------------------------------------------------
 
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 WORKDIR /src
 
 # npm ci (not install): it installs exactly what package-lock.json pins and
@@ -43,7 +43,7 @@ RUN npm run build
 # Its temp paths and pid file live in /tmp, which is what lets the container run
 # with a read-only root filesystem.
 # ---------------------------------------------------------------------------
-FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e AS runtime
 
 # The base image switches to uid 101; the steps below install files and need root
 # for a moment. USER is switched back at the end.
