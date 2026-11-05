@@ -107,7 +107,7 @@ services:
     # /mqttBroker to a WebSocket connection against the broker's 9001 listener.
     # 1.30 is the stable branch; 1.27 (mainline) has been end of life since
     # 2025-06 and gets no security fixes.
-    image: nginx:1.30-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
+    image: nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     container_name: carpos-mqtt-nginx
     restart: unless-stopped
     # Bounded logs. The default json-file driver never rotates, and these logs
