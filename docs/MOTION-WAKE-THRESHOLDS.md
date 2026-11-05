@@ -254,9 +254,11 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
   choice is listed here:
   - Moving means a GNSS speed strictly above **3 km/h**, configurable (`speed_kmph`,
     1–50). The analysis used 5 km/h and noted that 3 km/h changes nothing material.
-  - A **timer wake gets the full wake window** (`wake_wait_s`, default 600 s), exactly like
-    an accelerometer wake, as the state machine sketch below describes. The cost is
-    covered in the README's "What it costs".
+  - A **timer wake does not get the wake window** (changed 2026-10-15; it first got the full
+    `wake_wait_s`, exactly like an accelerometer wake, which kept a parked car awake for up
+    to 50 % of the time). It stays in standby, takes one fix and sleeps again; a fix faster
+    than the speed limit still goes straight to fast mode, so the timer wake remains the
+    safety net for a trip in progress. See the README's "Timer wakes".
   - **Only the first fix of a wake is published**; the rest of the window only watches the
     speed. A fix faster than the speed limit is always published, as the first report of
     the trip.
@@ -300,10 +302,11 @@ Reproduce: `node analyze.js accel_speed.csv --from 2026-08-15T00:00:00Z --tripM 
   frozen AC reference is unreliable during steady cruising. Keep the 600 s timer in
   firmware, driven by GNSS speed.
 - State machine sketch: **sleep** (RTC timer at the slow send interval + INT1 ext1)
-  → wake by either source → **acquiring**: if no speed > 5 km/h within 240 s → re-arm,
+  → wake by the interrupt → **acquiring**: if no speed > 5 km/h within 240 s → re-arm,
   sleep; else → **fast**: report every 5–10 s; when speed ≤ 5 km/h for 600 s → re-arm
-  with the car at rest, sleep. Both wake sources lead to the same acquiring state, so
-  the timer wake doubles as the safety net for a missed interrupt.
+  with the car at rest, sleep. A timer wake skips the acquiring window: one fix, and
+  only a speed > 5 km/h on it goes to **fast**; otherwise re-arm and sleep. That is
+  still the safety net for a missed interrupt, without the minutes of waiting.
 - Because the AC reference is taken at arm time, always re-arm activity detection as
   the very last step before deep sleep, after the modem is off and the SD card is
   unmounted, so the reference is a quiet sample.

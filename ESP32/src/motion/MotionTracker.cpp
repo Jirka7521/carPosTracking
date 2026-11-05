@@ -52,16 +52,29 @@ void MotionTracker::begin(const DeviceSettings& settings) {
     return;
   }
 
-  if (wasMoving && cause == ESP_SLEEP_WAKEUP_TIMER) {
-    // A timed sleep between moving reports. The remainder may already be spent
-    // (negative): the window then closes after this cycle's fix, unless that fix
-    // is itself fast - which is exactly the check a moving device should make.
-    state_      = State::Moving;
-    deadlineUs_ = esp_timer_get_time() +
-                  (remainingMs > 0 ? remainingMs * kUsPerMs : 0);
-    ESP_LOGI(TAG, "MOVING resumed after a timed sleep (%ds of the stop window "
-                  "left).",
-             (int)(remainingMs > 0 ? remainingMs / 1000 : 0));
+  if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+    if (wasMoving) {
+      // A timed sleep between moving reports. The remainder may already be spent
+      // (negative): the window then closes after this cycle's fix, unless that
+      // fix is itself fast - which is exactly the check a moving device should
+      // make.
+      state_      = State::Moving;
+      deadlineUs_ = esp_timer_get_time() +
+                    (remainingMs > 0 ? remainingMs * kUsPerMs : 0);
+      ESP_LOGI(TAG, "MOVING resumed after a timed sleep (%ds of the stop window "
+                    "left).",
+               (int)(remainingMs > 0 ? remainingMs / 1000 : 0));
+      return;
+    }
+
+    // A timed sleep in STANDBY. The accelerometer was armed for all of it and did
+    // not fire, so nothing suggests the car moved and there is no window to wait
+    // out - that is for a wake that IS a hint of movement. One plain report, then
+    // back to sleep. The movement check is the fix itself: onFix() sends a fast
+    // one straight to MOVING, exactly as at the end of a check.
+    state_ = State::Standby;
+    ESP_LOGI(TAG, "STANDBY after a timer wake - one plain report, no wake "
+                  "window.");
     return;
   }
 
