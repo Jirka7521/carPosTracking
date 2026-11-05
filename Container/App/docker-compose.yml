@@ -29,9 +29,11 @@ services:
         Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${BE_USER:?set BE_USER in .env};Password=${BE_PASSWORD:?set BE_PASSWORD in .env}
 
       # --- MQTT ingest ----------------------------------------------------
-      # The broker URI must be wss:// or mqtts:// — the API validates this at
-      # start-up and refuses to run otherwise, because a plaintext scheme would
-      # silently downgrade the whole pipeline.
+      # mqtt://mqtt.local:1883 — the broker's internal listener on the shared
+      # network below, so no MQTT traffic leaves the host and the payloads are
+      # end-to-end encrypted by the firmware regardless. The API accepts
+      # ws/wss/mqtt/mqtts. Not a ws:// / wss:// address: the broker refuses the
+      # API's account on its WebSocket listener unless DASHBOARD_ON_WEBSOCKETS=true.
       Mqtt__BrokerUri: ${MQTT_BROKER_URI:?set MQTT_BROKER_URI in .env}
       Mqtt__Username: ${MQTT_USERNAME:?set MQTT_USERNAME in .env}
       Mqtt__Password: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}

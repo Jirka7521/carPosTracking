@@ -279,7 +279,20 @@ try {
     # .env (read once, so upgrading needs no retyping), then the dev config.
     $priorConn = ConvertFrom-ConnectionString (Read-SecretFile 'ConnectionStrings__CarPos')
     $cur.BePass     = Get-FirstNonEmpty @((Get-TableValue $priorConn 'password'), (Get-TableValue $priorEnv 'BE_PASSWORD'), (Read-SecretFile 'BE_PASSWORD' $PgSecretsDir), (Get-TableValue $pgEnv 'BE_PASSWORD'), (Get-TableValue $devConn 'password'))
-    $cur.MqttUri    = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_BROKER_URI'), (Get-JsonPath $localJson 'Mqtt.BrokerUri'), (Get-TableValue $exampleEnv 'MQTT_BROKER_URI'))
+    # The broker address is the one value whose old default is now wrong rather
+    # than merely old. The API belongs on the broker's internal TCP listener, and
+    # the broker no longer lets the API's account log in over WebSockets
+    # (DASHBOARD_ON_WEBSOCKETS defaults to false). A ws:// or wss:// address
+    # offered by a previous bundle (ws://mqtt.local:9001) or by the dev config
+    # (the public wss:// URI a dev box has to use) would be kept by just pressing
+    # Enter and leave the deployed API locked out - so it is not offered; the
+    # example's internal address is. Typing a WebSocket address still works.
+    $priorMqttUri = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_BROKER_URI'), (Get-JsonPath $localJson 'Mqtt.BrokerUri'))
+    if ($priorMqttUri -match '^wss?://') {
+        Write-Host ("MQTT_BROKER_URI: not offering {0} (a WebSocket address the broker refuses the API's account on); offering the internal listener instead." -f $priorMqttUri) -ForegroundColor DarkGray
+        $priorMqttUri = $null
+    }
+    $cur.MqttUri    = Get-FirstNonEmpty @($priorMqttUri, (Get-TableValue $exampleEnv 'MQTT_BROKER_URI'))
     $cur.MqttUser   = Get-FirstNonEmpty @((Get-TableValue $priorEnv 'MQTT_USERNAME'), (Get-JsonPath $localJson 'Mqtt.Username'), (Get-TableValue $exampleEnv 'MQTT_USERNAME'))
     $cur.MqttPass   = Get-FirstNonEmpty @((Read-SecretFile 'Mqtt__Password'), (Get-TableValue $priorEnv 'MQTT_PASSWORD'), (Get-JsonPath $localJson 'Mqtt.Password'), (Read-SecretFile 'DASHBOARD_PASSWORD' $MqttSecretsDir), (Get-TableValue $mqttEnv 'DASHBOARD_PASSWORD'))
     $cur.MasterKey  = Get-FirstNonEmpty @((Read-SecretFile 'DeviceKeyProtection__MasterKeyBase64'), (Get-TableValue $priorEnv 'DEVICE_KEY_MASTER_KEY'), (Get-JsonPath $localJson 'DeviceKeyProtection.MasterKeyBase64'))
@@ -410,17 +423,18 @@ try {
         Write-Warning ("FE_PORT is {0}, not {1}: from the LAN the dashboard is on port {0}, but inside Docker the FE_HOST alias reaches port {1}." -f $values['FE_PORT'], $FeContainerPort)
     }
 
-    # The broker's WebSocket listener is its public entrance (the tunnel feeds it);
-    # the API belongs on the internal TCP listener. A bundle written before that
-    # split still carries the old address as its "current" value, so say so.
     # The connection string goes into a file whole, and Npgsql reads ';' as the
     # separator between keywords: a password containing one would be cut short.
     if ($values['BE_PASSWORD'].Contains(';')) {
         Write-Warning 'BE_PASSWORD contains a semicolon, which ends a connection-string value early. Choose a password without one.'
     }
 
-    if ($values['MQTT_BROKER_URI'] -match '^wss?://mqtt\.local(:9001)?(/|$)') {
-        Write-Warning ("MQTT_BROKER_URI is {0}, the broker's public WebSocket listener. Use the internal listener instead: mqtt://mqtt.local:1883" -f $values['MQTT_BROKER_URI'])
+    # The broker's WebSocket listener is its public entrance (the tunnel feeds it);
+    # the API belongs on the internal TCP listener. Only a typed-in value can get
+    # here as ws:// or wss:// (none is offered as current, see above), and with
+    # the broker's default DASHBOARD_ON_WEBSOCKETS=false that API cannot log in.
+    if ($values['MQTT_BROKER_URI'] -match '^wss?://') {
+        Write-Warning ("MQTT_BROKER_URI is {0}, a WebSocket address. The broker refuses the API's account there unless DASHBOARD_ON_WEBSOCKETS=true in Container/MQTTBroker/.env. Use the internal listener instead: mqtt://mqtt.local:1883" -f $values['MQTT_BROKER_URI'])
     }
 
     if ($values['MQTT_USERNAME'] -notin $KnownMqttAccounts) {

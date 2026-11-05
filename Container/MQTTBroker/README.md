@@ -109,15 +109,20 @@ password file per listener):
 |---|---|---|
 | `admin` | yes | **no** |
 | `GNSS01` | yes | yes |
-| `dashboard` | yes | only while `DASHBOARD_ON_WEBSOCKETS=true` (the default) |
+| `dashboard` | yes | **no** — only if `DASHBOARD_ON_WEBSOCKETS=true` (default `false`) |
 | `healthcheck` | yes | **no** |
 
 `admin` holds `readwrite #`; it can no longer be tried from the internet at all.
-The API's `dashboard` account stays on the WebSocket listener by default so an
-API still configured for `ws://mqtt.local:9001` keeps working; once its
-`MQTT_BROKER_URI` is `mqtt://mqtt.local:1883`, set `DASHBOARD_ON_WEBSOCKETS=false`
-in `.env` and recreate the broker. (`per_listener_settings` is deprecated in 2.1
-and slated for removal in 3.0; the broker logs a notice about it at start.)
+Neither, by default, can the API's `dashboard` account, which reads every device
+and writes their config: the API reaches the broker on the internal listener
+(`MQTT_BROKER_URI=mqtt://mqtt.local:1883`, the deployment bundle's default), so
+the only account the internet's entrance accepts is the tracker's. Set
+`DASHBOARD_ON_WEBSOCKETS=true` in `.env` and recreate the broker only while an API
+still dials a `ws://` / `wss://` address — an old bundle, or a dev box using the
+public `wss://jimajer.cz/mqttBroker`. An `.env` copied from an older
+`.env.example` says `true` explicitly, which overrides the new default — change
+that line to `false`. (`per_listener_settings` is deprecated in 2.1 and slated
+for removal in 3.0; the broker logs a notice about it at start.)
 
 The usernames in the ACL are literal: if you rename a `*_USER` in `.env`, rename
 it in the ACL too, or that account keeps its login but loses every permission.
