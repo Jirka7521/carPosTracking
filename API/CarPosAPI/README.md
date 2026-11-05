@@ -480,8 +480,20 @@ to change, and nothing warns that a step drops a column with rows behind it. The
 
 **The intended front door is Ctrl+Shift+M → option 2**
 ([`scripts/Sync-DatabaseSchema.ps1`](../../scripts/Sync-DatabaseSchema.ps1)), which
-picks the database, drives the prompts and holds the confirmation gate. The mode is
-usable directly too:
+picks the database, drives the prompts and holds the confirmation gate. Its "dev"
+choice reads its own connection string, `ConnectionStrings:CarPosSchemaSync` in
+`appsettings.Local.json`, not the API's `CarPos`: the API's BE login is DML-only and
+cannot ALTER anything, so this one names a DDL-capable login such as `admin`. The API
+never reads it. Leave its `Password` out to be asked for it on each run:
+
+```jsonc
+"ConnectionStrings": {
+  "CarPos": "…;Username=BE;Password=<BE password>",
+  "CarPosSchemaSync": "Host=carPosSql.local;Port=5432;Database=carpos;Username=admin;SSL Mode=Disable"
+}
+```
+
+The mode is usable directly too:
 
 ```powershell
 # What differs, as a numbered list. Exit 0 = in sync, 2 = differences, 1 = error.
