@@ -99,12 +99,26 @@ function ConvertFrom-ConnectionString {
     return $table
 }
 
-# Parse a JSON file to an object. Missing/invalid -> $null (with a warning).
+# appsettings files are JSONC: ASP.NET Core's configuration reader accepts // and
+# /* */ comments and trailing commas, while Windows PowerShell 5.1's ConvertFrom-Json
+# rejects both - so a commented appsettings.Local.json parsed to $null and every
+# value in it looked unset. Each pattern matches a whole string literal first, so a
+# "//" or "," inside a value (wss:// URIs, passwords) is consumed with its string
+# and kept; only what lies outside strings is dropped.
+function Remove-JsonComments {
+    param([string]$Text)
+    $keepStrings = { param($m) if ($m.Value[0] -eq '"') { $m.Value } else { '' } }
+    $stripped = [regex]::Replace($Text, '"(?:[^"\\]|\\.)*"|//[^\r\n]*|/\*[\s\S]*?\*/', $keepStrings)
+    return [regex]::Replace($stripped, '"(?:[^"\\]|\\.)*"|,(?=\s*[}\]])', $keepStrings)
+}
+
+# Parse a JSON (or JSONC) file to an object. Missing/invalid -> $null (with a warning).
+# Read as UTF-8 explicitly: 5.1 otherwise decodes a BOM-less file as ANSI.
 function Read-JsonFile {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try {
-        return (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
+        return (Remove-JsonComments (Get-Content -LiteralPath $Path -Raw -Encoding UTF8) | ConvertFrom-Json)
     } catch {
         Write-Warning ("Could not parse {0}: {1}" -f $Path, $_.Exception.Message)
         return $null

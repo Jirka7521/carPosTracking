@@ -100,41 +100,67 @@ function Read-ConnectionFromPrompts {
     return ($parts -join ';')
 }
 
-# Offers the dev connection string or a hand-typed one. Returns the chosen string.
+# A stored connection string may leave its password out, so the admin password need
+# not sit in a file; it is asked for here instead, never echoed. Any empty
+# Password= / Pwd= entry is dropped first so the typed one is the only one.
+function Complete-ConnectionPassword {
+    param([string]$ConnectionString)
+    $parts = ConvertFrom-ConnectionString $ConnectionString
+    $stored = Get-FirstNonEmpty @((Get-TableValue $parts 'password'), (Get-TableValue $parts 'pwd'))
+    if ($stored) { return $ConnectionString }
+
+    $password = ConvertFrom-SecureStringPlain (Read-Host ("  Password for {0}" -f (Get-TableValue $parts 'username')) -AsSecureString)
+    $kept = @($ConnectionString.Split(';') | Where-Object {
+        $_.Trim() -ne '' -and $_ -notmatch '^\s*(password|pwd)\s*='
+    })
+    return (($kept + ('Password={0}' -f $password)) -join ';')
+}
+
+# Offers the menu's own connection string or a hand-typed one. Returns the chosen
+# string.
+#
+# The menu reads ConnectionStrings:CarPosSchemaSync, not the API's
+# ConnectionStrings:CarPos: the API logs in as BE, which is deliberately DML-only, so
+# a sync through it can report but fails on the first ALTER. The API never reads
+# CarPosSchemaSync. Its password may be left out and is then asked for each run.
 function Select-TargetConnection {
     $localJson = Read-JsonFile $LocalSettings
-    $devConn   = [string](Get-JsonPath $localJson 'ConnectionStrings.CarPos')
-    $devParts  = ConvertFrom-ConnectionString $devConn
+    $syncConn  = [string](Get-JsonPath $localJson 'ConnectionStrings.CarPosSchemaSync')
+    $syncParts = ConvertFrom-ConnectionString $syncConn
+    # The API's string still seeds the hand-entry defaults (host, port, database)
+    # when the menu has none of its own.
+    $apiParts  = ConvertFrom-ConnectionString ([string](Get-JsonPath $localJson 'ConnectionStrings.CarPos'))
+    $defaults  = if ($syncParts.Count -gt 0) { $syncParts } else { $apiParts }
 
     Write-Host ''
     Write-Host 'Which database?' -ForegroundColor Cyan
 
-    $hasDev = -not [string]::IsNullOrWhiteSpace($devConn)
-    if ($hasDev) {
+    $hasSync = -not [string]::IsNullOrWhiteSpace($syncConn)
+    if ($hasSync) {
         Write-Host ('  [1] dev  -  {0} @ {1}  as {2}' -f `
-            (Get-TableValue $devParts 'database'), `
-            (Get-TableValue $devParts 'host'), `
-            (Get-TableValue $devParts 'username')) -ForegroundColor Gray
-        Write-Host '            (from API/CarPosAPI/appsettings.Local.json)' -ForegroundColor DarkGray
+            (Get-TableValue $syncParts 'database'), `
+            (Get-TableValue $syncParts 'host'), `
+            (Get-TableValue $syncParts 'username')) -ForegroundColor Gray
+        Write-Host '            (ConnectionStrings:CarPosSchemaSync in API/CarPosAPI/appsettings.Local.json)' -ForegroundColor DarkGray
     } else {
-        Write-Host '  [1] dev  -  unavailable: appsettings.Local.json has no ConnectionStrings:CarPos' -ForegroundColor DarkGray
+        Write-Host '  [1] dev  -  unavailable: appsettings.Local.json has no ConnectionStrings:CarPosSchemaSync' -ForegroundColor DarkGray
     }
     Write-Host '  [2] enter host / database / login by hand' -ForegroundColor Gray
 
     while ($true) {
-        $default = if ($hasDev) { '1' } else { '2' }
+        $default = if ($hasSync) { '1' } else { '2' }
         $answer = Read-Host ("Choose  (default {0})" -f $default)
         if ([string]::IsNullOrWhiteSpace($answer)) { $answer = $default }
 
         switch ($answer.Trim()) {
             '1' {
-                if ($hasDev) { return $devConn }
-                Write-Host '  No dev connection string to use - choose 2.' -ForegroundColor Red
+                if ($hasSync) { return (Complete-ConnectionPassword $syncConn) }
+                Write-Host '  No ConnectionStrings:CarPosSchemaSync to use - choose 2.' -ForegroundColor Red
             }
             '2' {
                 Write-Host ''
                 Write-Host 'Enter the connection (press Enter to accept a shown default):' -ForegroundColor Cyan
-                return (Read-ConnectionFromPrompts -Defaults $devParts)
+                return (Read-ConnectionFromPrompts -Defaults $defaults)
             }
             default { Write-Host '  Choose 1 or 2.' -ForegroundColor Red }
         }

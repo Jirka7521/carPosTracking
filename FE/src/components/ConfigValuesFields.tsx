@@ -30,6 +30,11 @@
 // the server just handed us; leaving it alone is how a reader's chosen unit
 // survives a refresh. See DurationField's header for why that is the parent's
 // job.
+//
+// All of the above is EXPERT mode. In Normal mode (uiMode/context.ts) the same
+// props go to BasicConfigFields instead — the mode switch, the interval(s) and
+// the wake wait. Deciding it here rather than in each caller means the settings
+// panel and the profile editor can never disagree about which fields exist.
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
@@ -44,6 +49,8 @@ import {
   describeReportingSummary,
 } from '../utils/deviceConfig'
 import type { ModeKeys } from '../utils/deviceConfig'
+import { useUiMode } from '../uiMode/useUiMode'
+import { BasicConfigFields } from './BasicConfigFields'
 import { ConfigCollapsible } from './ConfigCollapsible'
 import { ConfigModeSwitch } from './ConfigModeSwitch'
 import { ModeValuesFields } from './ModeValuesFields'
@@ -78,6 +85,20 @@ export function ConfigValuesFields({
   idPrefix,
 }: ConfigValuesFieldsProps) {
   const { t } = useTranslation(['settings'])
+  const { isExpert } = useUiMode()
+
+  if (!isExpert) {
+    return (
+      <BasicConfigFields
+        values={values}
+        onChange={onChange}
+        seedKey={seedKey}
+        disabled={disabled}
+        renderPendingNote={renderPendingNote}
+        idPrefix={idPrefix}
+      />
+    )
+  }
 
   function pendingNote(key: keyof DeviceConfigValuesDto): ReactNode {
     return renderPendingNote ? renderPendingNote(key) : null

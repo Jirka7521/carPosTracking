@@ -30,6 +30,10 @@
     "tooLong_other": "Název smí mít nejvýše {{count}} znaků."
   },
   "config": {
+    "basic": {
+      "intervalParked": "Hlásit každých (při parkování)",
+      "wakeWaitHint": "Když akcelerometr tracker probudí, zůstane tracker tak dlouho vzhůru a hledá pohyb. Pokud auto jede, hlásí v intervalu za jízdy; pokud ne, znovu usne."
+    },
     "configCheckLabel": "Znovu kontrolovat každých",
     "configCheckSleepNote": "Hluboký spánek je zapnutý, takže toto nastavení nic nedělá. Spící tracker nemá spojení, které by kontroloval — konfiguraci si načte znovu při každém probuzení, což už tuto hodnotu činí zbytečnou.",
     "deviceStillOn": "Zařízení stále používá {{value}}",

@@ -460,22 +460,48 @@
   text-decoration: none;
 }
 
-/* Card top row: UUID + status badge */
+/* Card top row: UUID + status badge.
+ *
+ * Three pills plus a device name is often more than one row of a card can hold
+ * — on a phone, but just as much in a half-screen window, where the grid still
+ * lays out two or three cards of ~300px. The pills are nowrap and the cluster
+ * does not shrink, so with a plain `flex: 1` on the name it was the name that
+ * gave: squeezed to two characters a line while the badges kept their width.
+ * This used to be fixed under a 480px media query, but that keys on the
+ * WINDOW, and the card's width is what matters. So instead the row wraps, and
+ * the name's flex-basis is its own full width: when the whole name and the
+ * badges no longer fit side by side, the cluster drops to its own line, which
+ * is the right thing to lose first. */
 .device-card-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-/* UUID shown in a monospace style to look like a device identifier */
+/* UUID shown in a monospace style to look like a device identifier.
+ * overflow-wrap rather than word-break: it only breaks a word that cannot fit
+ * on a line by itself, instead of splitting every name between any two
+ * letters. */
 .device-card-uuid {
   font-family: var(--mono);
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-h);
-  word-break: break-all;
-  flex: 1;
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The badge cluster in a CARD header (the device page reuses the class beside
+ * its title, where the row already wraps on its own). Pushed to the right edge
+ * when it has dropped to its own line, and capped at the card's width so its
+ * own pills wrap rather than overflow. */
+.device-card-header .device-card-badges {
+  margin-left: auto;
+  max-width: 100%;
+  justify-content: flex-end;
 }
 
 /*
@@ -727,28 +753,6 @@
   padding: 5px 14px;
 }
 
-/*
- * Three pills plus a device name is more than a phone-width row can hold, and
- * .device-card-uuid has `flex: 1` with `word-break: break-all`, so without this
- * the name is the thing that gives — squeezed to two characters a line while the
- * badges keep their full width. A floor under the name forces the cluster to
- * wrap to its own line instead, which is the right thing to lose first.
- */
-@media (max-width: 480px) {
-  .device-card-header {
-    flex-wrap: wrap;
-  }
-
-  .device-card-uuid {
-    min-width: 55%;
-  }
-
-  .device-card-badges {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-}
-
 /* Footer row: push the "Open →" link to the right */
 .device-card-footer {
   display: flex;
@@ -894,6 +898,15 @@
   font-size: 1.25rem;
   font-weight: 700;
   word-break: break-all;
+}
+
+/* On a phone the title's pills wrap onto several lines; keep them ending at
+   the right edge. (This was part of the old card media query, which also
+   reached this cluster; the cards now handle their own width above.) */
+@media (max-width: 480px) {
+  .device-page-title .device-card-badges {
+    justify-content: flex-end;
+  }
 }
 
 
@@ -2653,6 +2666,19 @@
 }
 
 .config-mode-switch:disabled {
+  opacity: 0.6;
+}
+
+/* Normal mode's few fields under the switch (BasicConfigFields): a bare
+   fieldset, so a save can lock them without drawing a box around them. */
+.config-basic-fields {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.config-basic-fields:disabled {
   opacity: 0.6;
 }
 

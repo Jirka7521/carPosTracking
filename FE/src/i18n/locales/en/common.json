@@ -9,6 +9,8 @@
     "summary_other": "{{count}} people have access"
   },
   "account": {
+    "expertMode": "Expert mode",
+    "expertModeHint": "Show every setting, the events history and the firmware configuration",
     "menu": "Account menu",
     "profile": "Account & profile"
   },

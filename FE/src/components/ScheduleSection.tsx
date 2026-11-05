@@ -21,6 +21,23 @@
 // That is also why no mutation is followed by a re-read: every schedule endpoint
 // answers with the whole recomputed state, so "add a rule" and "what is in force
 // now" arrive together and can never be one render out of step.
+//
+// OFF IS ONE QUESTION. All four parts sit behind ScheduleModeSwitch — one set
+// of settings, or different settings on a schedule — and its Save button:
+// most trackers never need a schedule, and a disabled one used to fill the tab
+// with empty profile and rule lists anyway. Switched off, the section is that
+// question; the profiles and rules are kept on the server and come back with
+// it. The choice is held unsaved until Save, like every other setting on the
+// tab, because saving it changes what the tracker runs. The first switch-on
+// needs no setup: the
+// API will not run a schedule without a fallback profile, so the current
+// settings are saved as one (see enableWithDefaultProfile). With no rules yet
+// the fallback covers the whole week, so the device carries on exactly as it
+// was until somebody adds a window.
+//
+// In Normal mode (uiMode/context.ts) the panel also says that settings now come
+// from the profiles, since the tab hides the manual settings form beside it, and
+// rule priorities are not shown.
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react'
@@ -30,6 +47,7 @@ import {
   createScheduleRule,
   deleteConfigProfile,
   deleteScheduleRule,
+  fetchDeviceConfig,
   resumeDeviceSchedule,
   updateConfigProfile,
   updateDeviceSchedule,
@@ -42,6 +60,7 @@ import type {
   SaveConfigProfileRequestDto,
   SaveScheduleRuleRequestDto,
 } from '../services/apiTypes'
+import { useUiMode } from '../uiMode/useUiMode'
 import { CONFIG_FIELD_LABEL_KEYS, formatConfigValue } from '../utils/deviceConfig'
 import { describeError } from '../utils/errors'
 import {
@@ -51,6 +70,7 @@ import {
   formatMinuteOfDay,
   utcWindowToLocal,
 } from '../utils/schedule'
+import { ScheduleModeSwitch } from './ScheduleModeSwitch'
 import { ScheduleProfileEditor } from './ScheduleProfileEditor'
 import { ScheduleRuleEditor } from './ScheduleRuleEditor'
 import { ScheduleStatusBanner } from './ScheduleStatusBanner'
@@ -109,7 +129,9 @@ export function ScheduleSection({
       </div>
 
       <div className="settings-section-body">
-        <p>{t('schedule:intro')}</p>
+        {/* The long explanation only once there is a schedule to explain; off,
+            the switch's own hint says what it is for. */}
+        {schedule?.enabled === true ? <p>{t('schedule:intro')}</p> : null}
 
         {status === 'loading' && schedule === null ? (
           <div className="loading-state" style={{ minHeight: 80 }}>
@@ -162,10 +184,16 @@ function ScheduleContent({
   // `settings` is in the list because a profile card names configuration
   // fields, whose label keys live in that namespace.
   const { t } = useTranslation(['schedule', 'common', 'errors', 'settings'])
+  const { isExpert } = useUiMode()
 
   const [busy, setBusy] = useState<string>('')
   const [message, setMessage] = useState<string>('')
   const [isError, setIsError] = useState<boolean>(false)
+
+  // The reader's unsaved answer to the on/off question; null when there is
+  // none. Kept apart from the saved state rather than seeded from it, so a
+  // background refresh moves the saved answer without overwriting a pick.
+  const [chosenEnabled, setChosenEnabled] = useState<boolean | null>(null)
 
   // Which editor is open. 'new' creates; a Guid edits that row; null is closed.
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
@@ -198,7 +226,20 @@ function ScheduleContent({
     }
   }
 
-  function handleToggleEnabled(enabled: boolean): void {
+  function handleSaveEnabled(enabled: boolean): void {
+    const clearChoice = (): void => setChosenEnabled(null)
+
+    if (enabled && schedule.fallbackProfileId === null) {
+      const name: string = t('schedule:defaultProfileName')
+      void run(
+        'enabled',
+        () => enableWithDefaultProfile(name),
+        t('schedule:message.enabledWithDefault', { name }),
+        clearChoice,
+      )
+      return
+    }
+
     void run(
       'enabled',
       () => updateDeviceSchedule(deviceId, {
@@ -208,7 +249,38 @@ function ScheduleContent({
       enabled
         ? t('schedule:message.enabled')
         : t('schedule:message.disabled'),
+      clearChoice,
     )
+  }
+
+  // The first switch-on, when there is no fallback yet: the device's current
+  // settings become a profile under `name`, and that profile the fallback. A
+  // profile already called that is reused rather than created again — the
+  // API's names are unique regardless of case, and a retry after a create that
+  // succeeded but an enable that did not would otherwise fail on the duplicate.
+  async function enableWithDefaultProfile(name: string): Promise<DeviceScheduleStateDto> {
+    const matches = (profile: DeviceConfigProfileDto): boolean =>
+      profile.name.toLocaleLowerCase() === name.toLocaleLowerCase()
+
+    let profile: DeviceConfigProfileDto | undefined = schedule.profiles.find(matches)
+    if (profile === undefined) {
+      const config = await fetchDeviceConfig(deviceId)
+      const created: DeviceScheduleStateDto = await createConfigProfile(deviceId, {
+        name,
+        ...config.desired.values,
+      })
+      // Handed up now, not only at the end: if the enable below fails, the
+      // profile is already on screen, and the retry finds it above.
+      onScheduleChanged(created)
+      profile = created.profiles.find(matches)
+      if (profile === undefined) {
+        // The create answered success without the profile in it; nothing sane
+        // to enable. run() turns this into the generic failure message.
+        throw new Error(t('errors:scheduleChangeFailed'))
+      }
+    }
+
+    return updateDeviceSchedule(deviceId, { enabled: true, fallbackProfileId: profile.id })
   }
 
   function handleFallbackChange(fallbackProfileId: string): void {
@@ -293,8 +365,6 @@ function ScheduleContent({
     )
   }
 
-  const canEnable: boolean = schedule.profiles.length > 0 && schedule.fallbackProfileId !== null
-
   // Why a profile cannot be deleted, or null when it can be.
   //
   // The API refuses with a 409 in exactly these two cases, and rightly so —
@@ -310,20 +380,73 @@ function ScheduleContent({
     return count === 0 ? null : t('schedule:profile.usedByRules', { count })
   }
 
+  const messageBanner = message ? (
+    <div
+      className={`banner ${isError ? 'banner--error' : 'banner--success'}`}
+      role={isError ? 'alert' : 'status'}
+    >
+      {message}
+    </div>
+  ) : null
+
+  const shownEnabled: boolean = chosenEnabled ?? schedule.enabled
+  const isModeDirty: boolean = shownEnabled !== schedule.enabled
+
+  // The on/off question with its own Save and Reset, styled like the settings
+  // form's so the two read as one kind of control. The hint under them says
+  // what Save is about to do when that is more than flipping a flag.
+  const modeSwitch = (
+    <>
+      <ScheduleModeSwitch
+        enabled={shownEnabled}
+        onChange={(enabled) => { setChosenEnabled(enabled); setMessage('') }}
+        disabled={busy !== ''}
+      />
+
+      {isModeDirty && shownEnabled && schedule.fallbackProfileId === null ? (
+        <p className="hint">
+          {t('schedule:modeSwitch.willCreateDefault', { name: t('schedule:defaultProfileName') })}
+        </p>
+      ) : null}
+
+      <div className="config-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => handleSaveEnabled(shownEnabled)}
+          disabled={busy !== '' || !isModeDirty}
+        >
+          {busy === 'enabled' ? t('common:actions.saving') : t('common:actions.saveChanges')}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => setChosenEnabled(null)}
+          disabled={busy !== '' || !isModeDirty}
+        >
+          {t('settings:save.reset')}
+        </button>
+        {isModeDirty ? <span className="hint">{t('settings:save.unsaved')}</span> : null}
+      </div>
+    </>
+  )
+
+  // Off: the question, and the outcome of the last save.
+  if (!schedule.enabled) {
+    return (
+      <>
+        {modeSwitch}
+        {messageBanner}
+      </>
+    )
+  }
+
   return (
     <>
-      {/* -------- Enable + fallback -------- */}
-        <div className="schedule-controls">
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={schedule.enabled}
-              disabled={busy !== '' || (!schedule.enabled && !canEnable)}
-              onChange={(event) => handleToggleEnabled(event.target.checked)}
-            />
-            <span>{t('schedule:enable')}</span>
-          </label>
+      {modeSwitch}
 
+      {/* -------- Fallback -------- */}
+        <div className="schedule-controls">
           <div className="form-field">
             <label className="form-label" htmlFor="schedule-fallback">
               {t('schedule:fallback.label')}
@@ -344,23 +467,10 @@ function ScheduleContent({
           </div>
         </div>
 
-        {!canEnable && !schedule.enabled ? (
-          <div className="banner banner--info" role="status">
-            {t('schedule:cannotEnableYet')}
-          </div>
-        ) : null}
-
-        {message ? (
-          <div
-            className={`banner ${isError ? 'banner--error' : 'banner--success'}`}
-            role={isError ? 'alert' : 'status'}
-          >
-            {message}
-          </div>
-        ) : null}
+        {messageBanner}
 
         {/* -------- Status + timeline -------- */}
-        {schedule.enabled && schedule.status !== null ? (
+        {schedule.status !== null ? (
           <>
             <ScheduleStatusBanner
               status={schedule.status}
@@ -383,24 +493,12 @@ function ScheduleContent({
           </>
         ) : null}
 
-        {/* A disabled schedule still shows its timeline — that is how you check
-            a schedule reads the way you meant BEFORE handing it a tracker. */}
-        {!schedule.enabled && schedule.rules.length > 0 ? (
-          <>
-            <div className="banner banner--info" role="status">
-              {t('schedule:previewWhenOff')}
-            </div>
-            <ScheduleTimeline
-              rules={schedule.rules}
-              fallbackProfileId={schedule.fallbackProfileId}
-              fallbackProfileName={
-                schedule.profiles.find((profile) => profile.id === schedule.fallbackProfileId)?.name
-                ?? null
-              }
-              profileOrder={profileOrder}
-              refreshToken={refreshToken}
-            />
-          </>
+        {/* Normal mode hides the manual settings form while a schedule runs,
+            so say where the settings went. */}
+        {!isExpert ? (
+          <div className="banner banner--info" role="status">
+            {t('schedule:fromProfilesNote')}
+          </div>
         ) : null}
 
         {/* -------- Profiles -------- */}
@@ -550,9 +648,12 @@ function ScheduleContent({
                           ) : null}
                         </div>
 
+                        {/* Priority only where it can be edited: Expert mode. */}
                         <p className="schedule-card-summary">
-                          {t('schedule:ruleList.prioritySummary', { priority: rule.priority })}{' '}
-                          · {describeDuration(rule.durationMinutes)}
+                          {isExpert ? (
+                            <>{t('schedule:ruleList.prioritySummary', { priority: rule.priority })}{' '}· </>
+                          ) : null}
+                          {describeDuration(rule.durationMinutes)}
                         </p>
                       </div>
 

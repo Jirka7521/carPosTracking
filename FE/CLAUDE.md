@@ -36,6 +36,7 @@ npm run i18n:api-codes # fails when an API error code has no translation
 src/
 ├── App.tsx, main.tsx   routes; <BrowserRouter basename> from BASE_PATH
 ├── auth/               AuthProvider (session probe via GET /api/me), RequireAuth guard
+├── uiMode/             Normal / Expert switch (localStorage), read via useUiMode()
 ├── pages/              one route component per file (DevicePage + its *Tab pages)
 ├── components/         reusable UI, one component per file
 ├── hooks/              custom hooks (useAutoRefresh)

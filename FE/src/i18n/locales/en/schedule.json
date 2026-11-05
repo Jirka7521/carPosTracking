@@ -1,5 +1,4 @@
 {
-  "cannotEnableYet": "Create at least one profile and choose it as the fallback, then you can turn the schedule on.",
   "confirm": {
     "deleteProfile": "Delete the \"{{name}}\" profile?",
     "deleteRule": "Delete the {{rule}} rule?"
@@ -11,18 +10,20 @@
     "weekend": "Sat & Sun",
     "weekendPreset": "Weekends"
   },
-  "enable": "Run this device on a schedule",
+  "defaultProfileName": "Default",
   "fallback": {
-    "hint": "What the device runs at any hour no rule covers. Required before the schedule can be turned on.",
+    "hint": "What the device runs at any hour no rule covers.",
     "label": "Fallback profile",
     "none": "— none —"
   },
+  "fromProfilesNote": "While the schedule is on, the device's settings come from the profiles below. To change what it runs, edit a profile.",
   "intro": "Switch this tracker between named profiles on a weekly timetable — reporting less often at night, say, or sleeping through the weekend. The server evaluates the schedule and pushes each change the same way saving settings by hand does, so nothing has to be reflashed and the tracker does not need to be online at the moment a window opens.",
   "loadErrorHint": "If this keeps saying the schedule was not found, the server this dashboard is talking to is older than the dashboard itself and does not have schedules yet — it needs updating.",
   "loading": "Loading the schedule…",
   "message": {
     "disabled": "Schedule turned off. The device keeps its current settings until you change them.",
     "enabled": "Schedule enabled — the profile in force has been applied.",
+    "enabledWithDefault": "Schedule turned on. Your current settings were saved as the profile \"{{name}}\", which applies at all times until you add a rule.",
     "fallbackUpdated": "Fallback profile updated.",
     "profileCreated": "Profile created.",
     "profileSaved": "Profile saved.",
@@ -32,6 +33,14 @@
     "rulePaused": "Rule paused — it will not apply until you resume it.",
     "ruleResumed": "Rule resumed.",
     "ruleSaved": "Rule saved."
+  },
+  "modeSwitch": {
+    "legend": "Settings over the week",
+    "off": "One set of settings",
+    "offHint": "The device always runs on the settings in Reporting & Power below.",
+    "on": "Different settings on a schedule",
+    "onHint": "Switch between named profiles by day and time — for example, report less often at night or over the weekend.",
+    "willCreateDefault": "Saving copies the current settings into a profile called \"{{name}}\", which applies whenever no rule does. Nothing changes on the device until you add a rule."
   },
   "override": {
     "label": "Overridden",
@@ -43,7 +52,6 @@
     "returnsAt": "<strong>{{profile}}</strong> returns at <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
     "scheduledProfile": "The scheduled profile"
   },
-  "previewWhenOff": "The schedule is off, so nothing below is being applied. This is what it would do.",
   "profile": {
     "add": "Add profile",
     "create": "Create profile",

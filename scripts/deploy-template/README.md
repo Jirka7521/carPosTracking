@@ -184,7 +184,7 @@ when a container joins the network, not on a plain restart.
   `API_ALLOWED_HOSTS=*` switches the check off.
 
 - **Hardening.** Both containers run with a read-only root filesystem, no
-  capabilities, `no-new-privileges` and a `pids_limit`. The frontend runs nginx
+  capabilities, `no-new-privileges` and a pid cap (`deploy.resources.limits.pids`). The frontend runs nginx
   as uid 101 (nginx-unprivileged) and still listens on port 80 thanks to the
   namespaced sysctl `net.ipv4.ip_unprivileged_port_start=0`. A server-local
   `docker-compose.override.yml` that still adds `cap_add` to `fe` is harmless but

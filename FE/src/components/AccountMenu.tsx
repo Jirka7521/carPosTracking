@@ -9,15 +9,22 @@
 //
 // Same popover pattern as LanguageMenu — the export-menu classes, outside-click
 // and Escape handling — because there is one menu pattern in this app.
+//
+// It also carries the Normal / Expert switch (see uiMode/context.ts). It is a
+// choice about the whole dashboard rather than any one device, so it sits with
+// the other per-user controls, as a checkable item whose ✓ uses the same slot
+// the CSV menu ticks its separator in.
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { useUiMode } from '../uiMode/useUiMode'
 
 export function AccountMenu() {
   const { currentUser, logout } = useAuth()
+  const { isExpert, setMode } = useUiMode()
   const { t } = useTranslation('common')
   const navigate = useNavigate()
 
@@ -55,6 +62,11 @@ export function AccountMenu() {
   function openProfile(): void {
     setIsOpen(false)
     navigate('/profile')
+  }
+
+  function toggleExpertMode(): void {
+    setIsOpen(false)
+    setMode(isExpert ? 'normal' : 'expert')
   }
 
   function signOut(): void {
@@ -116,6 +128,20 @@ export function AccountMenu() {
               👤
             </span>
             <span className="export-menu-label">{t('account.profile')}</span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={isExpert}
+            className="export-menu-item"
+            onClick={toggleExpertMode}
+            title={t('account.expertModeHint')}
+          >
+            <span className="export-menu-check" aria-hidden="true">
+              {isExpert ? '✓' : ''}
+            </span>
+            <span className="export-menu-label">{t('account.expertMode')}</span>
           </button>
 
           <button

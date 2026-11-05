@@ -45,10 +45,12 @@ services:
       # healthcheck.sh hands to mosquitto_pub/_sub, so it is never an argument.
       HEALTHCHECK_USER: ${HEALTHCHECK_USER:?set HEALTHCHECK_USER in .env}
       # Whether the API's dashboard account may also log in over the public
-      # WebSocket listener. true keeps an API still configured for
-      # ws://mqtt.local:9001 working; once its MQTT_BROKER_URI is
-      # mqtt://mqtt.local:1883, set false and that account is internal-only.
-      DASHBOARD_ON_WEBSOCKETS: ${DASHBOARD_ON_WEBSOCKETS:-true}
+      # WebSocket listener. Off by default: that account reads every device and
+      # writes their config, and the API reaches the broker on the internal
+      # listener (mqtt://mqtt.local:1883), so nothing needs it on the internet's
+      # entrance. true only for an API still configured for a ws:// / wss://
+      # broker address - the deployed one, or a dev box dialling the public URI.
+      DASHBOARD_ON_WEBSOCKETS: ${DASHBOARD_ON_WEBSOCKETS:-false}
     ports:
       # Plain MQTT for LAN clients (the ESP32) and local tests. The WebSocket
       # listener (9001) is deliberately NOT published: it is reached only through
@@ -96,11 +98,13 @@ services:
     security_opt:
       - no-new-privileges:true
     # A broker is one process; the headroom is for the healthcheck's clients.
-    pids_limit: 64
+    # Set under deploy, not as pids_limit: Compose refuses a service that has both
+    # pids_limit and a deploy.resources.limits block ("can't set distinct values").
     deploy:
       resources:
         limits:
           memory: 128m
+          pids: 64
 
   nginx:
     # Terminates the plain-HTTP side of the Cloudflare tunnel and upgrades
@@ -156,11 +160,11 @@ services:
     security_opt:
       - no-new-privileges:true
     # A master plus one worker per core.
-    pids_limit: 64
     deploy:
       resources:
         limits:
           memory: 64m
+          pids: 64
 
   autoheal:
     # Watches container health and restarts anything labelled autoheal=true that has

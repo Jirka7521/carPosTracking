@@ -20,10 +20,10 @@
 # Two password files, one per listener (see mosquitto.conf):
 #   passwd     every account - the internal 1883 listener.
 #   passwd-ws  only what may log in from the internet over the 9001 WebSocket
-#              listener: the tracker, plus the API's dashboard account while
-#              DASHBOARD_ON_WEBSOCKETS is true (the default, so an API still
-#              configured for ws://mqtt.local:9001 keeps working). admin and
-#              healthcheck are never in it.
+#              listener: the tracker, plus the API's dashboard account only when
+#              DASHBOARD_ON_WEBSOCKETS is true (default false: the API uses the
+#              internal listener, so the account that reads every device stays
+#              off the internet's entrance). admin and healthcheck are never in it.
 #
 # Passwords are fed to mosquitto_passwd on stdin, not as arguments: an argument is
 # readable by every process on the host (/proc/<pid>/cmdline) for as long as the
@@ -82,7 +82,7 @@ require DASHBOARD_PASSWORD "$DASHBOARD_PASSWORD"
 require HEALTHCHECK_USER "${HEALTHCHECK_USER:-}"
 require HEALTHCHECK_PASSWORD "$HEALTHCHECK_PASSWORD"
 
-case "${DASHBOARD_ON_WEBSOCKETS:-true}" in
+case "${DASHBOARD_ON_WEBSOCKETS:-false}" in
 	true|false) ;;
 	*)
 		echo "entrypoint-passwd: DASHBOARD_ON_WEBSOCKETS must be true or false" >&2
@@ -115,7 +115,7 @@ add_user "$PASSWD" "$DASHBOARD_USER" "$DASHBOARD_PASSWORD"
 add_user "$PASSWD" "$HEALTHCHECK_USER" "$HEALTHCHECK_PASSWORD"
 
 add_user "$PASSWD_WS" "$DEVICE_USER" "$DEVICE_PASSWORD"
-if [ "${DASHBOARD_ON_WEBSOCKETS:-true}" = "true" ]; then
+if [ "${DASHBOARD_ON_WEBSOCKETS:-false}" = "true" ]; then
 	add_user "$PASSWD_WS" "$DASHBOARD_USER" "$DASHBOARD_PASSWORD"
 fi
 

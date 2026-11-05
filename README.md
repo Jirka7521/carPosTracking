@@ -60,7 +60,7 @@ switch, a low battery (it shuts itself down before the pack runs flat), or an er
 `devices/<id>/status`, sealed the same way. When it drops without a word, an MQTT **Last
 Will** makes the broker report "connection lost" for it, and after a crash or a brown-out
 it reports the reset reason once it is back. The dashboard shows the result as a status
-badge on each device and an **Events** tab with the history.
+badge on each device and, in Expert mode, an **Events** tab with the history.
 
 ## Getting started
 

@@ -183,7 +183,8 @@ only on a browser that has opened a share link, and only for that link's remaini
 `carpos_maps_consent` (set by the dashboard's script, only when a share-link visitor chooses
 "Always load maps"; holds the prompt version and nothing else; `Path=<base>/share`, so it never
 travels with an `/api` request; 180 days; removed by the share page's "Stop loading maps
-automatically"), and two localStorage preferences: `carpos.language`, `carpos.csvDelimiter`.
+automatically"), and three localStorage preferences: `carpos.language`, `carpos.csvDelimiter`,
+`carpos.uiMode` (Normal or Expert dashboard view).
 None of the localStorage values is ever sent to the server. The old `carpos.mapsConsent`
 localStorage key is deleted on start-up — a signed-in user's map consent now lives in `users`.
 

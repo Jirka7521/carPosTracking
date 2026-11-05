@@ -1,5 +1,4 @@
 {
-  "cannotEnableYet": "Vytvořte alespoň jeden profil a zvolte jej jako záložní; teprve pak lze rozvrh zapnout.",
   "confirm": {
     "deleteProfile": "Smazat profil „{{name}}“?",
     "deleteRule": "Smazat pravidlo {{rule}}?"
@@ -11,18 +10,20 @@
     "weekend": "So a Ne",
     "weekendPreset": "Víkendy"
   },
-  "enable": "Řídit toto zařízení rozvrhem",
+  "defaultProfileName": "Výchozí",
   "fallback": {
-    "hint": "Co zařízení používá v hodinách, které nepokrývá žádné pravidlo. Nutné dřív, než lze rozvrh zapnout.",
+    "hint": "Co zařízení používá v hodinách, které nepokrývá žádné pravidlo.",
     "label": "Záložní profil",
     "none": "— žádný —"
   },
+  "fromProfilesNote": "Když je rozvrh zapnutý, nastavení zařízení se řídí profily níže. Chcete-li změnit, jak se chová, upravte profil.",
   "intro": "Přepínejte tento tracker mezi pojmenovanými profily podle týdenního rozvrhu — třeba aby v noci hlásil polohu méně často nebo přes víkend spal. Rozvrh vyhodnocuje server a každou změnu odesílá stejně, jako když nastavení uložíte ručně, takže se nic nemusí přehrávat do firmwaru a tracker nemusí být online ve chvíli, kdy se okno otevře.",
   "loadErrorHint": "Pokud se stále objevuje, že rozvrh nebyl nalezen, je server, se kterým tento přehled mluví, starší než přehled sám a rozvrhy zatím neumí — potřebuje aktualizaci.",
   "loading": "Načítám rozvrh…",
   "message": {
     "disabled": "Rozvrh vypnut. Zařízení si ponechá své současné nastavení, dokud jej nezměníte.",
     "enabled": "Rozvrh zapnut — platný profil byl použit.",
+    "enabledWithDefault": "Rozvrh zapnut. Vaše současné nastavení bylo uloženo jako profil „{{name}}“, který platí po celou dobu, dokud nepřidáte pravidlo.",
     "fallbackUpdated": "Záložní profil byl změněn.",
     "profileCreated": "Profil byl vytvořen.",
     "profileSaved": "Profil byl uložen.",
@@ -32,6 +33,14 @@
     "rulePaused": "Pravidlo bylo pozastaveno — nepoužije se, dokud jej neobnovíte.",
     "ruleResumed": "Pravidlo bylo obnoveno.",
     "ruleSaved": "Pravidlo bylo uloženo."
+  },
+  "modeSwitch": {
+    "legend": "Nastavení během týdne",
+    "off": "Jedno nastavení",
+    "offHint": "Zařízení vždy používá nastavení v sekci Hlášení a napájení níže.",
+    "on": "Různá nastavení podle rozvrhu",
+    "onHint": "Přepíná mezi pojmenovanými profily podle dne a času — třeba aby v noci nebo o víkendu hlásilo polohu méně často.",
+    "willCreateDefault": "Uložením se současné nastavení zkopíruje do profilu „{{name}}“, který platí vždy, když neplatí žádné pravidlo. Na zařízení se nic nezmění, dokud nepřidáte pravidlo."
   },
   "override": {
     "label": "Přepsáno ručně",
@@ -43,7 +52,6 @@
     "returnsAt": "<strong>{{profile}}</strong> se vrátí v <strong>{{when}}</strong> <quiet>({{until}})</quiet>",
     "scheduledProfile": "Plánovaný profil"
   },
-  "previewWhenOff": "Rozvrh je vypnutý, takže se nic z toho níže nepoužívá. Takto by se choval.",
   "profile": {
     "add": "Přidat profil",
     "create": "Vytvořit profil",

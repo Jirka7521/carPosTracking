@@ -4,7 +4,9 @@
 // This component is mounted at /device/:deviceId — where :deviceId is the
 // tracker's MQTT identity, e.g. "GNSS01" — and renders:
 //   1. A breadcrumb "← Devices / <device name>"
-//   2. A five-tab bar: Map · Positions · Charts · Events · Settings
+//   2. A five-tab bar: Map · Positions · Charts · Events · Settings. Events is
+//      shown in Expert mode only (see uiMode/context.ts); its route redirects
+//      to the map in Normal mode, so the bar never lacks the active tab.
 //   3. An <Outlet /> where the active tab component is rendered
 //
 // It loads the device from the API on mount and passes the result
@@ -55,6 +57,7 @@ import { AccessCountBadge } from '../components/AccessCountBadge'
 import { DeviceLinkBadge } from '../components/DeviceLinkBadge'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
+import { useUiMode } from '../uiMode/useUiMode'
 import { describeError } from '../utils/errors'
 
 // The cadence every load on this page runs at — the device here, and the
@@ -103,6 +106,7 @@ export type DevicePageContext = {
 
 export function DevicePage() {
   const { t } = useTranslation(['device', 'common', 'errors'])
+  const { isExpert } = useUiMode()
 
   // :deviceId from the URL — the device's MQTT identity, e.g. "GNSS01".
   const { deviceId } = useParams<{ deviceId: string }>()
@@ -303,12 +307,14 @@ export function DevicePage() {
           📈 {t('device:tabs.charts')}
         </NavLink>
 
-        <NavLink
-          to="events"
-          className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
-        >
-          📡 {t('device:tabs.events')}
-        </NavLink>
+        {isExpert ? (
+          <NavLink
+            to="events"
+            className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
+          >
+            📡 {t('device:tabs.events')}
+          </NavLink>
+        ) : null}
 
         <NavLink
           to="settings"
