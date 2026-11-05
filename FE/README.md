@@ -230,6 +230,7 @@ FE/
 │   │   ├── DurationField.tsx      Number input plus a seconds/minutes/hours combobox — stores canonical units
 │   │   ├── BasicConfigFields.tsx  Normal-mode settings form: motion switch, report interval(s), wake wait
 │   │   ├── ExpertOnly.tsx         Route guard — Expert mode renders the tab, Normal redirects to ../map
+│   │   ├── ScheduleModeSwitch.tsx One set of settings, or a schedule — radio cards, saved by the panel
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
@@ -323,9 +324,11 @@ A value hidden in Normal mode is never reset: the form still carries all fifteen
 saves them as they are. Device information, access management, temporary share links
 and the danger zone look the same in both modes.
 
-The **schedule** sits behind its own switch in both modes, *Use different settings at
-different times*, off by default. Off, the section is that switch and a hint; profiles
-and rules are kept on the server and come back with it. The first switch-on saves the
+The **schedule** sits behind its own question in both modes: *One set of settings* or
+*Different settings on a schedule*, two radio cards like the motion-wake choice
+([`ScheduleModeSwitch`](src/components/ScheduleModeSwitch.tsx)), applied with their own
+**Save** button. It is off by default. Off, the section is that question; profiles and
+rules are kept on the server and come back with it. The first switch-on saves the
 device's current settings as a profile called *Default* and makes it the fallback, so
 nothing changes on the tracker until a rule is added
 ([`ScheduleSection`](src/components/ScheduleSection.tsx)).

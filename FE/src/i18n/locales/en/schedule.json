@@ -11,7 +11,6 @@
     "weekendPreset": "Weekends"
   },
   "defaultProfileName": "Default",
-  "enable": "Use different settings at different times",
   "fallback": {
     "hint": "What the device runs at any hour no rule covers.",
     "label": "Fallback profile",
@@ -35,7 +34,14 @@
     "ruleResumed": "Rule resumed.",
     "ruleSaved": "Rule saved."
   },
-  "offHint": "Off: the device always runs on the settings below. Turn this on to switch between profiles by day and time, for example to report less often at night.",
+  "modeSwitch": {
+    "legend": "Settings over the week",
+    "off": "One set of settings",
+    "offHint": "The device always runs on the settings in Reporting & Power below.",
+    "on": "Different settings on a schedule",
+    "onHint": "Switch between named profiles by day and time — for example, report less often at night or over the weekend.",
+    "willCreateDefault": "Saving copies the current settings into a profile called \"{{name}}\", which applies whenever no rule does. Nothing changes on the device until you add a rule."
+  },
   "override": {
     "label": "Overridden",
     "manual": "Manual settings",

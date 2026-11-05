@@ -22,11 +22,14 @@
 // answers with the whole recomputed state, so "add a rule" and "what is in force
 // now" arrive together and can never be one render out of step.
 //
-// OFF IS ONE LINE. All four parts sit behind the "use different settings at
-// different times" switch: most trackers never need a schedule, and a disabled
-// one used to fill the tab with empty profile and rule lists anyway. Switched
-// off, the section is that switch and a hint; the profiles and rules are kept
-// on the server and come back with it. The first switch-on needs no setup: the
+// OFF IS ONE QUESTION. All four parts sit behind ScheduleModeSwitch — one set
+// of settings, or different settings on a schedule — and its Save button:
+// most trackers never need a schedule, and a disabled one used to fill the tab
+// with empty profile and rule lists anyway. Switched off, the section is that
+// question; the profiles and rules are kept on the server and come back with
+// it. The choice is held unsaved until Save, like every other setting on the
+// tab, because saving it changes what the tracker runs. The first switch-on
+// needs no setup: the
 // API will not run a schedule without a fallback profile, so the current
 // settings are saved as one (see enableWithDefaultProfile). With no rules yet
 // the fallback covers the whole week, so the device carries on exactly as it
@@ -67,6 +70,7 @@ import {
   formatMinuteOfDay,
   utcWindowToLocal,
 } from '../utils/schedule'
+import { ScheduleModeSwitch } from './ScheduleModeSwitch'
 import { ScheduleProfileEditor } from './ScheduleProfileEditor'
 import { ScheduleRuleEditor } from './ScheduleRuleEditor'
 import { ScheduleStatusBanner } from './ScheduleStatusBanner'
@@ -186,6 +190,11 @@ function ScheduleContent({
   const [message, setMessage] = useState<string>('')
   const [isError, setIsError] = useState<boolean>(false)
 
+  // The reader's unsaved answer to the on/off question; null when there is
+  // none. Kept apart from the saved state rather than seeded from it, so a
+  // background refresh moves the saved answer without overwriting a pick.
+  const [chosenEnabled, setChosenEnabled] = useState<boolean | null>(null)
+
   // Which editor is open. 'new' creates; a Guid edits that row; null is closed.
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
@@ -217,13 +226,16 @@ function ScheduleContent({
     }
   }
 
-  function handleToggleEnabled(enabled: boolean): void {
+  function handleSaveEnabled(enabled: boolean): void {
+    const clearChoice = (): void => setChosenEnabled(null)
+
     if (enabled && schedule.fallbackProfileId === null) {
       const name: string = t('schedule:defaultProfileName')
       void run(
         'enabled',
         () => enableWithDefaultProfile(name),
         t('schedule:message.enabledWithDefault', { name }),
+        clearChoice,
       )
       return
     }
@@ -237,6 +249,7 @@ function ScheduleContent({
       enabled
         ? t('schedule:message.enabled')
         : t('schedule:message.disabled'),
+      clearChoice,
     )
   }
 
@@ -376,24 +389,53 @@ function ScheduleContent({
     </div>
   ) : null
 
-  const enableSwitch = (
-    <label className="checkbox-field">
-      <input
-        type="checkbox"
-        checked={schedule.enabled}
+  const shownEnabled: boolean = chosenEnabled ?? schedule.enabled
+  const isModeDirty: boolean = shownEnabled !== schedule.enabled
+
+  // The on/off question with its own Save and Reset, styled like the settings
+  // form's so the two read as one kind of control. The hint under them says
+  // what Save is about to do when that is more than flipping a flag.
+  const modeSwitch = (
+    <>
+      <ScheduleModeSwitch
+        enabled={shownEnabled}
+        onChange={(enabled) => { setChosenEnabled(enabled); setMessage('') }}
         disabled={busy !== ''}
-        onChange={(event) => handleToggleEnabled(event.target.checked)}
       />
-      <span>{t('schedule:enable')}</span>
-    </label>
+
+      {isModeDirty && shownEnabled && schedule.fallbackProfileId === null ? (
+        <p className="hint">
+          {t('schedule:modeSwitch.willCreateDefault', { name: t('schedule:defaultProfileName') })}
+        </p>
+      ) : null}
+
+      <div className="config-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => handleSaveEnabled(shownEnabled)}
+          disabled={busy !== '' || !isModeDirty}
+        >
+          {busy === 'enabled' ? t('common:actions.saving') : t('common:actions.saveChanges')}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => setChosenEnabled(null)}
+          disabled={busy !== '' || !isModeDirty}
+        >
+          {t('settings:save.reset')}
+        </button>
+        {isModeDirty ? <span className="hint">{t('settings:save.unsaved')}</span> : null}
+      </div>
+    </>
   )
 
-  // Off: the switch, what it would do, and the outcome of the last click.
+  // Off: the question, and the outcome of the last save.
   if (!schedule.enabled) {
     return (
       <>
-        {enableSwitch}
-        <p className="hint">{t('schedule:offHint')}</p>
+        {modeSwitch}
         {messageBanner}
       </>
     )
@@ -401,10 +443,10 @@ function ScheduleContent({
 
   return (
     <>
-      {/* -------- Enable + fallback -------- */}
-        <div className="schedule-controls">
-          {enableSwitch}
+      {modeSwitch}
 
+      {/* -------- Fallback -------- */}
+        <div className="schedule-controls">
           <div className="form-field">
             <label className="form-label" htmlFor="schedule-fallback">
               {t('schedule:fallback.label')}

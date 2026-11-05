@@ -11,7 +11,6 @@
     "weekendPreset": "Víkendy"
   },
   "defaultProfileName": "Výchozí",
-  "enable": "Používat různá nastavení v různé časy",
   "fallback": {
     "hint": "Co zařízení používá v hodinách, které nepokrývá žádné pravidlo.",
     "label": "Záložní profil",
@@ -35,7 +34,14 @@
     "ruleResumed": "Pravidlo bylo obnoveno.",
     "ruleSaved": "Pravidlo bylo uloženo."
   },
-  "offHint": "Vypnuto: zařízení vždy používá nastavení níže. Po zapnutí může přepínat mezi profily podle dne a času, třeba aby v noci hlásilo polohu méně často.",
+  "modeSwitch": {
+    "legend": "Nastavení během týdne",
+    "off": "Jedno nastavení",
+    "offHint": "Zařízení vždy používá nastavení v sekci Hlášení a napájení níže.",
+    "on": "Různá nastavení podle rozvrhu",
+    "onHint": "Přepíná mezi pojmenovanými profily podle dne a času — třeba aby v noci nebo o víkendu hlásilo polohu méně často.",
+    "willCreateDefault": "Uložením se současné nastavení zkopíruje do profilu „{{name}}“, který platí vždy, když neplatí žádné pravidlo. Na zařízení se nic nezmění, dokud nepřidáte pravidlo."
+  },
   "override": {
     "label": "Přepsáno ručně",
     "manual": "Ruční nastavení",
