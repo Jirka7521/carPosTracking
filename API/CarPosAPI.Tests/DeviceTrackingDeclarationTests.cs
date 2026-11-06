@@ -49,12 +49,10 @@ public sealed class DeviceTrackingDeclarationTests
         CreateDeviceRequestDto request = new CreateDeviceRequestDto(
             "GNSS01",
             "The car",
-            null,
             true);
 
         Assert.Equal("GNSS01", request.DeviceId);
         Assert.Equal("The car", request.DisplayName);
-        Assert.Null(request.AdditionalAccesses);
         Assert.True(request.TrackingDeclarationAccepted);
     }
 

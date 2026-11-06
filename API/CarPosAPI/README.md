@@ -205,6 +205,8 @@ The `Sharing` section caps temporary share links. Neither key is secret:
 |---|---|---|
 | `Sharing:MaxWindowDays` | `30` | Longest window one link may cover, measured from its own start rather than from now. The failure mode this guards against is not a broken link but a forgotten one — a share created "just for now" with an end date years out is a permanent public tracker nobody remembers making. |
 | `Sharing:MaxLiveLinksPerDevice` | `10` | How many *live* links one device may carry. Expired and revoked links do not count, so this never blocks re-sharing. |
+| `Sharing:InvitationLifetimeDays` | `7` | How long an invitation link (sharing with another account) stays acceptable. It works once either way. |
+| `Sharing:MaxPendingInvitationsPerDevice` | `10` | How many open invitations one device may have at once; expired ones are cleared when a new one is made. |
 
 The `Jwt` section carries three further keys for share tokens. `Jwt:ShareIssuer`
 and `Jwt:ShareAudience` **must differ from `Jwt:Issuer` and `Jwt:Audience`**, and
@@ -225,6 +227,12 @@ the production values; the only one normally worth changing is
 `AuthCookie:SecureCookies`, which [`appsettings.Development.json`](appsettings.Development.json)
 sets to `false` — over plain HTTP a `Secure` cookie is never sent back, so
 sign-in would appear to succeed and every following request would 401.
+`false` does not switch the flag off everywhere: a cookie issued in answer to a
+request that arrived over **HTTPS** (as resolved from the trusted proxy's
+`X-Forwarded-Proto`) is `Secure` regardless. So a deployment serving the public site
+through the TLS tunnel and the dashboard on a plain-HTTP LAN address sets `false`
+and still gets `Secure` cookies on the public side. `true` forces the flag on every
+response, plain HTTP included.
 
 It also names `AuthCookie:ShareCookieName` (default `carpos_share`), the
 `HttpOnly` cookie an anonymous share visitor holds. It is separate from the
@@ -312,6 +320,8 @@ forwarding headers are believed **only from those two addresses**
 | `ReverseProxy:CloudflareTunnelProxies` | `192.168.122.50` | Comma-separated IPs whose `CF-Connecting-IP` is believed and preferred. |
 | `AllowedHosts` | `*` | Host headers the API answers (others get **400**). The deployment bundle sets it from `API_ALLOWED_HOSTS`, defaulting to `jimajer.cz;localhost;127.0.0.1;<BE_HOST>;<FE_HOST>` — the tunnel's host, loopback, the name the healthcheck and nginx's upstream use, and the frontend's LAN name (nginx forwards the browser's `Host`). |
 | `DeviceRegistration:MaxActiveDevicesPerUser` | `20` | Active devices one account may have registered itself. Deleting one frees a slot. |
+| `Registration:Mode` | `InviteOnly` | Who may sign up: `InviteOnly` (a single-use code from [`create-registration-invite`](#create-registration-invite--let-someone-sign-up)), `Open` (anyone) or `Closed` (nobody; existing accounts keep working). |
+| `Registration:InviteLifetimeDays` | `14` | How long a newly minted invite code stays usable, unless the CLI is given `--days`. |
 
 Override from the environment as `ReverseProxy__TrustedProxies` etc. — the lists
 are plain strings so an environment variable replaces them whole.
@@ -371,7 +381,9 @@ including user-secrets and environment variables. It is also excluded from
 ```
 
 Generate the master key once and keep it safe — losing it makes stored device
-keys undecryptable; changing it requires re-importing every device key:
+keys undecryptable. To change it, re-encrypt the stored keys with the
+[`rotate-master-key`](#rotate-master-key--replace-the-master-key) CLI mode; just
+swapping the value makes every device key unreadable:
 
 ```powershell
 $bytes = [byte[]]::new(32)
@@ -547,16 +559,15 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 
 | Method & route | Purpose |
 |---|---|
-| `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
+| `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies. Register needs `inviteCode` while `Registration:Mode` is `InviteOnly`. The code is checked **first**, so without a usable one the only answer is **400** `inviteCodeInvalid` (one code for missing, unknown, used or expired), not even `emailTaken`. `Closed` answers **403** `registrationClosed`. The code is claimed in the same transaction as the account insert, so a refused registration (e.g. email taken) leaves it unused |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
 | `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
-| `GET /api/users?email=` | fetch the user with **exactly** this address, for sharing. Needs `CanShare` on at least one device (else **403** `userLookupNotAllowed`); first/last name come back **empty** unless the two accounts already share a device. Rate-limited per account (20 / 5 min). `exactMatch` is accepted and ignored — the prefix search it used to select is gone |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
 | `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row. Rate-limited per account (10 / hour); an account with `DeviceRegistration:MaxActiveDevicesPerUser` active devices of its own answers **409** `deviceLimitReached` |
-| `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
+| `DELETE /api/devices/{deviceId}` | **soft**-delete (204). Every share link on the device is revoked with it |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
 | `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
 | `GET /api/devices/{deviceId}/config` | desired + running settings, both with values |
@@ -577,7 +588,13 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `GET /api/me/maps-consent` | the caller's standing agreement to load the Google map: `{ version, grantedAt }`, both null when there is none. Deliberately not on the profile DTO, which other users also receive |
 | `PUT /api/me/maps-consent` | record "Always load maps" for the account. Body `{ version }` — the dashboard's prompt version; the server stamps the time. Returns the stored agreement |
 | `DELETE /api/me/maps-consent` | withdraw it (GDPR Art. 7(3)); clears both columns. 204 either way |
-| `GET /api/access?deviceId=`, `POST /api/access`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | sharing grants |
+| `GET /api/access?deviceId=`, `PUT /api/access/{id}`, `DELETE /api/access/{id}` | list, edit and revoke sharing grants (`CanShare`). There is **no** `POST`: a grant only comes from an accepted invitation |
+| `POST /api/access/invitations` | make a single-use invitation link for a device. Body `{ deviceId, canDelete, canShare, canModifySettings }` — same rules as editing a grant (`CanShare`, active device, `GrantChangePolicy`). Returns `{ invitation, token }`; the token is shown **once** and stored only as a digest. **409** `tooManyInvitations` past `Sharing:MaxPendingInvitationsPerDevice` |
+| `GET /api/access/invitations?deviceId=` | the device's open invitations, without tokens (`CanShare`) |
+| `DELETE /api/access/invitations/{id}` | withdraw one; its link stops working at once (204) |
+| `POST /api/access/invitations/preview` | body `{ token }`: device, inviter's name, offered permissions, expiry, `alreadyHasAccess` |
+| `POST /api/access/invitations/accept` | body `{ token }`: become a grantee; the link is spent. Re-checks the inviter's **current** access (**400** `invitationNoLongerValid`), refuses one's own invitation, **409** `accessExists` |
+| `POST /api/access/invitations/decline` | body `{ token }`: spend the link without sharing anything (204) |
 | `GET /api/shares?deviceId=` | temporary share links on a device, live and dead; needs `CanShare`. **Never returns a link's secrets** |
 | `POST /api/shares` | mint a share link (201). **The only response that ever carries the link and its code** — neither is recoverable afterwards |
 | `PUT /api/shares/{shareId}` | change a link's window, label, scope and telemetry flags. **The link and code are untouched**, so whoever holds them keeps access. 409 on a revoked link |
@@ -803,20 +820,37 @@ Two invariants are enforced server-side and never taken from the client:
   `AccessDto.isOwner` tells the dashboard which row to show read-only.
 - **Only the owner gives or takes `CanDelete`** (**403** `onlyOwnerManagesDelete`).
 - **A grant may only gain capabilities the caller holds** (**403**
-  `cannotGrantUnheldCapability`), on `POST` and `PUT` alike. Keeping or removing a
-  capability the grantee already has is not a gain. Registering a device with
-  `additionalAccesses` cannot escalate: the creator holds the full set.
+  `cannotGrantUnheldCapability`), when making an invitation and on `PUT` alike.
+  Keeping or removing a capability the grantee already has is not a gain.
 
 A device you cannot see answers **404**, not 403 — a 403 would confirm it
 exists. The last account able to share a device cannot be revoked or demoted:
 since devices are only soft-deleted, that state would be permanent.
 
-The same reasoning now covers people. `GET /api/users/{id}` answers only for the
-caller themselves or somebody they share a device with, and `GET /api/users?email=`
-matches an address for **equality only**. Both used to be wider — a three-character
-prefix search and an unrestricted id lookup — which between them let any signed-in
-account walk the table and harvest every user's name and email address. The
-sharing UI never needed either: it always had the full address in hand.
+**Share links follow the access they were made with.** Revoking a grant, or taking
+`CanShare` away from it, revokes every share link that account created on the
+device; deleting a device revokes all of its links. Otherwise a sharer who had been
+removed could keep watching the device through any link they had handed out, for up
+to `Sharing:MaxWindowDays`. Expired-but-unrevoked links are revoked too, because an
+expired link can still be edited back into a live window. The revocation is saved
+in the same transaction as the grant or device change (`Services/Sharing/ShareLinkRevoker`).
+
+**Sharing needs the other person's consent.** A grant comes into being only when
+its recipient accepts an invitation link (`Services/Sharing/AccessInvitationService`).
+The link is addressed to nobody: the sharer sends it however they like, so making one
+reveals nothing about who has an account here. Accepting re-checks everything
+against the inviter's access **as it is then** (device active, `CanShare` held,
+every offered capability still givable), and the invitation row is deleted in the
+same save as the grant is created, so a link works exactly once. Losing `CanShare`,
+being revoked or deleting the device also removes that person's (or that device's)
+open invitations.
+
+The same reasoning covers people. `GET /api/users/{id}` answers only for the caller
+themselves or somebody they share a device with — and "share a device" now means
+both agreed to it. It used to be wider. There was also an email search
+(`GET /api/users?email=`), and `POST /api/access` granted any user id on the spot
+without asking. Between them they let any signed-in account create a "shared device"
+with anyone and harvest every user's name and email address. Both are gone.
 
 Every device in `GET /api/me/devices` also carries an `accessCounts` object —
 `{ people, activeLinks }` — which the dashboard renders as one pill beside the
@@ -886,11 +920,9 @@ imports one you already have (and is how you rotate a key).
 {
   "deviceId": "GNSS02",
   "displayName": "Test car",
-  // Optional. Each entry becomes one access grant; an email that matches no
-  // account is skipped silently, so this cannot be used to test who has one.
-  "additionalAccesses": [
-    { "userEmail": "colleague@example.com", "canDelete": false, "canShare": false, "canModifySettings": true }
-  ]
+  "trackingDeclarationAccepted": true
+  // No list of people to share with: share afterwards by invitation link
+  // (POST /api/access/invitations), which the other person has to accept.
 }
 ```
 
@@ -1023,6 +1055,49 @@ The key is validated (RSA-3072; public/private pairing when `--public-pem` is
 given), encrypted under the master key and upserted. Only a SPKI-SHA256
 fingerprint is printed. **Restart the API afterwards** — keys are cached (the
 cache also refreshes itself every 60 minutes).
+
+### `rotate-master-key` — replace the master key
+
+Re-encrypts every stored device private key from the current master key to a new
+one, in **one transaction**. It first opens every key with the current master key
+and writes nothing if any fails. Each re-encrypted key is proven to open under the
+new key before it is stored. The new key is read from **standard input only**,
+never an argument or a prompt, so it stays out of shell history and off the screen.
+Only counts and device ids are printed.
+
+```bash
+# On the Pi, in the deploy folder. Stop the API first: it caches decrypted keys.
+printf '%s' "$(openssl rand -base64 32)" > secrets/DeviceKeyProtection__MasterKeyBase64.new
+chmod 600 secrets/DeviceKeyProtection__MasterKeyBase64.new
+docker compose stop api
+docker compose run --rm -T api rotate-master-key --dry-run    # every key opens? changes nothing
+docker compose run --rm -T api rotate-master-key < secrets/DeviceKeyProtection__MasterKeyBase64.new
+mv secrets/DeviceKeyProtection__MasterKeyBase64.new secrets/DeviceKeyProtection__MasterKeyBase64
+chmod 644 secrets/DeviceKeyProtection__MasterKeyBase64
+docker compose up -d api
+```
+
+In development the same works with `dotnet run -- rotate-master-key < new-key.txt`.
+Afterwards, put the new key everywhere that talks to the same database: the deploy
+bundle's `Application/secrets/` on the dev machine (the publisher reuses it), and
+`appsettings.Local.json` when development shares the database. A failure exits
+non-zero with the database unchanged. Start the API again with the old key.
+
+### `create-registration-invite` — let someone sign up
+
+Sign-up is invite-only by default (`Registration:Mode`). Mint one single-use code
+per person:
+
+```bash
+docker compose run --rm api create-registration-invite --days 14   # on the Pi
+dotnet run -- create-registration-invite                           # development
+```
+
+It prints the code (`XXXX-XXXX-XXXX`) once, plus the link form
+`<dashboard address>/register?invite=<code>`, which prefills the registration form.
+Send it however you like. Only a SHA-256 digest is stored in
+`registration_invites`, with no record of who it was for or who used it. A lost
+code is simply minted again, and an unused one expires on its own.
 
 ### `--ack-public-pem` — enable delivery acks for a device
 

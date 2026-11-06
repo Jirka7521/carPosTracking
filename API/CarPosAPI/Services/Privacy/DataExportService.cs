@@ -76,6 +76,7 @@ internal sealed class DataExportService : IDataExportService
         await WriteAliasesAsync(writer, userId, cancellationToken);
         await WriteGrantsAsync(writer, userId, cancellationToken);
         await WriteShareLinksAsync(writer, userId, cancellationToken);
+        await WriteInvitationsAsync(writer, userId, cancellationToken);
         await WriteAuthoredConfigurationAsync(writer, userId, cancellationToken);
 
         long positionCount = await WriteDevicesAndPositionsAsync(writer, userId, cancellationToken);
@@ -345,6 +346,53 @@ internal sealed class DataExportService : IDataExportService
                 writer.WriteNull("lastOpenedAtUtc");
             }
 
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    /// <summary>
+    /// Writes the open invitations the caller made to share a device with another
+    /// account — what was offered, on which device, and until when. No part of any
+    /// link: see <see cref="AccessInvitationExportRow"/>.
+    /// </summary>
+    /// <param name="writer">The open JSON writer.</param>
+    /// <param name="userId">The account being exported.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    private async Task WriteInvitationsAsync(Utf8JsonWriter writer, int userId, CancellationToken cancellationToken)
+    {
+        // Joined to devices so the export names the MQTT identity rather than an
+        // internal Guid, as the share-link projection does. The token columns are not
+        // selected.
+        List<AccessInvitationExportRow> invitations = await _context.AccessInvitations
+            .AsNoTracking()
+            .Where(invitation => invitation.CreatedByUserId == userId)
+            .Join(
+                _context.Devices.AsNoTracking(),
+                invitation => invitation.DeviceId,
+                device => device.Id,
+                (invitation, device) => new AccessInvitationExportRow(
+                    device.DeviceId,
+                    invitation.CanDelete,
+                    invitation.CanShare,
+                    invitation.CanModifySettings,
+                    invitation.CreatedAt,
+                    invitation.ExpiresAt))
+            .OrderByDescending(invitation => invitation.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        writer.WriteStartArray("invitationsMade");
+
+        foreach (AccessInvitationExportRow invitation in invitations)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("deviceId", invitation.DeviceId);
+            writer.WriteBoolean("canDelete", invitation.CanDelete);
+            writer.WriteBoolean("canShare", invitation.CanShare);
+            writer.WriteBoolean("canModifySettings", invitation.CanModifySettings);
+            writer.WriteString("createdAtUtc", invitation.CreatedAt);
+            writer.WriteString("expiresAtUtc", invitation.ExpiresAt);
             writer.WriteEndObject();
         }
 

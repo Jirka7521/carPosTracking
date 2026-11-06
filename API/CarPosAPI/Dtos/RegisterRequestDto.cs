@@ -21,6 +21,11 @@ namespace CarPosAPI.Dtos;
 /// The privacy-policy version the user acknowledged. Must match the version the
 /// server currently serves from <c>GET /api/privacy/policy</c>.
 /// </param>
+/// <param name="InviteCode">
+/// The single-use invite code (<c>XXXX-XXXX-XXXX</c>) the operator handed out.
+/// Required while <c>Registration:Mode</c> is <c>InviteOnly</c> (the default) and
+/// ignored when it is <c>Open</c>. Case and separators do not matter.
+/// </param>
 public sealed record RegisterRequestDto(
     [Required]
     [EmailAddress]
@@ -50,4 +55,10 @@ public sealed record RegisterRequestDto(
     // wording.
     [Required]
     [StringLength(32, MinimumLength = 1)]
-    string AcceptedPrivacyPolicyVersion);
+    string AcceptedPrivacyPolicyVersion,
+
+    // Optional on the wire because Open mode needs none; whether it is required is
+    // the service's call, made from configuration. The ceiling is generous for a
+    // 14-character code and keeps a pasted paragraph from becoming a hash input.
+    [StringLength(64)]
+    string? InviteCode = null);

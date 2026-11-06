@@ -327,7 +327,7 @@ try {
     $values['MQTT_PASSWORD'] = Resolve-Setting -Name 'MQTT_PASSWORD' `
         -Description 'Password for MQTT_USERNAME.' -Current $cur.MqttPass -IsSecret $true
     $values['DEVICE_KEY_MASTER_KEY'] = Resolve-Setting -Name 'DEVICE_KEY_MASTER_KEY' `
-        -Description 'Base64 of exactly 32 bytes. Rotating it makes existing device keys undecryptable.' `
+        -Description 'Base64 of exactly 32 bytes. Do NOT generate a new one here: that makes every stored device key undecryptable. Rotate with the API''s rotate-master-key command (API README) and enter the new value afterwards.' `
         -Current $cur.MasterKey -IsSecret $true -GenerateBytes 32 `
         -Validator $validateMaster -ValidatorMessage 'Must be base64 decoding to exactly 32 bytes.'
     $values['JWT_SIGNING_KEY'] = Resolve-Setting -Name 'JWT_SIGNING_KEY' `
@@ -354,7 +354,7 @@ try {
         -Current $cur.BePort -IsSecret $false `
         -Validator $validatePort -ValidatorMessage 'Must be a port number between 1 and 65535.'
     $values['AUTH_SECURE_COOKIES'] = Resolve-Setting -Name 'AUTH_SECURE_COOKIES' `
-        -Description 'Secure flag on the session cookie. Must be false when the dashboard is served over plain http, or every request after sign-in 401s.' `
+        -Description 'Force the Secure flag on the session cookie even over plain http. Must be false when the dashboard is served over plain http, or every request after sign-in 401s; HTTPS requests get a Secure cookie either way.' `
         -Current $cur.SecureCook -IsSecret $false `
         -Validator $validateBool -ValidatorMessage 'Must be true or false.'
 

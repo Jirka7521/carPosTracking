@@ -23,7 +23,7 @@
 // ============================================================
 
 import { useEffect } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import './App.css'
 import i18n from './i18n'
@@ -41,6 +41,7 @@ import { TermsPage } from './pages/TermsPage'
 import { SharePage } from './pages/SharePage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
+import { InvitePage } from './pages/InvitePage'
 import { DevicePage } from './pages/DevicePage'
 import { DeviceMapTab } from './pages/DeviceMapTab'
 import { PositionListTab } from './pages/PositionListTab'
@@ -62,6 +63,14 @@ function RootRedirect() {
   }
 
   return <Navigate to={status === 'authenticated' ? '/home' : '/login'} replace />
+}
+
+// Keys the invitation page by its token, so following a second invitation link
+// while one is open starts over from 'loading' instead of showing the first
+// link's offer under the second link's address.
+function InvitePageForToken() {
+  const { token = '' } = useParams()
+  return <InvitePage key={token} />
 }
 
 function AppRoutes() {
@@ -136,6 +145,13 @@ function AppRoutes() {
 
         {/* Profile: edit name and change password */}
         <Route path="/profile" element={<ProfilePage />} />
+
+        {/*
+         * An invitation to share somebody's device. Protected on purpose: only
+         * an account can accept one, and <RequireAuth> remembers this address
+         * so signing in brings the visitor straight back to it.
+         */}
+        <Route path="/invite/:token" element={<InvitePageForToken />} />
 
         {/*
          * Device shell: loads the device and renders the tab bar.

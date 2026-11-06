@@ -82,112 +82,6 @@ internal sealed class AccessService : IAccessService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<AccessDto>> CreateAsync(
-        int userId,
-        AccessCreateRequestDto request,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-
-        DeviceAccessContext? caller = await _authorizer.ResolveAsync(userId, request.DeviceId, cancellationToken);
-
-        if (caller is null)
-        {
-            return OperationResult<AccessDto>.NotFound(ErrorCodes.NoSuchDevice, "No such device.");
-        }
-
-        if (!caller.Permissions.CanShare)
-        {
-            return OperationResult<AccessDto>.Forbidden(
-                ErrorCodes.NoPermissionShare,
-                "You do not have permission to share this device.");
-        }
-
-        bool targetExists = await _context.Users
-            .AsNoTracking()
-            .AnyAsync(user => user.Id == request.UserId, cancellationToken);
-
-        if (!targetExists)
-        {
-            return OperationResult<AccessDto>.NotFound(ErrorCodes.NoSuchUser, "No such user.");
-        }
-
-        CapabilitySet capabilities = CapabilitySet.FromRequest(
-            request.CanDelete,
-            request.CanShare,
-            request.CanModifySettings);
-
-        ServiceError? refusal = GrantChangePolicy.CheckCreate(Party(userId, caller), capabilities);
-
-        if (refusal is not null)
-        {
-            return OperationResult<AccessDto>.Forbidden(refusal);
-        }
-
-        // A previously revoked grant is reactivated rather than duplicated. The
-        // partial unique index only covers active rows, so inserting would succeed
-        // and leave two rows for one pair — one of which the authorizer's
-        // SingleOrDefault would then choke on.
-        Access? existing = await _context.Accesses
-            .SingleOrDefaultAsync(
-                access => access.UserId == request.UserId && access.DeviceId == caller.DeviceRowId && access.IsActive,
-                cancellationToken);
-
-        if (existing is not null)
-        {
-            return OperationResult<AccessDto>.Conflict(
-                ErrorCodes.AccessExists,
-                "That user already has access to this device. Edit their existing access instead.");
-        }
-
-        Access? revoked = await _context.Accesses
-            .Where(access => access.UserId == request.UserId && access.DeviceId == caller.DeviceRowId && !access.IsActive)
-            .OrderByDescending(access => access.DateRegistration)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        Access grant;
-
-        if (revoked is not null)
-        {
-            revoked.IsActive = true;
-            revoked.GrantedBy = userId;
-            revoked.DateRegistration = DateTime.UtcNow;
-            revoked.CanRead = true;
-            revoked.CanDelete = capabilities.CanDelete;
-            revoked.CanShare = capabilities.CanShare;
-            revoked.CanModifySettings = capabilities.CanModifySettings;
-            grant = revoked;
-        }
-        else
-        {
-            grant = new Access
-            {
-                UserId = request.UserId,
-                DeviceId = caller.DeviceRowId,
-                GrantedBy = userId,
-                CanRead = true,
-                CanDelete = capabilities.CanDelete,
-                CanShare = capabilities.CanShare,
-                CanModifySettings = capabilities.CanModifySettings,
-                IsActive = true,
-                DateRegistration = DateTime.UtcNow,
-            };
-
-            _context.Accesses.Add(grant);
-        }
-
-        await _context.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "User {GrantorId} granted user {GranteeId} access to device {DeviceId}",
-            userId,
-            request.UserId,
-            caller.DeviceId);
-
-        return OperationResult<AccessDto>.Success(ToDto(grant, caller.DeviceId));
-    }
-
-    /// <inheritdoc />
     public async Task<OperationResult<AccessDto>> UpdateAsync(
         int userId,
         int accessId,
@@ -229,6 +123,22 @@ internal sealed class AccessService : IAccessService
             }
         }
 
+        // Losing CanShare takes the links made with it along. A demoted sharer keeps
+        // seeing the device through their own grant, but may no longer hand that view
+        // to strangers — and a link they made last week is exactly that. Read before
+        // the flags below are overwritten, and saved in the same unit of work.
+        bool losesSharing = grant.CanShare && !capabilities.CanShare;
+
+        int linksRevoked = losesSharing
+            ? await ShareLinkRevoker.RevokeCreatedByAsync(_context, grant.DeviceId, grant.UserId, cancellationToken)
+            : 0;
+
+        // Their open invitations go too — the same right issued them.
+        if (losesSharing)
+        {
+            await AccessInvitationRemover.RemoveCreatedByAsync(_context, grant.DeviceId, grant.UserId, cancellationToken);
+        }
+
         grant.CanDelete = capabilities.CanDelete;
         grant.CanShare = capabilities.CanShare;
         grant.CanModifySettings = capabilities.CanModifySettings;
@@ -236,10 +146,11 @@ internal sealed class AccessService : IAccessService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "User {UserId} changed access {AccessId} on device {DeviceId}",
+            "User {UserId} changed access {AccessId} on device {DeviceId}; {LinksRevoked} share link(s) revoked with it",
             userId,
             accessId,
-            caller.DeviceId);
+            caller.DeviceId,
+            linksRevoked);
 
         return OperationResult<AccessDto>.Success(ToDto(grant, caller.DeviceId));
     }
@@ -280,13 +191,27 @@ internal sealed class AccessService : IAccessService
         // be granted again later) while the audit trail of who once had it survives.
         grant.IsActive = false;
 
+        // And the share links this person made go with their access. Otherwise a
+        // removed sharer would keep watching the device through any link they had
+        // handed out — for up to Sharing:MaxWindowDays — after the owner believed
+        // they were gone. Saved in the same unit of work as the revoke itself.
+        int linksRevoked = await ShareLinkRevoker.RevokeCreatedByAsync(
+            _context,
+            grant.DeviceId,
+            grant.UserId,
+            cancellationToken);
+
+        // Their open invitations go too — the same right issued them.
+        await AccessInvitationRemover.RemoveCreatedByAsync(_context, grant.DeviceId, grant.UserId, cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "User {UserId} revoked access {AccessId} on device {DeviceId}",
+            "User {UserId} revoked access {AccessId} on device {DeviceId}; {LinksRevoked} share link(s) revoked with it",
             userId,
             accessId,
-            lookup.Caller!.DeviceId);
+            lookup.Caller!.DeviceId,
+            linksRevoked);
 
         return OperationResult<bool>.Success(true);
     }

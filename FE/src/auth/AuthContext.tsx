@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     firstName: string,
     lastName: string,
     acceptedPrivacyPolicyVersion: string,
+    inviteCode: string,
   ): Promise<void> => {
     const response = await registerUser(
       email,
@@ -97,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       firstName,
       lastName,
       acceptedPrivacyPolicyVersion,
+      inviteCode,
     )
     setCurrentUser(response.user)
     setStatus('authenticated')

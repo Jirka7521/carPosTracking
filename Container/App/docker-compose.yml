@@ -50,9 +50,9 @@ services:
       # will not store or return a Secure cookie over plain http://, so if the
       # dashboard is reached over anything but TLS the sign-in appears to succeed
       # and then every request 401s. Serving it over plain HTTP (FE_BIND_ADDR on a
-      # LAN interface) therefore requires turning the flag off — at the cost that
-      # the cookie is no longer pinned to HTTPS on the tunnel path either. Leave
-      # it true whenever TLS terminates in front of this.
+      # LAN interface) therefore requires turning the flag off. That no longer costs
+      # the tunnel path its Secure flag: with false, a cookie issued over HTTPS is
+      # still Secure. Leave it true when TLS always terminates in front of this.
       AuthCookie__SecureCookies: ${AUTH_SECURE_COOKIES:-true}
 
       # --- Published path prefix -------------------------------------------

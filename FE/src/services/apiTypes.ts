@@ -217,26 +217,17 @@ export type AccessDto = {
   isOwner: boolean
 }
 
-// POST /api/devices. additionalAccesses is optional; the server automatically
-// grants the creator full access. Each entry produces one Access row (the
-// server forces CanRead and coerces Share ⇒ Settings), and entries whose email
-// matches no account are skipped silently.
+// POST /api/devices. The server grants the creator full access. There is no
+// list of people to share with: sharing happens afterwards, by invitation link
+// (see AccessInvitationCreateRequestDto), and only once the other person accepts.
 export type DeviceCreateRequestDto = {
   deviceId: string
   displayName?: string
-  additionalAccesses?: DeviceAccessGrantInput[]
   // The operator confirming they may lawfully track this vehicle and will tell
   // the people who drive it. Required, not optional: the server refuses the
   // request with 400 unless it is true, and the acceptance time is stamped on
   // the device row. Typed as required here so a caller cannot forget it.
   trackingDeclarationAccepted: boolean
-}
-
-export type DeviceAccessGrantInput = {
-  userEmail: string
-  canDelete: boolean
-  canShare: boolean
-  canModifySettings: boolean
 }
 
 // Everything needed to flash the firmware for a device. Contains the *public*
@@ -534,14 +525,47 @@ export type SaveScheduleRuleRequestDto = {
   isEnabled: boolean
 }
 
-// POST /api/access — share a device with a user. CanRead is implicit on the
-// server side; CanShare coerces CanModifySettings on.
-export type AccessCreateRequestDto = {
-  userId: number
+// POST /api/access/invitations — make a single-use link that lets whoever
+// accepts it share this device. Addressed to nobody: the sharer sends the link
+// however they like. CanRead is implicit; CanShare coerces CanModifySettings on.
+export type AccessInvitationCreateRequestDto = {
   deviceId: string
   canDelete: boolean
   canShare: boolean
   canModifySettings: boolean
+}
+
+// An open invitation as the sharing list shows it — never with its token.
+export type AccessInvitationDto = {
+  id: string
+  deviceId: string
+  createdByUserId: number
+  canDelete: boolean
+  canShare: boolean
+  canModifySettings: boolean
+  createdAt: string
+  expiresAt: string
+}
+
+// POST /api/access/invitations response. `token` is the one and only copy of
+// the link's secret: show the link once, never store it.
+export type AccessInvitationCreatedDto = {
+  invitation: AccessInvitationDto
+  token: string
+}
+
+// POST /api/access/invitations/preview — what the link offers, before deciding.
+export type AccessInvitationPreviewDto = {
+  deviceId: string
+  deviceDisplayName: string | null
+  inviterFirstName: string
+  inviterLastName: string
+  canDelete: boolean
+  canShare: boolean
+  canModifySettings: boolean
+  expiresAt: string
+  // True when the caller can already see the device; accepting would answer 409.
+  alreadyHasAccess: boolean
 }
 
 // PUT /api/access/{id} — overwrite the capability set on an existing grant.

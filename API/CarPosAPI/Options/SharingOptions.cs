@@ -34,4 +34,19 @@ public sealed class SharingOptions
     /// </summary>
     [Range(1, 100)]
     public int MaxLiveLinksPerDevice { get; set; } = 10;
+
+    /// <summary>
+    /// How long an invitation link to share a device with another account stays
+    /// usable, in days. It works once; a week is time enough to send it and have it
+    /// opened, and short enough that one forgotten in a chat dies on its own.
+    /// </summary>
+    [Range(1, 30)]
+    public int InvitationLifetimeDays { get; set; } = 7;
+
+    /// <summary>
+    /// How many unused, unexpired invitations one device may have open at once —
+    /// each is a live credential somebody could still accept.
+    /// </summary>
+    [Range(1, 100)]
+    public int MaxPendingInvitationsPerDevice { get; set; } = 10;
 }

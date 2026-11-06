@@ -39,6 +39,15 @@ public static class ErrorCodes
     /// <summary>The policy version the registrant accepted is no longer current.</summary>
     public const string PrivacyPolicyChanged = "privacyPolicyChanged";
 
+    /// <summary>
+    /// Registration without a usable invite code: missing, unknown, already used or
+    /// expired — deliberately one code, so the answer says nothing about which.
+    /// </summary>
+    public const string InviteCodeInvalid = "inviteCodeInvalid";
+
+    /// <summary>Registration while <c>Registration:Mode</c> is <c>Closed</c>.</summary>
+    public const string RegistrationClosed = "registrationClosed";
+
     /// <summary>The user does not exist, or is not visible to the caller.</summary>
     public const string NoSuchUser = "noSuchUser";
 
@@ -47,9 +56,6 @@ public static class ErrorCodes
 
     /// <summary>Account erasure confirmed with a wrong password.</summary>
     public const string WrongPassword = "wrongPassword";
-
-    /// <summary>A user lookup by an account that cannot share any device.</summary>
-    public const string UserLookupNotAllowed = "userLookupNotAllowed";
 
     // ----- Devices and provisioning -----
 
@@ -187,6 +193,33 @@ public static class ErrorCodes
 
     /// <summary>A non-owner giving or taking <c>CanDelete</c>.</summary>
     public const string OnlyOwnerManagesDelete = "onlyOwnerManagesDelete";
+
+    /// <summary>
+    /// An invitation link that cannot be used: unknown, malformed, expired, already
+    /// accepted or declined, or withdrawn — deliberately one code, like a bad share link.
+    /// </summary>
+    public const string InvitationInvalid = "invitationInvalid";
+
+    /// <summary>
+    /// The invitation was valid when made, but whoever made it can no longer give
+    /// this access (their sharing right is gone, or the device was deleted).
+    /// </summary>
+    public const string InvitationNoLongerValid = "invitationNoLongerValid";
+
+    /// <summary>Accepting an invitation one created oneself.</summary>
+    public const string CannotAcceptOwnInvitation = "cannotAcceptOwnInvitation";
+
+    /// <summary>
+    /// The device already has as many open invitations as allowed. Params:
+    /// <c>max</c>.
+    /// </summary>
+    public const string TooManyInvitations = "tooManyInvitations";
+
+    /// <summary>Inviting people to a device that has been deleted.</summary>
+    public const string InvitationDeviceDeleted = "invitationDeviceDeleted";
+
+    /// <summary>Withdrawing an invitation that does not exist, or is not the caller's to manage.</summary>
+    public const string NoSuchInvitation = "noSuchInvitation";
 
     // ----- Share links -----
 

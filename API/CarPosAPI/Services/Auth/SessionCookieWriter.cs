@@ -37,7 +37,7 @@ internal sealed class SessionCookieWriter : ISessionCookieWriter
     private readonly AuthCookieOptions _options;
 
     /// <summary>Creates the writer.</summary>
-    /// <param name="options">Cookie names and the Secure-flag switch.</param>
+    /// <param name="options">Cookie names and the Secure-flag rule (<see cref="AuthCookieOptions.UseSecureFlag"/>).</param>
     public SessionCookieWriter(IOptions<AuthCookieOptions> options)
     {
         _options = options.Value;
@@ -76,10 +76,12 @@ internal sealed class SessionCookieWriter : ISessionCookieWriter
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(token);
 
+        bool secure = _options.UseSecureFlag(response.HttpContext.Request);
+
         response.Cookies.Append(_options.SessionCookieName, token.Token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = _options.SecureCookies,
+            Secure = secure,
             SameSite = SameSiteMode.Strict,
             Path = "/",
             // Matching the token's own lifetime keeps the two from drifting apart: a
@@ -92,7 +94,7 @@ internal sealed class SessionCookieWriter : ISessionCookieWriter
         {
             // Readable on purpose — see the class summary.
             HttpOnly = false,
-            Secure = _options.SecureCookies,
+            Secure = secure,
             SameSite = SameSiteMode.Strict,
             Path = "/",
             MaxAge = token.Lifetime,
@@ -114,7 +116,7 @@ internal sealed class SessionCookieWriter : ISessionCookieWriter
         // far either clock has wandered.
         CookieOptions deletion = new CookieOptions
         {
-            Secure = _options.SecureCookies,
+            Secure = _options.UseSecureFlag(response.HttpContext.Request),
             SameSite = SameSiteMode.Strict,
             Path = "/",
         };

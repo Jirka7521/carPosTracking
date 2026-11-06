@@ -1,5 +1,6 @@
 // Program.cs — composition root only: configuration binding, DI registrations,
-// the two CLI branches (schema-sync, import-device-key) and the HTTP pipeline. All
+// the CLI branches (schema-sync, import-device-key, rotate-master-key,
+// create-registration-invite) and the HTTP pipeline. All
 // behaviour lives in the layer folders (Options/, Data/, Services/), per project
 // guidelines.
 
@@ -135,6 +136,16 @@ builder.Services.AddOptions<ReverseProxyOptions>()
 builder.Services.AddOptions<DeviceRegistrationOptions>()
     .BindConfiguration(DeviceRegistrationOptions.SectionName)
     .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Who may sign up: invite-only by default. Policy, not a secret, so a deployment can
+// open or close registration without a rebuild.
+builder.Services.AddOptions<RegistrationOptions>()
+    .BindConfiguration(RegistrationOptions.SectionName)
+    .ValidateDataAnnotations()
+    .Validate(
+        static (RegistrationOptions options) => Enum.IsDefined(options.Mode),
+        "Registration:Mode must be InviteOnly, Open or Closed.")
     .ValidateOnStart();
 
 // Ceilings on temporary share links. No secret here — these are policy limits, and
@@ -296,6 +307,8 @@ builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IDeviceEventQueryService, DeviceEventQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+// The only way a grant comes into being: an invitation its recipient accepts.
+builder.Services.AddScoped<IAccessInvitationService, AccessInvitationService>();
 
 // Temporary share links. The two stateless helpers are shared; the three services
 // are scoped like every other database-touching one.
@@ -563,16 +576,16 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 QueueLimit = 0,
             }));
 
-    // Looking a user up by email. Per account for the same reason as the GDPR
-    // policy above. The sharing form makes one lookup per invitation, so twenty in
-    // five minutes is room for a typo-ridden afternoon of sharing and a crawl for
-    // anyone testing a list of addresses.
-    options.AddPolicy(RateLimitPolicies.UserLookup, (HttpContext context) =>
+    // Device invitations: create, preview, accept, decline. Per account for the same
+    // reason as the GDPR policy above. Thirty in five minutes is a busy afternoon of
+    // sharing several devices, and a crawl for anything looping over tokens — which
+    // the 256-bit verifier makes pointless anyway.
+    options.AddPolicy(RateLimitPolicies.Invitations, (HttpContext context) =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: AccountPartitionKey(context),
             factory: static _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(5),
                 QueueLimit = 0,
             }));
@@ -658,6 +671,21 @@ WebApplication app = builder.Build();
 if (DeviceKeyImportCommand.IsRequested(args))
 {
     return await DeviceKeyImportCommand.RunAsync(app.Services, args);
+}
+
+// CLI mode: re-encrypt every stored device key under a new master key and exit. Same
+// placement and reasoning as import-device-key: it needs the configured (current)
+// master key and the database exactly as the web path sees them, and nothing else.
+if (MasterKeyRotationCommand.IsRequested(args))
+{
+    return await MasterKeyRotationCommand.RunAsync(app.Services, args);
+}
+
+// CLI mode: mint one single-use registration invite code, print it and exit. A
+// command rather than an endpoint, because there is no administrator role to guard one.
+if (RegistrationInviteCommand.IsRequested(args))
+{
+    return await RegistrationInviteCommand.RunAsync(app.Services, args);
 }
 
 // Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).

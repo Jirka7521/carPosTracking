@@ -43,7 +43,9 @@
 //
 //   5. Access Management   (visible only if canShare OR canModifySettings)
 //      Shows who currently has access.  If the caller has canShare they can
-//      also invite new users and edit / revoke existing grants.
+//      also edit / revoke existing grants and invite new people — by a
+//      single-use invitation link the other person must accept
+//      (AccessInvitationPanel), never by adding an email directly.
 //      If they only have canModifySettings they can view the list but not edit.
 //
 //   6. Temporary share links (same visibility as section 5)
@@ -75,7 +77,6 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { formatDate } from '../i18n/format'
@@ -90,19 +91,16 @@ import { ScheduleSection } from '../components/ScheduleSection'
 import type { ScheduleLoadStatus } from '../components/ScheduleSection'
 import { SharedUserCard } from '../components/SharedUserCard'
 import { ShareLinkManager } from '../components/ShareLinkManager'
-import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
-import { EMPTY_FLAGS } from '../components/capabilityFlags'
+import { AccessInvitationPanel } from '../components/AccessInvitationPanel'
 import type { SharedUserData } from '../components/SharedUserCard'
 import type { CapabilityFlags } from '../components/capabilityFlags'
 import type { DevicePageContext } from './DevicePage'
 import {
-  createAccessGrant,
   deleteDevice,
   fetchAccessGrantsForDevice,
   fetchDeviceProvisioning,
   fetchDeviceSchedule,
   fetchUserById,
-  fetchUsers,
   revokeAccessGrant,
   updateAccessGrant,
   updateDeviceAlias,
@@ -154,11 +152,6 @@ export function DeviceSettingsTab() {
   const [savingUserId, setSavingUserId]       = useState<number | null>(null)
   const [accessError, setAccessError]         = useState<string>('')
   const [accessSuccess, setAccessSuccess]     = useState<string>('')
-
-  // ---- Invite form state ----
-  const [inviteEmail, setInviteEmail]               = useState<string>('')
-  const [inviteFlags, setInviteFlags]               = useState<CapabilityFlags>(EMPTY_FLAGS)
-  const [isInviteSubmitting, setIsInviteSubmitting] = useState<boolean>(false)
 
   // ---- Firmware configuration state ----
   // Loaded on demand: it is rarely needed, and fetching it on every visit would
@@ -401,19 +394,6 @@ export function DeviceSettingsTab() {
     )
   }
 
-  function toggleInviteFlag(flag: keyof CapabilityFlags): void {
-    setInviteFlags((cur) => {
-      if (flag === 'canModifySettings' && cur.canShare) {
-        return cur
-      }
-      const next = { ...cur, [flag]: !cur[flag] }
-      if (flag === 'canShare' && next.canShare) {
-        next.canModifySettings = true
-      }
-      return next
-    })
-  }
-
   // ---- Save updated flags for an existing user ----
   async function saveUserRow(row: SharedUserData): Promise<void> {
     if (!canEditAccess) {
@@ -457,53 +437,6 @@ export function DeviceSettingsTab() {
       setAccessError(describeError(error, t('errors:removeAccessFailed')))
     } finally {
       setSavingUserId(null)
-    }
-  }
-
-  // ---- Invite a new user ----
-  async function handleInviteSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    setAccessError('')
-    setAccessSuccess('')
-
-    const email = inviteEmail.trim().toLowerCase()
-    if (!email) {
-      setAccessError(t('settings:sharing.emailRequired'))
-      return
-    }
-
-    setIsInviteSubmitting(true)
-    try {
-      // Look up the user by email (exact match)
-      const matches = await fetchUsers(email, true)
-      if (matches.length === 0) {
-        setAccessError(t('settings:sharing.noAccount', { email }))
-        return
-      }
-      const targetUser = matches[0]
-
-      // Prevent sharing with yourself
-      if (currentUser !== null && targetUser.id === currentUser.id) {
-        setAccessError(t('settings:sharing.cannotShareWithSelf'))
-        return
-      }
-
-      await createAccessGrant({
-        userId:            targetUser.id,
-        deviceId:          device.deviceId,
-        canDelete:         inviteFlags.canDelete,
-        canShare:          inviteFlags.canShare,
-        canModifySettings: inviteFlags.canModifySettings,
-      })
-
-      await loadSharedUsers()
-      setAccessSuccess(`Shared access with ${targetUser.email}.`)
-      setInviteEmail('')
-      setInviteFlags(EMPTY_FLAGS)
-    } catch (error) {
-      setAccessError(describeError(error, t('errors:shareAccessFailed')))
-    } finally {
-      setIsInviteSubmitting(false)
     }
   }
 
@@ -838,44 +771,10 @@ export function DeviceSettingsTab() {
               )}
             </div>
 
-            {/* ---- Invite form — only shown when the caller has canShare ---- */}
-            {canEditAccess ? (
-              <div className="invite-form">
-                <h4>{t('settings:sharing.inviteTitle')}</h4>
-                <p className="hint">{t('settings:sharing.inviteHint')}</p>
-
-                <form onSubmit={handleInviteSubmit}>
-                  <div className="form-field" style={{ marginBottom: 12 }}>
-                    <label className="form-label" htmlFor="invite-email">{t('common:fields.email')}</label>
-                    <input
-                      id="invite-email"
-                      className="form-input"
-                      type="email"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder={t('settings:sharing.emailPlaceholder')}
-                      required
-                    />
-                  </div>
-
-                  {/* Capability checkboxes for the invite */}
-                  <CapabilityCheckboxes
-                    flags={inviteFlags}
-                    canEdit={true}
-                    onToggle={toggleInviteFlag}
-                  />
-
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={isInviteSubmitting}
-                    style={{ marginTop: 12 }}
-                  >
-                    {isInviteSubmitting ? t('settings:sharing.sharing') : t('settings:sharing.share')}
-                  </button>
-                </form>
-              </div>
-            ) : null}
+            {/* ---- Invitations — only shown when the caller has canShare.
+                Nobody is added to a device by email any more: the sharer makes
+                a link, and the other person accepts it (or not). ---- */}
+            {canEditAccess ? <AccessInvitationPanel key={device.deviceId} deviceId={device.deviceId} /> : null}
           </div>
         </div>
       ) : null}

@@ -283,13 +283,14 @@ FE/
 |------|--------|-------------|
 | `/` | any | Redirects to `/home` (authenticated) or `/login` (guest) |
 | `/login` | public | Sign in |
-| `/register` | public | Create account — requires acknowledging the privacy policy |
+| `/register` | public | Create account — requires acknowledging the privacy policy and, while sign-up is invite-only, an invite code (`?invite=CODE` prefills it) |
 | `/privacy` | public | Privacy policy. Reachable **signed in as well as out** — unlike `/login`, it does not bounce an authenticated user to `/home`, or the footer link would be dead for exactly the people whose data it is |
 | `/legal` | public | Legal notice: non-commercial test project, licence, no warranty |
 | `/share/:token` | public | A temporary share link. `:token` is the link secret; the page reads it once and then rewrites the address to `/share` |
 | `/share` | public | The same page after the token has left the address bar, and where a reload lands |
 | `/home` | protected | List of accessible devices + register a new one |
 | `/profile` | protected | Edit first/last name, change password, and the privacy controls: export your data, revoke map consent, delete your account |
+| `/invite/:token` | protected | An invitation to share someone's device: shows the offer and lets the signed-in visitor accept or decline. Signing in first brings them back here. nginx redacts `/invite/` paths in its access log |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
@@ -642,7 +643,7 @@ The activate button stays disabled until step 2 has happened. If the key were st
 
 Device ids match `^[A-Za-z0-9_-]{1,64}$`. The frontend checks that as a hint; the server enforces it as a security control, because the id is interpolated into MQTT topics and must not be able to smuggle in a separator or a wildcard.
 
-Registration can optionally share the device with other people straight away, by email address. Addresses that match no account are skipped silently — the API will not confirm who has an account here.
+Registering a device does not share it with anyone. Sharing happens afterwards from the device's Settings tab (`components/AccessInvitationPanel.tsx`): choose permissions, create a single-use invitation link, and send it yourself. The other person accepts it at `/invite/:token`, and nothing is shared until they do. The link is shown only once, because the server keeps only a digest of it.
 
 ---
 

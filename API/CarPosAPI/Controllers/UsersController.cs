@@ -1,24 +1,23 @@
-using System.ComponentModel.DataAnnotations;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
-using CarPosAPI.Options;
 using CarPosAPI.Services.Auth;
 using CarPosAPI.Services.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace CarPosAPI.Controllers;
 
 /// <summary>
-/// User lookups for the sharing UI, plus self-service profile and password edits.
+/// The profile lookup the sharing list renders names with, plus self-service
+/// profile and password edits.
 ///
-/// The two read endpoints are the only place one account can learn about another,
-/// so both are deliberately narrow. The search matches an email address for
-/// <em>equality only</em> — you have to already know the address to ask — and the
-/// by-id lookup answers only for the caller themselves or somebody they share a
-/// device with. Both used to be wider, and between them they let any signed-in
-/// account enumerate every user's name and email address.
+/// The read endpoint is the only place one account can learn about another, so it
+/// is deliberately narrow: it answers only for the caller themselves or somebody
+/// they share a device with — and since grants now come only from an accepted
+/// invitation, "share a device" means both people agreed to it. There used to be
+/// an email search here as well, and a way to grant any account access by id;
+/// between them they let any signed-in account enumerate every user's name and
+/// email address. Sharing by invitation link needs neither, so both are gone.
 ///
 /// The two mutating endpoints carry an id in the route because that is the shape
 /// the frontend was built against — but they refuse any id that is not the
@@ -48,38 +47,6 @@ public sealed class UsersController : ApiControllerBase
         _accounts = accounts;
         _tokenIssuer = tokenIssuer;
         _cookieWriter = cookieWriter;
-    }
-
-    /// <summary>Finds the user with exactly this email address, for the "share with…" picker.</summary>
-    /// <param name="email">The full address to look for. Matched for equality only.</param>
-    /// <param name="exactMatch">
-    /// Accepted and ignored. It used to select a prefix search; that mode is gone,
-    /// and the parameter is kept only so an older client's query string still binds
-    /// rather than 400-ing.
-    /// </param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>
-    /// 200 with the match — an empty list when there is none, names blank unless the
-    /// two accounts already share a device; 403 when the caller can share nothing.
-    /// </returns>
-    [HttpGet]
-    [EnableRateLimiting(RateLimitPolicies.UserLookup)]
-    [ProducesResponseType(typeof(IReadOnlyList<UserProfileDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<ActionResult<IReadOnlyList<UserProfileDto>>> SearchAsync(
-        [FromQuery][Required][StringLength(256, MinimumLength = 1)] string email,
-        [FromQuery] bool exactMatch,
-        CancellationToken cancellationToken)
-    {
-        _ = exactMatch;
-
-        OperationResult<IReadOnlyList<UserProfileDto>> result =
-            await _accounts.SearchByEmailAsync(RequireUserId(_currentUser), email, cancellationToken);
-
-        // "No such user" is 200-with-empty-list, not 404: the caller asked a
-        // question ("who matches?") and got a complete answer.
-        return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }
 
     /// <summary>Loads one user's profile, if the caller is entitled to see it.</summary>

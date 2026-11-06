@@ -33,11 +33,15 @@ public sealed class SessionCookieWriterTests
     }
 
     /// <summary>Issues a session onto a fresh response and returns its Set-Cookie headers.</summary>
-    /// <param name="secureCookies">Whether the cookies should carry <c>Secure</c>.</param>
+    /// <param name="secureCookies">Whether the cookies should always carry <c>Secure</c>.</param>
+    /// <param name="scheme">
+    /// The request's scheme, as ForwardedClientMiddleware would have settled it.
+    /// </param>
     /// <returns>One entry per cookie written.</returns>
-    private static IReadOnlyList<string> IssueAndReadCookies(bool secureCookies = true)
+    private static IReadOnlyList<string> IssueAndReadCookies(bool secureCookies = true, string scheme = "http")
     {
         DefaultHttpContext context = new DefaultHttpContext();
+        context.Request.Scheme = scheme;
 
         CreateWriter(secureCookies).Issue(context.Response, new IssuedToken("a.b.c", Lifetime));
 
@@ -89,12 +93,41 @@ public sealed class SessionCookieWriterTests
             Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
         }
 
-        // False is for plain-HTTP local development only: a Secure cookie is never
-        // sent back over http://, which fails in exactly the same silent way the
-        // Max-Age test above guards against.
+        // False lets a plain-HTTP request (Vite, the dashboard on a LAN address) get a
+        // cookie it can send back: a Secure one never returns over http://, which
+        // fails in exactly the same silent way the Max-Age test above guards against.
         foreach (string cookie in IssueAndReadCookies(secureCookies: false))
         {
             Assert.DoesNotContain("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void CarriesSecureOverHttpsEvenWhenNotForced()
+    {
+        // The regression this guards: switching the flag off for LAN access used to
+        // strip Secure from the public site's cookies too, so any http:// request to
+        // the domain could carry the session in the clear. A request that arrived
+        // over HTTPS — the public site, through the tunnel — must get it regardless.
+        foreach (string cookie in IssueAndReadCookies(secureCookies: false, scheme: "https"))
+        {
+            Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void ClearingOverHttpsMatchesTheSecureFlagItWasIssuedWith()
+    {
+        DefaultHttpContext context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+
+        CreateWriter(secureCookies: false).Clear(context.Response);
+
+        // A deletion whose flags differ from the cookie's is ignored by the browser,
+        // and signing out then silently leaves the session in place.
+        foreach (string cookie in context.Response.Headers.SetCookie.ToArray()!)
+        {
+            Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
         }
     }
 
