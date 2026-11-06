@@ -3,7 +3,9 @@ using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 using CarPosAPI.Options;
 using CarPosAPI.Services.Common;
+using CarPosAPI.Services.Sharing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -29,28 +31,37 @@ internal sealed class UserAccountService : IUserAccountService
     private readonly CarPosDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ISessionRegistry _sessions;
+    private readonly IPassphraseGenerator _passphrases;
     private readonly PrivacyOptions _privacy;
+    private readonly RegistrationOptions _registration;
     private readonly ILogger<UserAccountService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="passwordHasher">Hashes and verifies passwords.</param>
     /// <param name="sessions">Told when a password change ends a user's sessions.</param>
+    /// <param name="passphrases">Normalises invite codes the way they were minted.</param>
     /// <param name="privacy">Supplies the privacy-policy version registration must match.</param>
-    /// <param name="logger">Structured logger — never receives passwords or hashes.</param>
+    /// <param name="registration">Who may sign up (open, invite-only or closed).</param>
+    /// <param name="logger">Structured logger — never receives passwords, hashes or invite codes.</param>
     public UserAccountService(
         CarPosDbContext context,
         IPasswordHasher passwordHasher,
         ISessionRegistry sessions,
+        IPassphraseGenerator passphrases,
         IOptions<PrivacyOptions> privacy,
+        IOptions<RegistrationOptions> registration,
         ILogger<UserAccountService> logger)
     {
         ArgumentNullException.ThrowIfNull(privacy);
+        ArgumentNullException.ThrowIfNull(registration);
 
         _context = context;
         _passwordHasher = passwordHasher;
         _sessions = sessions;
+        _passphrases = passphrases;
         _privacy = privacy.Value;
+        _registration = registration.Value;
         _logger = logger;
     }
 
@@ -60,6 +71,43 @@ internal sealed class UserAccountService : IUserAccountService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        // Whether this caller may sign up at all is settled first, before any other
+        // check is made or answered. Under invite-only sign-up that is what keeps the
+        // form from telling a stranger anything — not even whether an email address
+        // already has an account, which the unique-index conflict below would.
+        if (_registration.Mode == RegistrationMode.Closed)
+        {
+            return OperationResult<User>.Forbidden(
+                ErrorCodes.RegistrationClosed,
+                "Registration is closed. Existing accounts can still sign in.");
+        }
+
+        string? inviteCodeHash = null;
+
+        if (_registration.Mode == RegistrationMode.InviteOnly)
+        {
+            inviteCodeHash = RegistrationInviteCodes.Hash(_passphrases, request.InviteCode);
+
+            // A read-only look first, so a missing or wrong code is refused before a
+            // full PBKDF2 hash is spent on the password. The code is only claimed —
+            // atomically — inside the transaction below.
+            DateTime checkedAt = DateTime.UtcNow;
+            bool usable = inviteCodeHash is not null
+                && await _context.RegistrationInvites
+                    .AsNoTracking()
+                    .AnyAsync(
+                        invite => invite.CodeHash == inviteCodeHash
+                            && invite.UsedAt == null
+                            && invite.ExpiresAt > checkedAt,
+                        cancellationToken);
+
+            if (!usable)
+            {
+                _logger.LogInformation("Registration refused: no usable invite code");
+                return InviteCodeInvalid();
+            }
+        }
 
         string email = NormaliseEmail(request.Email);
 
@@ -78,36 +126,98 @@ internal sealed class UserAccountService : IUserAccountService
                 "The privacy policy has changed since this page was opened. Please reload and read it again before registering.");
         }
 
-        User user = new User
-        {
-            Email = email,
-            PasswordHash = _passwordHasher.Hash(request.Password),
-            SecurityStamp = SecurityStamps.New(),
-            FirstName = request.FirstName.Trim(),
-            LastName = request.LastName.Trim(),
-            PrivacyPolicyVersion = _privacy.PolicyVersion,
-            PrivacyPolicyAcceptedAt = DateTime.UtcNow,
-        };
+        // Hashed once, outside the transaction: PBKDF2 is the expensive part, and a
+        // replay of the transaction below must not pay for it again.
+        string passwordHash = _passwordHasher.Hash(request.Password);
 
-        _context.Users.Add(user);
+        // Claiming the code and creating the account are one unit of work: a code is
+        // spent only by an account that actually came into being, and an account is
+        // only created by a code nobody else claimed first. The connection retries
+        // transient faults (Program.cs), so the transaction runs inside the execution
+        // strategy, which may replay it whole.
+        IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
-        try
-        {
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception)
-            when (exception.InnerException is PostgresException postgres
-                && postgres.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            // The unique index is the only check performed — a pre-flight "does this
-            // email exist?" query would both race and hand out account-existence
-            // information to anyone who cared to ask.
-            return OperationResult<User>.Conflict(ErrorCodes.EmailTaken, "An account with that email address already exists.");
-        }
+        return await strategy.ExecuteAsync(
+            async (CancellationToken attemptToken) =>
+            {
+                // A failed earlier attempt may have left the user staged; start clean.
+                _context.ChangeTracker.Clear();
 
-        _logger.LogInformation("Registered user {UserId}", user.Id);
+                await using IDbContextTransaction transaction =
+                    await _context.Database.BeginTransactionAsync(attemptToken);
 
-        return OperationResult<User>.Success(user);
+                if (inviteCodeHash is not null)
+                {
+                    // Conditional on still being unused, so two registrations racing
+                    // with one code cannot both succeed: exactly one update lands, and
+                    // the loser rolls back with nothing written.
+                    DateTime usedAt = DateTime.UtcNow;
+                    int claimed = await _context.RegistrationInvites
+                        .Where(invite => invite.CodeHash == inviteCodeHash
+                            && invite.UsedAt == null
+                            && invite.ExpiresAt > usedAt)
+                        .ExecuteUpdateAsync(
+                            setters => setters.SetProperty(invite => invite.UsedAt, (DateTime?)usedAt),
+                            attemptToken);
+
+                    if (claimed != 1)
+                    {
+                        _logger.LogInformation("Registration refused: the invite code was claimed or expired meanwhile");
+                        return InviteCodeInvalid();
+                    }
+                }
+
+                User user = new User
+                {
+                    Email = email,
+                    PasswordHash = passwordHash,
+                    SecurityStamp = SecurityStamps.New(),
+                    FirstName = request.FirstName.Trim(),
+                    LastName = request.LastName.Trim(),
+                    PrivacyPolicyVersion = _privacy.PolicyVersion,
+                    PrivacyPolicyAcceptedAt = DateTime.UtcNow,
+                };
+
+                _context.Users.Add(user);
+
+                try
+                {
+                    await _context.SaveChangesAsync(attemptToken);
+                }
+                catch (DbUpdateException exception)
+                    when (exception.InnerException is PostgresException postgres
+                        && postgres.SqlState == PostgresErrorCodes.UniqueViolation)
+                {
+                    // The unique index is the only check performed — a pre-flight "does
+                    // this email exist?" query would both race and hand out
+                    // account-existence information to anyone who cared to ask. Leaving
+                    // without a commit rolls the invite claim back too, so a mistyped
+                    // email does not burn the code.
+                    return OperationResult<User>.Conflict(ErrorCodes.EmailTaken, "An account with that email address already exists.");
+                }
+
+                await transaction.CommitAsync(attemptToken);
+
+                _logger.LogInformation(
+                    "Registered user {UserId} ({RegistrationMode})",
+                    user.Id,
+                    _registration.Mode);
+
+                return OperationResult<User>.Success(user);
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The one answer for every unusable invite code — missing, unknown, used or
+    /// expired — so the response says nothing about which.
+    /// </summary>
+    /// <returns>A 400 result carrying <see cref="ErrorCodes.InviteCodeInvalid"/>.</returns>
+    private static OperationResult<User> InviteCodeInvalid()
+    {
+        return OperationResult<User>.Invalid(
+            ErrorCodes.InviteCodeInvalid,
+            "Registration needs a valid invite code. Ask the person who runs this site for one; each code works once.");
     }
 
     /// <inheritdoc />

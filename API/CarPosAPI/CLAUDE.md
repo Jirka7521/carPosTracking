@@ -33,7 +33,7 @@ local and say so.
 ## Layout
 
 ```
-Program.cs     composition root only: DI, auth, middleware, CLI modes (schema-sync, import-device-key, rotate-master-key)
+Program.cs     composition root only: DI, auth, middleware, CLI modes (schema-sync, import-device-key, rotate-master-key, create-registration-invite)
 Controllers/   thin, one per resource; derive from ApiControllerBase
 Services/<Feature>/   business rules + interfaces: Auth, Authorization, Common, Devices,
                Health, Ingest, Positions, Privacy, Provisioning, Scheduling, Security, Sharing

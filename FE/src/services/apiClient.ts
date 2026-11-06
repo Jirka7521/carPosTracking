@@ -324,9 +324,12 @@ export async function registerUser(
   // it against the account and rejects anything but the current version, so the
   // stored consent is always provably the text this person was shown.
   acceptedPrivacyPolicyVersion: string,
+  // The single-use invite code the site's operator handed out. Sign-up is
+  // invite-only, so without a usable one the API refuses before anything else.
+  inviteCode: string,
 ): Promise<AuthResponseDto> {
   return request<AuthResponseDto>('POST', '/auth/register', {
-    body: { email, password, firstName, lastName, acceptedPrivacyPolicyVersion },
+    body: { email, password, firstName, lastName, acceptedPrivacyPolicyVersion, inviteCode },
   })
 }
 

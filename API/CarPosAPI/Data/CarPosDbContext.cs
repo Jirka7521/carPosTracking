@@ -41,6 +41,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Session tokens ended by sign-out before they expired; pruned once they would have.</summary>
     public DbSet<RevokedSession> RevokedSessions => Set<RevokedSession>();
 
+    /// <summary>Single-use invite codes that open registration; digests only, no personal data.</summary>
+    public DbSet<RegistrationInvite> RegistrationInvites => Set<RegistrationInvite>();
+
     /// <summary>Temporary, account-less links onto a device's positions.</summary>
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
 

@@ -1,5 +1,6 @@
 // Program.cs — composition root only: configuration binding, DI registrations,
-// the CLI branches (schema-sync, import-device-key, rotate-master-key) and the HTTP pipeline. All
+// the CLI branches (schema-sync, import-device-key, rotate-master-key,
+// create-registration-invite) and the HTTP pipeline. All
 // behaviour lives in the layer folders (Options/, Data/, Services/), per project
 // guidelines.
 
@@ -135,6 +136,16 @@ builder.Services.AddOptions<ReverseProxyOptions>()
 builder.Services.AddOptions<DeviceRegistrationOptions>()
     .BindConfiguration(DeviceRegistrationOptions.SectionName)
     .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Who may sign up: invite-only by default. Policy, not a secret, so a deployment can
+// open or close registration without a rebuild.
+builder.Services.AddOptions<RegistrationOptions>()
+    .BindConfiguration(RegistrationOptions.SectionName)
+    .ValidateDataAnnotations()
+    .Validate(
+        static (RegistrationOptions options) => Enum.IsDefined(options.Mode),
+        "Registration:Mode must be InviteOnly, Open or Closed.")
     .ValidateOnStart();
 
 // Ceilings on temporary share links. No secret here — these are policy limits, and
@@ -666,6 +677,13 @@ if (DeviceKeyImportCommand.IsRequested(args))
 if (MasterKeyRotationCommand.IsRequested(args))
 {
     return await MasterKeyRotationCommand.RunAsync(app.Services, args);
+}
+
+// CLI mode: mint one single-use registration invite code, print it and exit. A
+// command rather than an endpoint, because there is no administrator role to guard one.
+if (RegistrationInviteCommand.IsRequested(args))
+{
+    return await RegistrationInviteCommand.RunAsync(app.Services, args);
 }
 
 // Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).

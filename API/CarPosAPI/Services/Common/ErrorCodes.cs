@@ -39,6 +39,15 @@ public static class ErrorCodes
     /// <summary>The policy version the registrant accepted is no longer current.</summary>
     public const string PrivacyPolicyChanged = "privacyPolicyChanged";
 
+    /// <summary>
+    /// Registration without a usable invite code: missing, unknown, already used or
+    /// expired — deliberately one code, so the answer says nothing about which.
+    /// </summary>
+    public const string InviteCodeInvalid = "inviteCodeInvalid";
+
+    /// <summary>Registration while <c>Registration:Mode</c> is <c>Closed</c>.</summary>
+    public const string RegistrationClosed = "registrationClosed";
+
     /// <summary>The user does not exist, or is not visible to the caller.</summary>
     public const string NoSuchUser = "noSuchUser";
 

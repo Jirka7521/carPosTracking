@@ -37,12 +37,14 @@ export type AuthContextValue = {
   // acceptedPrivacyPolicyVersion is the version the registration form displayed.
   // The server records it against the account and refuses anything but the
   // current one, so the stored consent is provably the text the user was shown.
+  // inviteCode is the single-use code that sign-up requires (invite-only).
   register: (
     email: string,
     password: string,
     firstName: string,
     lastName: string,
     acceptedPrivacyPolicyVersion: string,
+    inviteCode: string,
   ) => Promise<void>
 
   // Ends the session server-side (the API expires the cookies) and clears local

@@ -796,6 +796,41 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.RegistrationInvite", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("code_hash")
+                        .IsFixedLength();
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_registration_invites_code_hash");
+
+                    b.ToTable("registration_invites", (string)null);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.RevokedSession", b =>
                 {
                     b.Property<string>("TokenId")

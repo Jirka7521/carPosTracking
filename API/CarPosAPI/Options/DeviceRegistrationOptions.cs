@@ -19,8 +19,9 @@ public sealed class DeviceRegistrationOptions
     /// <para>
     /// Registration is the most expensive thing an account can ask for: every call
     /// generates an RSA-3072 key pair on a Raspberry Pi and writes rows that are
-    /// never physically deleted. Any signed-in account can call it, and sign-up is
-    /// open, so without a ceiling one account is a lever on the whole server. The
+    /// never physically deleted. Any signed-in account can call it (and sign-up can
+    /// be opened, <c>Registration:Mode</c>), so without a ceiling one account is a
+    /// lever on the whole server. The
     /// per-account rate limit (<c>RateLimitPolicies.DeviceRegistration</c>) bounds how
     /// fast; this bounds how many.
     /// </para>

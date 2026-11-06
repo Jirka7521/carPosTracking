@@ -125,6 +125,13 @@ nobody would remain to revoke.
 itself — p, because it reveals *when* a vehicle is tracked closely. The revision history is
 append-only and never pruned; `created_by_user_id` is set to `NULL` on account deletion.
 
+### `registration_invites` — no personal data
+
+`code_hash` (SHA-256 of a single-use sign-up code; the code itself is never stored),
+`created_at`, `expires_at`, `used_at`. Deliberately records **neither who a code was
+for nor who used it**, so the table holds nothing about anyone, needs no export or
+erasure path, and reveals no way in if it leaks.
+
 ---
 
 ## 2. The tracker's microSD card

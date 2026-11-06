@@ -12,11 +12,15 @@
 //     the extra round-trip below: the form fetches the version currently in
 //     force and echoes it back with the registration, so what gets recorded
 //     against the account is provably the text this person was shown.
+//   • An invite code. Sign-up is invite-only: the operator mints single-use
+//     codes on the server and hands out links of the form
+//     /register?invite=XXXX-XXXX-XXXX, which prefill the field. The API checks
+//     the code before anything else, so a missing one is refused up front.
 // ============================================================
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../auth/useAuth'
 import { fetchPrivacyPolicy } from '../services/apiClient'
@@ -31,9 +35,12 @@ const MIN_PASSWORD_LENGTH = 12
 export function RegisterPage() {
   const { register } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { t } = useTranslation(['auth', 'common', 'errors'])
 
-  // Form fields
+  // Form fields. The invite code starts from the link it arrived by, if any —
+  // read once, so editing the field is not overwritten by the URL.
+  const [inviteCode, setInviteCode] = useState<string>(() => searchParams.get('invite') ?? '')
   const [firstName, setFirstName] = useState<string>('')
   const [lastName, setLastName] = useState<string>('')
   const [email, setEmail] = useState<string>('')
@@ -107,7 +114,7 @@ export function RegisterPage() {
     try {
       // register() calls POST /api/auth/register, stores the returned JWT,
       // and updates the auth context so the user is immediately logged in.
-      await register(email, password, firstName, lastName, acceptedVersion)
+      await register(email, password, firstName, lastName, acceptedVersion, inviteCode.trim())
       navigate('/home', { replace: true })
     } catch (error) {
       setErrorMessage(describeError(error, t('errors:registrationFailed')))
@@ -136,6 +143,31 @@ export function RegisterPage() {
         <p className="auth-card-subtitle">{t('auth:register.subtitle')}</p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
+          {/*
+            Invite code first: it is what decides whether the rest of the form can
+            succeed at all. Not marked required client-side — the server decides
+            (it ignores the field if sign-up is ever opened up again).
+          */}
+          <div className="form-field">
+            <label htmlFor="reg-invite">
+              {t('auth:fields.inviteCode')}{' '}
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                {t('auth:fields.inviteCodeHint')}
+              </span>
+            </label>
+            <input
+              id="reg-invite"
+              className="form-input"
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              placeholder={t('auth:fields.inviteCodePlaceholder')}
+            />
+          </div>
+
           {/* First + last name side-by-side */}
           <div className="auth-name-row">
             <div className="form-field">

@@ -318,6 +318,8 @@ forwarding headers are believed **only from those two addresses**
 | `ReverseProxy:CloudflareTunnelProxies` | `192.168.122.50` | Comma-separated IPs whose `CF-Connecting-IP` is believed and preferred. |
 | `AllowedHosts` | `*` | Host headers the API answers (others get **400**). The deployment bundle sets it from `API_ALLOWED_HOSTS`, defaulting to `jimajer.cz;localhost;127.0.0.1;<BE_HOST>;<FE_HOST>` — the tunnel's host, loopback, the name the healthcheck and nginx's upstream use, and the frontend's LAN name (nginx forwards the browser's `Host`). |
 | `DeviceRegistration:MaxActiveDevicesPerUser` | `20` | Active devices one account may have registered itself. Deleting one frees a slot. |
+| `Registration:Mode` | `InviteOnly` | Who may sign up: `InviteOnly` (a single-use code from [`create-registration-invite`](#create-registration-invite--let-someone-sign-up)), `Open` (anyone) or `Closed` (nobody; existing accounts keep working). |
+| `Registration:InviteLifetimeDays` | `14` | How long a newly minted invite code stays usable, unless the CLI is given `--days`. |
 
 Override from the environment as `ReverseProxy__TrustedProxies` etc. — the lists
 are plain strings so an environment variable replaces them whole.
@@ -555,7 +557,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 
 | Method & route | Purpose |
 |---|---|
-| `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies |
+| `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies. Register needs `inviteCode` while `Registration:Mode` is `InviteOnly`. The code is checked **first**, so without a usable one the only answer is **400** `inviteCodeInvalid` (one code for missing, unknown, used or expired), not even `emailTaken`. `Closed` answers **403** `registrationClosed`. The code is claimed in the same transaction as the account insert, so a refused registration (e.g. email taken) leaves it unused |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
 | `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
@@ -1066,6 +1068,22 @@ Afterwards, put the new key everywhere that talks to the same database: the depl
 bundle's `Application/secrets/` on the dev machine (the publisher reuses it), and
 `appsettings.Local.json` when development shares the database. A failure exits
 non-zero with the database unchanged. Start the API again with the old key.
+
+### `create-registration-invite` — let someone sign up
+
+Sign-up is invite-only by default (`Registration:Mode`). Mint one single-use code
+per person:
+
+```bash
+docker compose run --rm api create-registration-invite --days 14   # on the Pi
+dotnet run -- create-registration-invite                           # development
+```
+
+It prints the code (`XXXX-XXXX-XXXX`) once, plus the link form
+`<dashboard address>/register?invite=<code>`, which prefills the registration form.
+Send it however you like. Only a SHA-256 digest is stored in
+`registration_invites`, with no record of who it was for or who used it. A lost
+code is simply minted again, and an unused one expires on its own.
 
 ### `--ack-public-pem` — enable delivery acks for a device
 
