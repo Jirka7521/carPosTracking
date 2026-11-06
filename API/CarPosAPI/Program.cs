@@ -1,5 +1,5 @@
 // Program.cs — composition root only: configuration binding, DI registrations,
-// the two CLI branches (schema-sync, import-device-key) and the HTTP pipeline. All
+// the CLI branches (schema-sync, import-device-key, rotate-master-key) and the HTTP pipeline. All
 // behaviour lives in the layer folders (Options/, Data/, Services/), per project
 // guidelines.
 
@@ -658,6 +658,14 @@ WebApplication app = builder.Build();
 if (DeviceKeyImportCommand.IsRequested(args))
 {
     return await DeviceKeyImportCommand.RunAsync(app.Services, args);
+}
+
+// CLI mode: re-encrypt every stored device key under a new master key and exit. Same
+// placement and reasoning as import-device-key: it needs the configured (current)
+// master key and the database exactly as the web path sees them, and nothing else.
+if (MasterKeyRotationCommand.IsRequested(args))
+{
+    return await MasterKeyRotationCommand.RunAsync(app.Services, args);
 }
 
 // Turns any unhandled exception into a ProblemDetails 500 (see GlobalExceptionHandler).

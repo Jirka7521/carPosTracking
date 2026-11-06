@@ -377,7 +377,9 @@ including user-secrets and environment variables. It is also excluded from
 ```
 
 Generate the master key once and keep it safe — losing it makes stored device
-keys undecryptable; changing it requires re-importing every device key:
+keys undecryptable. To change it, re-encrypt the stored keys with the
+[`rotate-master-key`](#rotate-master-key--replace-the-master-key) CLI mode; just
+swapping the value makes every device key unreadable:
 
 ```powershell
 $bytes = [byte[]]::new(32)
@@ -1037,6 +1039,33 @@ The key is validated (RSA-3072; public/private pairing when `--public-pem` is
 given), encrypted under the master key and upserted. Only a SPKI-SHA256
 fingerprint is printed. **Restart the API afterwards** — keys are cached (the
 cache also refreshes itself every 60 minutes).
+
+### `rotate-master-key` — replace the master key
+
+Re-encrypts every stored device private key from the current master key to a new
+one, in **one transaction**. It first opens every key with the current master key
+and writes nothing if any fails. Each re-encrypted key is proven to open under the
+new key before it is stored. The new key is read from **standard input only**,
+never an argument or a prompt, so it stays out of shell history and off the screen.
+Only counts and device ids are printed.
+
+```bash
+# On the Pi, in the deploy folder. Stop the API first: it caches decrypted keys.
+printf '%s' "$(openssl rand -base64 32)" > secrets/DeviceKeyProtection__MasterKeyBase64.new
+chmod 600 secrets/DeviceKeyProtection__MasterKeyBase64.new
+docker compose stop api
+docker compose run --rm -T api rotate-master-key --dry-run    # every key opens? changes nothing
+docker compose run --rm -T api rotate-master-key < secrets/DeviceKeyProtection__MasterKeyBase64.new
+mv secrets/DeviceKeyProtection__MasterKeyBase64.new secrets/DeviceKeyProtection__MasterKeyBase64
+chmod 644 secrets/DeviceKeyProtection__MasterKeyBase64
+docker compose up -d api
+```
+
+In development the same works with `dotnet run -- rotate-master-key < new-key.txt`.
+Afterwards, put the new key everywhere that talks to the same database: the deploy
+bundle's `Application/secrets/` on the dev machine (the publisher reuses it), and
+`appsettings.Local.json` when development shares the database. A failure exits
+non-zero with the database unchanged. Start the API again with the old key.
 
 ### `--ack-public-pem` — enable delivery acks for a device
 
