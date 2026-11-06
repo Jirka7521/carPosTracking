@@ -172,6 +172,22 @@
     "title": "Device Information",
     "yourPermissions": "Your permissions"
   },
+  "invitePage": {
+    "accept": "Accept",
+    "acceptFailed": "Could not accept the invitation.",
+    "accepting": "Accepting…",
+    "alreadyHasAccess": "You already have access to this device, so there is nothing to accept. Leave this invitation for the person it was meant for.",
+    "backHome": "Go to my devices",
+    "decline": "Decline",
+    "declined": "You declined the invitation. Nothing was shared, and the link no longer works.",
+    "declineFailed": "Could not decline the invitation.",
+    "declining": "Declining…",
+    "expires": "This invitation expires {{when}}.",
+    "loadFailed": "This invitation link cannot be used.",
+    "offer": "{{inviter}} invites you to share the device \"{{device}}\". Nothing is shared until you accept.",
+    "permissions": "With this access you could:",
+    "title": "Invitation to share a device"
+  },
   "override": {
     "confirm": "Save until the next switch",
     "intro": "This device is on a <strong>schedule</strong>, so saving here does not change what it runs from now on — it holds until the next scheduled switch, and then {{profile}} is applied again.",
@@ -231,20 +247,30 @@
     "wifiSsidHint": "Filling this in also switches <code>kWifiEnabled</code> on. Left empty, WiFi stays off so the tracker does not wait out a connect timeout on every boot."
   },
   "sharing": {
-    "cannotShareWithSelf": "You cannot share a device with yourself.",
     "confirmRemove": "Remove access for {{email}}?\nThey will no longer be able to see this device.",
-    "emailPlaceholder": "user@example.com",
-    "emailRequired": "Enter the email of the person to invite.",
-    "inviteHint": "Enter their email address. Read access is always granted. Choose which additional permissions to give them.",
-    "inviteTitle": "Invite someone new",
-    "noAccount": "No account found with email \"{{email}}\".",
+    "invite": {
+      "confirmWithdraw": "Withdraw this invitation? Its link stops working at once.",
+      "copy": "Copy link",
+      "create": "Create invitation link",
+      "createFailed": "Could not create the invitation.",
+      "creating": "Creating…",
+      "expires": "Expires {{when}}",
+      "hint": "Create a link and send it to the person yourself — by message, chat or email. They sign in, see what you are offering and get access only if they accept. Read access is always included; choose any extra permissions below. Each link works once.",
+      "linkLabel": "Invitation link — shown only now",
+      "linkNote": "Copy it now: it will not be shown again. Anyone with an account here who gets this link can accept it, so send it only to the person you mean. It expires {{when}}.",
+      "loadFailed": "Could not load the open invitations.",
+      "none": "No open invitations.",
+      "pendingTitle": "Open invitations",
+      "title": "Invite someone",
+      "withdraw": "Withdraw",
+      "withdrawFailed": "Could not withdraw the invitation.",
+      "withdrawn": "Invitation withdrawn."
+    },
     "noOtherUsers": "No other users have access to this device.",
     "peopleWithAccess": "People with access",
     "readOnlyNote": "You have Settings permission — you can view who has access, but you need the Share permission to invite or edit users.",
     "remove": "Remove",
     "removed": "Removed access for {{email}}.",
-    "share": "Share access",
-    "sharing": "Sharing…",
     "title": "Access Management"
   },
   "sync": {

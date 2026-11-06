@@ -7,10 +7,11 @@ namespace CarPosAPI.Services.Authorization;
 /// invariants have been applied. Read access is not among them because it is
 /// implied by the grant existing at all.
 ///
-/// This type exists so the coercion rule lives in exactly one place. Both entry
-/// points that create grants — provisioning a device with
-/// <c>additionalAccesses</c>, and <c>POST</c>/<c>PUT /api/access</c> — funnel
-/// through <see cref="FromRequest"/>, so neither can forget it.
+/// This type exists so the coercion rule lives in exactly one place. Every entry
+/// point that sets a grant's capabilities — creating an invitation
+/// (<c>POST /api/access/invitations</c>, whose capabilities the accepted grant
+/// receives) and editing a grant (<c>PUT /api/access</c>) — funnels through
+/// <see cref="FromRequest"/>, so none can forget it.
 ///
 /// It also answers the escalation question, <see cref="GainsBeyond"/>: a sharer may
 /// hand out only what they hold. Coercion alone never made that true — a sharer

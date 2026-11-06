@@ -47,6 +47,9 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Temporary, account-less links onto a device's positions.</summary>
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
 
+    /// <summary>Open, single-use invitations to share a device with another account.</summary>
+    public DbSet<AccessInvitation> AccessInvitations => Set<AccessInvitation>();
+
     /// <summary>Immutable history of every device's remote settings, one row per revision.</summary>
     public DbSet<DeviceConfigVersion> DeviceConfigVersions => Set<DeviceConfigVersion>();
 

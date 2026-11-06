@@ -57,9 +57,6 @@ public static class ErrorCodes
     /// <summary>Account erasure confirmed with a wrong password.</summary>
     public const string WrongPassword = "wrongPassword";
 
-    /// <summary>A user lookup by an account that cannot share any device.</summary>
-    public const string UserLookupNotAllowed = "userLookupNotAllowed";
-
     // ----- Devices and provisioning -----
 
     /// <summary>The device does not exist, or the caller has no grant on it.</summary>
@@ -196,6 +193,33 @@ public static class ErrorCodes
 
     /// <summary>A non-owner giving or taking <c>CanDelete</c>.</summary>
     public const string OnlyOwnerManagesDelete = "onlyOwnerManagesDelete";
+
+    /// <summary>
+    /// An invitation link that cannot be used: unknown, malformed, expired, already
+    /// accepted or declined, or withdrawn — deliberately one code, like a bad share link.
+    /// </summary>
+    public const string InvitationInvalid = "invitationInvalid";
+
+    /// <summary>
+    /// The invitation was valid when made, but whoever made it can no longer give
+    /// this access (their sharing right is gone, or the device was deleted).
+    /// </summary>
+    public const string InvitationNoLongerValid = "invitationNoLongerValid";
+
+    /// <summary>Accepting an invitation one created oneself.</summary>
+    public const string CannotAcceptOwnInvitation = "cannotAcceptOwnInvitation";
+
+    /// <summary>
+    /// The device already has as many open invitations as allowed. Params:
+    /// <c>max</c>.
+    /// </summary>
+    public const string TooManyInvitations = "tooManyInvitations";
+
+    /// <summary>Inviting people to a device that has been deleted.</summary>
+    public const string InvitationDeviceDeleted = "invitationDeviceDeleted";
+
+    /// <summary>Withdrawing an invitation that does not exist, or is not the caller's to manage.</summary>
+    public const string NoSuchInvitation = "noSuchInvitation";
 
     // ----- Share links -----
 

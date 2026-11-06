@@ -7,9 +7,9 @@ namespace CarPosAPI.Tests;
 /// Guards the one authorisation rule that is pure logic rather than a database
 /// query: sharing implies settings.
 ///
-/// It is worth pinning down here because both entry points that create grants —
-/// registering a device with <c>additionalAccesses</c>, and the sharing
-/// endpoints — funnel through <see cref="CapabilitySet.FromRequest"/>. If the
+/// It is worth pinning down here because every entry point that sets a grant's
+/// capabilities — creating an invitation, and editing a grant — funnels through
+/// <see cref="CapabilitySet.FromRequest"/>. If the
 /// coercion were ever dropped, the result would not be a crash but a quietly
 /// wrong permission set: a user who can hand out rights they do not hold.
 /// </summary>

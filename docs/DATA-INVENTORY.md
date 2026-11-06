@@ -114,6 +114,16 @@ handed to another account survives erasure because that person still needs it; a
 the opposite case on both counts — a live credential held by somebody with no account, which
 nobody would remain to revoke.
 
+### `access_invitations`
+
+`device_id` p, `created_by_user_id` **P**, the offered capabilities `can_delete` /
+`can_share` / `can_modify_settings` ·, `created_at` / `expires_at` p, and the link as
+`selector` · plus `verifier_hash` · (SHA-256 only — the link itself is shown once and never
+stored). **No recipient is recorded**: an invitation is addressed to nobody until someone
+accepts it, and then the row is deleted and the grant it became is what remains. Also deleted
+when declined or withdrawn, when the creator loses the right to share or is erased, and when
+the device is deleted.
+
 ### `device_aliases`
 
 `user_id` **P**, `device_id` p, `alias` **P** (free text, frequently a person's name),
@@ -201,7 +211,8 @@ localStorage key is deleted on start-up — a signed-in user's map consent now l
 
 `GET /api/me/export` streams a JSON document with: the profile (including the map consent's
 `mapsConsentVersion` and `mapsConsentGrantedAtUtc`), every access grant held and
-granted, device nicknames, the temporary share links this account created, metadata for every
+granted, device nicknames, the temporary share links and open invitations this account
+created (`invitationsMade`, without any part of the link), metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
 history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
 readable device** — uncapped.

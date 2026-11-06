@@ -307,6 +307,8 @@ builder.Services.AddScoped<IDeviceConfigService, DeviceConfigService>();
 builder.Services.AddScoped<IPositionQueryService, PositionQueryService>();
 builder.Services.AddScoped<IDeviceEventQueryService, DeviceEventQueryService>();
 builder.Services.AddScoped<IAccessService, AccessService>();
+// The only way a grant comes into being: an invitation its recipient accepts.
+builder.Services.AddScoped<IAccessInvitationService, AccessInvitationService>();
 
 // Temporary share links. The two stateless helpers are shared; the three services
 // are scoped like every other database-touching one.
@@ -574,16 +576,16 @@ builder.Services.AddRateLimiter((RateLimiterOptions options) =>
                 QueueLimit = 0,
             }));
 
-    // Looking a user up by email. Per account for the same reason as the GDPR
-    // policy above. The sharing form makes one lookup per invitation, so twenty in
-    // five minutes is room for a typo-ridden afternoon of sharing and a crawl for
-    // anyone testing a list of addresses.
-    options.AddPolicy(RateLimitPolicies.UserLookup, (HttpContext context) =>
+    // Device invitations: create, preview, accept, decline. Per account for the same
+    // reason as the GDPR policy above. Thirty in five minutes is a busy afternoon of
+    // sharing several devices, and a crawl for anything looping over tokens — which
+    // the 256-bit verifier makes pointless anyway.
+    options.AddPolicy(RateLimitPolicies.Invitations, (HttpContext context) =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: AccountPartitionKey(context),
             factory: static _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(5),
                 QueueLimit = 0,
             }));

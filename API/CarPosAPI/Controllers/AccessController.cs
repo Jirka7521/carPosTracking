@@ -15,6 +15,15 @@ namespace CarPosAPI.Controllers;
 /// server-side from the caller's own grant. The grant id in the route is never
 /// taken as evidence of anything: it identifies the row, it does not authorise
 /// touching it.
+///
+/// <para>
+/// There is deliberately no action that <em>creates</em> a grant. It used to take
+/// any user id and grant that account access on the spot, without asking. Because
+/// sharing a device is what lets two accounts see each other's profile, that turned
+/// an integer scan into a dump of every user's name and email. A grant now only
+/// comes into being when its recipient accepts an invitation
+/// (<see cref="AccessInvitationsController"/>).
+/// </para>
 /// </summary>
 [Route("api/access")]
 [Authorize]
@@ -50,32 +59,6 @@ public sealed class AccessController : ApiControllerBase
             await _access.ListForDeviceAsync(userId, deviceId, cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : Failure(result);
-    }
-
-    /// <summary>Grants a user access to a device.</summary>
-    /// <param name="request">Who, which device, and which capabilities.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>201 with the grant, 409 when one is already active, 403 without <c>CanShare</c>.</returns>
-    [HttpPost]
-    [ProducesResponseType(typeof(AccessDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<AccessDto>> CreateAsync(
-        [FromBody] AccessCreateRequestDto request,
-        CancellationToken cancellationToken)
-    {
-        int userId = RequireUserId(_currentUser);
-
-        OperationResult<AccessDto> result = await _access.CreateAsync(userId, request, cancellationToken);
-
-        if (!result.IsSuccess)
-        {
-            return Failure(result);
-        }
-
-        return Created($"/api/access/{result.Value!.Id}", result.Value);
     }
 
     /// <summary>Replaces the capability set on an existing grant.</summary>

@@ -45,12 +45,14 @@ public static class RateLimitPolicies
     public const string ShareRedemption = "share";
 
     /// <summary>
-    /// Applied to <c>GET /api/users?email=</c>. The lookup answers whether an address
-    /// has an account here, so every call is one guess in an enumeration — cheap to
-    /// make from any account, since sign-up is open. Partitioned by account, like
-    /// <see cref="PrivacyOperations"/>: the account is what is being used to ask.
+    /// Applied to <c>/api/access/invitations</c>. Opening, accepting or declining an
+    /// invitation takes a link token, so each call is one guess at a token; creating
+    /// one puts another credential into circulation. The token's 256-bit verifier
+    /// makes guessing hopeless anyway — this caps what one account can do in a loop,
+    /// and partitions by account like <see cref="PrivacyOperations"/>, because every
+    /// action here needs a session.
     /// </summary>
-    public const string UserLookup = "user-lookup";
+    public const string Invitations = "invitations";
 
     /// <summary>
     /// Applied to <c>POST /api/devices</c>. Each registration generates an RSA-3072

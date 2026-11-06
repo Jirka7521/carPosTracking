@@ -55,12 +55,12 @@
 
 | | |
 |---|---|
-| **Purpose** | Let a device owner grant, change and revoke another account's access to a device |
+| **Purpose** | Let a device owner offer, change and revoke another account's access to a device. Access is offered by a single-use invitation link and exists only once the recipient accepts it — nobody is added to a device, or made visible to another account, without agreeing |
 | **Data subjects** | Registered users |
-| **Categories of data** | User↔device grant with four capability flags, who granted it, grant time, per-user device nickname |
+| **Categories of data** | User↔device grant with four capability flags, who granted it, grant time, per-user device nickname; open invitations (device, inviting account, offered capabilities, creation and expiry time — the link secret only as a SHA-256 digest; no recipient is recorded) |
 | **Legal basis** | Art. 6(1)(b) contract |
 | **Recipients** | The two users involved |
-| **Retention** | Until revoked or the account is deleted. On account deletion the grant rows are deleted and the "granted by" reference on any surviving grant is nulled, so the operational record survives without the personal link. |
+| **Retention** | Until revoked or the account is deleted. On account deletion the grant rows are deleted and the "granted by" reference on any surviving grant is nulled, so the operational record survives without the personal link. An invitation is deleted when accepted, declined or withdrawn, expires after `Sharing:InvitationLifetimeDays` (7), and is deleted with its creator's account, its device, or the creator's sharing right. |
 
 ### C2. Temporary share links
 

@@ -19,8 +19,11 @@
 
 import type {
   AccessDto,
+  AccessInvitationCreateRequestDto,
+  AccessInvitationCreatedDto,
+  AccessInvitationDto,
+  AccessInvitationPreviewDto,
   AccountErasureResultDto,
-  AccessCreateRequestDto,
   AccessUpdateRequestDto,
   AckKeyImportedDto,
   AuthResponseDto,
@@ -351,15 +354,11 @@ export async function fetchMyProfile(): Promise<UserProfileDto> {
 }
 
 // ----- Users -----
-
-// Exact match only — the server no longer offers a prefix search, because it
-// let any signed-in account walk the alphabet and harvest the user table. Pass
-// the full address; anything else legitimately finds nobody.
-export async function fetchUsers(email: string, exactMatch: boolean = true): Promise<UserProfileDto[]> {
-  return request<UserProfileDto[]>('GET', '/users', {
-    query: { email, exactMatch },
-  })
-}
+//
+// There is no user search: sharing works by invitation link, so the dashboard
+// never needs to look anybody up. The by-id lookup below answers only for people
+// the caller already shares a device with — which, since every grant comes from
+// an accepted invitation, means people who agreed to it.
 
 export async function fetchUserById(userId: number): Promise<UserProfileDto> {
   return request<UserProfileDto>('GET', `/users/${segment(userId)}`)
@@ -618,10 +617,6 @@ export async function fetchAccessGrantsForDevice(deviceId: string): Promise<Acce
   return request<AccessDto[]>('GET', '/access', { query: { deviceId } })
 }
 
-export async function createAccessGrant(payload: AccessCreateRequestDto): Promise<AccessDto> {
-  return request<AccessDto>('POST', '/access', { body: payload })
-}
-
 export async function updateAccessGrant(
   accessId: number,
   payload: AccessUpdateRequestDto,
@@ -631,6 +626,38 @@ export async function updateAccessGrant(
 
 export async function revokeAccessGrant(accessId: number): Promise<void> {
   await request<null>('DELETE', `/access/${segment(accessId)}`)
+}
+
+// ----- Access invitations -----
+//
+// The only way another account gains access to a device: a single-use link the
+// sharer sends however they like, and the recipient accepts. The token travels in
+// request bodies, never in an API URL, so it stays out of access logs.
+
+export async function createAccessInvitation(
+  payload: AccessInvitationCreateRequestDto,
+): Promise<AccessInvitationCreatedDto> {
+  return request<AccessInvitationCreatedDto>('POST', '/access/invitations', { body: payload })
+}
+
+export async function fetchAccessInvitations(deviceId: string): Promise<AccessInvitationDto[]> {
+  return request<AccessInvitationDto[]>('GET', '/access/invitations', { query: { deviceId } })
+}
+
+export async function withdrawAccessInvitation(invitationId: string): Promise<void> {
+  await request<null>('DELETE', `/access/invitations/${segment(invitationId)}`)
+}
+
+export async function previewAccessInvitation(token: string): Promise<AccessInvitationPreviewDto> {
+  return request<AccessInvitationPreviewDto>('POST', '/access/invitations/preview', { body: { token } })
+}
+
+export async function acceptAccessInvitation(token: string): Promise<AccessDto> {
+  return request<AccessDto>('POST', '/access/invitations/accept', { body: { token } })
+}
+
+export async function declineAccessInvitation(token: string): Promise<void> {
+  await request<null>('POST', '/access/invitations/decline', { body: { token } })
 }
 
 // ----- Privacy and data-subject rights (GDPR) -----

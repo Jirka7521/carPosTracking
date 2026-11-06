@@ -91,8 +91,10 @@ dotnet format                       # before finishing
 
 - `CanRead` is always true on an active grant; **`CanShare` implies
   `CanModifySettings`** — coerce it on, don't reject.
-- Creating a device grants the creator all four capabilities. `additionalAccesses`
-  reference users by email; unknown emails are skipped silently.
+- Creating a device grants the creator all four capabilities. **Every other grant
+  comes from an accepted invitation** (`Services/Sharing/AccessInvitationService`):
+  never add an endpoint that grants access to an account, or looks one up, without
+  that account's consent — a shared device is what makes two profiles visible.
 - **Authorize the resource, not just the request.** Every device / position / access /
   schedule operation re-checks the caller's grant; the `permissions` flags clients get
   are UX hints only. This is the most likely place to introduce a real vulnerability.
@@ -139,7 +141,7 @@ dotnet format                       # before finishing
 - `[Authorize]` everywhere; `[AllowAnonymous]` only on auth, the privacy policy, share-link
   redemption and `/health` (a fallback policy denies anything unattributed, and
   `EndpointAccessMetadataTests` lists the anonymous actions — update it deliberately).
-  Auth, share redemption, the GDPR operations, the user lookup and device registration
+  Auth, share redemption, the GDPR operations, invitations and device registration
   carry a `RateLimitPolicies` policy — give any new endpoint of that kind one too.
 - `CanShare` never lets a caller edit their own grant or hand out a capability they
   lack — keep new grant paths behind `GrantChangePolicy`.

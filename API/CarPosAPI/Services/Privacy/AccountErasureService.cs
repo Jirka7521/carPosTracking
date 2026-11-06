@@ -233,6 +233,14 @@ internal sealed class AccountErasureService : IAccountErasureService
             .Where(link => link.CreatedByUserId == userId)
             .ExecuteDeleteAsync(cancellationToken);
 
+        //    Open invitations this account made go for the same reason: each is a
+        //    live link somebody could still accept, and its maker is leaving. (They
+        //    could not be accepted anyway — acceptance re-checks the maker's grant,
+        //    which step 1 deletes — but a dead credential has no business surviving.)
+        await _context.AccessInvitations
+            .Where(invitation => invitation.CreatedByUserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+
         // 1. This account's own nicknames and grants. Both are purely personal —
         //    nobody else has any interest in them.
         await _context.DeviceAliases
@@ -315,6 +323,13 @@ internal sealed class AccountErasureService : IAccountErasureService
         // cease to exist has nothing left to show anyone.
         await _context.ShareLinks
             .Where(link => deviceRowIds.Contains(link.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // Open invitations onto these devices, whoever made them: access_invitations
+        // .device_id is Restrict too, and an invitation to a device about to cease to
+        // exist offers nothing.
+        await _context.AccessInvitations
+            .Where(invitation => deviceRowIds.Contains(invitation.DeviceId))
             .ExecuteDeleteAsync(cancellationToken);
 
         long positionsDeleted = await _context.Positions

@@ -260,20 +260,13 @@ internal sealed class DeviceService : IDeviceService
                     CreatedAt = DateTime.UtcNow,
                 });
 
-                int sharedCount = await AddAdditionalGrantsAsync(
-                    provisioning.DeviceRowId,
-                    userId,
-                    request.AdditionalAccesses,
-                    attemptToken);
-
                 await _context.SaveChangesAsync(attemptToken);
                 await transaction.CommitAsync(attemptToken);
 
                 _logger.LogInformation(
-                    "User {UserId} registered device {DeviceId} and shared it with {SharedCount} other user(s)",
+                    "User {UserId} registered device {DeviceId}",
                     userId,
-                    request.DeviceId,
-                    sharedCount);
+                    request.DeviceId);
 
                 DeviceDto device = new DeviceDto(
                     provisioning.Device!.DeviceId,
@@ -289,11 +282,12 @@ internal sealed class DeviceService : IDeviceService
                     null,
                     null,
                     null,
-                    // Known without asking the database: the creator's own grant plus
-                    // however many of the requested additional ones actually resolved to
-                    // a real account, and no share links, because a device that did not
-                    // exist a moment ago cannot have been shared.
-                    new DeviceAccessCountsDto(1 + sharedCount, 0),
+                    // Known without asking the database: the creator's own grant and
+                    // nothing else — a device that did not exist a moment ago has been
+                    // shared with nobody. (This used to add the people named at creation
+                    // that had an account, which told the caller which emails were
+                    // registered here.)
+                    new DeviceAccessCountsDto(1, 0),
                     new DevicePermissionsDto(true, true, true, true));
 
                 return OperationResult<DeviceCreatedDto>.Success(new DeviceCreatedDto(device, provisioning.Device));
@@ -345,6 +339,9 @@ internal sealed class DeviceService : IDeviceService
         // stranger holding a link was given a window onto a device that no longer
         // exists, and deleting it must close that window. Same unit of work.
         int linksRevoked = await ShareLinkRevoker.RevokeAllAsync(_context, device.Id, cancellationToken);
+
+        // Nobody new may be invited to a deleted device, so its open invitations go.
+        await AccessInvitationRemover.RemoveAllAsync(_context, device.Id, cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -481,78 +478,6 @@ internal sealed class DeviceService : IDeviceService
             access.DeviceId,
             request.AckPublicKeyPem,
             cancellationToken);
-    }
-
-    /// <summary>
-    /// Turns the request's <c>additionalAccesses</c> into grant rows, resolving
-    /// each email to a user.
-    /// </summary>
-    /// <param name="deviceRowId">The device the grants are on.</param>
-    /// <param name="grantedBy">The creator, recorded for audit.</param>
-    /// <param name="requested">The requested shares, possibly null or empty.</param>
-    /// <param name="cancellationToken">Cancels the database work.</param>
-    /// <returns>How many grants were added.</returns>
-    private async Task<int> AddAdditionalGrantsAsync(
-        Guid deviceRowId,
-        int grantedBy,
-        IReadOnlyList<DeviceAccessGrantInputDto>? requested,
-        CancellationToken cancellationToken)
-    {
-        if (requested is null || requested.Count == 0)
-        {
-            return 0;
-        }
-
-        // Normalised once, then resolved in a single IN query — looking each email
-        // up inside the loop would be the textbook N+1, inside a write transaction
-        // no less.
-        Dictionary<string, DeviceAccessGrantInputDto> byEmail = [];
-        foreach (DeviceAccessGrantInputDto entry in requested)
-        {
-            string email = entry.UserEmail.Trim().ToLowerInvariant();
-
-            // Last one wins for a duplicated address. The alternative — rejecting
-            // the whole request — punishes a harmless typo, and the active-grant
-            // unique index would refuse the second row anyway.
-            byEmail[email] = entry;
-        }
-
-        List<User> matched = await _context.Users
-            .AsNoTracking()
-            .Where(user => byEmail.Keys.Contains(user.Email))
-            .ToListAsync(cancellationToken);
-
-        foreach (User user in matched)
-        {
-            if (user.Id == grantedBy)
-            {
-                // The creator already has a full grant from CreateAsync; a second row
-                // would violate the one-active-grant-per-pair index.
-                continue;
-            }
-
-            DeviceAccessGrantInputDto entry = byEmail[user.Email];
-
-            AddGrant(
-                deviceRowId,
-                user.Id,
-                grantedBy,
-                CapabilitySet.FromRequest(entry.CanDelete, entry.CanShare, entry.CanModifySettings),
-                isOwner: false);
-        }
-
-        // Unmatched addresses are skipped in silence, by contract: reporting them
-        // would turn device creation into a way to test whether an email has an
-        // account here.
-        if (matched.Count != byEmail.Count)
-        {
-            _logger.LogInformation(
-                "{SkippedCount} of {RequestedCount} additional access entries matched no account and were skipped",
-                byEmail.Count - matched.Count,
-                byEmail.Count);
-        }
-
-        return matched.Count;
     }
 
     /// <summary>

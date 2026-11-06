@@ -18,11 +18,13 @@ namespace CarPosAPI.Dtos;
 /// people who drive it. Must be true; a false or absent value is refused with 400.
 /// The acceptance time is stamped on the device row.
 /// </param>
-/// <param name="AdditionalAccesses">
-/// Optional people to share the new device with immediately. The creator always
-/// receives all four capabilities regardless of what appears here — that grant is
-/// added by the service, never taken from the request.
-/// </param>
+/// <remarks>
+/// There is no list of people to share with any more. It used to grant access to
+/// any account named by email the moment the device was created, without asking
+/// them, and the response counted how many of those emails had an account. Sharing
+/// now happens afterwards, by invitation link, and only once the other person
+/// accepts.
+/// </remarks>
 public sealed record CreateDeviceRequestDto(
     // The character class is a security control, not cosmetics: this value is
     // interpolated into MQTT topics (devices/<id>, devices/<id>/config), so the
@@ -41,12 +43,6 @@ public sealed record CreateDeviceRequestDto(
     string DeviceId,
     [StringLength(128)]
     string? DisplayName = null,
-
-    // The cap is a guard, not a business rule: each entry costs an email lookup
-    // and an INSERT inside the provisioning transaction, so an unbounded list
-    // would let one request hold a write transaction open indefinitely.
-    [MaxLength(32)]
-    IReadOnlyList<DeviceAccessGrantInputDto>? AdditionalAccesses = null,
 
     // Not a DataAnnotation: [Range(true, true)] on a bool is a trick that reads as
     // a typo, and the failure deserves a sentence rather than a field error. The

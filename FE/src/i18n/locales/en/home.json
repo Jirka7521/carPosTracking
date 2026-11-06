@@ -1,6 +1,5 @@
 {
   "add": {
-    "addPerson": "+ Add person",
     "close": "✕  Cancel",
     "declaration": {
       "label": "I am entitled to track this vehicle, and I will tell the people who drive it that its position is being recorded.",
@@ -10,12 +9,10 @@
     "deviceIdPlaceholder": "e.g. GNSS01",
     "displayName": "Display name",
     "displayNamePlaceholder": "e.g. Blue van",
-    "emailAddress": "Email address",
-    "emailPlaceholder": "colleague@example.com",
     "intro": "The device ID is the tracker's MQTT identity — the same string it publishes under and authenticates with. It is permanent and must be unique; the server rejects duplicates.",
     "invalidId": "The device ID may contain only letters, digits, hyphens and underscores (up to 64 characters).",
     "open": "+ Add Device",
-    "shareHint": "Share with other people now (optional). You always keep full access to devices you register.",
+    "shareLaterHint": "You keep full access to devices you register. To share one with other people, open its Settings tab afterwards and create an invitation link — they get access once they accept it.",
     "submit": "Register device",
     "submitting": "Registering…",
     "title": "Register a new device"

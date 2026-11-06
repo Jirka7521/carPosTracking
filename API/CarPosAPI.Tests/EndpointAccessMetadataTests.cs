@@ -73,12 +73,36 @@ public sealed class EndpointAccessMetadataTests
         }
     }
 
-    [Fact]
-    public void TheUserLookupIsRateLimitedPerAccount()
+    [Theory]
+    [InlineData(nameof(AccessInvitationsController.CreateAsync))]
+    [InlineData(nameof(AccessInvitationsController.ListAsync))]
+    [InlineData(nameof(AccessInvitationsController.WithdrawAsync))]
+    [InlineData(nameof(AccessInvitationsController.PreviewAsync))]
+    [InlineData(nameof(AccessInvitationsController.AcceptAsync))]
+    [InlineData(nameof(AccessInvitationsController.DeclineAsync))]
+    public void EveryInvitationActionIsRateLimitedPerAccount(string action)
     {
         Assert.Equal(
-            RateLimitPolicies.UserLookup,
-            PolicyOn(typeof(UsersController), nameof(UsersController.SearchAsync)));
+            RateLimitPolicies.Invitations,
+            PolicyOn(typeof(AccessInvitationsController), action));
+    }
+
+    [Fact]
+    public void NoEndpointGrantsAccessOrLooksUsersUpWithoutConsent()
+    {
+        // The two doors the user-table dump went through: granting any account by id
+        // (POST /api/access) and searching accounts by email (GET /api/users). Sharing
+        // is by accepted invitation now; neither may come back by accident.
+        Assert.DoesNotContain(
+            Actions(),
+            (MethodInfo action) => action.DeclaringType == typeof(AccessController)
+                && action.GetCustomAttributes<HttpPostAttribute>(inherit: true).Any());
+
+        Assert.DoesNotContain(
+            Actions(),
+            (MethodInfo action) => action.DeclaringType == typeof(UsersController)
+                && action.GetCustomAttributes<HttpGetAttribute>(inherit: true)
+                    .Any((HttpGetAttribute get) => string.IsNullOrEmpty(get.Template)));
     }
 
     [Fact]

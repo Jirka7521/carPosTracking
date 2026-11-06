@@ -176,6 +176,22 @@
     "title": "Informace o zařízení",
     "yourPermissions": "Vaše oprávnění"
   },
+  "invitePage": {
+    "accept": "Přijmout",
+    "acceptFailed": "Pozvánku se nepodařilo přijmout.",
+    "accepting": "Přijímám…",
+    "alreadyHasAccess": "K tomuto zařízení už přístup máte, takže není co přijmout. Pozvánku nechte pro toho, komu byla určena.",
+    "backHome": "Přejít na moje zařízení",
+    "decline": "Odmítnout",
+    "declined": "Pozvánku jste odmítli. Nic nebylo nasdíleno a odkaz už nefunguje.",
+    "declineFailed": "Pozvánku se nepodařilo odmítnout.",
+    "declining": "Odmítám…",
+    "expires": "Platnost pozvánky vyprší {{when}}.",
+    "loadFailed": "Tento zvací odkaz nelze použít.",
+    "offer": "{{inviter}} vás zve ke sdílení zařízení „{{device}}“. Dokud pozvánku nepřijmete, nic se nesdílí.",
+    "permissions": "S tímto přístupem byste mohli:",
+    "title": "Pozvánka ke sdílení zařízení"
+  },
   "override": {
     "confirm": "Uložit do nejbližšího přepnutí",
     "intro": "Toto zařízení má <strong>rozvrh</strong>, takže uložení zde nezmění, co bude spouštět od teď — platí do nejbližšího plánovaného přepnutí a poté se znovu použije {{profile}}.",
@@ -235,20 +251,30 @@
     "wifiSsidHint": "Vyplněním se také zapne <code>kWifiEnabled</code>. Ponecháte-li prázdné, WiFi zůstane vypnutá, aby tracker při každém startu nečekal na vypršení připojení."
   },
   "sharing": {
-    "cannotShareWithSelf": "Zařízení nelze nasdílet sami sobě.",
     "confirmRemove": "Odebrat přístup uživateli {{email}}?\nToto zařízení pak již neuvidí.",
-    "emailPlaceholder": "uzivatel@example.com",
-    "emailRequired": "Zadejte e-mail osoby, kterou chcete pozvat.",
-    "inviteHint": "Zadejte jeho e-mailovou adresu. Přístup pro čtení se uděluje vždy. Vyberte, která další oprávnění mu dát.",
-    "inviteTitle": "Pozvat někoho nového",
-    "noAccount": "Nebyl nalezen žádný účet s e-mailem „{{email}}“.",
+    "invite": {
+      "confirmWithdraw": "Stáhnout tuto pozvánku? Její odkaz okamžitě přestane fungovat.",
+      "copy": "Kopírovat odkaz",
+      "create": "Vytvořit zvací odkaz",
+      "createFailed": "Pozvánku se nepodařilo vytvořit.",
+      "creating": "Vytvářím…",
+      "expires": "Vyprší {{when}}",
+      "hint": "Vytvořte odkaz a pošlete ho dotyčnému sami — zprávou, chatem nebo e-mailem. Přihlásí se, uvidí, co nabízíte, a přístup dostane, jen pokud ho přijme. Přístup pro čtení je vždy součástí; níže vyberte případná další oprávnění. Každý odkaz funguje jen jednou.",
+      "linkLabel": "Zvací odkaz — zobrazí se jen teď",
+      "linkNote": "Zkopírujte ho hned: znovu se už nezobrazí. Přijmout ho může kdokoli s účtem na tomto webu, kdo odkaz dostane, proto ho pošlete jen tomu, komu je určen. Platnost vyprší {{when}}.",
+      "loadFailed": "Otevřené pozvánky se nepodařilo načíst.",
+      "none": "Žádné otevřené pozvánky.",
+      "pendingTitle": "Otevřené pozvánky",
+      "title": "Pozvat někoho",
+      "withdraw": "Stáhnout",
+      "withdrawFailed": "Pozvánku se nepodařilo stáhnout.",
+      "withdrawn": "Pozvánka byla stažena."
+    },
     "noOtherUsers": "K tomuto zařízení nemá přístup žádný další uživatel.",
     "peopleWithAccess": "Lidé s přístupem",
     "readOnlyNote": "Máte oprávnění Nastavení — vidíte, kdo má přístup, ale k pozvání či úpravě uživatelů potřebujete oprávnění Sdílení.",
     "remove": "Odebrat",
     "removed": "Přístup uživatele {{email}} byl odebrán.",
-    "share": "Nasdílet přístup",
-    "sharing": "Sdílím…",
     "title": "Správa přístupu"
   },
   "sync": {

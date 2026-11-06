@@ -1,6 +1,5 @@
 {
   "add": {
-    "addPerson": "+ Přidat osobu",
     "close": "✕  Zrušit",
     "declaration": {
       "label": "Jsem oprávněn(a) toto vozidlo sledovat a lidem, kteří jím jezdí, sdělím, že se jeho poloha zaznamenává.",
@@ -10,12 +9,10 @@
     "deviceIdPlaceholder": "např. GNSS01",
     "displayName": "Zobrazovaný název",
     "displayNamePlaceholder": "např. Modrá dodávka",
-    "emailAddress": "E-mailová adresa",
-    "emailPlaceholder": "kolega@example.com",
     "intro": "ID zařízení je jeho MQTT identita — stejný řetězec, pod kterým tracker publikuje a kterým se ověřuje. Je trvalé a musí být jedinečné; server duplicity odmítá.",
     "invalidId": "ID zařízení smí obsahovat pouze písmena, číslice, pomlčky a podtržítka (nejvýše 64 znaků).",
     "open": "+ Přidat zařízení",
-    "shareHint": "Sdílejte hned s dalšími lidmi (nepovinné). U zařízení, která zaregistrujete, si vždy ponecháte plný přístup.",
+    "shareLaterHint": "K zařízením, která zaregistrujete, máte vždy plný přístup. Chcete-li zařízení sdílet s dalšími lidmi, otevřete potom jeho záložku Nastavení a vytvořte zvací odkaz — přístup dostanou, až ho přijmou.",
     "submit": "Zaregistrovat zařízení",
     "submitting": "Registruji…",
     "title": "Registrace nového zařízení"

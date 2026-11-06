@@ -55,6 +55,7 @@ public sealed class DataExportShapeTests
         typeof(GrantExportRow),
         typeof(DeviceAliasExportRow),
         typeof(ShareLinkExportRow),
+        typeof(AccessInvitationExportRow),
     ];
 
     [Theory]
@@ -115,10 +116,19 @@ public sealed class DataExportShapeTests
             0,
             null);
 
+        AccessInvitationExportRow invitation = new AccessInvitationExportRow(
+            "GNSS01",
+            false,
+            false,
+            true,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 8, 0, 0, 0, DateTimeKind.Utc));
+
         string json = string.Concat(
             JsonSerializer.Serialize(user),
             JsonSerializer.Serialize(device),
-            JsonSerializer.Serialize(shareLink));
+            JsonSerializer.Serialize(shareLink),
+            JsonSerializer.Serialize(invitation));
 
         foreach (string fragment in ForbiddenFragments)
         {

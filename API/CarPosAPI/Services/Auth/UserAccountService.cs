@@ -285,65 +285,6 @@ internal sealed class UserAccountService : IUserAccountService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<UserProfileDto>>> SearchByEmailAsync(
-        int callerId,
-        string email,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(email);
-
-        // The lookup exists for one form — "share this device with…" — so only an
-        // account that could submit that form may use it. Anyone else asking whether
-        // an address is registered here has no reason to but enumeration.
-        bool canShareSomething = await _context.Accesses
-            .AsNoTracking()
-            .AnyAsync(access => access.UserId == callerId && access.IsActive && access.CanShare, cancellationToken);
-
-        if (!canShareSomething)
-        {
-            return OperationResult<IReadOnlyList<UserProfileDto>>.Forbidden(
-                ErrorCodes.UserLookupNotAllowed,
-                "Only an account that can share a device may look other users up.");
-        }
-
-        string needle = NormaliseEmail(email);
-
-        if (needle.Length == 0)
-        {
-            return OperationResult<IReadOnlyList<UserProfileDto>>.Success([]);
-        }
-
-        // EXACT MATCH ONLY, deliberately. This used to also offer a capped
-        // three-character prefix search, which meant any signed-in account could
-        // walk the alphabet and harvest every user's email address and full name —
-        // the largest disclosure between accounts in the whole system, in exchange
-        // for a convenience the dashboard never used (it always passed a full
-        // address). Exact match reveals nothing the caller did not already know:
-        // they had to type the address to ask.
-        UserProfileDto? match = await _context.Users
-            .AsNoTracking()
-            .Where(user => user.Email == needle)
-            .Select(user => new UserProfileDto(user.Id, user.Email, user.FirstName, user.LastName))
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (match is null)
-        {
-            return OperationResult<IReadOnlyList<UserProfileDto>>.Success([]);
-        }
-
-        // Sharing needs the id and nothing else. The name is a stranger's personal
-        // data until the two accounts share a device — the same line
-        // GetVisibleProfileAsync draws — so before then it is withheld. The fields
-        // stay in the shape (empty) so the wire contract does not change.
-        if (match.Id != callerId && !await SharesADeviceAsync(callerId, match.Id, cancellationToken))
-        {
-            match = match with { FirstName = string.Empty, LastName = string.Empty };
-        }
-
-        return OperationResult<IReadOnlyList<UserProfileDto>>.Success([match]);
-    }
-
-    /// <inheritdoc />
     public async Task<OperationResult<UserProfileDto>> GetVisibleProfileAsync(
         int callerId,
         int userId,
@@ -359,6 +300,12 @@ internal sealed class UserAccountService : IUserAccountService
         // the case the endpoint exists for — rendering the names on a device's
         // sharing list — and nothing wider. Without this check a plain integer scan
         // over /api/users/{id} dumps the whole user table, one row per request.
+        //
+        // The check is only as good as the way grants come into being. When a sharer
+        // could grant any user id on the spot, "shares a device" was something one
+        // side could create alone, and the scan worked again one grant at a time.
+        // Grants now come only from an invitation the recipient accepted
+        // (AccessInvitationService), so a shared device means both people agreed.
         if (!await SharesADeviceAsync(callerId, userId, cancellationToken))
         {
             // 404, not 403: a 403 would confirm the id belongs to a real account,

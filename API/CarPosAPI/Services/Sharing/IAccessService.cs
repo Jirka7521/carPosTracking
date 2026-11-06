@@ -6,7 +6,9 @@ namespace CarPosAPI.Services.Sharing;
 /// <summary>
 /// Managing who else may see a device. Every method requires the caller to hold
 /// <c>CanShare</c> on the device in question — the ability to hand out access is
-/// itself a permission, not something ownership implies.
+/// itself a permission, not something ownership implies. New grants are not made
+/// here: they come only from an accepted invitation (<see cref="IAccessInvitationService"/>),
+/// so nobody is given access — or made visible to a stranger — without agreeing to it.
 /// </summary>
 public interface IAccessService
 {
@@ -22,16 +24,6 @@ public interface IAccessService
     Task<OperationResult<IReadOnlyList<AccessDto>>> ListForDeviceAsync(
         int userId,
         string deviceId,
-        CancellationToken cancellationToken);
-
-    /// <summary>Grants a user access to a device.</summary>
-    /// <param name="userId">The authenticated caller; needs <c>CanShare</c>.</param>
-    /// <param name="request">Who to share with, and with which capabilities.</param>
-    /// <param name="cancellationToken">Cancels the database work.</param>
-    /// <returns>The new grant, or a conflict when one is already active.</returns>
-    Task<OperationResult<AccessDto>> CreateAsync(
-        int userId,
-        AccessCreateRequestDto request,
         CancellationToken cancellationToken);
 
     /// <summary>Replaces the capability set on an existing grant.</summary>

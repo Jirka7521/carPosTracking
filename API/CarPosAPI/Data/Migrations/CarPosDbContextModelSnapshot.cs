@@ -102,6 +102,65 @@ namespace CarPosAPI.Data.Migrations
                     b.ToTable("accesses", (string)null);
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.AccessInvitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("CanDelete")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_delete");
+
+                    b.Property<bool>("CanModifySettings")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_modify_settings");
+
+                    b.Property<bool>("CanShare")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_share");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("CreatedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Selector")
+                        .IsRequired()
+                        .HasMaxLength(22)
+                        .HasColumnType("character varying(22)")
+                        .HasColumnName("selector");
+
+                    b.Property<string>("VerifierHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("verifier_hash");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId")
+                        .HasDatabaseName("ix_access_invitations_device_id");
+
+                    b.HasIndex("Selector")
+                        .IsUnique()
+                        .HasDatabaseName("ux_access_invitations_selector");
+
+                    b.ToTable("access_invitations", (string)null);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1049,6 +1108,17 @@ namespace CarPosAPI.Data.Migrations
                     b.Navigation("Device");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.AccessInvitation", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", "Device")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Device");
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.Device", b =>

@@ -7,8 +7,9 @@
 // Features:
 //   • Loads the user's accessible devices from /api/me/devices
 //   • "+ Add Device" expands a panel that registers a tracker: its
-//     MQTT device id, an optional shared name, and optional people to
-//     share it with straight away
+//     MQTT device id and an optional shared name. Sharing it with other
+//     people comes afterwards, by invitation link from the device's
+//     Settings tab — nobody is added to a device without accepting
 //   • On success, shows the provisioning block (topics, key
 //     fingerprint, Config.h snippet) needed to flash the firmware
 //   • "Show inactive devices" checkbox filters the grid
@@ -24,13 +25,10 @@ import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DeviceCard } from '../components/DeviceCard'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
-import { CapabilityCheckboxes } from '../components/CapabilityCheckboxes'
 import { RefreshToolbar } from '../components/RefreshToolbar'
-import { EMPTY_FLAGS } from '../components/capabilityFlags'
-import type { CapabilityFlags } from '../components/capabilityFlags'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { createDevice, fetchMyDevices } from '../services/apiClient'
-import type { DeviceAccessGrantInput, DeviceDto, DeviceProvisioningDto } from '../services/apiTypes'
+import type { DeviceDto, DeviceProvisioningDto } from '../services/apiTypes'
 import { deviceLabel } from '../utils/devices'
 import { describeError } from '../utils/errors'
 
@@ -42,15 +40,6 @@ const AUTO_REFRESH_SEC = 30
 // separator and both wildcards must be impossible to smuggle in. Here it is
 // only a hint — catching the typo before the round-trip.
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
-
-// One row of the "share it with…" editor inside the add-device panel.
-type ShareDraft = CapabilityFlags & {
-  // Local key for React — emails start empty and may collide while typing.
-  key: number
-  email: string
-}
-
-let nextShareKey = 1
 
 export function HomePage() {
   const { t, i18n } = useTranslation(['home', 'common', 'errors'])
@@ -77,7 +66,6 @@ export function HomePage() {
   // because it is a statement about a particular vehicle, and the tracker that
   // matters is usually the one in a car somebody else also drives.
   const [hasDeclaredTracking, setHasDeclaredTracking] = useState<boolean>(false)
-  const [shares, setShares] = useState<ShareDraft[]>([])
   const [addMessage, setAddMessage] = useState<string>('')
   const [addIsError, setAddIsError] = useState<boolean>(false)
   const [isAdding, setIsAdding] = useState<boolean>(false)
@@ -151,40 +139,8 @@ export function HomePage() {
     setNewDeviceId('')
     setNewDisplayName('')
     setHasDeclaredTracking(false)
-    setShares([])
     setAddMessage('')
     setAddIsError(false)
-  }
-
-  // Mirrors the rule the server enforces anyway (Share ⇒ Settings), so the form
-  // cannot submit a combination that comes back changed. Same logic as the
-  // sharing editor in DeviceSettingsTab.
-  function toggleShareFlag(key: number, flag: keyof CapabilityFlags): void {
-    setShares((current) => current.map((share) => {
-      if (share.key !== key) {
-        return share
-      }
-
-      // Settings is locked on while Share is active.
-      if (flag === 'canModifySettings' && share.canShare) {
-        return share
-      }
-
-      const next: ShareDraft = { ...share, [flag]: !share[flag] }
-
-      if (flag === 'canShare' && next.canShare) {
-        next.canModifySettings = true
-      }
-
-      return next
-    }))
-  }
-
-  function addShareRow(): void {
-    // The key is taken before the updater runs: React invokes updaters twice in
-    // StrictMode, and incrementing in there would burn a number each render.
-    const key = nextShareKey++
-    setShares((current) => [...current, { key, email: '', ...EMPTY_FLAGS }])
   }
 
   // Handle the "Register device" form submission
@@ -208,22 +164,11 @@ export function HomePage() {
       return
     }
 
-    // Rows with an empty email are just unfinished UI, not an error — drop them.
-    const additionalAccesses: DeviceAccessGrantInput[] = shares
-      .filter((share) => share.email.trim().length > 0)
-      .map((share) => ({
-        userEmail: share.email.trim(),
-        canDelete: share.canDelete,
-        canShare: share.canShare,
-        canModifySettings: share.canModifySettings,
-      }))
-
     setIsAdding(true)
     try {
       const created = await createDevice({
         deviceId: trimmedId,
         displayName: newDisplayName.trim() || undefined,
-        additionalAccesses: additionalAccesses.length > 0 ? additionalAccesses : undefined,
         trackingDeclarationAccepted: hasDeclaredTracking,
       })
 
@@ -306,55 +251,10 @@ export function HomePage() {
               </div>
             </div>
 
-            {/* Optional co-owners. Addresses that match no account are skipped
-                silently by the server — it will not confirm who has an account
-                here. */}
-            <div className="share-draft-list">
-              <div className="filter-row">
-                <span className="hint">{t('home:add.shareHint')}</span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={addShareRow}
-                >
-                  {t('home:add.addPerson')}
-                </button>
-              </div>
-
-              {shares.map((share) => (
-                <div key={share.key} className="share-draft">
-                  <div className="add-device-row">
-                    <div className="form-field">
-                      <label htmlFor={`share-email-${share.key}`}>{t('home:add.emailAddress')}</label>
-                      <input
-                        id={`share-email-${share.key}`}
-                        className="form-input"
-                        type="email"
-                        value={share.email}
-                        onChange={(e) => setShares((current) => current.map((s) => (
-                          s.key === share.key ? { ...s, email: e.target.value } : s
-                        )))}
-                        placeholder={t('home:add.emailPlaceholder')}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      style={{ flexShrink: 0 }}
-                      onClick={() => setShares((current) => current.filter((s) => s.key !== share.key))}
-                    >
-                      {t('common:actions.remove')}
-                    </button>
-                  </div>
-
-                  <CapabilityCheckboxes
-                    flags={share}
-                    canEdit
-                    onToggle={(flag) => toggleShareFlag(share.key, flag)}
-                  />
-                </div>
-              ))}
-            </div>
+            {/* Sharing is not part of registering any more. It used to grant
+                access on the spot to every email listed here, without asking
+                those people; now it is an invitation link they accept. */}
+            <p className="hint">{t('home:add.shareLaterHint')}</p>
 
             {/* The declaration. Immediately above the button because it is the
                 last thing read before a tracker exists, and because it is the one
