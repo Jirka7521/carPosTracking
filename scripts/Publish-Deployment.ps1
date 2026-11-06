@@ -354,7 +354,7 @@ try {
         -Current $cur.BePort -IsSecret $false `
         -Validator $validatePort -ValidatorMessage 'Must be a port number between 1 and 65535.'
     $values['AUTH_SECURE_COOKIES'] = Resolve-Setting -Name 'AUTH_SECURE_COOKIES' `
-        -Description 'Secure flag on the session cookie. Must be false when the dashboard is served over plain http, or every request after sign-in 401s.' `
+        -Description 'Force the Secure flag on the session cookie even over plain http. Must be false when the dashboard is served over plain http, or every request after sign-in 401s; HTTPS requests get a Secure cookie either way.' `
         -Current $cur.SecureCook -IsSecret $false `
         -Validator $validateBool -ValidatorMessage 'Must be true or false.'
 

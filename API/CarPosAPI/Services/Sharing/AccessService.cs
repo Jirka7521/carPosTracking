@@ -229,6 +229,14 @@ internal sealed class AccessService : IAccessService
             }
         }
 
+        // Losing CanShare takes the links made with it along. A demoted sharer keeps
+        // seeing the device through their own grant, but may no longer hand that view
+        // to strangers — and a link they made last week is exactly that. Read before
+        // the flags below are overwritten, and saved in the same unit of work.
+        int linksRevoked = grant.CanShare && !capabilities.CanShare
+            ? await ShareLinkRevoker.RevokeCreatedByAsync(_context, grant.DeviceId, grant.UserId, cancellationToken)
+            : 0;
+
         grant.CanDelete = capabilities.CanDelete;
         grant.CanShare = capabilities.CanShare;
         grant.CanModifySettings = capabilities.CanModifySettings;
@@ -236,10 +244,11 @@ internal sealed class AccessService : IAccessService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "User {UserId} changed access {AccessId} on device {DeviceId}",
+            "User {UserId} changed access {AccessId} on device {DeviceId}; {LinksRevoked} share link(s) revoked with it",
             userId,
             accessId,
-            caller.DeviceId);
+            caller.DeviceId,
+            linksRevoked);
 
         return OperationResult<AccessDto>.Success(ToDto(grant, caller.DeviceId));
     }
@@ -280,13 +289,24 @@ internal sealed class AccessService : IAccessService
         // be granted again later) while the audit trail of who once had it survives.
         grant.IsActive = false;
 
+        // And the share links this person made go with their access. Otherwise a
+        // removed sharer would keep watching the device through any link they had
+        // handed out — for up to Sharing:MaxWindowDays — after the owner believed
+        // they were gone. Saved in the same unit of work as the revoke itself.
+        int linksRevoked = await ShareLinkRevoker.RevokeCreatedByAsync(
+            _context,
+            grant.DeviceId,
+            grant.UserId,
+            cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "User {UserId} revoked access {AccessId} on device {DeviceId}",
+            "User {UserId} revoked access {AccessId} on device {DeviceId}; {LinksRevoked} share link(s) revoked with it",
             userId,
             accessId,
-            lookup.Caller!.DeviceId);
+            lookup.Caller!.DeviceId,
+            linksRevoked);
 
         return OperationResult<bool>.Success(true);
     }

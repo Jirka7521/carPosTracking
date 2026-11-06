@@ -5,6 +5,7 @@ using CarPosAPI.Options;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
 using CarPosAPI.Services.Provisioning;
+using CarPosAPI.Services.Sharing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
@@ -339,9 +340,19 @@ internal sealed class DeviceService : IDeviceService
         device.IsActive = false;
         device.DeactivatedAt = DateTime.UtcNow;
 
+        // Its share links are revoked with it. The history stays readable to the
+        // accounts holding grants — that is the point of a soft delete — but a
+        // stranger holding a link was given a window onto a device that no longer
+        // exists, and deleting it must close that window. Same unit of work.
+        int linksRevoked = await ShareLinkRevoker.RevokeAllAsync(_context, device.Id, cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Device {DeviceId} deactivated by user {UserId}", deviceId, userId);
+        _logger.LogInformation(
+            "Device {DeviceId} deactivated by user {UserId}; {LinksRevoked} share link(s) revoked with it",
+            deviceId,
+            userId,
+            linksRevoked);
 
         return OperationResult<bool>.Success(true);
     }

@@ -225,6 +225,12 @@ the production values; the only one normally worth changing is
 `AuthCookie:SecureCookies`, which [`appsettings.Development.json`](appsettings.Development.json)
 sets to `false` — over plain HTTP a `Secure` cookie is never sent back, so
 sign-in would appear to succeed and every following request would 401.
+`false` does not switch the flag off everywhere: a cookie issued in answer to a
+request that arrived over **HTTPS** (as resolved from the trusted proxy's
+`X-Forwarded-Proto`) is `Secure` regardless. So a deployment serving the public site
+through the TLS tunnel and the dashboard on a plain-HTTP LAN address sets `false`
+and still gets `Secure` cookies on the public side. `true` forces the flag on every
+response, plain HTTP included.
 
 It also names `AuthCookie:ShareCookieName` (default `carpos_share`), the
 `HttpOnly` cookie an anonymous share visitor holds. It is separate from the
@@ -556,7 +562,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
 | `POST /api/devices` | register a device + provision its key pair (201). Body must carry `trackingDeclarationAccepted: true` — the caller confirming they may lawfully track this vehicle and will tell its drivers; false or absent answers **400**, and the acceptance time is stamped on the device row. Rate-limited per account (10 / hour); an account with `DeviceRegistration:MaxActiveDevicesPerUser` active devices of its own answers **409** `deviceLimitReached` |
-| `DELETE /api/devices/{deviceId}` | **soft**-delete (204) |
+| `DELETE /api/devices/{deviceId}` | **soft**-delete (204). Every share link on the device is revoked with it |
 | `GET /api/devices/{deviceId}/provisioning` | re-render the device's complete `Config.h` |
 | `POST /api/devices/{deviceId}/ack-key` | store a rotated ack **public** key; returns its fingerprint |
 | `GET /api/devices/{deviceId}/config` | desired + running settings, both with values |
@@ -810,6 +816,14 @@ Two invariants are enforced server-side and never taken from the client:
 A device you cannot see answers **404**, not 403 — a 403 would confirm it
 exists. The last account able to share a device cannot be revoked or demoted:
 since devices are only soft-deleted, that state would be permanent.
+
+**Share links follow the access they were made with.** Revoking a grant, or taking
+`CanShare` away from it, revokes every share link that account created on the
+device; deleting a device revokes all of its links. Otherwise a sharer who had been
+removed could keep watching the device through any link they had handed out, for up
+to `Sharing:MaxWindowDays`. Expired-but-unrevoked links are revoked too, because an
+expired link can still be edited back into a live window. The revocation is saved
+in the same transaction as the grant or device change (`Services/Sharing/ShareLinkRevoker`).
 
 The same reasoning now covers people. `GET /api/users/{id}` answers only for the
 caller themselves or somebody they share a device with, and `GET /api/users?email=`

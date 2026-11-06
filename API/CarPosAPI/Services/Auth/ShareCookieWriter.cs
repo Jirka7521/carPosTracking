@@ -32,7 +32,7 @@ internal sealed class ShareCookieWriter : IShareCookieWriter
     private readonly AuthCookieOptions _options;
 
     /// <summary>Creates the writer.</summary>
-    /// <param name="options">Cookie names and the Secure-flag switch.</param>
+    /// <param name="options">Cookie names and the Secure-flag rule (<see cref="AuthCookieOptions.UseSecureFlag"/>).</param>
     public ShareCookieWriter(IOptions<AuthCookieOptions> options)
     {
         _options = options.Value;
@@ -47,7 +47,9 @@ internal sealed class ShareCookieWriter : IShareCookieWriter
         response.Cookies.Append(_options.ShareCookieName, token.Token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = _options.SecureCookies,
+            // Secure whenever the visitor came over HTTPS, and always when the
+            // deployment forces it — the same rule as the session cookie.
+            Secure = _options.UseSecureFlag(response.HttpContext.Request),
             SameSite = SameSiteMode.Strict,
             Path = "/",
             // Max-Age rather than Expires, for the clock-drift reason set out at
@@ -67,7 +69,7 @@ internal sealed class ShareCookieWriter : IShareCookieWriter
         // browser keeps the original and "leave" silently does nothing.
         CookieOptions deletion = new CookieOptions
         {
-            Secure = _options.SecureCookies,
+            Secure = _options.UseSecureFlag(response.HttpContext.Request),
             SameSite = SameSiteMode.Strict,
             Path = "/",
         };

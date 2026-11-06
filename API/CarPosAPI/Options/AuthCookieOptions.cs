@@ -43,10 +43,16 @@ public sealed class AuthCookieOptions
     public string CsrfHeaderName { get; set; } = "X-CSRF-Token";
 
     /// <summary>
-    /// Whether the cookies carry the <c>Secure</c> flag. True everywhere real; set
-    /// to false only for plain-HTTP local development, where a Secure cookie would
-    /// simply never be sent back. Production must leave this at the default —
-    /// without it the session travels in the clear on any accidental HTTP request.
+    /// Whether the cookies carry the <c>Secure</c> flag on <em>every</em> response,
+    /// whatever scheme the request came in on.
+    ///
+    /// <para>
+    /// False does not mean "never Secure" — see <see cref="UseSecureFlag"/>: a cookie
+    /// issued in answer to an HTTPS request is Secure either way. False only lets a
+    /// plain-HTTP request (Vite in development, the dashboard on a LAN address) get a
+    /// cookie it can actually send back; true additionally refuses that, for a
+    /// deployment that is never meant to be reached without TLS.
+    /// </para>
     /// </summary>
     public bool SecureCookies { get; set; } = true;
 
@@ -61,4 +67,36 @@ public sealed class AuthCookieOptions
     /// </summary>
     [Required]
     public string ShareCookieName { get; set; } = "carpos_share";
+
+    /// <summary>
+    /// Decides the <c>Secure</c> flag for a cookie written in answer to one request:
+    /// always when <see cref="SecureCookies"/> is on, and otherwise whenever the
+    /// request itself arrived over HTTPS.
+    ///
+    /// <para>
+    /// The second half is what lets one deployment serve the public site through the
+    /// TLS tunnel and the LAN copy over plain HTTP without giving up the flag on the
+    /// public side. It used to be all or nothing: turning the switch off for the LAN
+    /// also sent the public site's session cookie without <c>Secure</c>, so any
+    /// <c>http://</c> request to the domain could carry it in the clear.
+    /// </para>
+    ///
+    /// <para>
+    /// The scheme is trustworthy here because <see cref="Middleware.ForwardedClientMiddleware"/>
+    /// has already settled it: <c>X-Forwarded-Proto</c> is believed only from the
+    /// configured proxies, so a client cannot talk its way into — or out of — a
+    /// Secure cookie by sending the header itself.
+    /// </para>
+    ///
+    /// Issue and delete must call this alike: a deletion whose flags differ from the
+    /// cookie's is ignored by the browser, and "sign out" then silently does nothing.
+    /// </summary>
+    /// <param name="request">The request the cookie is being written in answer to.</param>
+    /// <returns>True when the cookie must carry <c>Secure</c>.</returns>
+    public bool UseSecureFlag(HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return SecureCookies || request.IsHttps;
+    }
 }

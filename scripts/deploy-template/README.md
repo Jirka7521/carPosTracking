@@ -193,8 +193,9 @@ when a container joins the network, not on a plain restart.
 - **`carpos-fe`** — published on `${FE_BIND_ADDR}:${FE_PORT}`. A LAN address
   serves the dashboard over plain HTTP, so `AUTH_SECURE_COOKIES` must be `false`
   or the browser drops the session cookie and every request after sign-in 401s.
-  Behind a TLS terminator (the Cloudflare tunnel) use loopback and leave the flag
-  `true`. Its own healthcheck deliberately uses loopback, not `FE_URL`, so a
+  `false` still marks the cookie `Secure` on every request that arrived over HTTPS,
+  so the public site behind the Cloudflare tunnel keeps the flag. With loopback
+  only (TLS always in front), set it `true`. Its own healthcheck deliberately uses loopback, not `FE_URL`, so a
   tunnel or DNS hiccup cannot mark the container unhealthy.
 
 ---
