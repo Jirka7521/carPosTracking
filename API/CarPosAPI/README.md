@@ -477,6 +477,30 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   should run), `config_applied_version` and `config_applied_at` (what it last
   confirmed). Keeping the values in exactly one place is why the two can never
   disagree.
+- **trips** (migration `AddTrips`) — one row per detected trip **start** and
+  nothing derived: `id` (bigint identity, kept stable across recomputes),
+  `device_id` (FK, delete restricted), `start_time` (the trip's first moving
+  fix), and the user's organisation of it — `journey_id` + `journey_pinned`
+  (CHECK: a journey is only stored on a trip the user placed by hand) and an
+  optional `name`. The end, distance, duration and speeds are recomputed from
+  `positions` on every read with the same stop-finding code that detected the
+  start (`Services/Trips/`), so nothing can go stale. The `(device_id,
+  start_time DESC)` index is deliberately not unique: the detector updates
+  starts in place inside one transaction.
+- **journeys** — nested (`parent_id`, delete restricted), per-device groups of
+  trips with an optional live date range `[range_from, range_to)`. An unpinned
+  trip belongs to the innermost journey whose range contains its start —
+  computed at query time, never written onto the trip. Names are unique among
+  siblings (`NULLS NOT DISTINCT`, so top-level journeys cannot share a name).
+- **device_trip_settings** — a device's trip detection thresholds (minimum
+  stop, stop radius, minimum trip distance), CHECK-bounded from
+  [`Dtos/TripRules.cs`](Dtos/TripRules.cs). Server-side only — never sent to the
+  tracker; no row means the defaults.
+- **trip_detection_state** / **trip_detection_cursor** — worker bookkeeping, no
+  personal data: per device the earliest fix time still to recompute
+  (`dirty_from`), an `epoch` that invalidates in-flight work, and the row every
+  trip writer locks first; plus the single position-id watermark the worker
+  scans for new fixes (seeded at 0, so its first pass backfills the history).
 
 Apply migrations manually **as `admin`** (never auto-migrate):
 

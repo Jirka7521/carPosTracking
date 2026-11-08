@@ -774,6 +774,110 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceTripSettings", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<int>("MinStopSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_stop_seconds");
+
+                    b.Property<int>("MinTripDistanceMeters")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_trip_distance_m");
+
+                    b.Property<int>("StopRadiusMeters")
+                        .HasColumnType("integer")
+                        .HasColumnName("stop_radius_m");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("DeviceId");
+
+                    b.ToTable("device_trip_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_trip_settings_min_stop_seconds", "min_stop_seconds BETWEEN 60 AND 14400");
+
+                            t.HasCheckConstraint("ck_device_trip_settings_min_trip_distance_m", "min_trip_distance_m BETWEEN 0 AND 20000");
+
+                            t.HasCheckConstraint("ck_device_trip_settings_stop_radius_m", "stop_radius_m BETWEEN 20 AND 1000");
+                        });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.Journey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<DateTime?>("RangeFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("range_from");
+
+                    b.Property<DateTime?>("RangeTo")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("range_to");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId")
+                        .HasDatabaseName("ix_journeys_parent_id")
+                        .HasFilter("parent_id IS NOT NULL");
+
+                    b.HasIndex("DeviceId", "RangeFrom")
+                        .HasDatabaseName("ix_journeys_device_id_range_from")
+                        .HasFilter("range_from IS NOT NULL");
+
+                    b.HasIndex("DeviceId", "ParentId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ux_journeys_device_id_parent_id_name");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("DeviceId", "ParentId", "Name"), false);
+
+                    b.ToTable("journeys", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_journeys_name_not_blank", "length(btrim(name)) > 0");
+
+                            t.HasCheckConstraint("ck_journeys_not_own_parent", "parent_id IS NULL OR parent_id <> id");
+
+                            t.HasCheckConstraint("ck_journeys_range", "(range_from IS NULL AND range_to IS NULL) OR (range_from IS NOT NULL AND range_to IS NOT NULL AND range_from < range_to)");
+                        });
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>
                 {
                     b.Property<long>("Id")
@@ -1016,6 +1120,117 @@ namespace CarPosAPI.Data.Migrations
                     b.ToTable("share_links", (string)null);
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.Trip", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("ComputedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("computed_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<Guid?>("JourneyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journey_id");
+
+                    b.Property<bool>("JourneyPinned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("journey_pinned");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("StartTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_time");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JourneyId")
+                        .HasDatabaseName("ix_trips_journey_id")
+                        .HasFilter("journey_id IS NOT NULL");
+
+                    b.HasIndex("DeviceId", "StartTime")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_trips_device_id_start_time");
+
+                    b.ToTable("trips", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_trips_journey_pinned", "journey_pinned OR journey_id IS NULL");
+
+                            t.HasCheckConstraint("ck_trips_name_not_blank", "name IS NULL OR length(btrim(name)) > 0");
+                        });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.TripDetectionCursor", b =>
+                {
+                    b.Property<short>("Id")
+                        .HasColumnType("smallint")
+                        .HasColumnName("id");
+
+                    b.Property<long>("LastPositionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_position_id");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("trip_detection_cursor", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_trip_detection_cursor_last_position_id", "last_position_id >= 0");
+
+                            t.HasCheckConstraint("ck_trip_detection_cursor_singleton", "id = 1");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = (short)1,
+                            LastPositionId = 0L
+                        });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.TripDetectionState", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTime?>("DirtyFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dirty_from");
+
+                    b.Property<int>("Epoch")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("epoch");
+
+                    b.Property<DateTime?>("LastPassAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_pass_at");
+
+                    b.HasKey("DeviceId");
+
+                    b.ToTable("trip_detection_state", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_trip_detection_state_epoch", "epoch >= 0");
+                        });
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.User", b =>
                 {
                     b.Property<int>("Id")
@@ -1207,6 +1422,29 @@ namespace CarPosAPI.Data.Migrations
                     b.Navigation("Device");
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.DeviceTripSettings", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithOne()
+                        .HasForeignKey("CarPosAPI.Data.Entities.DeviceTripSettings", "DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.Journey", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CarPosAPI.Data.Entities.Journey", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>
                 {
                     b.HasOne("CarPosAPI.Data.Entities.Device", "Device")
@@ -1227,6 +1465,29 @@ namespace CarPosAPI.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.Trip", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CarPosAPI.Data.Entities.Journey", null)
+                        .WithMany()
+                        .HasForeignKey("JourneyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.TripDetectionState", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithOne()
+                        .HasForeignKey("CarPosAPI.Data.Entities.TripDetectionState", "DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

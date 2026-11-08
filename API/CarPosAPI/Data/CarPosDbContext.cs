@@ -59,6 +59,21 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Weekly UTC time windows binding a profile to a stretch of the week.</summary>
     public DbSet<DeviceConfigScheduleRule> DeviceConfigScheduleRules => Set<DeviceConfigScheduleRule>();
 
+    /// <summary>Detected trip starts and the user's placement of them; ends and stats are derived on read.</summary>
+    public DbSet<Trip> Trips => Set<Trip>();
+
+    /// <summary>Nested, per-device groups of trips, optionally with a live date range.</summary>
+    public DbSet<Journey> Journeys => Set<Journey>();
+
+    /// <summary>Per-device trip detection thresholds (absent row = defaults).</summary>
+    public DbSet<DeviceTripSettings> DeviceTripSettings => Set<DeviceTripSettings>();
+
+    /// <summary>Per-device trip worker bookkeeping and lock row.</summary>
+    public DbSet<TripDetectionState> TripDetectionStates => Set<TripDetectionState>();
+
+    /// <summary>The single position-id watermark the trip worker scans from.</summary>
+    public DbSet<TripDetectionCursor> TripDetectionCursors => Set<TripDetectionCursor>();
+
     /// <summary>Applies every IEntityTypeConfiguration in this assembly.</summary>
     /// <param name="modelBuilder">Model builder supplied by EF Core.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
