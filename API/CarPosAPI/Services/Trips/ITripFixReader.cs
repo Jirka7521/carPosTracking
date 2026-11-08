@@ -16,6 +16,13 @@ internal interface ITripFixReader
     /// <returns>Up to <paramref name="limit"/> fixes.</returns>
     Task<List<TripPoint>> ReadFromAsync(Guid deviceRowId, DateTime? fromInclusive, int limit, CancellationToken cancellationToken);
 
+    /// <summary>The last fix strictly before <paramref name="before"/>, or null.</summary>
+    /// <param name="deviceRowId">The device's internal id.</param>
+    /// <param name="before">The exclusive upper bound.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>That fix, or null when there is none.</returns>
+    Task<TripPoint?> ReadBeforeAsync(Guid deviceRowId, DateTime before, CancellationToken cancellationToken);
+
     /// <summary>The first fix strictly after <paramref name="after"/>, or null.</summary>
     /// <param name="deviceRowId">The device's internal id.</param>
     /// <param name="after">The exclusive lower bound.</param>

@@ -45,6 +45,32 @@ public sealed class TripQueryTranslationTests
     }
 
     [Fact]
+    public void TheEffectiveJourneyIsComputedInSql_AndTheListFiltersAndPagesOnIt()
+    {
+        using CarPosDbContext context = CreateContext();
+        Guid journeyId = Guid.NewGuid();
+
+        IQueryable<TripRow> rows = TripQueries.Rows(context, Guid.NewGuid())
+            .Where(row => row.EffectiveJourneyId == journeyId);
+        string sql = TripQueries.Page(rows, new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), 51).ToQueryString();
+
+        // Pinned → stored journey, else the innermost containing range: a CASE over a
+        // correlated, ordered, LIMIT 1 subquery on journeys — not a client-side lookup.
+        Assert.Contains("CASE", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("journeys", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("range_from <=", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("range_from DESC", sql, StringComparison.OrdinalIgnoreCase);
+
+        // The successor's start, for bounding each trip's rebuild.
+        Assert.Contains("min(", sql, StringComparison.OrdinalIgnoreCase);
+
+        // Keyset paging on the start, newest first, capped.
+        Assert.Contains("start_time <", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("start_time DESC", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void FixReadsAreFilteredOrderedAndCappedInSql()
     {
         using CarPosDbContext context = CreateContext();

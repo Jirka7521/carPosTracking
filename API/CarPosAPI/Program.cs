@@ -371,6 +371,11 @@ builder.Services.AddHostedService<DeviceConfigScheduleWorker>();
 // ---------------------------------------------------------------------------
 builder.Services.AddScoped<ITripFixReader, TripFixReader>();
 builder.Services.AddScoped<ITripDetectionPass, TripDetectionPass>();
+builder.Services.AddScoped<ITripStatsCalculator, TripStatsCalculator>();
+builder.Services.AddScoped<ITripReadService, TripReadService>();
+builder.Services.AddScoped<ITripAssignmentService, TripAssignmentService>();
+builder.Services.AddScoped<IJourneyService, JourneyService>();
+builder.Services.AddScoped<ITripSettingsService, TripSettingsService>();
 builder.Services.AddSingleton<TripWorkerState>();
 builder.Services.AddHostedService<TripDetectionWorker>();
 

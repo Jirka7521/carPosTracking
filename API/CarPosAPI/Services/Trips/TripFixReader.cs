@@ -80,6 +80,15 @@ internal sealed class TripFixReader : ITripFixReader
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
+    public Task<TripPoint?> ReadBeforeAsync(Guid deviceRowId, DateTime before, CancellationToken cancellationToken) =>
+        _context.Positions
+            .AsNoTracking()
+            .Where(position => position.DeviceId == deviceRowId && position.FixTime < before)
+            .OrderByDescending(position => position.FixTime)
+            .Select(position => new TripPoint(position.FixTime, position.Latitude, position.Longitude, position.SpeedKmph))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    /// <inheritdoc />
     public Task<DateTime?> FirstFixAfterAsync(Guid deviceRowId, DateTime after, CancellationToken cancellationToken) =>
         _context.Positions
             .AsNoTracking()
@@ -100,12 +109,7 @@ internal sealed class TripFixReader : ITripFixReader
     {
         // The fix before the start: the last fix of the stop the trip left, whose leg
         // out of the parking spot is part of the trip.
-        TripPoint? previous = await _context.Positions
-            .AsNoTracking()
-            .Where(position => position.DeviceId == deviceRowId && position.FixTime < start)
-            .OrderByDescending(position => position.FixTime)
-            .Select(position => new TripPoint(position.FixTime, position.Latitude, position.Longitude, position.SpeedKmph))
-            .FirstOrDefaultAsync(cancellationToken);
+        TripPoint? previous = await ReadBeforeAsync(deviceRowId, start, cancellationToken);
 
         List<TripPoint> points = new List<TripPoint>();
         DateTime from = start;

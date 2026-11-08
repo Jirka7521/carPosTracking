@@ -773,3 +773,132 @@ export interface ShareLinkUpdateRequestDto {
   includeSpeed: boolean
   includeBattery: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Trips and journeys
+//
+// The server detects trips from the device's positions and stores only each
+// trip's start; every other field below is recomputed from the positions for
+// each response. While a field could not be computed within the request's
+// budget, `statsPending` is true and those fields are null — fetch the single
+// trip to fill them in.
+// ---------------------------------------------------------------------------
+
+// How a trip ended: a real stop, a long silence across which the car moved,
+// or nothing yet (it may still be going).
+export type TripEndKind = 'stay' | 'gap' | 'open'
+
+export interface TripSummaryDto {
+  id: number
+  // The stored start: the trip's first moving fix (UTC). The list's order.
+  startTime: string
+  // When the car left — the last parked fix when the tracker was awake.
+  departure: string | null
+  endTime: string | null
+  endKind: TripEndKind | null
+  inProgress: boolean
+  distanceMeters: number | null
+  durationSeconds: number | null
+  movingSeconds: number | null
+  averageSpeedKmph: number | null
+  movingAverageSpeedKmph: number | null
+  maxSpeedKmph: number | null
+  hasGap: boolean
+  pointCount: number | null
+  // The journey the trip is in now: pinned by hand, or by a journey's dates.
+  journeyId: string | null
+  journeyPinned: boolean
+  name: string | null
+  statsPending: boolean
+}
+
+// GET /api/devices/{deviceId}/trips?journey=all|none|{id}&before=&limit=
+export interface TripPageDto {
+  items: TripSummaryDto[]
+  // Pass back as `before` for the next (older) page; null on the last page.
+  nextCursor: string | null
+  // Older trips are being recomputed (new thresholds, or a late backlog).
+  isRecalculating: boolean
+}
+
+// PUT /api/devices/{deviceId}/trips/{tripId} — an empty name clears it.
+export interface TripRenameRequestDto {
+  name: string
+}
+
+// POST /api/devices/{deviceId}/trips/assign — pin to a journey (null = to no
+// journey), or `automatic: true` to hand the trips back to the date ranges.
+export interface TripAssignRequestDto {
+  tripIds: number[]
+  journeyId: string | null
+  automatic: boolean
+}
+
+export interface TripAssignResultDto {
+  moved: number
+}
+
+// GET /api/devices/{deviceId}/trips/summary?from=&to=&journeyId= — the
+// journey dialog's preview of a date range.
+export interface TripRangeSummaryDto {
+  tripCount: number
+  // Trips in the range placed by hand somewhere other than the edited journey.
+  pinnedElsewhereCount: number
+  distanceMeters: number | null
+  durationSeconds: number | null
+  statsPending: boolean
+}
+
+export interface JourneyDto {
+  id: string
+  parentId: string | null
+  name: string
+  // The live auto-include range [rangeFrom, rangeTo), or both null.
+  rangeFrom: string | null
+  rangeTo: string | null
+  // Trips directly in this journey / including its sub-journeys.
+  tripCount: number
+  totalTripCount: number
+}
+
+// GET /api/devices/{deviceId}/journeys — flat; build the tree from parentId.
+export interface JourneyListDto {
+  journeys: JourneyDto[]
+  allTripCount: number
+  unassignedTripCount: number
+}
+
+// POST / PUT /api/devices/{deviceId}/journeys[/{journeyId}]
+export interface JourneySaveRequestDto {
+  name: string
+  parentId: string | null
+  rangeFrom: string | null
+  rangeTo: string | null
+  // Also move trips in the range that were placed by hand elsewhere.
+  includePinned: boolean
+}
+
+// GET /api/devices/{deviceId}/journeys/{journeyId}/summary — totals including
+// sub-journeys, computed on request.
+export interface JourneySummaryDto {
+  tripCount: number
+  distanceMeters: number | null
+  durationSeconds: number | null
+  movingSeconds: number | null
+  statsPending: boolean
+}
+
+// GET / PUT /api/devices/{deviceId}/trip-settings — server-side only; the
+// tracker never sees these. A change recomputes the device's trips.
+export interface TripSettingsDto {
+  minStopSeconds: number
+  stopRadiusMeters: number
+  minTripDistanceMeters: number
+  isDefault: boolean
+}
+
+export interface TripSettingsUpdateRequestDto {
+  minStopSeconds: number
+  stopRadiusMeters: number
+  minTripDistanceMeters: number
+}
