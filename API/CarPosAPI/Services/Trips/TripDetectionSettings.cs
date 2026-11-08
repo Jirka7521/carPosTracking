@@ -1,3 +1,4 @@
+using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 
 namespace CarPosAPI.Services.Trips;
@@ -17,4 +18,12 @@ internal sealed record TripDetectionSettings(int MinStopSeconds, int StopRadiusM
         TripRules.DefaultMinStopSeconds,
         TripRules.DefaultStopRadiusMeters,
         TripRules.DefaultMinTripDistanceMeters);
+
+    /// <summary>The thresholds a device runs with: its saved row, or the defaults when it has none.</summary>
+    /// <param name="row">The device's settings row, or null.</param>
+    /// <returns>The effective thresholds.</returns>
+    public static TripDetectionSettings From(DeviceTripSettings? row) =>
+        row is null
+            ? Default
+            : new TripDetectionSettings(row.MinStopSeconds, row.StopRadiusMeters, row.MinTripDistanceMeters);
 }

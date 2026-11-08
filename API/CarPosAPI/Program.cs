@@ -25,6 +25,7 @@ using CarPosAPI.Services.Provisioning;
 using CarPosAPI.Services.Scheduling;
 using CarPosAPI.Services.Security;
 using CarPosAPI.Services.Sharing;
+using CarPosAPI.Services.Trips;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authorization;
@@ -211,8 +212,8 @@ if (string.IsNullOrWhiteSpace(connectionString))
 // runs inside the execution strategy, because it cannot know how to replay one it
 // did not open. Every place that begins a transaction wraps itself in
 // CreateExecutionStrategy().ExecuteAsync accordingly: DeviceService.CreateAsync,
-// DeviceConfigRevisionWriter, AccountErasureService, PositionErasureService and
-// DeviceStatusWriter.
+// DeviceConfigRevisionWriter, AccountErasureService, PositionErasureService,
+// DeviceStatusWriter and TripDetectionPass.
 const int DatabaseRetryAttempts = 3;
 const int DatabaseRetryMaxDelaySeconds = 5;
 
@@ -244,6 +245,10 @@ builder.Services.AddSingleton<EnvelopeCodec>();
 builder.Services.AddSingleton<PositionValidator>();
 builder.Services.AddSingleton<IPayloadCryptoService, PayloadCryptoService>();
 builder.Services.AddSingleton<IDeviceRegistry, DeviceRegistry>();
+// The wake-up call from a position save to the trip worker. PositionWriter must stay the
+// only writer of positions: the trip worker finds new rows by an id cursor that is only
+// sound while inserts come from one process, one batch at a time.
+builder.Services.AddSingleton<ITripDetectionSignal, TripDetectionSignal>();
 builder.Services.AddSingleton<IPositionWriter, PositionWriter>();
 builder.Services.AddSingleton<IAckSealer, AckSealer>();
 // Singleton so the hosted service can hand it the live MQTT client while the
@@ -359,6 +364,15 @@ builder.Services.AddScoped<IScheduleReconciler, ScheduleReconciler>();
 // becomes visible from outside the log.
 builder.Services.AddSingleton<ScheduleWorkerState>();
 builder.Services.AddHostedService<DeviceConfigScheduleWorker>();
+
+// ---------------------------------------------------------------------------
+// Trips. The worker runs when PositionWriter signals a save (not on a timer) and opens
+// a scope per pass, like the schedule worker; its state is shared with /health.
+// ---------------------------------------------------------------------------
+builder.Services.AddScoped<ITripFixReader, TripFixReader>();
+builder.Services.AddScoped<ITripDetectionPass, TripDetectionPass>();
+builder.Services.AddSingleton<TripWorkerState>();
+builder.Services.AddHostedService<TripDetectionWorker>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -660,6 +674,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<MqttIngestHealthCheck>("mqtt")
     .AddCheck<MigrationHealthCheck>("migrations")
     .AddCheck<ScheduleWorkerHealthCheck>("scheduler")
+    .AddCheck<TripWorkerHealthCheck>("trips")
     .AddCheck<ProcessHealthCheck>("process");
 
 builder.Services.AddControllers();

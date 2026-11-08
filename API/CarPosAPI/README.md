@@ -1568,6 +1568,9 @@ docker exec carpos-api wget -qO- http://127.0.0.1:8080/health
                     "data": { "passesCompleted": 412, "passesFailed": 0, "consecutiveFailures": 0,
                               "devicesChangedTotal": 7, "lastSuccessfulPassAtUtc": "2026-09-01T10:12:03Z",
                               "secondsSinceLastPass": 30.4 } },
+    "trips":      { "status": "Healthy",  "durationMs": 0.01, "description": "trips follow saved positions",
+                    "data": { "passesCompleted": 1190, "passesFailed": 0, "consecutiveFailures": 0,
+                              "tripsChangedTotal": 233, "lastSuccessfulPassAtUtc": "2026-09-01T10:04:02Z" } },
     "process":    { "status": "Healthy",  "durationMs": 0.0,  "description": "running",
                     "data": { "version": "1.0.0", "environment": "Production", "uptimeSeconds": 84213 } }
   }
@@ -1580,6 +1583,7 @@ docker exec carpos-api wget -qO- http://127.0.0.1:8080/health
 | `mqtt` | broker connected | disconnected — the reconnect loop is self-healing | never |
 | `migrations` | the database has every migration this build carries | some are pending, **or the state could not be read** | never |
 | `scheduler` | a pass succeeded within 4 intervals (2 min) | stale, or failing since the last success | never |
+| `trips` | the last trip pass succeeded — however long ago: the worker only runs after a position save, so a parked fleet is legitimately quiet | no pass yet, or failing since the last success | never |
 | `process` | always — it reports the build, not a dependency | — | — |
 
 **Only the database can produce a 503.** `Healthy` and `Degraded` both answer
