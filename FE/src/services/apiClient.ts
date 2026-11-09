@@ -62,6 +62,8 @@ import type {
   TripPageDto,
   TripRangeSummaryDto,
   TripRenameRequestDto,
+  TripSettingsDto,
+  TripSettingsUpdateRequestDto,
   TripSummaryDto,
   UpdateDeviceScheduleRequestDto,
   UserProfileDto,
@@ -723,6 +725,23 @@ export async function updateJourney(
 // Trips themselves are never deleted.
 export async function deleteJourney(deviceId: string, journeyId: string): Promise<void> {
   await request<null>('DELETE', `/devices/${segment(deviceId)}/journeys/${segment(journeyId)}`)
+}
+
+// The thresholds trip detection uses for this device — server-side only; the
+// tracker never sees them. Readable with any grant.
+export async function fetchTripSettings(deviceId: string): Promise<TripSettingsDto> {
+  return request<TripSettingsDto>('GET', `/devices/${segment(deviceId)}/trip-settings`)
+}
+
+// Changing them recomputes every trip of the device in the background; trips
+// keep their names and journeys where they still exist afterwards.
+export async function updateTripSettings(
+  deviceId: string,
+  payload: TripSettingsUpdateRequestDto,
+): Promise<TripSettingsDto> {
+  return request<TripSettingsDto>('PUT', `/devices/${segment(deviceId)}/trip-settings`, {
+    body: payload,
+  })
 }
 
 // ----- Access grants -----

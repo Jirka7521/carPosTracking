@@ -251,6 +251,7 @@ FE/
 │   │   ├── TripNameEditor.tsx     A trip's optional name, edited in place
 │   │   ├── TripRouteMap.tsx       The trip's route — DeviceMap behind the maps consent gate
 │   │   ├── TripCharts.tsx         Speed, altitude, battery, acceleration stacked on one crosshair
+│   │   ├── TripDetectionSection.tsx  Settings › Trip detection (Expert): the server's trip thresholds
 │   │   ├── PersonalInfoSection.tsx   Edit first/last name form (used on Profile page)
 │   │   └── ChangePasswordSection.tsx Change password form (used on Profile page)
 │   ├── pages/                     Full-page route components
@@ -318,7 +319,7 @@ FE/
 | `/device/:deviceId/trips/:tripId` | protected | One trip: its figures, its route on the map (behind the usual maps consent) and every reading charted on one shared crosshair, with the average speed as a dashed line. Keeps the list's `?journey=` for "← Trips"; "Show on the Map tab" sets the shared date range to the trip |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
 | `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors. Expert mode only: in Normal mode the tab is hidden and the route redirects to `map` |
-| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config in Expert mode, sharing, erase position history, delete) |
+| `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config and trip detection in Expert mode, sharing, erase position history, delete) |
 
 `:deviceId` is the tracker's MQTT identity, e.g. `/device/GNSS01/map`.
 
@@ -342,6 +343,7 @@ are unchanged.
 | Reporting & Power | Wake-on-motion switch, report interval (parked + moving when motion wake is on), wait for movement after a wake ([`BasicConfigFields`](src/components/BasicConfigFields.tsx)) | Every setting ([`ConfigValuesFields`](src/components/ConfigValuesFields.tsx)) |
 | Reporting & Power while a schedule is on | Hidden — settings come from the profiles | Shown, as a temporary override |
 | Firmware configuration | Hidden | Shown |
+| Trip detection (minimum stop, stop radius, shortest trip) | Hidden | Shown — read-only without `canModifySettings` |
 | Schedule rule priority | Hidden (existing value kept, new rules get 100) | Shown |
 
 A value hidden in Normal mode is never reset: the form still carries all fifteen and

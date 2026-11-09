@@ -31,6 +31,15 @@ export const TRIP_PAGE_SIZE: number = 50
 // on the API, which rejects a larger request.
 export const MAX_TRIPS_PER_ASSIGN: number = 500
 
+// The trip-detection thresholds' bounds and defaults, mirroring TripRules on the
+// API (which enforces them): the minimum stop in seconds, the stop radius and
+// the shortest trip kept in metres.
+export const TRIP_SETTING_LIMITS = {
+  minStopSeconds: { min: 60, max: 14_400, defaultValue: 1_200 },
+  stopRadiusMeters: { min: 20, max: 1_000, defaultValue: 150 },
+  minTripDistanceMeters: { min: 0, max: 20_000, defaultValue: 500 },
+} as const
+
 // One calendar day of the list, with the totals its header shows.
 export type TripDay = {
   // The local date as YYYY-MM-DD — stable, so it can key the rendered group.
