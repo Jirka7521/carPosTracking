@@ -15,8 +15,11 @@ One application does everything server-side:
   `devices/+` over WSS, decrypts each sealed envelope, validates the fix and writes it
   idempotently. It also ingests status messages and publishes acks, device config and
   schedule bundles.
-- **REST API** over PostgreSQL for users, devices, positions, sharing and share links,
-  schedules, device events and GDPR rights.
+- **Trip detection** — a hosted service (`Services/Trips/TripDetectionWorker`) woken by
+  each position save (`ITripDetectionSignal`, raised by `PositionWriter`), never by a
+  timer. It stores only trip start times; ends and statistics are recomputed on read.
+- **REST API** over PostgreSQL for users, devices, positions, trips and journeys, sharing
+  and share links, schedules, device events and GDPR rights.
 
 Stack: .NET 10 (`net10.0`), nullable + implicit usings on, MVC controllers, EF Core +
 Npgsql, MQTTnet, xUnit tests. Endpoint reference, configuration, ops and the ACL setup
@@ -36,7 +39,8 @@ local and say so.
 Program.cs     composition root only: DI, auth, middleware, CLI modes (schema-sync, import-device-key, rotate-master-key, create-registration-invite)
 Controllers/   thin, one per resource; derive from ApiControllerBase
 Services/<Feature>/   business rules + interfaces: Auth, Authorization, Common, Devices,
-               Health, Ingest, Positions, Privacy, Provisioning, Scheduling, Security, Sharing
+               Health, Ingest, Positions, Privacy, Provisioning, Scheduling, Security, Sharing,
+               Trips
 Data/          CarPosDbContext · Entities/ · Configurations/ (IEntityTypeConfiguration) · Migrations/ · SchemaSync/
 Dtos/          request/response records — the wire contract, one per file
 Options/       typed settings classes

@@ -38,7 +38,7 @@
     "eventsDone_one": "{{count}} event erased.",
     "eventsDone_other": "{{count}} events erased.",
     "failed": "The position history could not be erased.",
-    "hint": "Permanently deletes every stored position and event for this device. The device itself, its settings and its sharing stay exactly as they are. Position history is never deleted automatically, so this is the only thing that ever ends it.",
+    "hint": "Permanently deletes every stored position and event for this device, and the trips worked out from them, names included. The device itself, its settings, its sharing and its journeys stay exactly as they are; the journeys just lose those trips. Position history is never deleted automatically, so this is the only thing that ever ends it.",
     "submit": "Erase position history",
     "submitting": "Erasing…",
     "title": "Erase position history",
@@ -204,6 +204,7 @@
     "label": "Device sections",
     "map": "Map",
     "positions": "Positions",
-    "settings": "Settings"
+    "settings": "Settings",
+    "trips": "Trips"
   }
 }

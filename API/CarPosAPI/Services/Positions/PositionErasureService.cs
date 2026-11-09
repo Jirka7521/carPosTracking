@@ -2,15 +2,16 @@ using CarPosAPI.Data;
 using CarPosAPI.Dtos;
 using CarPosAPI.Services.Authorization;
 using CarPosAPI.Services.Common;
+using CarPosAPI.Services.Trips;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CarPosAPI.Services.Positions;
 
 /// <summary>
-/// Implements <see cref="IPositionErasureService"/> with two bulk deletes in one
-/// transaction — the positions and the connection history over the same range, so an
-/// erasure can never leave one half of the record behind.
+/// Implements <see cref="IPositionErasureService"/> with bulk deletes in one
+/// transaction — the positions, the connection history and the trips that started over
+/// the same range, so an erasure can never leave one part of the record behind.
 ///
 /// <c>ExecuteDeleteAsync</c> rather than loading and removing: the whole point is
 /// that the range may be enormous, and pulling a year of fixes through the change
@@ -22,19 +23,23 @@ internal sealed class PositionErasureService : IPositionErasureService
 {
     private readonly CarPosDbContext _context;
     private readonly IDeviceAccessAuthorizer _authorizer;
+    private readonly ITripDetectionSignal _tripSignal;
     private readonly ILogger<PositionErasureService> _logger;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
     /// <param name="authorizer">Resolves the caller's grant on the device.</param>
+    /// <param name="tripSignal">Wakes the trip worker to rebuild trips over the erased stretch.</param>
     /// <param name="logger">Structured logger — device id and row counts, never coordinates.</param>
     public PositionErasureService(
         CarPosDbContext context,
         IDeviceAccessAuthorizer authorizer,
+        ITripDetectionSignal tripSignal,
         ILogger<PositionErasureService> logger)
     {
         _context = context;
         _authorizer = authorizer;
+        _tripSignal = tripSignal;
         _logger = logger;
     }
 
@@ -71,7 +76,7 @@ internal sealed class PositionErasureService : IPositionErasureService
         // to run inside the execution strategy, which may replay it whole.
         IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
-        PositionErasureResultDto result = await strategy.ExecuteAsync(
+        (PositionErasureResultDto Dto, long TripsDeleted) erasure = await strategy.ExecuteAsync(
             async (CancellationToken attemptToken) =>
             {
                 await using IDbContextTransaction transaction =
@@ -103,23 +108,53 @@ internal sealed class PositionErasureService : IPositionErasureService
                     events = events.Where(deviceEvent => deviceEvent.OccurredAt <= to.Value);
                 }
 
+                // Trips first, under the trip worker's lock: the upsert takes the device's
+                // trip_detection_state row and bumps its epoch, so a pass computing from
+                // the fixes about to vanish throws its result away instead of writing it
+                // back, and the erased stretch is marked for recomputation. Trips that
+                // started inside the range lose their start fix with it, so they go; the
+                // worker rebuilds whatever the remaining fixes still support.
+                await TripDirtyMarker.MarkAsync(
+                    _context,
+                    access.DeviceRowId,
+                    from ?? DateTime.UnixEpoch,
+                    invalidateInFlight: true,
+                    attemptToken);
+
+                IQueryable<Data.Entities.Trip> trips = _context.Trips
+                    .Where(trip => trip.DeviceId == access.DeviceRowId);
+                if (from.HasValue)
+                {
+                    trips = trips.Where(trip => trip.StartTime >= from.Value);
+                }
+
+                if (to.HasValue)
+                {
+                    trips = trips.Where(trip => trip.StartTime <= to.Value);
+                }
+
+                long tripsDeleted = await trips.ExecuteDeleteAsync(attemptToken);
                 long positionsDeleted = await positions.ExecuteDeleteAsync(attemptToken);
                 long eventsDeleted = await events.ExecuteDeleteAsync(attemptToken);
 
                 await transaction.CommitAsync(attemptToken);
 
-                return new PositionErasureResultDto(positionsDeleted, eventsDeleted);
+                return (Dto: new PositionErasureResultDto(positionsDeleted, eventsDeleted), TripsDeleted: tripsDeleted);
             },
             cancellationToken);
 
+        // After the commit, so the woken pass sees the erasure.
+        _tripSignal.Notify();
+
         _logger.LogInformation(
-            "User {UserId} erased {DeletedCount} position(s) and {DeletedEventCount} event(s) for device {DeviceId}",
+            "User {UserId} erased {DeletedCount} position(s), {DeletedEventCount} event(s) and {DeletedTripCount} trip(s) for device {DeviceId}",
             userId,
-            result.DeletedCount,
-            result.DeletedEventCount,
+            erasure.Dto.DeletedCount,
+            erasure.Dto.DeletedEventCount,
+            erasure.TripsDeleted,
             access.DeviceId);
 
-        return OperationResult<PositionErasureResultDto>.Success(result);
+        return OperationResult<PositionErasureResultDto>.Success(erasure.Dto);
     }
 
     /// <summary>

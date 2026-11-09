@@ -303,5 +303,20 @@
       "synced": "Device is running v{{version}} · confirmed {{confirmed}}",
       "unknown": "v{{version}} published · the device has not reported a version yet"
     }
+  },
+  "trips": {
+    "intro": "How the server cuts this car's positions into trips. These settings stay on the server: the tracker never receives them and reports exactly as before.",
+    "minDistance": "Ignore trips shorter than",
+    "minDistanceHint": "Shorter movements, such as crossing a car park or a drifting fix, are not counted as trips.",
+    "minStop": "Minimum stop that ends a trip",
+    "minStopHint": "Waits shorter than this (traffic lights, a jam, a quick drop-off) stay part of the trip.",
+    "outOfRange": "Allowed values: minimum stop {{minStop}}, stop radius {{radius}}, shortest trip {{distance}}.",
+    "recalculateNote": "Saving recalculates every trip of this car, which can take a while on a long history. Journeys and trip names are kept wherever the trips still exist.",
+    "resetDefaults": "Reset to defaults",
+    "saved": "Saved. The trips are being recalculated; the Trips tab says so until it is done.",
+    "stopRadius": "Stop radius",
+    "stopRadiusHint": "How far the positions may wander while the car counts as standing still. GNSS drifts by tens of metres even when parked.",
+    "title": "Trip detection",
+    "usingDefaults": "This car uses the default values."
   }
 }

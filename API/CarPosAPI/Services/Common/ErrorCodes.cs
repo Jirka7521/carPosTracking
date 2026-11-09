@@ -221,6 +221,38 @@ public static class ErrorCodes
     /// <summary>Withdrawing an invitation that does not exist, or is not the caller's to manage.</summary>
     public const string NoSuchInvitation = "noSuchInvitation";
 
+    // ----- Trips and journeys -----
+
+    /// <summary>The trip does not exist on this device (it may have been merged by a recompute).</summary>
+    public const string NoSuchTrip = "noSuchTrip";
+
+    /// <summary>The journey does not exist on this device.</summary>
+    public const string NoSuchJourney = "noSuchJourney";
+
+    /// <summary>Organising trips, or changing detection thresholds, without the settings right.</summary>
+    public const string NoPermissionManageTrips = "noPermissionManageTrips";
+
+    /// <summary>A sibling journey already has that name. Params: <c>name</c>.</summary>
+    public const string DuplicateJourneyName = "duplicateJourneyName";
+
+    /// <summary>
+    /// The date range partly overlaps another journey's range (ranges must be disjoint or
+    /// one inside the other). Params: <c>name</c> — the other journey.
+    /// </summary>
+    public const string JourneyRangeOverlap = "journeyRangeOverlap";
+
+    /// <summary>A date range with only one end, or one that ends before it starts.</summary>
+    public const string JourneyRangeInvalid = "journeyRangeInvalid";
+
+    /// <summary>Nesting deeper than allowed. Params: <c>max</c>.</summary>
+    public const string JourneyTooDeep = "journeyTooDeep";
+
+    /// <summary>Moving a journey into itself or one of its own sub-journeys.</summary>
+    public const string JourneyCycle = "journeyCycle";
+
+    /// <summary>The device already has as many journeys as allowed. Params: <c>max</c>.</summary>
+    public const string TooManyJourneys = "tooManyJourneys";
+
     // ----- Share links -----
 
     /// <summary>The share link does not exist, or is not the caller's to manage.</summary>

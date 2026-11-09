@@ -56,6 +56,9 @@ public sealed class DataExportShapeTests
         typeof(DeviceAliasExportRow),
         typeof(ShareLinkExportRow),
         typeof(AccessInvitationExportRow),
+        typeof(TripExportRow),
+        typeof(JourneyExportRow),
+        typeof(TripSettingsExportRow),
     ];
 
     [Theory]
@@ -124,11 +127,36 @@ public sealed class DataExportShapeTests
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 8, 0, 0, 0, DateTimeKind.Utc));
 
+        TripExportRow trip = new TripExportRow(
+            42,
+            new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc),
+            Guid.NewGuid(),
+            true,
+            "To the coast");
+
+        JourneyExportRow journey = new JourneyExportRow(
+            Guid.NewGuid(),
+            null,
+            "Holiday",
+            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        TripSettingsExportRow tripSettings = new TripSettingsExportRow(
+            1200,
+            150,
+            500,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
         string json = string.Concat(
             JsonSerializer.Serialize(user),
             JsonSerializer.Serialize(device),
             JsonSerializer.Serialize(shareLink),
-            JsonSerializer.Serialize(invitation));
+            JsonSerializer.Serialize(invitation),
+            JsonSerializer.Serialize(trip),
+            JsonSerializer.Serialize(journey),
+            JsonSerializer.Serialize(tripSettings));
 
         foreach (string fragment in ForbiddenFragments)
         {

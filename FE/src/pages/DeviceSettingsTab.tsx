@@ -1,9 +1,9 @@
 // ============================================================
 // DeviceSettingsTab — the "Settings" tab inside DevicePage.
 //
-// Seven permission-gated sections are shown conditionally. The Normal / Expert
-// switch (uiMode/context.ts) hides two more on top of the permissions: section 4
-// is Expert only, and section 3 is hidden in Normal mode while the schedule is
+// Eight permission-gated sections are shown conditionally. The Normal / Expert
+// switch (uiMode/context.ts) hides three more on top of the permissions: 4 and 5
+// are Expert only, and section 3 is hidden in Normal mode while the schedule is
 // on — the schedule's profiles are then where settings are edited, and a manual
 // save that the next switch undoes is an Expert's tool, not a default.
 // Sections 3 and 2 also show fewer fields in Normal mode; ConfigValuesFields
@@ -41,17 +41,23 @@
 //      the page: it is a rarely needed panel and there is no reason to fetch it
 //      for every visit.
 //
-//   5. Access Management   (visible only if canShare OR canModifySettings)
+//   5. Trip detection      (Expert mode; editable only if canModifySettings)
+//      The thresholds the server cuts this car's positions into trips with —
+//      server-side only, the tracker never sees them. Owned by
+//      TripDetectionSection. Readable by anyone with access, so the reason a
+//      trip ended where it did can be looked up without the right to change it.
+//
+//   6. Access Management   (visible only if canShare OR canModifySettings)
 //      Shows who currently has access.  If the caller has canShare they can
 //      also edit / revoke existing grants and invite new people — by a
 //      single-use invitation link the other person must accept
 //      (AccessInvitationPanel), never by adding an email directly.
 //      If they only have canModifySettings they can view the list but not edit.
 //
-//   6. Temporary share links (same visibility as section 5)
+//   7. Temporary share links (same visibility as section 6)
 //      Owned by ShareLinkManager.
 //
-//   7. Danger Zone         (visible only if canDelete)
+//   8. Danger Zone         (visible only if canDelete)
 //      A confirmation-required button to soft-delete (deactivate) the device.
 //      After deletion the page shows a success banner and the device status
 //      is updated in the parent via reloadDevice().
@@ -70,10 +76,10 @@
 // after the device had applied the change, and the only way to find out was to
 // reload the page.
 //
-// Sections 4 and 5 are deliberately NOT on the timer. The firmware
+// Sections 4, 5 and 6 are deliberately NOT on the timer. The firmware
 // configuration is an on-demand panel holding a key block nobody wants
-// re-rendered under them, and the access roster changes when a person changes
-// it, not on its own.
+// re-rendered under them, and the trip thresholds and the access roster change
+// when a person changes them, not on their own.
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
@@ -90,6 +96,7 @@ import { RefreshToolbar } from '../components/RefreshToolbar'
 import { ScheduleSection } from '../components/ScheduleSection'
 import type { ScheduleLoadStatus } from '../components/ScheduleSection'
 import { SharedUserCard } from '../components/SharedUserCard'
+import { TripDetectionSection } from '../components/TripDetectionSection'
 import { ShareLinkManager } from '../components/ShareLinkManager'
 import { AccessInvitationPanel } from '../components/AccessInvitationPanel'
 import type { SharedUserData } from '../components/SharedUserCard'
@@ -718,7 +725,15 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 5: Access Management — visible if canShare or canModifySettings
+       * Section 5: Trip detection — Expert mode only; read-only without
+       * canModifySettings
+       * ================================================================ */}
+      {isExpert ? (
+        <TripDetectionSection deviceId={device.deviceId} canEdit={perms.canModifySettings} />
+      ) : null}
+
+      {/* ================================================================
+       * Section 6: Access Management — visible if canShare or canModifySettings
        * ================================================================ */}
       {canViewAccess ? (
         <div className="settings-section">
@@ -780,7 +795,7 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 6: Temporary share links — visible on the same terms as the
+       * Section 7: Temporary share links — visible on the same terms as the
        * roster above, because it is the same question asked about people who
        * have no account. Creating one needs canShare; the manager says so
        * itself when the caller only has canModifySettings, and the server
@@ -800,7 +815,7 @@ export function DeviceSettingsTab() {
       ) : null}
 
       {/* ================================================================
-       * Section 7: Danger Zone — visible only if canDelete
+       * Section 8: Danger Zone — visible only if canDelete
        * ================================================================ */}
       {perms.canDelete ? (
         <div className="settings-section settings-section--danger">

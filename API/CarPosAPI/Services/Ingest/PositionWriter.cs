@@ -1,4 +1,5 @@
 using CarPosAPI.Data;
+using CarPosAPI.Services.Trips;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -15,18 +16,32 @@ namespace CarPosAPI.Services.Ingest;
 /// batch — hence interpolated raw SQL, which EF turns into real parameters
 /// (never string concatenation). Table/column names are hard-coded to match
 /// <see cref="Data.Configurations.PositionConfiguration"/> exactly.
+///
+/// <para>
+/// <b>The only writer of <c>positions</c> — keep it that way.</b> The trip worker finds new
+/// fixes by scanning ids above a cursor (<c>Services.Trips.TripDetectionPass</c>), which is
+/// sound only while every insert comes from this class, in one process, one batch at a
+/// time, so identity values commit in order. A second writer (another process on the same
+/// database, parallel ingest) would need a different way to tell the trip worker.
+/// </para>
 /// </summary>
 internal sealed class PositionWriter : IPositionWriter
 {
     private readonly IDbContextFactory<CarPosDbContext> _contextFactory;
+    private readonly ITripDetectionSignal _tripSignal;
     private readonly ILogger<PositionWriter> _logger;
 
     /// <summary>Creates the writer.</summary>
     /// <param name="contextFactory">Factory for short-lived DbContexts (singleton-safe).</param>
+    /// <param name="tripSignal">Woken after each insert so trips follow the save.</param>
     /// <param name="logger">Structured logger (never receives coordinates).</param>
-    public PositionWriter(IDbContextFactory<CarPosDbContext> contextFactory, ILogger<PositionWriter> logger)
+    public PositionWriter(
+        IDbContextFactory<CarPosDbContext> contextFactory,
+        ITripDetectionSignal tripSignal,
+        ILogger<PositionWriter> logger)
     {
         _contextFactory = contextFactory;
+        _tripSignal = tripSignal;
         _logger = logger;
     }
 
@@ -103,6 +118,14 @@ internal sealed class PositionWriter : IPositionWriter
              ON CONFLICT (device_id, fix_time) DO NOTHING
              """,
             cancellationToken);
+
+        // Trips follow each save. Only a wake-up call — in memory, non-blocking, unable to
+        // throw — so ingest never waits for, or fails because of, trip detection. The
+        // insert above has already committed, so the woken pass will see these rows.
+        if (inserted > 0)
+        {
+            _tripSignal.Notify();
+        }
 
         // The settings revision reported by the NEWEST fix in this batch, if any said
         // anything. Newest, because a backlog drained from the SD card carries the

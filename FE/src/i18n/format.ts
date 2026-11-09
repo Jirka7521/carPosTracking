@@ -81,6 +81,61 @@ export function formatCoordinate(value: number): string {
   return formatNumber(value, 6)
 }
 
+// A unit Intl knows by name ("kilometer", "minute" …), in the locale's own short
+// spelling — "km", "min", "km/h", with "h" or "hr" as the language writes it. The
+// unit words come from the browser, not the catalogue, so they are never out of
+// step with the digits beside them.
+function formatUnit(value: number, unit: string, decimals: number): string {
+  return numberFormat({
+    style: 'unit',
+    unit,
+    unitDisplay: 'short',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value)
+}
+
+// A trip's or a journey's distance. Metres below one kilometre — a short hop
+// shown as "0.4 km" reads as a rounding error — one decimal of a kilometre up to
+// a hundred, and whole kilometres beyond, where a decimal is noise.
+export function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return formatUnit(Math.round(meters), 'meter', 0)
+  }
+  const kilometers: number = meters / 1000
+  return formatUnit(kilometers, 'kilometer', kilometers < 100 ? 1 : 0)
+}
+
+// How long something took, to the minute: "45 s" under a minute, "18 min", and
+// "1 h 12 min" from an hour up. Hours are not rolled into days — a journey's
+// "41 h 10 min" of driving is a quantity of hours, not a span of the calendar.
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) {
+    return formatUnit(Math.max(0, Math.round(seconds)), 'second', 0)
+  }
+  const totalMinutes: number = Math.round(seconds / 60)
+  const hours: number = Math.floor(totalMinutes / 60)
+  const minutes: number = totalMinutes % 60
+  if (hours === 0) {
+    return formatUnit(minutes, 'minute', 0)
+  }
+  if (minutes === 0) {
+    return formatUnit(hours, 'hour', 0)
+  }
+  return `${formatUnit(hours, 'hour', 0)} ${formatUnit(minutes, 'minute', 0)}`
+}
+
+// An altitude or a climb, in whole metres — never switched to kilometres the way
+// a distance is, because "1.2 km" of altitude reads as a distance.
+export function formatAltitude(meters: number): string {
+  return formatUnit(Math.round(meters), 'meter', 0)
+}
+
+// A speed, in whole kilometres per hour.
+export function formatSpeed(kmph: number): string {
+  return formatUnit(Math.round(kmph), 'kilometer-per-hour', 0)
+}
+
 // ---------------------------------------------------------------------------
 // Dates and times
 // ---------------------------------------------------------------------------
@@ -113,4 +168,10 @@ export function formatTime(value: Date): string {
 // Day and month, for a chart axis that spans more than a day.
 export function formatDayMonth(value: Date): string {
   return dateFormat({ day: '2-digit', month: '2-digit' }).format(value)
+}
+
+// A calendar day with its weekday — "Sat, 8 Nov 2026" — for the Trips tab's day
+// headers, where "which day of the week was that" is half the question.
+export function formatWeekdayDate(value: Date): string {
+  return dateFormat({ weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(value)
 }

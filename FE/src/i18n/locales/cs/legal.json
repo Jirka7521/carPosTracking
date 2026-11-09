@@ -109,6 +109,7 @@
         "p1": "U každého záznamu, který sledovač odešle: zeměpisná šířka a délka, rychlost, zrychlení ve třech osách, nadmořská výška, čas zaměření GNSS a čas přijetí na serveru, stav baterie a identifikátor zařízení.",
         "p2": "Historie polohy popisuje, kde vozidlo, a tedy obvykle i člověk, bylo, kdy a jak se jelo. Podle toho se s ní zachází: souřadnice se nikdy nezapisují do žádného logu.",
         "p3": "Každý sledovač navíc hlásí stav svého připojení: kdy se připojí, kdy přejde do režimu offline a proč (plánovaný spánek, vypnutí, slabá baterie, chyba) a kdy se restartuje po pádu nebo výpadku napájení. Pokud se odpojí bez ohlášení, nahlásí to za něj zprostředkující broker. Tyto záznamy ukazují, kdy se vozidlo používalo, proto se uchovávají, exportují a mažou stejně jako polohy.",
+        "p4": "Z těchto poloh systém také určuje, kde začala každá jízda, tedy okamžik, kdy se vozidlo po stání rozjelo, podle prahů nastavených pro každé zařízení. Ukládá se jen tento čas začátku. Vše ostatní o jízdě, například trasa, vzdálenost, doba a rychlosti, se z poloh přepočítá pokaždé, když si ji zobrazíte. Jízdu můžete také pojmenovat a jízdy seskupit do cest, z nichž každá má název a případně období, jehož jízdy sama shromažďuje. Smazáním historie poloh se smažou jízdy, které v ní začaly, i s jejich názvy; cesty zůstanou, dokud je nesmažete.",
         "title": "Poloha a telemetrie vozidla"
       },
       "notCollected": {
@@ -122,7 +123,7 @@
         "title": "Když sledujete vozidlo, které řídí někdo jiný"
       },
       "recipients": {
-        "p1": "Lidé, se kterými zařízení sdílíte, vidí jeho polohy a telemetrii a také vaše jméno a e-mailovou adresu. Ten, komu pošlete dočasný odkaz, vidí jen to, co daný odkaz zpřístupňuje, a nic o vás. Obojí jste udělili vy a obojí můžete kdykoli zrušit v nastavení zařízení.",
+        "p1": "Lidé, se kterými zařízení sdílíte, vidí jeho polohy, telemetrii, jízdy a cesty a také vaše jméno a e-mailovou adresu. Ten, komu pošlete dočasný odkaz, vidí jen to, co daný odkaz zpřístupňuje, a nic o vás. Obojí jste udělili vy a obojí můžete kdykoli zrušit v nastavení zařízení.",
         "p2": "Google LLC dostane vaši IP adresu, údaje o prohlížeči, odkazující stránku a přes výřez mapy i oblast, ve které se sledované vozidlo nachází, ale teprve poté, co načtení mapy povolíte. Přehled nejdříve zobrazí zástupný panel a zeptá se; odmítnutí vás stojí jen mapu a volbu lze odvolat v profilu, nebo na stránce sdílení, pokud si prohlížíte odkaz pro sdílení. Načtená mapa se poskytuje podle <terms>Dodatečných smluvních podmínek Map Google</terms> a s tím, co Google obdrží, nakládá podle <privacy>Zásad ochrany soukromí Google</privacy>. Google sídlí ve Spojených státech a předání se opírá o jeho certifikaci podle rámce EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. ukončuje TLS pro tunel, díky kterému je server dostupný, a vidí tedy veškerý provoz v čitelné podobě včetně přihlášení a dat o poloze. Rovněž sídlí ve Spojených státech a je rovněž certifikován podle rámce EU-US Data Privacy Framework. Žádní další příjemci neexistují. Nic se neprodává.",
         "title": "Kdo další data vidí"
@@ -134,8 +135,8 @@
         "title": "Jak dlouho se údaje uchovávají"
       },
       "rights": {
-        "p1": "Přístup a přenositelnost (čl. 15 a 20): Profil, pak Exportovat moje data, stáhne soubor JSON se vším, co se o vás uchovává: profil, zařízení, oprávnění, názvy, historii nastavení a úplnou, nezkrácenou historii polohy každého zařízení, které smíte číst.",
-        "p2": "Výmaz (čl. 17): Profil, pak Smazat můj účet, si vyžádá heslo a poté trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které jste viděli jen vy, se smaže i s celou historií polohy; zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu. Je to skutečné smazání, ne skrytý příznak. Chcete-li smazat jen historii polohy, použijte Zařízení, Nastavení, Smazat historii poloh.",
+        "p1": "Přístup a přenositelnost (čl. 15 a 20): Profil, pak Exportovat moje data, stáhne soubor JSON se vším, co se o vás uchovává: profil, zařízení, oprávnění, názvy, historii nastavení, jízdy a cesty a úplnou, nezkrácenou historii polohy každého zařízení, které smíte číst.",
+        "p2": "Výmaz (čl. 17): Profil, pak Smazat můj účet, si vyžádá heslo a poté trvale smaže váš účet, vaše oprávnění a názvy zařízení. Zařízení, které jste viděli jen vy, se smaže i s celou historií polohy, jízdami a cestami; zařízení sdílená s dalšími lidmi zůstanou, jen bez vašeho přístupu. Je to skutečné smazání, ne skrytý příznak. Chcete-li smazat jen historii polohy, použijte Zařízení, Nastavení, Smazat historii poloh.",
         "p3": "Oprava (čl. 16): jméno a heslo změníte ve svém profilu. E-mailová adresa je přihlašovací identita a v aplikaci ji zatím změnit nelze, napište proto na kontaktní adresu výše. Omezení a námitka (čl. 18 a 21): vypněte sledovač, nebo napište na tutéž adresu. Odvolání souhlasu s načítáním map Google (čl. 7 odst. 3) provedete v profilu, nebo na stránce sdílení, pokud si prohlížíte odkaz pro sdílení, a ničeho jiného se netýká.",
         "p4": "Žádosti zaslané na kontaktní adresu se vyřizují do jednoho měsíce.",
         "title": "Vaše práva"

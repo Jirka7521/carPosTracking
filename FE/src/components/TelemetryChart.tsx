@@ -14,6 +14,9 @@
 //
 // This is the only file in the app that imports Recharts. The data shaping and
 // the series table live in utils/telemetry.ts.
+//
+// A trip's page draws the same chart and adds a dashed marker line for the
+// trip's average speed (`referenceLines`).
 // ============================================================
 
 import { useMemo } from 'react'
@@ -21,6 +24,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,7 +32,7 @@ import {
 } from 'recharts'
 import { useTranslation } from 'react-i18next'
 import { formatNumber } from '../i18n/format'
-import type { ChartRow, SeriesDef, SeriesUnit } from '../utils/telemetry'
+import type { ChartReferenceLine, ChartRow, SeriesDef, SeriesUnit } from '../utils/telemetry'
 import {
   UNIT_ORDER,
   formatAxisTime,
@@ -62,6 +66,8 @@ type TelemetryChartProps = {
   // The series to draw, already filtered to those the user selected AND that
   // carry data. Never empty — the tab renders an empty state instead.
   series: readonly SeriesDef[]
+  // Dashed marker lines; one whose unit has no axis here is skipped.
+  referenceLines?: readonly ChartReferenceLine[]
 }
 
 // Recharts hands the tooltip an untyped payload; this is the slice we use.
@@ -120,7 +126,11 @@ function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
   )
 }
 
-export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
+export default function TelemetryChart({
+  rows,
+  series,
+  referenceLines = [],
+}: TelemetryChartProps) {
   const { t } = useTranslation(['device'])
 
   // Which axes to draw, and on which side. Derived from UNIT_ORDER rather than
@@ -189,6 +199,27 @@ export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
               }}
             />
           ))}
+
+          {/* Only lines whose axis exists: a ReferenceLine pointing at a
+              yAxisId that is not rendered throws, like a Line would. */}
+          {referenceLines
+            .filter((line) => axes.some((axis) => axis.unit === line.unit))
+            .map((line) => (
+              <ReferenceLine
+                key={`${line.unit}:${line.value}`}
+                yAxisId={line.unit}
+                y={line.value}
+                stroke={line.color}
+                strokeDasharray="6 4"
+                ifOverflow="extendDomain"
+                label={{
+                  value:    line.label,
+                  position: 'insideTopRight',
+                  fill:     line.color,
+                  fontSize: 11,
+                }}
+              />
+            ))}
 
           <Tooltip
             content={(props) => <TelemetryTooltip {...props} series={series} />}

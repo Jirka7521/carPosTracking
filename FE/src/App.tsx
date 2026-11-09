@@ -9,9 +9,12 @@
 //   /share/:token     — a temporary share link, opened with a code (public)
 //   /share            — the same page after the token is taken out of the URL
 //   /home             — device list (protected)
-//   /device/:deviceId — device shell with five sub-tabs:
+//   /device/:deviceId — device shell with six sub-tabs:
 //     /map            — live map with auto-refresh
 //     /positions      — paginated GPS position list
+//     /trips          — detected trips, grouped by day and into journeys
+//                       (?journey=all|none|<id> picks the view)
+//     /trips/:tripId  — one trip: figures, route map and charts
 //     /charts         — telemetry series plotted over time
 //     /events         — connection history: why it went offline, restarts
 //                       (Expert mode only; Normal mode redirects to /map)
@@ -45,6 +48,8 @@ import { InvitePage } from './pages/InvitePage'
 import { DevicePage } from './pages/DevicePage'
 import { DeviceMapTab } from './pages/DeviceMapTab'
 import { PositionListTab } from './pages/PositionListTab'
+import { DeviceTripsTab } from './pages/DeviceTripsTab'
+import { DeviceTripDetailTab } from './pages/DeviceTripDetailTab'
 import { DeviceChartsTab } from './pages/DeviceChartsTab'
 import { DeviceEventsTab } from './pages/DeviceEventsTab'
 import { DeviceSettingsTab } from './pages/DeviceSettingsTab'
@@ -155,7 +160,7 @@ function AppRoutes() {
 
         {/*
          * Device shell: loads the device and renders the tab bar.
-         * Sub-routes are the five tabs. The index sub-route redirects
+         * Sub-routes are the six tabs. The index sub-route redirects
          * /device/:id straight to /device/:id/map so links don't land
          * on a blank page.
          */}
@@ -163,6 +168,8 @@ function AppRoutes() {
           <Route index element={<Navigate to="map" replace />} />
           <Route path="map"       element={<DeviceMapTab />} />
           <Route path="positions" element={<PositionListTab />} />
+          <Route path="trips"     element={<DeviceTripsTab />} />
+          <Route path="trips/:tripId" element={<DeviceTripDetailTab />} />
           <Route path="charts"    element={<DeviceChartsTab />} />
           <Route path="events"    element={<ExpertOnly><DeviceEventsTab /></ExpertOnly>} />
           <Route path="settings"  element={<DeviceSettingsTab />} />

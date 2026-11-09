@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // PrivacyPage — the privacy policy, and the authoritative copy of it.
 //
-// docs/PRIVACY.md carries the same text for the repository; THIS is the version
-// users actually see, in their own language, and the one the registration form
-// links to. If you edit one, edit the other.
+// This is the only copy: users see it in their own language, and the
+// registration form links to it. docs/PRIVACY.md just points here. Bump
+// Privacy:PolicyVersion in the API when the text changes materially.
 //
 // The sections are written out with literal t() keys rather than looped over a
 // table. That is not an oversight: i18next-cli's extractor only sees keys it can
@@ -80,6 +80,7 @@ export function PrivacyPage() {
         <p>{t('privacy.sections.locationData.p1')}</p>
         <p>{t('privacy.sections.locationData.p2')}</p>
         <p>{t('privacy.sections.locationData.p3')}</p>
+        <p>{t('privacy.sections.locationData.p4')}</p>
       </section>
 
       <section className="legal-section">

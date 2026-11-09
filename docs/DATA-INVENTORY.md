@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-10-09`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-11-09`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -60,6 +60,37 @@ included in the data export. Reads are bounded at 1000 rows
 sealed messages and its MQTT Last Will. On the tracker, events said out of range wait on its SD
 card (`events.jsonl`) as **ciphertext only**, like queued fixes, until the broker acknowledges
 them.
+
+### `trips` — derived trip starts
+
+| Column | | Note | On account deletion |
+|---|---|---|---|
+| `device_id` | p | links to a device and thence to a person | — |
+| `start_time` | **P** | when a trip began — derived from `positions` by the trip worker | deleted with the device if solely owned |
+| `journey_id`, `journey_pinned` | p | a user's manual placement of the trip in a journey | as above |
+| `name` | **P** | free text a user gave the trip | as above |
+| `computed_at` | · | when the worker last wrote the row | as above |
+
+**Deliberately minimal:** only each trip's start is stored. Its end, distance, duration and
+speeds are recomputed from `positions` on every read and never kept, so erasing positions
+erases them too. No location is stored here — but, like `device_events`, a timetable of when
+the vehicle was driven, so it is treated like `positions`: **never auto-deleted**, trips
+starting inside a range erased by `DELETE /api/devices/{deviceId}/positions` go with it (the
+worker then rebuilds whatever the remaining fixes support), and they are deleted with the
+device on account deletion.
+
+### `journeys` and `device_trip_settings`
+
+| Column | | Note | On account deletion |
+|---|---|---|---|
+| `journeys.name` | **P** | free text — "Croatia 2026", "Mum's" — visible to everyone with access to the device | deleted with the device if solely owned |
+| `journeys.range_from`, `range_to` | p | the dates a user grouped as one journey — often a holiday | as above |
+| `journeys.parent_id`, `created_at`, `updated_at` | · | nesting and bookkeeping | as above |
+| `device_trip_settings.*` | · | the device's trip detection thresholds | as above |
+
+`trip_detection_state` holds per-device worker bookkeeping only (a fix time to recompute
+from, a counter, a timestamp) and is deleted with the device; `trip_detection_cursor` is a
+single row holding a position id, nobody's data.
 
 ### `devices`
 
@@ -215,7 +246,10 @@ granted, device nicknames, the temporary share links and open invitations this a
 created (`invitationsMade`, without any part of the link), metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
 history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
-readable device** — uncapped.
+readable device** — uncapped. Each readable device also carries its `tripDetectionSettings`
+(null while it uses the defaults), its `journeys`, and its `trips` — each trip as stored:
+start time, name, and the journey it was placed in by hand. Trip ends and figures are not
+stored, so they are not in the file; they follow from the positions beside them.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised

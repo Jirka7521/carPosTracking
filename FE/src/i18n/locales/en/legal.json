@@ -109,6 +109,7 @@
         "p1": "For every fix a tracker reports: latitude and longitude, speed, acceleration on three axes, altitude, the GNSS fix time and the server receive time, battery percentage, and the device identifier.",
         "p2": "A location history describes where a vehicle, and therefore usually a person, has been, when, and how they drove. It is treated as sensitive throughout: coordinates are never written to any log file.",
         "p3": "Each tracker also reports its own connection status: when it connects, when it goes offline and why (a planned sleep, being switched off, a low battery, a fault), and when it restarts after a crash or a power loss. If it drops off without saying so, the message broker reports that on its behalf. These records show when the vehicle was in use, so they are kept, exported and erased exactly like the positions.",
+        "p4": "From those positions the system also works out where each trip began, meaning the moment the vehicle set off after standing still, using thresholds set for each device. Only that start time is stored. Everything else about a trip, such as its route, distance, duration and speeds, is recalculated from the positions each time you look at it. You can also name a trip and group trips into journeys, each with a name and, if you want, a period whose trips it collects. Erasing a position history deletes the trips that started in it, names included; journeys stay until you delete them.",
         "title": "Location and vehicle telemetry"
       },
       "notCollected": {
@@ -122,7 +123,7 @@
         "title": "If you track a vehicle somebody else drives"
       },
       "recipients": {
-        "p1": "People you share a device with see that device’s positions and telemetry, plus your name and email address. Somebody you send a temporary share link to sees only what that link exposes, and nothing about you. You granted both, and you can revoke either at any time in the device’s settings.",
+        "p1": "People you share a device with see that device’s positions, telemetry, trips and journeys, plus your name and email address. Somebody you send a temporary share link to sees only what that link exposes, and nothing about you. You granted both, and you can revoke either at any time in the device’s settings.",
         "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile, or on the share page if you are viewing a share link. Once loaded, the map is provided under the <terms>Google Maps Additional Terms of Service</terms>, and Google handles what it receives under the <privacy>Google Privacy Policy</privacy>. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. It is likewise in the United States and likewise certified under the EU-US Data Privacy Framework. There are no other recipients. Nothing is sold.",
         "title": "Who else sees the data"
@@ -134,8 +135,8 @@
         "title": "How long data is kept"
       },
       "rights": {
-        "p1": "Access and portability (Art. 15 and 20): Profile, then Export my data, downloads a JSON file with everything held about you: profile, devices, permissions, nicknames, configuration history, and the complete, untruncated position history of every device you can read.",
-        "p2": "Erasure (Art. 17): Profile, then Delete my account, asks for your password and then permanently deletes your account, your access grants and your nicknames. Any device only you could see is deleted with its entire position history; devices shared with others survive, with your access removed. This is a real delete, not a hidden flag. To erase only a location history, use Device, then Settings, then Erase position history.",
+        "p1": "Access and portability (Art. 15 and 20): Profile, then Export my data, downloads a JSON file with everything held about you: profile, devices, permissions, nicknames, configuration history, trips and journeys, and the complete, untruncated position history of every device you can read.",
+        "p2": "Erasure (Art. 17): Profile, then Delete my account, asks for your password and then permanently deletes your account, your access grants and your nicknames. Any device only you could see is deleted with its entire position history, its trips and its journeys; devices shared with others survive, with your access removed. This is a real delete, not a hidden flag. To erase only a location history, use Device, then Settings, then Erase position history.",
         "p3": "Rectification (Art. 16): edit your name and change your password in your profile. Your email address is your login identity and cannot yet be changed in the app, so write to the contact address above. Restriction and objection (Art. 18 and 21): power the tracker off, or write to the same address. Withdrawing your consent to load Google maps (Art. 7(3)) is done in your profile, or on the share page if you are viewing a share link, and affects nothing else.",
         "p4": "Requests sent to the contact address are answered within one month.",
         "title": "Your rights"

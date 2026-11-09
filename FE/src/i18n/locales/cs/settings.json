@@ -307,5 +307,20 @@
       "synced": "Zařízení používá v{{version}} · potvrzeno {{confirmed}}",
       "unknown": "Publikováno v{{version}} · zařízení zatím žádnou revizi nenahlásilo"
     }
+  },
+  "trips": {
+    "intro": "Jak server rozděluje polohy tohoto auta na jízdy. Tato nastavení zůstávají na serveru: tracker je nikdy nedostane a hlásí polohy stejně jako dosud.",
+    "minDistance": "Ignorovat jízdy kratší než",
+    "minDistanceHint": "Kratší přesuny, třeba přejezd po parkovišti nebo ujetá poloha, se za jízdy nepovažují.",
+    "minStop": "Nejkratší zastávka, která ukončí jízdu",
+    "minStopHint": "Kratší čekání (semafory, kolona, rychlé vysazení) zůstává součástí jízdy.",
+    "outOfRange": "Povolené hodnoty: nejkratší zastávka {{minStop}}, poloměr zastávky {{radius}}, nejkratší jízda {{distance}}.",
+    "recalculateNote": "Uložení přepočítá všechny jízdy tohoto auta, což u dlouhé historie chvíli trvá. Cesty a názvy jízd zůstanou zachovány všude, kde jízdy dál existují.",
+    "resetDefaults": "Obnovit výchozí hodnoty",
+    "saved": "Uloženo. Jízdy se přepočítávají; karta Jízdy to ukazuje, dokud přepočet neskončí.",
+    "stopRadius": "Poloměr zastávky",
+    "stopRadiusHint": "Jak daleko se polohy mohou rozptylovat, zatímco auto stojí. GNSS se i u zaparkovaného auta odchyluje o desítky metrů.",
+    "title": "Rozpoznávání jízd",
+    "usingDefaults": "Toto auto používá výchozí hodnoty."
   }
 }

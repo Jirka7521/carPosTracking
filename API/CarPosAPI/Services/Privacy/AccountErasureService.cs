@@ -332,6 +332,34 @@ internal sealed class AccountErasureService : IAccountErasureService
             .Where(invitation => deviceRowIds.Contains(invitation.DeviceId))
             .ExecuteDeleteAsync(cancellationToken);
 
+        // Trips before positions. The trip worker's lock row goes first: a pass computing
+        // for one of these devices blocks on it until this transaction ends, then finds it
+        // gone and discards its result rather than writing trips for a device that no
+        // longer exists. trips.device_id and trips.journey_id are Restrict, so trips go
+        // before journeys; journeys nest through a Restrict self-reference, so they are
+        // unlinked from each other before the one statement that deletes them all.
+        await _context.TripDetectionStates
+            .Where(state => deviceRowIds.Contains(state.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _context.Trips
+            .Where(trip => deviceRowIds.Contains(trip.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _context.Journeys
+            .Where(journey => deviceRowIds.Contains(journey.DeviceId))
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(journey => journey.ParentId, (Guid?)null),
+                cancellationToken);
+
+        await _context.Journeys
+            .Where(journey => deviceRowIds.Contains(journey.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _context.DeviceTripSettings
+            .Where(settings => deviceRowIds.Contains(settings.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
         long positionsDeleted = await _context.Positions
             .Where(position => deviceRowIds.Contains(position.DeviceId))
             .ExecuteDeleteAsync(cancellationToken);

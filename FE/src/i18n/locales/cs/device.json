@@ -46,7 +46,7 @@
     "eventsDone_many": "Smazáno {{count}} události.",
     "eventsDone_other": "Smazáno {{count}} událostí.",
     "failed": "Historii poloh se nepodařilo smazat.",
-    "hint": "Trvale smaže všechny uložené polohy a události tohoto zařízení. Samotné zařízení, jeho nastavení i sdílení zůstanou beze změny. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
+    "hint": "Trvale smaže všechny uložené polohy a události tohoto zařízení i jízdy z nich určené, včetně jejich názvů. Samotné zařízení, jeho nastavení, sdílení i cesty zůstanou beze změny, cesty jen o tyto jízdy přijdou. Historie poloh se nikdy nemaže automaticky, takže tohle je jediné, co ji kdy ukončí.",
     "submit": "Smazat historii poloh",
     "submitting": "Mažu…",
     "title": "Smazat historii poloh",
@@ -230,6 +230,7 @@
     "label": "Sekce zařízení",
     "map": "Mapa",
     "positions": "Polohy",
-    "settings": "Nastavení"
+    "settings": "Nastavení",
+    "trips": "Jízdy"
   }
 }

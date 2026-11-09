@@ -32,7 +32,7 @@ inside the API. The broker in the middle, and anyone who can reach it, sees ciph
 |---|---|---|
 | **[ESP32/](ESP32/)** | Tracker firmware — GNSS fix, accelerometer with motion wake, battery, SD-card store-and-forward queue, sealed MQTT publish | C++ / PlatformIO / ESP-IDF + Arduino |
 | **[API/CarPosAPI/](API/CarPosAPI/)** | Backend — MQTT ingest and decryption, REST API, device provisioning, remote settings and schedules | ASP.NET Core (.NET 10), EF Core, PostgreSQL |
-| **[FE/](FE/)** | Dashboard — map, position list, telemetry charts, device settings and sharing | React 19 + Vite + TypeScript, i18next (English / Czech) |
+| **[FE/](FE/)** | Dashboard — map, position list, trips and journeys, telemetry charts, device settings and sharing | React 19 + Vite + TypeScript, i18next (English / Czech) |
 | **[Container/](Container/)** | The self-hosted stack — Mosquitto broker behind nginx, PostgreSQL, Cloudflare tunnel | Docker Compose |
 
 Plus [scripts/](scripts/) — the developer front door (`Dev-QuickMenu.ps1`) and the

@@ -5,8 +5,8 @@ subagents, and the cross-subsystem contracts — are in [../CLAUDE.md](../CLAUDE
 
 ## What this is
 
-The dashboard: device list, map (Google Maps), position list, telemetry charts
-(Recharts), device events, settings and schedules, sharing and temporary share links,
+The dashboard: device list, map (Google Maps), position list, trips and journeys,
+telemetry charts (Recharts), device events, settings and schedules, sharing and temporary share links,
 profile and GDPR self-service. English and Czech via i18next.
 
 React 19 + Vite + TypeScript + react-router, Node 22+. [README.md](README.md) explains

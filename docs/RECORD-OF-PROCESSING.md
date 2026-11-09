@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-10-09`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-11-09`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle
@@ -50,6 +50,19 @@
 | **Third-country transfers** | Google LLC and Cloudflare, Inc. (USA) — EU–US Data Privacy Framework |
 | **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`, which takes the connection history over the same range with it) or by account deletion. Retention is bounded by purpose rather than by a timer: reviewing history is the purpose, so it is kept while the account holder wants it, and the erasure controls are immediate and unconditional. Stated in the policy at `/privacy`. |
 | **Security measures** | End-to-end encryption device→backend (RSA-3072-OAEP-SHA256 + AES-256-GCM per message); device private keys encrypted at rest under a master key; coordinates never logged; per-request re-authorisation against the caller's access grant; invisible devices answer 404 not 403 |
+
+### B2. Trips and journeys
+
+| | |
+|---|---|
+| **Purpose** | Show a vehicle's history as trips (from one stop to the next) with their distance, duration and speeds, and let users group trips into named journeys — "Croatia 2026" — that can collect every trip between two dates on their own |
+| **Data subjects** | As activity B: the account holder and anyone driving or travelling in the vehicle; the users who name trips and journeys |
+| **Categories of data** | **Derived:** the start time of each detected trip (`trips.start_time`), worked out from the positions by a background job using per-device thresholds (`device_trip_settings`: minimum stop, stop radius, shortest trip). **Nothing else derived is stored** — a trip's end, route, distance, duration and speeds are recomputed from the positions on every read. **User-entered:** trip names; journeys (name, nesting, an optional date range); which trips a user placed in a journey by hand. No coordinates are stored by this activity. |
+| **Legal basis** | Art. 6(1)(b) contract — organising and summarising the location history the account holder keeps is part of the same service as activity B |
+| **Recipients** | Users granted access to that device, who see its trips and journeys (organising them needs the settings permission). Not shown through temporary share links. |
+| **Third-country transfers** | As activity B, for the route map only (Google, after consent); Cloudflare as TLS terminator |
+| **Retention** | Follows the positions it is derived from: no automatic deletion; erasing positions erases the trips that started in the erased range; deleting the device with the account deletes its trips, journeys and thresholds. Journeys survive a position erase, empty, until a user deletes them. |
+| **Safeguards** | Data minimisation by design: only trip start times are kept, so erasing positions leaves no stored trace of the routes. The job logs counts only, never coordinates. Trips and journeys are in the Art. 15/20 export. |
 
 ### C. Device sharing and access control
 
