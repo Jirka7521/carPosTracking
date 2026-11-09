@@ -125,6 +125,12 @@ export function formatDuration(seconds: number): string {
   return `${formatUnit(hours, 'hour', 0)} ${formatUnit(minutes, 'minute', 0)}`
 }
 
+// An altitude or a climb, in whole metres — never switched to kilometres the way
+// a distance is, because "1.2 km" of altitude reads as a distance.
+export function formatAltitude(meters: number): string {
+  return formatUnit(Math.round(meters), 'meter', 0)
+}
+
 // A speed, in whole kilometres per hour.
 export function formatSpeed(kmph: number): string {
   return formatUnit(Math.round(kmph), 'kilometer-per-hour', 0)

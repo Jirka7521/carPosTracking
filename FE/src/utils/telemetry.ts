@@ -61,6 +61,17 @@ export type ChartRow = {
   charging:       boolean
 }
 
+// A horizontal marker across a chart at one value of one unit's axis — the
+// trip page's dashed "average speed" line. `label` is already translated. A line
+// whose unit has no axis in the chart is not drawn (there is nothing to hang it
+// on), so a caller can pass it whatever the selection.
+export type ChartReferenceLine = {
+  unit:  SeriesUnit
+  value: number
+  label: string
+  color: string
+}
+
 // The order Y axes are laid out in, alternating left / right. Fixed rather than
 // derived from click order so the layout is a pure function of the selection:
 // ticking the same boxes always produces the same chart.

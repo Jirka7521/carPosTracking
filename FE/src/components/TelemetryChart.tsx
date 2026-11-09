@@ -14,6 +14,12 @@
 //
 // This is the only file in the app that imports Recharts. The data shaping and
 // the series table live in utils/telemetry.ts.
+//
+// The trip page stacks several of these, one per kind of reading, so it can ask
+// for a shorter chart (`height`), a dashed marker line such as the average speed
+// (`referenceLines`), and a crosshair shared across the stack (`syncId`: charts
+// with the same id move their tooltips together, matched by row index — so they
+// must be handed the same rows).
 // ============================================================
 
 import { useMemo } from 'react'
@@ -21,6 +27,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,7 +35,7 @@ import {
 } from 'recharts'
 import { useTranslation } from 'react-i18next'
 import { formatNumber } from '../i18n/format'
-import type { ChartRow, SeriesDef, SeriesUnit } from '../utils/telemetry'
+import type { ChartReferenceLine, ChartRow, SeriesDef, SeriesUnit } from '../utils/telemetry'
 import {
   UNIT_ORDER,
   formatAxisTime,
@@ -62,6 +69,12 @@ type TelemetryChartProps = {
   // The series to draw, already filtered to those the user selected AND that
   // carry data. Never empty — the tab renders an empty state instead.
   series: readonly SeriesDef[]
+  // Pixel height of the plot. Defaults to the Charts tab's full-size chart.
+  height?: number
+  // Dashed marker lines; one whose unit has no axis here is skipped.
+  referenceLines?: readonly ChartReferenceLine[]
+  // Charts sharing an id share one crosshair. They must plot the same rows.
+  syncId?: string
 }
 
 // Recharts hands the tooltip an untyped payload; this is the slice we use.
@@ -120,7 +133,13 @@ function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
   )
 }
 
-export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
+export default function TelemetryChart({
+  rows,
+  series,
+  height = CHART_HEIGHT,
+  referenceLines = [],
+  syncId,
+}: TelemetryChartProps) {
   const { t } = useTranslation(['device'])
 
   // Which axes to draw, and on which side. Derived from UNIT_ORDER rather than
@@ -149,8 +168,12 @@ export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
 
   return (
     <div className="chart-frame telemetry-chart">
-      <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={rows as ChartRow[]} margin={{ top: 8, right: 8, bottom: 4, left: 8 }}>
+      <ResponsiveContainer width="100%" height={height}>
+        <LineChart
+          data={rows as ChartRow[]}
+          margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
+          syncId={syncId}
+        >
           {/* Horizontal rules only: vertical ones compete with the lines. */}
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
@@ -189,6 +212,27 @@ export default function TelemetryChart({ rows, series }: TelemetryChartProps) {
               }}
             />
           ))}
+
+          {/* Only lines whose axis exists: a ReferenceLine pointing at a
+              yAxisId that is not rendered throws, like a Line would. */}
+          {referenceLines
+            .filter((line) => axes.some((axis) => axis.unit === line.unit))
+            .map((line) => (
+              <ReferenceLine
+                key={`${line.unit}:${line.value}`}
+                yAxisId={line.unit}
+                y={line.value}
+                stroke={line.color}
+                strokeDasharray="6 4"
+                ifOverflow="extendDomain"
+                label={{
+                  value:    line.label,
+                  position: 'insideTopRight',
+                  fill:     line.color,
+                  fontSize: 11,
+                }}
+              />
+            ))}
 
           <Tooltip
             content={(props) => <TelemetryTooltip {...props} series={series} />}

@@ -4485,14 +4485,16 @@
   margin: 0;
 }
 
-.journey-tile {
+.journey-tile,
+.trip-tile {
   padding: 10px 12px;
   background: var(--blue-50);
   border: 1px solid var(--blue-100);
   border-radius: var(--radius-sm);
 }
 
-.journey-tile dt {
+.journey-tile dt,
+.trip-tile dt {
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -4500,7 +4502,8 @@
   color: var(--text-muted);
 }
 
-.journey-tile dd {
+.journey-tile dd,
+.trip-tile dd {
   margin: 2px 0 0;
   font-size: 1.125rem;
   font-weight: 700;
@@ -4672,5 +4675,170 @@
 
   .journey-dialog-dates {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Trip page ---- */
+
+.trip-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.trip-detail-back {
+  align-self: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.trip-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 6px;
+}
+
+.trip-detail-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.trip-detail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trip-name-text {
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.trip-name-add {
+  padding-left: 0;
+}
+
+.trip-name-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.trip-name-form .form-input {
+  flex: 1 1 200px;
+  padding: 6px 10px;
+}
+
+.trip-name-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.trip-detail-journey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.trip-detail-journey-name {
+  overflow-wrap: anywhere;
+}
+
+.trip-detail-journey-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Tiles wrap as the width allows; the look is shared with .journey-tile. */
+.trip-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+@media (max-width: 480px) {
+  .trip-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.trip-section {
+  margin-bottom: 18px;
+}
+
+.trip-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.trip-section-title {
+  font-size: 1rem;
+}
+
+.trip-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.trip-chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A shorter map than the Map tab's: the page goes on below it. */
+.trip-map .map-frame,
+.trip-map .map-placeholder {
+  min-height: 0;
+}
+
+.trip-map .map-canvas {
+  height: 420px;
+}
+
+.trip-map .map-placeholder {
+  height: 420px;
+}
+
+@media (max-width: 768px) {
+  .trip-map .map-canvas,
+  .trip-map .map-placeholder {
+    height: 320px;
   }
 }

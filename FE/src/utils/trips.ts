@@ -20,6 +20,7 @@
 // calendar fields so it stays right across a DST change.
 // ============================================================
 
+import { formatDayMonth, formatTime } from '../i18n/format'
 import type { TripSummaryDto } from '../services/apiTypes'
 import { parseApiTimestamp } from './dates'
 
@@ -50,6 +51,21 @@ export type TripDay = {
 // not. The list is ordered by the latter; the two differ by minutes at most.
 export function tripShownStart(trip: TripSummaryDto): Date | null {
   return parseApiTimestamp(trip.departure ?? trip.startTime)
+}
+
+// "14:05 → 14:47"; "14:05 → …" while the trip is still going; the end with its
+// date when the trip ran past midnight, so "23:40 → 00:15" does not read as a
+// trip that ended before it began. Digits only, so not a translation.
+export function describeTripTimes(trip: TripSummaryDto): string {
+  const start: Date | null = tripShownStart(trip)
+  const end: Date | null = trip.endTime === null ? null : parseApiTimestamp(trip.endTime)
+  const startText: string = start === null ? '—' : formatTime(start)
+  if (trip.inProgress || end === null) {
+    return `${startText} → …`
+  }
+  const sameDay: boolean = start !== null && localDateKey(start) === localDateKey(end)
+  const endText: string = sameDay ? formatTime(end) : `${formatDayMonth(end)} ${formatTime(end)}`
+  return `${startText} → ${endText}`
 }
 
 // The trips of a page, newest first, cut into local calendar days, newest day

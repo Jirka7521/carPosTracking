@@ -221,7 +221,7 @@ FE/
 │   │   ├── LanguageMenu.tsx       The 🌐 language picker — header, plus the login and register pages
 │   │   ├── SessionLoading.tsx     Spinner shown while the session probe runs
 │   │   ├── DeviceMap.tsx          Google Maps component with position markers
-│   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit in the selection
+│   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit; optional marker lines and shared crosshair
 │   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
 │   │   ├── FirmwareParameterTable.tsx  Read-only reference of every firmware parameter
 │   │   ├── PermissionBadges.tsx   Badge row showing canRead/canDelete/canShare/canModifySettings
@@ -247,6 +247,10 @@ FE/
 │   │   ├── TripFigure.tsx         A computed figure: the value, "…" while pending, or —
 │   │   ├── TripListEmpty.tsx      What an empty trip list says, per view
 │   │   ├── TripSelectionBar.tsx   Sticky bar for selected trips: move, remove, back to automatic
+│   │   ├── TripStatTiles.tsx      A trip's figures: the server's distance/time/speeds + climb, altitude, battery
+│   │   ├── TripNameEditor.tsx     A trip's optional name, edited in place
+│   │   ├── TripRouteMap.tsx       The trip's route — DeviceMap behind the maps consent gate
+│   │   ├── TripCharts.tsx         Speed, altitude, battery, acceleration stacked on one crosshair
 │   │   ├── PersonalInfoSection.tsx   Edit first/last name form (used on Profile page)
 │   │   └── ChangePasswordSection.tsx Change password form (used on Profile page)
 │   ├── pages/                     Full-page route components
@@ -258,6 +262,7 @@ FE/
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
 │   │   ├── DeviceTripsTab.tsx     Trips tab — detected trips by day, organised into nested journeys
+│   │   ├── DeviceTripDetailTab.tsx  One trip — figures, route map and charts
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
 │   │   ├── DeviceEventsTab.tsx    Events tab — device history: offline and why, restarts, wakes, motion steps
 │   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config (Expert mode), sharing, delete
@@ -272,6 +277,7 @@ FE/
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
 │       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges
 │       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
+│       ├── tripTelemetry.ts       A trip's fixes → altitude range, climb, battery at both ends, gaps
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
 │       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
 │       ├── firmwareParameters.ts  Static table of every Config.h constant, for the reference panel
@@ -309,6 +315,7 @@ FE/
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
 | `/device/:deviceId/trips` | protected | Trips the server detected, newest first and grouped by day, and the journeys they are organised into. `?journey=all` (default), `none` (in no journey) or a journey id picks the view, so it survives a reload and Back. Organising needs `canModifySettings`; reading needs any grant. Ignores the shared date range — older trips are paged in |
+| `/device/:deviceId/trips/:tripId` | protected | One trip: its figures, its route on the map (behind the usual maps consent) and every reading charted on one shared crosshair, with the average speed as a dashed line. Keeps the list's `?journey=` for "← Trips"; "Show on the Map tab" sets the shared date range to the trip |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
 | `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors. Expert mode only: in Normal mode the tab is hidden and the route redirects to `map` |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config in Expert mode, sharing, erase position history, delete) |

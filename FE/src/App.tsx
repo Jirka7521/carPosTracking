@@ -14,6 +14,7 @@
 //     /positions      — paginated GPS position list
 //     /trips          — detected trips, grouped by day and into journeys
 //                       (?journey=all|none|<id> picks the view)
+//     /trips/:tripId  — one trip: figures, route map and charts
 //     /charts         — telemetry series plotted over time
 //     /events         — connection history: why it went offline, restarts
 //                       (Expert mode only; Normal mode redirects to /map)
@@ -48,6 +49,7 @@ import { DevicePage } from './pages/DevicePage'
 import { DeviceMapTab } from './pages/DeviceMapTab'
 import { PositionListTab } from './pages/PositionListTab'
 import { DeviceTripsTab } from './pages/DeviceTripsTab'
+import { DeviceTripDetailTab } from './pages/DeviceTripDetailTab'
 import { DeviceChartsTab } from './pages/DeviceChartsTab'
 import { DeviceEventsTab } from './pages/DeviceEventsTab'
 import { DeviceSettingsTab } from './pages/DeviceSettingsTab'
@@ -167,6 +169,7 @@ function AppRoutes() {
           <Route path="map"       element={<DeviceMapTab />} />
           <Route path="positions" element={<PositionListTab />} />
           <Route path="trips"     element={<DeviceTripsTab />} />
+          <Route path="trips/:tripId" element={<DeviceTripDetailTab />} />
           <Route path="charts"    element={<DeviceChartsTab />} />
           <Route path="events"    element={<ExpertOnly><DeviceEventsTab /></ExpertOnly>} />
           <Route path="settings"  element={<DeviceSettingsTab />} />

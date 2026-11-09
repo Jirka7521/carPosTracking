@@ -15,10 +15,9 @@
 import { Link } from 'react-router-dom'
 import type { To } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { formatDayMonth, formatDistance, formatDuration, formatSpeed, formatTime } from '../i18n/format'
+import { formatDistance, formatDuration, formatSpeed } from '../i18n/format'
 import type { TripSummaryDto } from '../services/apiTypes'
-import { parseApiTimestamp } from '../utils/dates'
-import { tripShownStart } from '../utils/trips'
+import { describeTripTimes } from '../utils/trips'
 import { TripFigure } from './TripFigure'
 
 export type TripRowProps = {
@@ -44,9 +43,7 @@ export function TripRow({
 }: TripRowProps) {
   const { t } = useTranslation('trips')
 
-  const start: Date | null = tripShownStart(trip)
-  const end: Date | null = trip.endTime === null ? null : parseApiTimestamp(trip.endTime)
-  const timeRange: string = describeTimeRange(start, end, trip.inProgress)
+  const timeRange: string = describeTripTimes(trip)
 
   return (
     <li className={`trip-row${selected ? ' trip-row--selected' : ''}`}>
@@ -129,21 +126,4 @@ export function TripRow({
       </Link>
     </li>
   )
-}
-
-// "14:05 → 14:47"; "14:05 → …" while the trip is still going; the end with its
-// date when the trip ran past midnight, so "23:40 → 00:15" does not read as a
-// trip that ended before it began.
-function describeTimeRange(start: Date | null, end: Date | null, inProgress: boolean): string {
-  const startText: string = start === null ? '—' : formatTime(start)
-  if (inProgress || end === null) {
-    return `${startText} → …`
-  }
-  const sameDay: boolean =
-    start !== null
-    && start.getFullYear() === end.getFullYear()
-    && start.getMonth() === end.getMonth()
-    && start.getDate() === end.getDate()
-  const endText: string = sameDay ? formatTime(end) : `${formatDayMonth(end)} ${formatTime(end)}`
-  return `${startText} → ${endText}`
 }
