@@ -1,77 +1,67 @@
 // ============================================================
-// TripCharts — every reading the tracker took during a trip, as a stack of
-// charts that share one time axis and one crosshair: speed (with the trip's
-// average as a dashed line), altitude, battery and acceleration.
+// TripCharts — every reading the tracker took during a trip, in one chart
+// laid out exactly like the Charts tab: the series picker (which is also the
+// legend) above one TelemetryChart with a Y axis per unit, plus the trip's
+// average speed as a dashed line on the speed axis.
 //
-// One chart per kind of reading rather than one chart of everything: on a trip
-// page the question is "what happened at 14:20", and stacked charts answer it
-// for every reading at once without four Y axes fighting over one plot.
-//
-// All charts are handed the SAME rows. Recharts syncs crosshairs by row index,
-// so the rows are thinned once, keeping the peaks of every series drawn (see
-// decimateChartRows), rather than per chart — per-chart thinning would put a
-// different moment under the same index in each.
+// The ticked series are the device page's, the same list the Charts tab uses,
+// so a reader who set up the chart there finds it the same way here and back.
 //
 // A reading the tracker did not send during the trip (no accelerometer, say)
-// simply has no chart.
+// is greyed out in the picker; ticking nothing gets its own empty state.
 // ============================================================
 
 import { useMemo } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
-import { formatSpeed } from '../i18n/format'
+import { formatInteger, formatSpeed } from '../i18n/format'
 import type { PositionDto } from '../services/apiTypes'
+import { SeriesPicker } from './SeriesPicker'
 import TelemetryChart from './TelemetryChart'
 import type { ChartReferenceLine, SeriesDef, SeriesKey } from '../utils/telemetry'
 import { SERIES, availableSeriesKeys, decimateChartRows, toChartRows } from '../utils/telemetry'
 
-// Points handed to Recharts per chart. A trip rarely comes near it; a very long
-// one is thinned with its peaks kept.
-const MAX_PLOT_POINTS: number = 4000
+// Points handed to Recharts — the Charts tab's figure, for the same full-size
+// chart. A trip rarely comes near it; a very long one is thinned with the peaks
+// of every ticked series kept.
+const MAX_PLOT_POINTS: number = 6000
 
 // Dark ink for the average line, so it reads against the blue speed line.
 const AVERAGE_LINE_COLOR: string = '#3A4A5A' // --gray-700
 
-const SYNC_ID: string = 'trip'
-
-type ChartGroup = {
-  id: 'speed' | 'altitude' | 'battery' | 'acceleration'
-  keys: readonly SeriesKey[]
-  height: number
-}
-
-const GROUPS: readonly ChartGroup[] = [
-  { id: 'speed', keys: ['speedKmph'], height: 240 },
-  { id: 'altitude', keys: ['altitudeMeters'], height: 200 },
-  { id: 'battery', keys: ['batteryPct'], height: 180 },
-  { id: 'acceleration', keys: ['accelXG', 'accelYG', 'accelZG', 'accelMagG'], height: 240 },
-]
-
 export type TripChartsProps = {
   positions: readonly PositionDto[]
   averageSpeedKmph: number | null
+  selectedKeys: readonly SeriesKey[]
+  onSelectedKeysChange: Dispatch<SetStateAction<readonly SeriesKey[]>>
 }
 
-export function TripCharts({ positions, averageSpeedKmph }: TripChartsProps) {
+export function TripCharts({
+  positions,
+  averageSpeedKmph,
+  selectedKeys,
+  onSelectedKeysChange,
+}: TripChartsProps) {
   const { t } = useTranslation(['trips', 'device'])
 
   const rows = useMemo(() => toChartRows(positions), [positions])
   const available = useMemo(() => availableSeriesKeys(rows), [rows])
+  const series: SeriesDef[] = useMemo(
+    () => SERIES.filter((definition) =>
+      selectedKeys.includes(definition.key) && available.has(definition.key),
+    ),
+    [selectedKeys, available],
+  )
   const plotRows = useMemo(
-    () => decimateChartRows(rows, [...available], MAX_PLOT_POINTS),
-    [rows, available],
+    () => decimateChartRows(rows, selectedKeys, MAX_PLOT_POINTS),
+    [rows, selectedKeys],
   )
 
   if (rows.length === 0) {
     return null
   }
 
-  const titles: Record<ChartGroup['id'], string> = {
-    speed: t('trips:detail.charts.speed'),
-    altitude: t('trips:detail.charts.altitude'),
-    battery: t('trips:detail.charts.battery'),
-    acceleration: t('trips:detail.charts.acceleration'),
-  }
-
+  // Drawn only while speed is ticked: the chart skips a line with no axis.
   const averageLine: ChartReferenceLine[] =
     averageSpeedKmph === null
       ? []
@@ -83,43 +73,43 @@ export function TripCharts({ positions, averageSpeedKmph }: TripChartsProps) {
         }]
 
   return (
-    <div className="trip-charts">
-      {GROUPS.map((group) => {
-        const series: SeriesDef[] = SERIES.filter(
-          (definition) => group.keys.includes(definition.key) && available.has(definition.key),
-        )
-        if (series.length === 0) {
-          return null
-        }
-        return (
-          <section key={group.id} className="trip-section">
-            <div className="trip-section-head">
-              <h4 className="trip-section-title">{titles[group.id]}</h4>
-              {series.length > 1 ? (
-                <ul className="trip-chart-legend">
-                  {series.map((definition) => (
-                    <li key={definition.key}>
-                      <span
-                        className="series-swatch"
-                        style={{ background: definition.color }}
-                        aria-hidden="true"
-                      />
-                      {t(definition.labelKey)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-            <TelemetryChart
-              rows={plotRows}
-              series={series}
-              height={group.height}
-              referenceLines={group.id === 'speed' ? averageLine : undefined}
-              syncId={SYNC_ID}
-            />
-          </section>
-        )
-      })}
-    </div>
+    <section className="trip-section">
+      <div className="trip-section-head">
+        <h4 className="trip-section-title">{t('trips:detail.charts.title')}</h4>
+      </div>
+
+      <SeriesPicker
+        available={available}
+        selected={selectedKeys}
+        onSelectedChange={onSelectedKeysChange}
+      />
+
+      {series.length === 0 ? (
+        /* A <Line> pointing at an axis that does not exist throws, so an empty
+           selection gets its own state rather than an empty grid. */
+        <div className="empty-state">
+          <span className="empty-state-icon" aria-hidden="true">📈</span>
+          <h3>{t('device:charts.noneSelectedTitle')}</h3>
+          <p>{t('device:charts.noneSelectedBody')}</p>
+        </div>
+      ) : (
+        <>
+          <TelemetryChart rows={plotRows} series={series} referenceLines={averageLine} />
+
+          <p className="hint" style={{ marginTop: 10 }}>
+            {t('device:charts.axisNote')}
+            {plotRows.length < rows.length ? (
+              <>
+                {' '}
+                {t('device:charts.decimated', {
+                  drawn: formatInteger(plotRows.length),
+                  total: formatInteger(rows.length),
+                })}
+              </>
+            ) : null}
+          </p>
+        </>
+      )}
+    </section>
   )
 }

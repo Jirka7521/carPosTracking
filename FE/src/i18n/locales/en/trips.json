@@ -18,11 +18,8 @@
     "addName": "Add a name…",
     "back": "Trips",
     "charts": {
-      "acceleration": "Acceleration",
-      "altitude": "Altitude",
       "averageLine": "average {{speed}}",
-      "battery": "Battery",
-      "speed": "Speed"
+      "title": "Charts"
     },
     "endGapBody": "The tracker went quiet for a long time and the car had moved by the time it came back, so the end shown is its last position before the silence.",
     "endGapTitle": "This trip ended in a long silence",

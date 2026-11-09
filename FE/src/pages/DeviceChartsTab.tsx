@@ -25,11 +25,11 @@ import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatInteger } from '../i18n/format'
 import RangeToolbar from '../components/RangeToolbar'
+import { SeriesPicker } from '../components/SeriesPicker'
 import TelemetryChart from '../components/TelemetryChart'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
-import type { SeriesKey } from '../utils/telemetry'
 import {
   SERIES,
   availableSeriesKeys,
@@ -222,12 +222,6 @@ export function DeviceChartsTab() {
   // chart in a way it is not on a table.
   const isTruncated = reachedCap && rows.length > 0
 
-  function toggleSeries(key: SeriesKey, checked: boolean): void {
-    setSelectedKeys((current) =>
-      checked ? [...current, key] : current.filter((existing) => existing !== key),
-    )
-  }
-
   return (
     <div>
       {/* ---- Controls: date pickers + refresh options ---- */}
@@ -242,40 +236,11 @@ export function DeviceChartsTab() {
 
       {/* ---- Series picker. Also the legend: every entry pairs its colour
               with a text label, so the chart never relies on colour alone. ---- */}
-      <fieldset className="series-picker">
-        <legend className="form-label">{t('device:charts.series.legend')}</legend>
-
-        {SERIES.map((definition) => {
-          const isAvailable = available.has(definition.key)
-
-          return (
-            <label
-              key={definition.key}
-              className="checkbox-field series-chip"
-              title={isAvailable ? undefined : t('device:charts.notReported')}
-            >
-              <input
-                type="checkbox"
-                checked={selectedKeys.includes(definition.key)}
-                disabled={!isAvailable}
-                onChange={(e) => toggleSeries(definition.key, e.target.checked)}
-              />
-              <span
-                className="series-swatch"
-                style={{ background: definition.color }}
-                aria-hidden="true"
-              />
-              <span>
-                {t(definition.labelKey)}{' '}
-                <span className="series-chip-unit">({definition.unit})</span>
-                {isAvailable ? null : (
-                  <span className="series-chip-note"> {t('device:charts.noData')}</span>
-                )}
-              </span>
-            </label>
-          )
-        })}
-      </fieldset>
+      <SeriesPicker
+        available={available}
+        selected={selectedKeys}
+        onSelectedChange={setSelectedKeys}
+      />
 
       {/* Status line */}
       <p className="hint" role="status" style={{ marginBottom: 12 }}>

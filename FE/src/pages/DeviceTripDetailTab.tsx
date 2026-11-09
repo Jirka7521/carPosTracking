@@ -1,7 +1,7 @@
 // ============================================================
 // DeviceTripDetailTab — one trip's page, at /device/:deviceId/trips/:tripId:
 // when it ran, its figures, its route on the map and every reading the tracker
-// took on the way, charted against one shared time axis.
+// took on the way, in the Charts tab's chart with the same ticked series.
 //
 // Three loads, each for its own reason:
 //   • the trip itself — its end and figures are computed by the server on
@@ -62,7 +62,13 @@ type LoadedPositions = {
 
 export function DeviceTripDetailTab() {
   const { t } = useTranslation(['trips', 'common', 'errors'])
-  const { device, autoRefresh: refresh, setDateRange } = useOutletContext<DevicePageContext>()
+  const {
+    device,
+    autoRefresh: refresh,
+    setDateRange,
+    chartSeries,
+    setChartSeries,
+  } = useOutletContext<DevicePageContext>()
   const { tripId: tripIdParam } = useParams<{ tripId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
@@ -490,7 +496,12 @@ export function DeviceTripDetailTab() {
               <span>{t('trips:detail.loadingPositions')}</span>
             </div>
           ) : (
-            <TripCharts positions={shownPositions} averageSpeedKmph={shownTrip.averageSpeedKmph} />
+            <TripCharts
+              positions={shownPositions}
+              averageSpeedKmph={shownTrip.averageSpeedKmph}
+              selectedKeys={chartSeries}
+              onSelectedKeysChange={setChartSeries}
+            />
           )}
         </>
       )}

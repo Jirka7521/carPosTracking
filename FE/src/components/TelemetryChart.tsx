@@ -15,11 +15,8 @@
 // This is the only file in the app that imports Recharts. The data shaping and
 // the series table live in utils/telemetry.ts.
 //
-// The trip page stacks several of these, one per kind of reading, so it can ask
-// for a shorter chart (`height`), a dashed marker line such as the average speed
-// (`referenceLines`), and a crosshair shared across the stack (`syncId`: charts
-// with the same id move their tooltips together, matched by row index — so they
-// must be handed the same rows).
+// A trip's page draws the same chart and adds a dashed marker line for the
+// trip's average speed (`referenceLines`).
 // ============================================================
 
 import { useMemo } from 'react'
@@ -69,12 +66,8 @@ type TelemetryChartProps = {
   // The series to draw, already filtered to those the user selected AND that
   // carry data. Never empty — the tab renders an empty state instead.
   series: readonly SeriesDef[]
-  // Pixel height of the plot. Defaults to the Charts tab's full-size chart.
-  height?: number
   // Dashed marker lines; one whose unit has no axis here is skipped.
   referenceLines?: readonly ChartReferenceLine[]
-  // Charts sharing an id share one crosshair. They must plot the same rows.
-  syncId?: string
 }
 
 // Recharts hands the tooltip an untyped payload; this is the slice we use.
@@ -136,9 +129,7 @@ function TelemetryTooltip({ active, payload, series }: TelemetryTooltipProps) {
 export default function TelemetryChart({
   rows,
   series,
-  height = CHART_HEIGHT,
   referenceLines = [],
-  syncId,
 }: TelemetryChartProps) {
   const { t } = useTranslation(['device'])
 
@@ -168,12 +159,8 @@ export default function TelemetryChart({
 
   return (
     <div className="chart-frame telemetry-chart">
-      <ResponsiveContainer width="100%" height={height}>
-        <LineChart
-          data={rows as ChartRow[]}
-          margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
-          syncId={syncId}
-        >
+      <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+        <LineChart data={rows as ChartRow[]} margin={{ top: 8, right: 8, bottom: 4, left: 8 }}>
           {/* Horizontal rules only: vertical ones compete with the lines. */}
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
 

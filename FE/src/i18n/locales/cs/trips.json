@@ -24,11 +24,8 @@
     "addName": "Přidat název…",
     "back": "Jízdy",
     "charts": {
-      "acceleration": "Zrychlení",
-      "altitude": "Nadmořská výška",
       "averageLine": "průměr {{speed}}",
-      "battery": "Baterie",
-      "speed": "Rychlost"
+      "title": "Grafy"
     },
     "endGapBody": "Tracker dlouho neposílal data a auto bylo mezitím jinde, takže zobrazený konec je jeho poslední poloha před výpadkem.",
     "endGapTitle": "Tato jízda skončila dlouhým výpadkem",
