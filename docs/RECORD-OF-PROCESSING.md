@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-10-09`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-11-09`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle

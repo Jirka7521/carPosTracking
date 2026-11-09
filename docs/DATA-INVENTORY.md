@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-10-09`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-11-09`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
