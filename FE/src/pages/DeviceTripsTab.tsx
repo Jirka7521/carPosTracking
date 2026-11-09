@@ -355,11 +355,30 @@ export function DeviceTripsTab() {
     }
   }
 
+  // Applies a journey change to the list on screen at once, ahead of the reload
+  // that confirms it. Without this, opening a journey just created would show
+  // "This journey does not exist" until the list caught up.
+  function patchJourneys(change: (journeys: JourneyDto[]) => JourneyDto[]): void {
+    setJourneyList((current) =>
+      current === null || current.deviceId !== device.deviceId
+        ? current
+        : { ...current, value: { ...current.value, journeys: change(current.value.journeys) } },
+    )
+  }
+
   async function confirmDelete(journey: JourneyDto): Promise<void> {
     setIsBusy(true)
     setActionError('')
     try {
       await deleteJourney(device.deviceId, journey.id)
+      // Its sub-journeys move up to its parent, as the server just did.
+      patchJourneys((journeys) =>
+        journeys
+          .filter((candidate) => candidate.id !== journey.id)
+          .map((candidate) =>
+            candidate.parentId === journey.id ? { ...candidate, parentId: journey.parentId } : candidate,
+          ),
+      )
       setDialog(null)
       // The deleted journey's contents went to its parent, so that is where to look.
       void navigate(linkFor(journey.parentId ?? 'all'))
@@ -372,6 +391,7 @@ export function DeviceTripsTab() {
   }
 
   function handleJourneySaved(saved: JourneyDto, created: boolean): void {
+    patchJourneys((journeys) => [...journeys.filter((candidate) => candidate.id !== saved.id), saved])
     setDialog(null)
     reloadAfterChange()
     if (created) {
