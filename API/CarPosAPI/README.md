@@ -197,7 +197,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-10-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-11-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -265,9 +265,9 @@ safe to run twice** — see the comments in `DeviceService.CreateAsync` and
 `DeviceConfigRevisionWriter` for the two traps (a change tracker still holding the
 failed attempt's entities, and an in-memory counter already incremented by it).
 
-**Neither background worker can take the API down.** The MQTT ingest and the
-schedule worker each supervise their own loop and restart it after a bounded
-pause, and the host is configured not to stop when a background service throws. A
+**No background worker can take the API down.** The MQTT ingest, the schedule
+worker and the trip worker each supervise their own loop and restart it after a
+bounded pause (the trip worker backs off from 1 up to 10 minutes), and the host is configured not to stop when a background service throws. A
 worker that dies anyway shows up on `/health` rather than as an outage.
 
 ### `Hosting:PathBase` — published under a path prefix
@@ -936,6 +936,15 @@ from.
 by the same two paths, and over the same range by `DELETE …/positions` — it records
 when the vehicle was in use just as surely as the trail does.
 
+Trips are derived data kept to a minimum: only each trip's start time is stored
+(see [Trips and journeys](#trips-and-journeys)), so erasing positions leaves no
+stored trace of a route. `DELETE …/positions` deletes the trips that started in the
+erased range, names and manual placements included, and marks the range for
+recomputation; journeys survive it, without those trips, until a user deletes them. Deleting a
+device with the account deletes its trips, journeys and thresholds. The export
+carries, per device, `tripDetectionSettings` (null while the defaults apply),
+`journeys[]` and `trips[]`, through the same `*ExportRow` records.
+
 Positions are **never** deleted automatically. There is no retention job and no
 TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
 a location history. That choice, and why it is stated plainly rather than papered
@@ -1532,6 +1541,82 @@ subscribes successfully, never receives a bundle, keeps running whatever the
 config topic last told it, and looks completely healthy. The dashboard is where it
 shows up — the banner reports the device has never said which profile it is
 running. This is the same trap the ack topic has, and it has caught us before.
+
+## Trips and journeys
+
+A **trip** runs from one stop to the next. The tracker knows nothing about trips;
+the API works them out from stored positions, in
+[`Services/Trips/`](Services/Trips/). The firmware, the MQTT topics and the device
+contract are unchanged by any of it.
+
+**A stop is a place, not a gap.** A parked car keeps reporting (about 15 min
+awake, then a fix every 20 min), so silence alone means little. A stop is a run of
+fixes that stay within the stop radius of the first one for at least the minimum
+stop (`StopFinder`). Two rules cover silence: a gap after the car had already
+stood still for 5 min counts as parked time, because the firmware only sleeps
+after standing still; and a gap of 2 h or more across which the car moved further
+than the radius ends the trip, rather than inventing a straight-line drive. A trip
+shorter than the minimum distance is dropped as GNSS drift. The thresholds are per
+device (`…/trip-settings`; Expert-only in the dashboard), and a device with no row
+in `device_trip_settings` uses the defaults:
+
+| Threshold | Default | Allowed |
+|---|---|---|
+| Minimum stop that ends a trip | 20 min | 1 min – 4 h |
+| Stop radius | 150 m | 20 – 1000 m |
+| Shortest trip kept | 500 m | 0 – 20 km |
+
+**Only starts are stored.** A `trips` row is a start time plus what the user did
+with it (name, journey). The end, distance, duration and speeds are rebuilt from
+`positions` on every read by `TripSegmentAnalyzer`, which walks the fixes with the
+same `StopFinder` the detector used — so the end a read finds is the end the
+detector meant, and nothing derived can go stale. Reads are bounded: one list page
+or one trip reads at most 100,000 fixes, and trips past that budget come back with
+`statsPending: true` for the dashboard to fetch one at a time; a range or journey
+summary reads at most 500,000.
+
+**Detection follows saves, not a clock.** `PositionWriter` raises
+`ITripDetectionSignal` after every batch that stored at least one row. The call
+never blocks and never throws, and ingest never touches the trip tables, so a
+detection bug — or the `AddTrips` migration not yet applied — cannot cost a
+position. `TripDetectionWorker` wakes on that signal and runs a pass at once;
+signals that arrive during a pass fold into a single follow-up. When no data
+arrives, nothing runs. The only other passes are one at startup (catch-up, and on
+the very first start a backfill of the whole history), an immediate follow-up
+while a pass has work left over its 20 s budget, and retries after a failure
+(1 min, doubling up to 10 min). Saving thresholds and erasing positions raise the
+same signal.
+
+A pass reads positions above a single id cursor, marks each device dirty from its
+earliest new fix — a late SD-card backlog included — and recomputes only from the
+stop before that point. It applies the result under the device's
+`trip_detection_state` lock and updates rows in place, so trip ids, names and
+manual placements survive a recompute. While a mark older than an hour is still
+pending (new thresholds, a long offline backlog), the list answers
+`isRecalculating: true` and the dashboard shows a banner. The `trips` entry of
+[`/health`](#the-health-endpoint) reports the last pass.
+
+**Journeys** group one device's trips: nested up to 5 levels, at most 10,000 per
+device, names unique among siblings. A trip is in
+
+1. the journey a user put it in by hand (`journey_pinned`; pinned to no journey
+   means "taken out by hand"), otherwise
+2. the innermost journey whose date range `[range_from, range_to)` contains its
+   start — evaluated at query time, so a range keeps collecting trips that are
+   detected later — otherwise
+3. no journey.
+
+Ranges on one device must be disjoint or nested (`journeyRangeOverlap`), which is
+what keeps "innermost" unique. Saving a journey never rewrites trips, except that
+`includePinned: true` hands the trips in its range that were placed elsewhere by
+hand back to the range rule. Deleting a journey moves its sub-journeys up a level
+and pins its trips to the parent (at the top level they go back to automatic);
+trips are never deleted with a journey.
+
+**Who may do what.** Any access grant reads a device's trips, journeys and
+thresholds; organising them — names, journeys, moves, thresholds — needs
+`CanModifySettings` (403 `noPermissionManageTrips`). Temporary share links do not
+expose trips.
 
 ## Build, test, run
 
