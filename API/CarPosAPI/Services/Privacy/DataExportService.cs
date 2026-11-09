@@ -18,7 +18,8 @@ namespace CarPosAPI.Services.Privacy;
 /// private key to whoever asked. The three entities that carry secrets, <c>User</c>,
 /// <c>Device</c> and <c>ShareLink</c>, are therefore never written directly: each goes
 /// through a dedicated export record that has no field to leak. The rest (positions,
-/// connection events, configuration revisions) hold no secrets at all. <c>DataExportShapeTests</c> pins the
+/// connection events, configuration revisions, trips and journeys) hold no secrets at
+/// all. <c>DataExportShapeTests</c> pins the
 /// records down against the serialised bytes. Keep both when this shape changes.
 ///
 /// Scoped: it holds the request's <see cref="CarPosDbContext"/>.
@@ -105,7 +106,9 @@ internal sealed class DataExportService : IDataExportService
             "notice",
             "Everything carPosTracking holds about this account, exported under GDPR Art. 15 and 20. "
             + "The position history and each device's event history (when it went offline and "
-            + "why, woke up, started or stopped moving) are complete and uncapped. Secrets - the "
+            + "why, woke up, started or stopped moving) are complete and uncapped. Each device's "
+            + "trips are listed by their start, name and journey only: their ends, distances and "
+            + "speeds are worked out from the positions and are not stored. Secrets - the "
             + "password hash and device "
             + "private keys - are deliberately excluded: they are not personal data to port, and "
             + "copying them out of the system would only weaken it.");
@@ -544,6 +547,7 @@ internal sealed class DataExportService : IDataExportService
 
             total += await WritePositionsAsync(writer, device.RowId, cancellationToken);
             await WriteStatusEventsAsync(writer, device.RowId, cancellationToken);
+            await WriteTripsAsync(writer, device.RowId, cancellationToken);
 
             writer.WriteEndObject();
         }
@@ -652,6 +656,125 @@ internal sealed class DataExportService : IDataExportService
         }
 
         writer.WriteEndArray();
+    }
+
+    /// <summary>
+    /// Writes what is stored about one device's trips into the open object: its
+    /// trip-detection thresholds when they differ from the defaults, its journeys, and
+    /// its trips — each trip only as its start, its name and where it was placed by
+    /// hand. A trip's end and figures are derived from the positions above and are not
+    /// stored, so there is nothing more to hand over. Trips are streamed and flushed
+    /// like the positions: a long history holds thousands.
+    /// </summary>
+    /// <param name="writer">The open JSON writer, positioned inside a device object.</param>
+    /// <param name="deviceRowId">Internal device id to filter on.</param>
+    /// <param name="cancellationToken">Cancels the queries and the write.</param>
+    /// <returns>Completes when the three properties are written.</returns>
+    private async Task WriteTripsAsync(
+        Utf8JsonWriter writer,
+        Guid deviceRowId,
+        CancellationToken cancellationToken)
+    {
+        TripSettingsExportRow? settings = await _context.DeviceTripSettings
+            .AsNoTracking()
+            .Where(candidate => candidate.DeviceId == deviceRowId)
+            .Select(candidate => new TripSettingsExportRow(
+                candidate.MinStopSeconds,
+                candidate.StopRadiusMeters,
+                candidate.MinTripDistanceMeters,
+                candidate.UpdatedAt))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (settings is null)
+        {
+            writer.WriteNull("tripDetectionSettings");
+        }
+        else
+        {
+            writer.WriteStartObject("tripDetectionSettings");
+            writer.WriteNumber("minStopSeconds", settings.MinStopSeconds);
+            writer.WriteNumber("stopRadiusMeters", settings.StopRadiusMeters);
+            writer.WriteNumber("minTripDistanceMeters", settings.MinTripDistanceMeters);
+            writer.WriteString("updatedAtUtc", settings.UpdatedAt);
+            writer.WriteEndObject();
+        }
+
+        List<JourneyExportRow> journeys = await _context.Journeys
+            .AsNoTracking()
+            .Where(journey => journey.DeviceId == deviceRowId)
+            .OrderBy(journey => journey.CreatedAt)
+            .Select(journey => new JourneyExportRow(
+                journey.Id,
+                journey.ParentId,
+                journey.Name,
+                journey.RangeFrom,
+                journey.RangeTo,
+                journey.CreatedAt,
+                journey.UpdatedAt))
+            .ToListAsync(cancellationToken);
+
+        writer.WriteStartArray("journeys");
+
+        foreach (JourneyExportRow journey in journeys)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", journey.Id);
+            WriteNullableGuid(writer, "parentId", journey.ParentId);
+            writer.WriteString("name", journey.Name);
+            WriteNullableDateTime(writer, "rangeFromUtc", journey.RangeFrom);
+            WriteNullableDateTime(writer, "rangeToUtc", journey.RangeTo);
+            writer.WriteString("createdAtUtc", journey.CreatedAt);
+            writer.WriteString("updatedAtUtc", journey.UpdatedAt);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+
+        long written = 0;
+
+        writer.WriteStartArray("trips");
+
+        IAsyncEnumerable<TripExportRow> stream = _context.Trips
+            .AsNoTracking()
+            .Where(trip => trip.DeviceId == deviceRowId)
+            .OrderBy(trip => trip.StartTime)
+            .Select(trip => new TripExportRow(trip.Id, trip.StartTime, trip.JourneyId, trip.JourneyPinned, trip.Name))
+            .AsAsyncEnumerable();
+
+        await foreach (TripExportRow trip in stream.WithCancellation(cancellationToken))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", trip.Id);
+            writer.WriteString("startTimeUtc", trip.StartTime);
+            WriteNullableGuid(writer, "journeyId", trip.JourneyId);
+            writer.WriteBoolean("journeyPlacedByHand", trip.JourneyPinned);
+            writer.WriteString("name", trip.Name);
+            writer.WriteEndObject();
+
+            written++;
+            if (written % FlushEveryRows == 0)
+            {
+                await writer.FlushAsync(cancellationToken);
+            }
+        }
+
+        writer.WriteEndArray();
+    }
+
+    /// <summary>Writes a nullable id, as a value or an explicit null.</summary>
+    /// <param name="writer">The open JSON writer.</param>
+    /// <param name="propertyName">Name of the JSON property.</param>
+    /// <param name="value">The id, or null.</param>
+    private static void WriteNullableGuid(Utf8JsonWriter writer, string propertyName, Guid? value)
+    {
+        if (value.HasValue)
+        {
+            writer.WriteString(propertyName, value.Value);
+        }
+        else
+        {
+            writer.WriteNull(propertyName);
+        }
     }
 
     /// <summary>Writes a nullable timestamp, as a value or an explicit null.</summary>

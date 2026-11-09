@@ -246,7 +246,10 @@ granted, device nicknames, the temporary share links and open invitations this a
 created (`invitationsMade`, without any part of the link), metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
 history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
-readable device** — uncapped.
+readable device** — uncapped. Each readable device also carries its `tripDetectionSettings`
+(null while it uses the defaults), its `journeys`, and its `trips` — each trip as stored:
+start time, name, and the journey it was placed in by hand. Trip ends and figures are not
+stored, so they are not in the file; they follow from the positions beside them.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised
