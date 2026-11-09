@@ -4,9 +4,10 @@
 // This component is mounted at /device/:deviceId — where :deviceId is the
 // tracker's MQTT identity, e.g. "GNSS01" — and renders:
 //   1. A breadcrumb "← Devices / <device name>"
-//   2. A five-tab bar: Map · Positions · Charts · Events · Settings. Events is
-//      shown in Expert mode only (see uiMode/context.ts); its route redirects
-//      to the map in Normal mode, so the bar never lacks the active tab.
+//   2. A six-tab bar: Map · Positions · Trips · Charts · Events · Settings.
+//      Events is shown in Expert mode only (see uiMode/context.ts); its route
+//      redirects to the map in Normal mode, so the bar never lacks the active
+//      tab.
 //   3. An <Outlet /> where the active tab component is rendered
 //
 // It loads the device from the API on mount and passes the result
@@ -298,6 +299,15 @@ export function DevicePage() {
           className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
         >
           📋 {t('device:tabs.positions')}
+        </NavLink>
+
+        {/* Must stay without `end`: a trip's own page lives under trips/, and
+            the tab should stay lit there too. */}
+        <NavLink
+          to="trips"
+          className={({ isActive }) => `device-tab${isActive ? ' active' : ''}`}
+        >
+          🚗 {t('device:tabs.trips')}
         </NavLink>
 
         <NavLink

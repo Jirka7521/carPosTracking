@@ -204,6 +204,7 @@
     "label": "Device sections",
     "map": "Map",
     "positions": "Positions",
-    "settings": "Settings"
+    "settings": "Settings",
+    "trips": "Trips"
   }
 }

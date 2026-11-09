@@ -124,7 +124,7 @@ The choice is remembered in `localStorage` under `carpos.language`, the same `ca
 | [`src/i18n/format.ts`](src/i18n/format.ts) | the one place `Intl` is configured — dates and numbers |
 | `src/i18n/locales/<lang>/*.json` | the catalogues, one file per namespace |
 
-Nine namespaces, following the route areas so a screen's strings sit together: `common` (buttons, units, weekdays, relative times, permissions), `auth`, `home`, `device` (the shell and the map / positions / charts tabs), `settings` (device settings, config panels, firmware table), `schedule`, `profile`, `errors`, and `legal` (the privacy policy and the legal notice).
+Eleven namespaces, following the route areas so a screen's strings sit together: `common` (buttons, units, weekdays, relative times, permissions), `auth`, `home`, `device` (the shell and the map / positions / charts tabs), `trips` (the Trips tab and its journeys), `settings` (device settings, config panels, firmware table), `schedule`, `profile`, `share` (temporary share links), `errors`, and `legal` (the privacy policy and the legal notice).
 
 **Catalogues are bundled, not fetched.** There is no `i18next-http-backend` on purpose: anything fetched at runtime would have to have `BASE_PATH` prepended or it 404s behind the `/carPosFE` prefix while working perfectly at the root — see [Referring to an asset](#referring-to-an-asset), which is the same trap. Two small languages cost a few kB gzipped, and i18next is ready synchronously, so there is no loading gate and no flash of untranslated text.
 
@@ -235,6 +235,18 @@ FE/
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
 │   │   ├── CapabilityCheckboxes.tsx  Permission flag checkboxes (Delete / Share / Settings)
+│   │   ├── JourneySidebar.tsx     Trips tab's left column: All / Not in a journey / the journey tree + search
+│   │   ├── JourneyTreeItem.tsx    One journey in that tree; children drawn only while it is open
+│   │   ├── JourneyOverview.tsx    An open journey's header: path, date rule, totals, sub-journeys
+│   │   ├── JourneyDialog.tsx      Create / edit a journey, with the live date-range preview
+│   │   ├── JourneyDeleteDialog.tsx  Confirms a delete and says where the contents go
+│   │   ├── JourneyMoveDialog.tsx  "Move N trips to…" around a JourneyPicker
+│   │   ├── JourneyPicker.tsx      Search box over the journey list — for thousands of journeys
+│   │   ├── TripDayGroup.tsx       One day of the trip list with its totals
+│   │   ├── TripRow.tsx            One trip: times, distance, duration, average speed
+│   │   ├── TripFigure.tsx         A computed figure: the value, "…" while pending, or —
+│   │   ├── TripListEmpty.tsx      What an empty trip list says, per view
+│   │   ├── TripSelectionBar.tsx   Sticky bar for selected trips: move, remove, back to automatic
 │   │   ├── PersonalInfoSection.tsx   Edit first/last name form (used on Profile page)
 │   │   └── ChangePasswordSection.tsx Change password form (used on Profile page)
 │   ├── pages/                     Full-page route components
@@ -245,6 +257,7 @@ FE/
 │   │   ├── DevicePage.tsx         Device shell — loads device data, owns the page's refresh timer, renders the tab bar
 │   │   ├── DeviceMapTab.tsx       Map tab — live Google Maps view with auto-refresh
 │   │   ├── PositionListTab.tsx    Positions tab — paginated GPS position table
+│   │   ├── DeviceTripsTab.tsx     Trips tab — detected trips by day, organised into nested journeys
 │   │   ├── DeviceChartsTab.tsx    Charts tab — plot selected telemetry series over time
 │   │   ├── DeviceEventsTab.tsx    Events tab — device history: offline and why, restarts, wakes, motion steps
 │   │   └── DeviceSettingsTab.tsx  Settings tab — info, alias, firmware config (Expert mode), sharing, delete
@@ -257,6 +270,8 @@ FE/
 │       ├── devices.ts             Device label fallback (customName → displayName → deviceId)
 │       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
+│       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges
+│       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
 │       ├── ackKeyPair.ts          WebCrypto RSA-3072 ack key generation (private half never uploaded)
 │       ├── firmwareParameters.ts  Static table of every Config.h constant, for the reference panel
@@ -293,6 +308,7 @@ FE/
 | `/invite/:token` | protected | An invitation to share someone's device: shows the offer and lets the signed-in visitor accept or decline. Signing in first brings them back here. nginx redacts `/invite/` paths in its access log |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
+| `/device/:deviceId/trips` | protected | Trips the server detected, newest first and grouped by day, and the journeys they are organised into. `?journey=all` (default), `none` (in no journey) or a journey id picks the view, so it survives a reload and Back. Organising needs `canModifySettings`; reading needs any grant. Ignores the shared date range — older trips are paged in |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
 | `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors. Expert mode only: in Normal mode the tab is hidden and the route redirects to `map` |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config in Expert mode, sharing, erase position history, delete) |
@@ -315,7 +331,7 @@ are unchanged.
 
 | | Normal (default) | Expert |
 |---|---|---|
-| Device tabs | Map, Positions, Charts, Settings | + Events |
+| Device tabs | Map, Positions, Trips, Charts, Settings | + Events |
 | Reporting & Power | Wake-on-motion switch, report interval (parked + moving when motion wake is on), wait for movement after a wake ([`BasicConfigFields`](src/components/BasicConfigFields.tsx)) | Every setting ([`ConfigValuesFields`](src/components/ConfigValuesFields.tsx)) |
 | Reporting & Power while a schedule is on | Hidden — settings come from the profiles | Shown, as a temporary override |
 | Firmware configuration | Hidden | Shown |

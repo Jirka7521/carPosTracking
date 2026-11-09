@@ -40,6 +40,10 @@ import type {
   DeviceProvisioningDto,
   DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
+  JourneyDto,
+  JourneyListDto,
+  JourneySaveRequestDto,
+  JourneySummaryDto,
   MapsConsentDto,
   MapsConsentGrantRequestDto,
   PositionDto,
@@ -53,6 +57,12 @@ import type {
   ShareLinkUpdateRequestDto,
   ShareSessionDto,
   SharedViewDto,
+  TripAssignRequestDto,
+  TripAssignResultDto,
+  TripPageDto,
+  TripRangeSummaryDto,
+  TripRenameRequestDto,
+  TripSummaryDto,
   UpdateDeviceScheduleRequestDto,
   UserProfileDto,
   UserUpdateRequestDto,
@@ -609,6 +619,110 @@ export async function fetchDeviceEvents(
   return request<DeviceEventDto[]>('GET', `/devices/${segment(deviceId)}/events`, {
     query: { from: query.from, to: query.to, minSeverity: query.minSeverity, limit: query.limit },
   })
+}
+
+// ----- Trips and journeys -----
+//
+// The server detects trips and keeps only each one's start; everything else in a
+// TripSummaryDto is rebuilt from the positions for every answer. Reading needs any
+// grant; organising (journeys, moves, names) needs CanModifySettings.
+
+// Which trips a list page holds: every trip, the ones in no journey, or the ones
+// directly in one journey (not its sub-journeys).
+export type TripListFilter = 'all' | 'none' | string
+
+export type TripListQuery = {
+  journey: TripListFilter
+  // A previous page's nextCursor: the next page holds the trips that started
+  // before it. Omitted for the newest page.
+  before?: string
+  limit?: number
+}
+
+export async function fetchTrips(deviceId: string, query: TripListQuery): Promise<TripPageDto> {
+  return request<TripPageDto>('GET', `/devices/${segment(deviceId)}/trips`, {
+    query: { journey: query.journey, before: query.before, limit: query.limit },
+  })
+}
+
+// One trip, with its statistics always computed — what a list row whose
+// statsPending was true is filled in from.
+export async function fetchTrip(deviceId: string, tripId: number): Promise<TripSummaryDto> {
+  return request<TripSummaryDto>('GET', `/devices/${segment(deviceId)}/trips/${segment(tripId)}`)
+}
+
+// An empty name clears it.
+export async function renameTrip(deviceId: string, tripId: number, name: string): Promise<void> {
+  const body: TripRenameRequestDto = { name }
+  await request<null>('PUT', `/devices/${segment(deviceId)}/trips/${segment(tripId)}`, { body })
+}
+
+// Pins trips to a journey (journeyId null: to no journey), or hands them back to
+// the journeys' date ranges with `automatic: true`.
+export async function assignTrips(
+  deviceId: string,
+  payload: TripAssignRequestDto,
+): Promise<TripAssignResultDto> {
+  return request<TripAssignResultDto>('POST', `/devices/${segment(deviceId)}/trips/assign`, {
+    body: payload,
+  })
+}
+
+// The journey dialog's preview: the trips that start in [from, to), and how many
+// of them were placed by hand somewhere other than `journeyId` (the journey being
+// edited, or none for a new one).
+export async function fetchTripRangeSummary(
+  deviceId: string,
+  from: string,
+  to: string,
+  journeyId?: string,
+): Promise<TripRangeSummaryDto> {
+  return request<TripRangeSummaryDto>('GET', `/devices/${segment(deviceId)}/trips/summary`, {
+    query: { from, to, journeyId },
+  })
+}
+
+// Every journey of the device, flat — the tree is built from parentId.
+export async function fetchJourneys(deviceId: string): Promise<JourneyListDto> {
+  return request<JourneyListDto>('GET', `/devices/${segment(deviceId)}/journeys`)
+}
+
+// A journey's totals, sub-journeys included. Computed on request, so it is asked
+// for only once the journey is open, after its list.
+export async function fetchJourneySummary(
+  deviceId: string,
+  journeyId: string,
+): Promise<JourneySummaryDto> {
+  return request<JourneySummaryDto>(
+    'GET',
+    `/devices/${segment(deviceId)}/journeys/${segment(journeyId)}/summary`,
+  )
+}
+
+export async function createJourney(
+  deviceId: string,
+  payload: JourneySaveRequestDto,
+): Promise<JourneyDto> {
+  return request<JourneyDto>('POST', `/devices/${segment(deviceId)}/journeys`, { body: payload })
+}
+
+export async function updateJourney(
+  deviceId: string,
+  journeyId: string,
+  payload: JourneySaveRequestDto,
+): Promise<JourneyDto> {
+  return request<JourneyDto>(
+    'PUT',
+    `/devices/${segment(deviceId)}/journeys/${segment(journeyId)}`,
+    { body: payload },
+  )
+}
+
+// Deletes a journey and moves what it held up one level: its sub-journeys to its
+// parent, its trips pinned to the parent (out of every journey at the top).
+// Trips themselves are never deleted.
+export async function deleteJourney(deviceId: string, journeyId: string): Promise<void> {
+  await request<null>('DELETE', `/devices/${segment(deviceId)}/journeys/${segment(journeyId)}`)
 }
 
 // ----- Access grants -----
