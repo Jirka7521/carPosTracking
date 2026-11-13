@@ -12,9 +12,16 @@
 // list), the open view on the right — "All trips", "Not in a journey", or one
 // journey with its header (JourneyOverview) and the trips directly in it.
 //
-// The view lives in the address (?journey=all|none|<id>), not in DevicePage's
-// shared state: it is a place, so it should survive a reload, be linkable, and
-// be what the browser's Back button and a trip page's "← Trips" return to.
+// The view lives in the address (?journey=all|none|<id>, or ?view=rules for the
+// car's place rules), not in DevicePage's shared state: it is a place, so it
+// should survive a reload, be linkable, and be what the browser's Back button
+// and a trip page's "← Trips" return to. A trip page's "Place rule from here"
+// arrives with ?newRuleAt=<lat>,<lon> (and ?newRuleJourney=<id>), which opens
+// the rule dialog on that spot and is then dropped from the address.
+//
+// Place rules put the trips that start or end at a place into a journey; like a
+// journey's dates they are applied by the server at every read, so saving or
+// ending one simply reloads the list.
 // Unlike the other tabs this one ignores the shared date range — trips are
 // paged back through history instead ("Load older trips").
 //
@@ -40,9 +47,17 @@ import type { To } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatInteger } from '../i18n/format'
 import type { DevicePageContext } from './DevicePage'
-import { assignTrips, deleteJourney, fetchJourneys, fetchTrip, fetchTrips } from '../services/apiClient'
+import {
+  assignTrips,
+  deleteJourney,
+  endLocationRule,
+  fetchJourneys,
+  fetchLocationRules,
+  fetchTrip,
+  fetchTrips,
+} from '../services/apiClient'
 import type { TripListFilter } from '../services/apiClient'
-import type { JourneyDto, JourneyListDto, TripSummaryDto } from '../services/apiTypes'
+import type { JourneyDto, JourneyListDto, LocationRuleDto, TripSummaryDto } from '../services/apiTypes'
 import { RefreshToolbar } from '../components/RefreshToolbar'
 import { JourneySidebar } from '../components/JourneySidebar'
 import { JourneyOverview } from '../components/JourneyOverview'
@@ -50,6 +65,11 @@ import { JourneyDialog } from '../components/JourneyDialog'
 import type { JourneyDialogMode } from '../components/JourneyDialog'
 import { JourneyDeleteDialog } from '../components/JourneyDeleteDialog'
 import { JourneyMoveDialog } from '../components/JourneyMoveDialog'
+import { LocationRuleDialog } from '../components/LocationRuleDialog'
+import type { LocationRuleDialogMode } from '../components/LocationRuleDialog'
+import { LocationRuleEndDialog } from '../components/LocationRuleEndDialog'
+import { LocationRulesView } from '../components/LocationRulesView'
+import type { PickedPoint } from '../components/LocationPickerMap'
 import { TripDayGroup } from '../components/TripDayGroup'
 import { TripListEmpty } from '../components/TripListEmpty'
 import { TripRow } from '../components/TripRow'
@@ -63,6 +83,7 @@ import {
   TRIP_PAGE_SIZE,
   appendOlderPage,
   groupTripsByDay,
+  locationRuleLabel,
   mergeNewestPage,
   replaceTrip,
 } from '../utils/trips'
@@ -85,7 +106,12 @@ type DialogState =
   | { kind: 'journey'; mode: JourneyDialogMode }
   | { kind: 'delete'; journey: JourneyDto }
   | { kind: 'move' }
+  | { kind: 'rule'; mode: LocationRuleDialogMode }
+  | { kind: 'endRule'; rule: LocationRuleDto }
   | null
+
+// The address of the "Place rules" view.
+const RULES_VIEW: To = { search: '?view=rules' }
 
 export function DeviceTripsTab() {
   const { t } = useTranslation(['trips', 'common', 'errors'])
@@ -95,6 +121,9 @@ export function DeviceTripsTab() {
   const [searchParams] = useSearchParams()
 
   const filter: TripListFilter = parseFilter(searchParams.get('journey'))
+  const isRulesView: boolean = searchParams.get('view') === 'rules'
+  const newRuleAt: PickedPoint | null = parsePoint(searchParams.get('newRuleAt'))
+  const newRuleJourney: string | null = parseJourneyId(searchParams.get('newRuleJourney'))
   const canManage: boolean = device.permissions.canModifySettings
   const listKey: string = `${device.deviceId}|${filter}`
 
@@ -106,6 +135,9 @@ export function DeviceTripsTab() {
 
   const [journeyList, setJourneyList] = useState<{ deviceId: string; value: JourneyListDto } | null>(null)
   const [journeysError, setJourneysError] = useState<string>('')
+
+  const [ruleList, setRuleList] = useState<{ deviceId: string; value: LocationRuleDto[] } | null>(null)
+  const [rulesError, setRulesError] = useState<string>('')
 
   const [list, setList] = useState<TripList | null>(null)
   const [tripsError, setTripsError] = useState<{ key: string; message: string } | null>(null)
@@ -145,9 +177,65 @@ export function DeviceTripsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.deviceId, refresh.token, changeToken])
 
+  // ---- Place rules ----
+  // Re-read with the journeys: their trip counts change with the trips.
+  useEffect(() => {
+    let canceled = false
+    fetchLocationRules(device.deviceId)
+      .then((value) => {
+        if (!canceled) {
+          setRuleList({ deviceId: device.deviceId, value })
+          setRulesError('')
+        }
+      })
+      .catch((error: unknown) => {
+        if (!canceled) {
+          setRulesError(describeError(error, t('errors:loadLocationRulesFailed')))
+        }
+      })
+    return () => {
+      canceled = true
+    }
+    // `t` is deliberately absent: a language switch must not refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device.deviceId, refresh.token, changeToken])
+
+  const rules: LocationRuleDto[] | null =
+    ruleList !== null && ruleList.deviceId === device.deviceId ? ruleList.value : null
+  const ruleLabels: ReadonlyMap<string, string> = useMemo(
+    () => new Map<string, string>((rules ?? []).map((rule) => [rule.id, locationRuleLabel(rule)])),
+    [rules],
+  )
+  const activeRuleCount: number = (rules ?? []).filter((rule) => rule.endedAt === null).length
+
   const journeys: JourneyListDto | null =
     journeyList !== null && journeyList.deviceId === device.deviceId ? journeyList.value : null
   const tree: JourneyTree = useMemo(() => buildJourneyTree(journeys?.journeys ?? []), [journeys])
+
+  // ---- "Place rule from here" from a trip's page ----
+  // Opens the dialog on that spot once the journeys are known (the dialog picks
+  // the journey from them), then drops the request from the address so a reload
+  // or Back does not open it again.
+  const newRuleAtText: string | null = searchParams.get('newRuleAt')
+  const journeysLoaded: boolean = journeys !== null
+  const [handledNewRuleAt, setHandledNewRuleAt] = useState<string | null>(null)
+  if (newRuleAtText !== null && newRuleAtText !== handledNewRuleAt && journeysLoaded) {
+    // Adjusting state while rendering (not in an effect), once per request.
+    setHandledNewRuleAt(newRuleAtText)
+    if (canManage && newRuleAt !== null) {
+      setActionError('')
+      setNotice('')
+      setDialog({
+        kind: 'rule',
+        mode: { kind: 'create', journeyId: newRuleJourney, center: newRuleAt },
+      })
+    }
+  }
+  useEffect(() => {
+    if (newRuleAtText !== null && journeysLoaded) {
+      void navigate(RULES_VIEW, { replace: true })
+    }
+  }, [newRuleAtText, journeysLoaded, navigate])
   const openJourney: JourneyDto | null =
     filter !== 'all' && filter !== 'none' ? (tree.byId.get(filter) ?? null) : null
   const isUnknownJourney: boolean =
@@ -399,9 +487,48 @@ export function DeviceTripsTab() {
     }
   }
 
+  // Shows a saved or ended rule at once, ahead of the reload that confirms it and
+  // re-sorts the trips it places.
+  function patchRule(saved: LocationRuleDto): void {
+    setRuleList((current) =>
+      current === null || current.deviceId !== device.deviceId
+        ? current
+        : {
+            ...current,
+            value: [saved, ...current.value.filter((candidate) => candidate.id !== saved.id)],
+          },
+    )
+  }
+
+  function openCreateRule(journeyId: string | null): void {
+    openDialog({ kind: 'rule', mode: { kind: 'create', journeyId, center: null } })
+  }
+
+  function handleRuleSaved(saved: LocationRuleDto): void {
+    patchRule(saved)
+    setDialog(null)
+    reloadAfterChange()
+  }
+
+  async function confirmEndRule(rule: LocationRuleDto): Promise<void> {
+    setIsBusy(true)
+    setActionError('')
+    try {
+      patchRule(await endLocationRule(device.deviceId, rule.id))
+      setDialog(null)
+      reloadAfterChange()
+    } catch (error) {
+      setActionError(describeError(error, t('errors:endLocationRuleFailed')))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   // ---- Rendering ----
   const currentLabel: string =
-    filter === 'all'
+    isRulesView
+      ? t('trips:locationRule.viewTitle')
+      : filter === 'all'
       ? t('trips:sidebar.allTrips')
       : filter === 'none'
         ? t('trips:sidebar.noJourney')
@@ -420,7 +547,9 @@ export function DeviceTripsTab() {
         ? notice
         : tripsError !== null && tripsError.key === listKey
           ? tripsError.message
-          : journeysError
+          : journeysError.length > 0
+            ? journeysError
+            : rulesError
 
   return (
     <div className="trips-layout">
@@ -433,6 +562,9 @@ export function DeviceTripsTab() {
         currentLabel={currentLabel}
         canManage={canManage}
         onNewJourney={() => openCreate(false, null)}
+        rulesLink={RULES_VIEW}
+        isRulesView={isRulesView}
+        activeRuleCount={activeRuleCount}
       />
 
       <section className="trips-main" aria-label={currentLabel}>
@@ -446,7 +578,17 @@ export function DeviceTripsTab() {
           </div>
         ) : null}
 
-        {openJourney !== null ? (
+        {isRulesView ? (
+          <LocationRulesView
+            rules={rules}
+            tree={tree}
+            canManage={canManage}
+            linkFor={linkFor}
+            onCreate={() => openCreateRule(null)}
+            onEdit={(rule) => openDialog({ kind: 'rule', mode: { kind: 'edit', rule } })}
+            onEnd={(rule) => openDialog({ kind: 'endRule', rule })}
+          />
+        ) : openJourney !== null ? (
           <JourneyOverview
             deviceId={device.deviceId}
             journey={openJourney}
@@ -457,6 +599,10 @@ export function DeviceTripsTab() {
             onEdit={() => openDialog({ kind: 'journey', mode: { kind: 'edit', journey: openJourney } })}
             onDelete={() => openDialog({ kind: 'delete', journey: openJourney })}
             onAddSubJourney={() => openCreate(false, openJourney.id)}
+            rules={rules ?? []}
+            onAddRule={() => openCreateRule(openJourney.id)}
+            onEditRule={(rule) => openDialog({ kind: 'rule', mode: { kind: 'edit', rule } })}
+            onEndRule={(rule) => openDialog({ kind: 'endRule', rule })}
           />
         ) : !isUnknownJourney ? (
           <h3 className="trips-view-title">
@@ -465,7 +611,11 @@ export function DeviceTripsTab() {
           </h3>
         ) : null}
 
-        {isUnknownJourney ? (
+        {isRulesView ? (
+          <p className="hint" role="status" style={{ marginBottom: 12 }}>
+            {statusMessage}
+          </p>
+        ) : isUnknownJourney ? (
           <div className="empty-state">
             <span className="empty-state-icon" aria-hidden="true">🧭</span>
             <h3>{t('trips:list.unknownJourneyTitle')}</h3>
@@ -494,6 +644,15 @@ export function DeviceTripsTab() {
                   onClick={() => openCreate(true, defaultParent)}
                 >
                   ＋ {t('trips:list.journeyFromDates')}
+                </button>
+              ) : null}
+              {canManage ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => openCreateRule(openJourney?.id ?? null)}
+                >
+                  ＋ {t('trips:locationRule.add')}
                 </button>
               ) : null}
               <span className="trips-toolbar-spacer" />
@@ -532,6 +691,9 @@ export function DeviceTripsTab() {
                           filter === 'all' && trip.journeyId !== null
                             ? (tree.byId.get(trip.journeyId)?.name ?? null)
                             : null
+                        }
+                        ruleLabel={
+                          trip.locationRuleId === null ? null : (ruleLabels.get(trip.locationRuleId) ?? null)
                         }
                       />
                     ))}
@@ -604,8 +766,49 @@ export function DeviceTripsTab() {
           onCancel={() => setDialog(null)}
         />
       ) : null}
+
+      {dialog?.kind === 'rule' ? (
+        <LocationRuleDialog
+          deviceId={device.deviceId}
+          tree={tree}
+          mode={dialog.mode}
+          onSaved={handleRuleSaved}
+          onCancel={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === 'endRule' ? (
+        <LocationRuleEndDialog
+          rule={dialog.rule}
+          journeyLabel={
+            dialog.rule.journeyId !== null && tree.byId.has(dialog.rule.journeyId)
+              ? journeyPathLabel(tree, dialog.rule.journeyId)
+              : null
+          }
+          isBusy={isBusy}
+          errorMessage={actionError}
+          onConfirm={() => void confirmEndRule(dialog.rule)}
+          onCancel={() => setDialog(null)}
+        />
+      ) : null}
     </div>
   )
+}
+
+// ?newRuleAt=<lat>,<lon> as a point, or null when absent or out of range.
+function parsePoint(value: string | null): PickedPoint | null {
+  const match: RegExpExecArray | null = value === null ? null : /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(value)
+  if (match === null) {
+    return null
+  }
+  const latitude: number = Number(match[1])
+  const longitude: number = Number(match[2])
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null
+}
+
+// A journey id from the address, lower-cased like the API writes it; null otherwise.
+function parseJourneyId(value: string | null): string | null {
+  return value !== null && UUID_PATTERN.test(value) ? value.toLowerCase() : null
 }
 
 // ?journey= as a view: "all" (also when absent or malformed), "none", or a

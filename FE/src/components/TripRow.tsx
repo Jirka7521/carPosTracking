@@ -9,7 +9,8 @@
 // The figures may still be pending or absent; TripFigure shows each state.
 //
 // The small markers say why a trip may look odd: 🟢 still being driven, 📌 put
-// where it is by hand, ⚠ the tracker went quiet for part of it.
+// where it is by hand, 📍 put there by a place rule, ⚠ the tracker went quiet
+// for part of it.
 // ============================================================
 
 import { Link } from 'react-router-dom'
@@ -31,6 +32,8 @@ export type TripRowProps = {
   // The name of the journey the trip is in, for the "All trips" view where rows
   // from many journeys sit together; null to show none.
   journeyName: string | null
+  // The label of the place rule that put the trip in its journey, or null.
+  ruleLabel: string | null
 }
 
 export function TripRow({
@@ -40,10 +43,17 @@ export function TripRow({
   selected,
   onToggleSelected,
   journeyName,
+  ruleLabel,
 }: TripRowProps) {
   const { t } = useTranslation('trips')
 
   const timeRange: string = describeTripTimes(trip)
+  const ruleTitle: string | null =
+    trip.journeySource === 'locationRule' && ruleLabel !== null
+      ? trip.locationRuleAtEnd === true
+        ? t('row.ruleEndTitle', { name: ruleLabel })
+        : t('row.ruleStartTitle', { name: ruleLabel })
+      : null
 
   return (
     <li className={`trip-row${selected ? ' trip-row--selected' : ''}`}>
@@ -80,6 +90,11 @@ export function TripRow({
                 role="img"
               >
                 📌
+              </span>
+            ) : null}
+            {ruleTitle !== null ? (
+              <span className="trip-row-marker" title={ruleTitle} aria-label={ruleTitle} role="img">
+                📍
               </span>
             ) : null}
             {trip.hasGap || trip.endKind === 'gap' ? (

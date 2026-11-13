@@ -20,8 +20,8 @@
 // calendar fields so it stays right across a DST change.
 // ============================================================
 
-import { formatDayMonth, formatTime } from '../i18n/format'
-import type { TripSummaryDto } from '../services/apiTypes'
+import { formatCoordinate, formatDayMonth, formatTime } from '../i18n/format'
+import type { LocationRuleDto, TripSummaryDto } from '../services/apiTypes'
 import { parseApiTimestamp } from './dates'
 
 // How many trips one list request asks for — the API's default page.
@@ -39,6 +39,14 @@ export const TRIP_SETTING_LIMITS = {
   stopRadiusMeters: { min: 20, max: 1_000, defaultValue: 150 },
   minTripDistanceMeters: { min: 0, max: 20_000, defaultValue: 500 },
 } as const
+
+// A location rule's radius bounds and default, mirroring TripRules on the API.
+export const LOCATION_RULE_RADIUS = { min: 50, max: 10_000, defaultValue: 200 } as const
+
+// How a location rule is named in lists: its label, or its centre when it has none.
+export function locationRuleLabel(rule: Pick<LocationRuleDto, 'name' | 'latitude' | 'longitude'>): string {
+  return rule.name ?? `${formatCoordinate(rule.latitude)}, ${formatCoordinate(rule.longitude)}`
+}
 
 // One calendar day of the list, with the totals its header shows.
 export type TripDay = {
