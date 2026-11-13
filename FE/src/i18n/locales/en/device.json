@@ -128,6 +128,7 @@
     },
     "latestTitle": "Latest position — click for details",
     "legend": "Map legend",
+    "legendCurrent": "Latest position — up to date",
     "legendLatest": "Latest position",
     "legendOverdue": "Latest position, overdue — no update for over {{duration}}",
     "legendTrack": "Recorded track — click it for the nearest position's details",

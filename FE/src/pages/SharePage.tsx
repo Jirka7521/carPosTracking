@@ -45,6 +45,7 @@ import { LanguageMenu } from '../components/LanguageMenu'
 import { SiteFooter } from '../components/SiteFooter'
 import { RefreshToolbar } from '../components/RefreshToolbar'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
+import { useIsOverdue } from '../hooks/useIsOverdue'
 import { formatDateTime } from '../i18n/format'
 import { parseApiTimestamp } from '../utils/dates'
 import { describeError } from '../utils/errors'
@@ -105,6 +106,12 @@ export function SharePage() {
   const [mapEpoch, setMapEpoch] = useState<number>(0)
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // Whether the latest position is overdue right now — one answer for the pin
+  // and the legend, so they can never disagree.
+  const isPinOverdue: boolean = useIsOverdue(
+    overdueAfter === null ? null : parseApiTimestamp(overdueAfter),
+  )
 
   // The single place the share is read. Three occasions reach it, and none of
   // them fetches for itself — each just bumps `loadToken`:
@@ -373,7 +380,7 @@ export function SharePage() {
             positions={positions}
             apiKey={runtimeConfig.googleMapsApiKey}
             fitToken={0}
-            overdueAfter={overdueAfter === null ? null : parseApiTimestamp(overdueAfter)}
+            isOverdue={isPinOverdue}
             hasStandingConsent={hasStandingMapsConsent}
             onGrantStandingConsent={handleGrantMapsConsent}
             consentScope="browser"
@@ -384,21 +391,23 @@ export function SharePage() {
           </div>
         )}
 
-        {/* What the pin's colours mean. The red entry gives no duration: the
-            tracker's reporting rhythm is a setting, and a visitor asking "where is
-            it" needs to know only whether this position is current. */}
+        {/* What holds NOW: the latest position is up to date or overdue (or
+            just "latest" when the server could not say). No duration: the
+            tracker's reporting rhythm is a setting, and a visitor asking "where
+            is it" needs to know only whether this position is current. */}
         {positions.length > 0 && hasGoogleMapsKey() ? (
           <div className="map-legend" aria-label={t('device:map.legend')}>
             <div className="map-legend-item">
-              <span className="legend-dot legend-dot--latest" aria-hidden="true" />
-              {t('share:visitor.legendLatest')}
+              <span
+                className={`legend-dot ${isPinOverdue ? 'legend-dot--overdue' : 'legend-dot--latest'}`}
+                aria-hidden="true"
+              />
+              {overdueAfter === null
+                ? t('share:visitor.legendLatest')
+                : isPinOverdue
+                  ? t('share:visitor.legendOverdue')
+                  : t('share:visitor.legendCurrent')}
             </div>
-            {overdueAfter !== null ? (
-              <div className="map-legend-item">
-                <span className="legend-dot legend-dot--overdue" aria-hidden="true" />
-                {t('share:visitor.legendOverdue')}
-              </div>
-            ) : null}
             {share.scope === 'fullTrack' ? (
               <div className="map-legend-item">
                 <span className="legend-line" aria-hidden="true" />

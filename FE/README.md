@@ -461,14 +461,21 @@ may be running: the current schedule plan's standby interval, as a rule. The API
 works it out (`GET /api/devices/{id}/report-interval`) because it needs the
 settings and the schedule, which only `canModifySettings` may read, while every
 viewer needs the answer. [`utils/overdue.ts`](src/utils/overdue.ts) adds it to
-the newest drawn fix's GNSS time, not to `lastSeenAt`. `DeviceMap` arms a timer
-for that instant, so the pin turns red without a reload.
+the newest drawn fix's GNSS time, not to `lastSeenAt`.
+[`hooks/useIsOverdue.ts`](src/hooks/useIsOverdue.ts) arms a timer for that
+instant, so the answer flips without a reload. The pin and the legend both read
+that one answer, so they never disagree.
 
-- **Map tab:** re-reads the interval on every refresh, and the legend shows the
-  threshold.
+The legend states only what holds **now**: "Latest position — up to date" (blue
+dot), or "Latest position, overdue" (red dot). It is not a key to every colour
+the pin could have. When the threshold is unknown, it just says "Latest
+position".
+
+- **Map tab:** re-reads the interval on every refresh. The overdue legend names
+  the threshold.
 - **Share page:** gets the finished instant in `SharedViewDto.overdueAfter`. No
   setting is sent, though the threshold can be worked out from that instant and
-  the newest fix's time.
+  the newest fix's time. The legend gives no duration.
 - **Trip page:** passes nothing, so the pin stays blue. It marks where the trip
   ended, not where the car is.
 

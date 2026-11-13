@@ -18,7 +18,8 @@
 //     it may get (twice the longest reporting interval of the plan in force —
 //     GET /api/devices/{id}/report-interval, re-read on every refresh)
 //   • Status line ("Loaded N positions", "No positions found", etc.)
-//   • Map legend explaining the pin's colours and the line
+//   • Map legend saying only what holds NOW — the latest position is up to
+//     date, or overdue (with the threshold) — plus the line
 //
 // The device is received from DevicePage via React Router outlet context;
 // no extra API call for the device itself is needed here.
@@ -30,6 +31,7 @@ import { useTranslation } from 'react-i18next'
 import DeviceMap from '../components/DeviceMap'
 import RangeToolbar from '../components/RangeToolbar'
 import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
+import { useIsOverdue } from '../hooks/useIsOverdue'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
 import { fetchReportInterval } from '../services/apiClient'
@@ -134,6 +136,9 @@ export function DeviceMapTab() {
     () => overdueAfter(positions, overdueAfterSeconds),
     [positions, overdueAfterSeconds],
   )
+
+  // One answer for the pin and the legend, so they can never disagree.
+  const isPinOverdue: boolean = useIsOverdue(pinOverdueAfter)
 
   // ---- Position loader ----
   // Called on mount, when dateRange changes, and when a refresh is triggered.
@@ -304,7 +309,7 @@ export function DeviceMapTab() {
             positions={positions}
             apiKey={apiKey}
             fitToken={fitToken}
-            overdueAfter={pinOverdueAfter}
+            isOverdue={isPinOverdue}
             hasStandingConsent={mapsConsent.isStanding}
             onGrantStandingConsent={() => {
               // A failed save is not worth an error banner over a map that is
@@ -317,17 +322,22 @@ export function DeviceMapTab() {
         )}
       </div>
 
-      {/* Legend: the pin's two colours and the line. The red entry is shown
-          only when the threshold is known — without one the pin never turns red. */}
+      {/* Legend: what holds NOW, not a key to every colour the pin could have.
+          Overdue (red, with the threshold), up to date (blue), or — when the
+          threshold is unknown and the pin cannot turn red — just "latest". No
+          pin entry at all while there is no position to wear one. */}
       <div className="map-legend" aria-label={t('device:map.legend')}>
-        <div className="map-legend-item">
-          <span className="legend-dot legend-dot--latest" aria-hidden="true" />
-          {t('device:map.legendLatest')}
-        </div>
-        {overdueAfterSeconds !== null ? (
+        {positions.length > 0 ? (
           <div className="map-legend-item">
-            <span className="legend-dot legend-dot--overdue" aria-hidden="true" />
-            {t('device:map.legendOverdue', { duration: describeSeconds(overdueAfterSeconds) })}
+            <span
+              className={`legend-dot ${isPinOverdue ? 'legend-dot--overdue' : 'legend-dot--latest'}`}
+              aria-hidden="true"
+            />
+            {overdueAfterSeconds === null
+              ? t('device:map.legendLatest')
+              : isPinOverdue
+                ? t('device:map.legendOverdue', { duration: describeSeconds(overdueAfterSeconds) })
+                : t('device:map.legendCurrent')}
           </div>
         ) : null}
         <div className="map-legend-item">

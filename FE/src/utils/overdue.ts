@@ -8,7 +8,8 @@
 // moves it forward without the car having been anywhere new.
 //
 // A share page gets the finished instant from the server instead, so no setting
-// reaches a visitor; both paths end in the same `Date | null` the map takes.
+// reaches a visitor. Both paths end in the same `Date | null`, which
+// hooks/useIsOverdue turns into the one boolean the pin and the legend share.
 // ---------------------------------------------------------------------------
 
 import { parseApiTimestamp } from './dates'

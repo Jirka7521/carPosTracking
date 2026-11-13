@@ -142,6 +142,7 @@
     },
     "latestTitle": "Poslední poloha — klikněte pro podrobnosti",
     "legend": "Legenda mapy",
+    "legendCurrent": "Poslední poloha — aktuální",
     "legendLatest": "Poslední poloha",
     "legendOverdue": "Poslední poloha, zpožděná — bez aktualizace déle než {{duration}}",
     "legendTrack": "Zaznamenaná trasa — kliknutím zobrazíte podrobnosti nejbližší polohy",

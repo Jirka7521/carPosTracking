@@ -10,10 +10,11 @@
 //     script from being injected more than once across re-mounts / HMR.
 //
 // Rendering:
-//   • ONE pin, on the latest position (newest timestamp). It is blue, and turns
-//     red once the caller's `overdueAfter` instant passes — the tracker should
-//     have reported again by then. Older positions get no pin of their own: a
-//     day's track used to bury the map under hundreds of them.
+//   • ONE pin, on the latest position (newest timestamp). It is blue, and red
+//     while the caller says it is overdue (`isOverdue`, from hooks/useIsOverdue
+//     — the same answer the caller's legend shows) — the tracker should have
+//     reported again by then. Older positions get no pin of their own: a day's
+//     track used to bury the map under hundreds of them.
 //   • A red polyline connects the positions in chronological order — red
 //     whatever the pin's colour, so the route always reads as the route
 //   • Clicking the pin, or anywhere on the line, opens an info window with the
@@ -57,10 +58,10 @@ type DeviceMapProps = {
   // Bumped by the parent to re-frame the map on all positions. Starts at 0,
   // meaning "never asked" — the initial framing is handled internally.
   fitToken: number
-  // When the latest position stops being current and its pin turns red. Null or
-  // absent keeps the pin blue — a trip's end, or a device whose reporting
-  // interval is unknown. See utils/overdue.ts.
-  overdueAfter?: Date | null
+  // Whether the latest position is overdue right now, which paints its pin red.
+  // Absent keeps the pin blue — a trip's end. The caller works it out with
+  // hooks/useIsOverdue, so its legend and this pin always agree.
+  isOverdue?: boolean
   // Whether this viewer already said "always". Read once, at mount — so the
   // caller must know the answer before it renders this component.
   hasStandingConsent: boolean
@@ -83,9 +84,9 @@ type MapState = {
   // Whether the pin is painted red, or null before it is painted at all —
   // so a repaint only touches the marker when the colour actually changes
   pinIsRed:     boolean | null
-  // When the pin turns red (epoch ms), or null for never. Mirrors the prop, so
-  // code running outside React can read it.
-  overdueAtMs:  number | null
+  // Whether the pin should be red. Mirrors the prop, so code running outside
+  // React (a reload's overlay update) can read it.
+  isOverdue:    boolean
   polyline:     google.maps.Polyline | null
   // The fixes behind the line, for finding the one nearest a click and for
   // framing the map
@@ -288,9 +289,6 @@ const OVERDUE_PIN = { color: '#E31E24', scale: 1.2 }
 // the line is wide, and outlined in white.
 const TRACK_COLOR = '#E31E24'
 
-// setTimeout takes a signed 32-bit delay; anything longer fires at once.
-const MAX_TIMEOUT_MS = 2_147_483_647
-
 function createPinSymbol(g: typeof google, color: string, scale: number): google.maps.Symbol {
   return {
     path:         PIN_PATH,
@@ -396,17 +394,15 @@ function openInfoWindow(
   state.selectedOnPin = anchor !== null
 }
 
-// Paints the pin for "now": red once the overdue instant has passed, blue
-// before it or when there is none. Called after every load and by the timer
-// that fires at that instant, so the colour changes without a reload. Reads the
-// clock here, outside React's render, which is where an impure read belongs.
+// Paints the pin red while it is overdue, blue otherwise. Called after every
+// load and whenever the caller's answer flips.
 function paintLatestPin(state: MapState): void {
   const g = (window as unknown as { google?: typeof google }).google
   if (!g?.maps || !state.latestMarker) {
     return
   }
 
-  const isRed: boolean = state.overdueAtMs !== null && Date.now() >= state.overdueAtMs
+  const isRed: boolean = state.isOverdue
   if (state.pinIsRed === isRed) {
     return
   }
@@ -419,26 +415,12 @@ function paintLatestPin(state: MapState): void {
   state.pinIsRed = isRed
 }
 
-// Records a new overdue instant on the state, paints the pin for it now, and arms
-// a timer to paint it again the moment that instant passes. Returns the timer's
-// cancel, for the effect that calls this to hand back to React.
-function trackOverdue(state: MapState, overdueAtMs: number | null): () => void {
-  state.overdueAtMs = overdueAtMs
+// Records the caller's answer on the state and repaints the pin for it. A module
+// function rather than inline in the effect, because the state object is
+// mutated and the hooks lint rightly refuses that inside a hook's own body.
+function setPinOverdue(state: MapState, isOverdue: boolean): void {
+  state.isOverdue = isOverdue
   paintLatestPin(state)
-
-  if (overdueAtMs === null) {
-    return () => undefined
-  }
-  const remainingMs: number = overdueAtMs - Date.now()
-  if (remainingMs <= 0) {
-    return () => undefined
-  }
-
-  const timer: number = window.setTimeout(
-    () => paintLatestPin(state),
-    Math.min(remainingMs, MAX_TIMEOUT_MS),
-  )
-  return () => window.clearTimeout(timer)
 }
 
 // Reconciles the pin and the track line against a freshly loaded set of
@@ -564,7 +546,7 @@ function DeviceMap({
   positions,
   apiKey,
   fitToken,
-  overdueAfter = null,
+  isOverdue = false,
   hasStandingConsent,
   onGrantStandingConsent,
   consentScope,
@@ -589,7 +571,7 @@ function DeviceMap({
       latestMarker:  null,
       latestKey:     null,
       pinIsRed:      null,
-      overdueAtMs:   null,
+      isOverdue:     false,
       polyline:      null,
       positions:     [],
       infoWindow:    null,
@@ -600,15 +582,10 @@ function DeviceMap({
     [],
   )
 
-  // A number, not the Date: the caller builds a new Date on every render, and the
-  // effect below should only re-run when the instant itself moves.
-  const overdueAtMs: number | null = overdueAfter === null ? null : overdueAfter.getTime()
-
-  // Paints the pin for the current overdue instant, and again at that instant, so
-  // a tracker that goes quiet turns red on screen without waiting for a reload.
-  // Declared before the loader so the instant is on the state before the first
-  // overlay update reads it.
-  useEffect(() => trackOverdue(mapState, overdueAtMs), [mapState, overdueAtMs])
+  // Repaints the pin whenever the caller's answer flips — its hook times that, so
+  // a tracker that goes quiet turns red without a reload. Declared before the
+  // loader so the answer is on the state before the first overlay update reads it.
+  useEffect(() => setPinOverdue(mapState, isOverdue), [mapState, isOverdue])
 
   useEffect(() => {
     if (!apiKey || !hasConsented) {
