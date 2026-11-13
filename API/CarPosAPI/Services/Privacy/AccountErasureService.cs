@@ -346,6 +346,12 @@ internal sealed class AccountErasureService : IAccountErasureService
             .Where(trip => deviceRowIds.Contains(trip.DeviceId))
             .ExecuteDeleteAsync(cancellationToken);
 
+        // Location rules hold places the users chose (often home or work), and
+        // journey_location_rules.journey_id is Restrict, so they go before journeys.
+        await _context.JourneyLocationRules
+            .Where(rule => deviceRowIds.Contains(rule.DeviceId))
+            .ExecuteDeleteAsync(cancellationToken);
+
         await _context.Journeys
             .Where(journey => deviceRowIds.Contains(journey.DeviceId))
             .ExecuteUpdateAsync(

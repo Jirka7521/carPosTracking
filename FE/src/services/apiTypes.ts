@@ -796,15 +796,20 @@ export interface ShareLinkUpdateRequestDto {
 // Trips and journeys
 //
 // The server detects trips from the device's positions and stores only each
-// trip's start; every other field below is recomputed from the positions for
-// each response. While a field could not be computed within the request's
-// budget, `statsPending` is true and those fields are null — fetch the single
-// trip to fill them in.
+// trip's start and end time; every figure below is recomputed from the
+// positions for each response, and the journey is decided by the database.
+// While a field could not be computed within the request's budget,
+// `statsPending` is true and those fields are null — fetch the single trip to
+// fill them in.
 // ---------------------------------------------------------------------------
 
 // How a trip ended: a real stop, a long silence across which the car moved,
 // or nothing yet (it may still be going).
 export type TripEndKind = 'stay' | 'gap' | 'open'
+
+// How a trip got its journey, in order of precedence: placed by hand, by a
+// location rule (where it started or ended), or by a journey's dates.
+export type TripJourneySource = 'manual' | 'locationRule' | 'dateRange'
 
 export interface TripSummaryDto {
   id: number
@@ -823,9 +828,16 @@ export interface TripSummaryDto {
   maxSpeedKmph: number | null
   hasGap: boolean
   pointCount: number | null
-  // The journey the trip is in now: pinned by hand, or by a journey's dates.
+  // The journey the trip is in now: pinned by hand, by a location rule, or by
+  // a journey's dates.
   journeyId: string | null
   journeyPinned: boolean
+  // How it got there; null when it is in no journey and not pinned.
+  journeySource: TripJourneySource | null
+  // The location rule that placed it, and whether the rule matched its end
+  // (true) or its start (false); both null without a rule.
+  locationRuleId: string | null
+  locationRuleAtEnd: boolean | null
   name: string | null
   statsPending: boolean
 }
@@ -904,6 +916,68 @@ export interface JourneySummaryDto {
   durationSeconds: number | null
   movingSeconds: number | null
   statsPending: boolean
+}
+
+// Why a location rule stopped being in force.
+export type LocationRuleEndReason = 'user' | 'journeyDeleted'
+
+// GET /api/devices/{deviceId}/location-rules — in force first, then ended
+// ones (the history). A rule places every unpinned trip that starts or ends
+// within radiusMeters of the point and starts in [validFrom, endedAt).
+export interface LocationRuleDto {
+  id: string
+  // Null only on an ended rule whose journey was deleted at the top level;
+  // endReason is then 'journeyDeleted', or 'user' if it had already ended.
+  journeyId: string | null
+  name: string | null
+  latitude: number
+  longitude: number
+  radiusMeters: number
+  matchStart: boolean
+  matchEnd: boolean
+  validFrom: string
+  endedAt: string | null
+  endReason: LocationRuleEndReason | null
+  createdAt: string
+  updatedAt: string
+  // Trips the rule places right now.
+  tripCount: number
+}
+
+// POST / PUT /api/devices/{deviceId}/location-rules[/{ruleId}] — PUT only
+// while the rule is in force; it applies to past trips since validFrom too.
+// End a rule with POST …/location-rules/{ruleId}/end (no body).
+export interface LocationRuleSaveRequestDto {
+  journeyId: string
+  name: string | null
+  latitude: number
+  longitude: number
+  radiusMeters: number
+  matchStart: boolean
+  matchEnd: boolean
+  // Local midnight of the first day, as UTC ISO.
+  validFrom: string
+}
+
+export interface LocationRulePreviewPointDto {
+  tripId: number
+  kind: 'start' | 'end'
+  latitude: number
+  longitude: number
+}
+
+// GET /api/devices/{deviceId}/location-rules/preview?latitude=&longitude=
+//   &radiusMeters=&matchStart=&matchEnd=&validFrom=&excludeRuleId=
+export interface LocationRulePreviewDto {
+  tripCount: number
+  startCount: number
+  endCount: number
+  // Matched trips placed by hand — they stay where they are.
+  pinnedCount: number
+  // Matched trips another rule places now; precedence decides which keeps them.
+  otherRuleCount: number
+  points: LocationRulePreviewPointDto[]
+  pointsTruncated: boolean
 }
 
 // GET / PUT /api/devices/{deviceId}/trip-settings — server-side only; the

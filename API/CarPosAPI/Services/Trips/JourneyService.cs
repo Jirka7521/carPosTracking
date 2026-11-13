@@ -27,9 +27,10 @@ namespace CarPosAPI.Services.Trips;
 /// </para>
 ///
 /// <para>
-/// <b>Deleting moves everything up one level</b>: sub-journeys to the parent, and the
-/// journey's trips pinned to the parent — or, at the top level, back to the date ranges.
-/// No trip is ever deleted here.
+/// <b>Deleting moves everything up one level</b>: sub-journeys to the parent, the
+/// journey's trips pinned to the parent — or, at the top level, back to the rules and date
+/// ranges — and its location rules retargeted to the parent (ended, at the top level).
+/// No trip or rule is ever deleted here.
 /// </para>
 ///
 /// Scoped.
@@ -145,6 +146,8 @@ internal sealed class JourneyService : IJourneyService
                             .SetProperty(trip => trip.JourneyId, parentId)
                             .SetProperty(trip => trip.JourneyPinned, pinToParent),
                         attemptToken);
+
+                await RetargetLocationRulesAsync(deviceRowId, journeyId, parentId, attemptToken);
 
                 await _context.Journeys
                     .Where(journey => journey.DeviceId == deviceRowId && journey.ParentId == journeyId)
@@ -338,11 +341,49 @@ internal sealed class JourneyService : IJourneyService
         return null;
     }
 
-    // Serialises journey writes per device for the length of the transaction.
+    // Serialises journey and location-rule writes per device for the length of the transaction.
     private Task<int> LockDeviceJourneysAsync(Guid deviceRowId, CancellationToken cancellationToken) =>
-        _context.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({deviceRowId.ToString()}, 0))",
-            cancellationToken);
+        TripOrganisationLock.AcquireAsync(_context, deviceRowId, cancellationToken);
+
+    // A deleted journey's location rules move up with its contents: to the parent, where
+    // they keep placing trips. At the top level there is nowhere left to put trips, so a
+    // rule in force ends there and then; every rule (ended ones included) keeps its row as
+    // history with no journey. The trips the rules had placed were pinned up by the caller.
+    private async Task RetargetLocationRulesAsync(
+        Guid deviceRowId,
+        Guid journeyId,
+        Guid? parentId,
+        CancellationToken cancellationToken)
+    {
+        DateTime now = DateTime.UtcNow;
+        if (parentId is not null)
+        {
+            await _context.JourneyLocationRules
+                .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(rule => rule.JourneyId, parentId)
+                        .SetProperty(rule => rule.UpdatedAt, now),
+                    cancellationToken);
+            return;
+        }
+
+        await _context.JourneyLocationRules
+            .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId && rule.EndedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(rule => rule.EndedAt, now)
+                    .SetProperty(rule => rule.EndReason, LocationRuleEndReasons.JourneyDeleted),
+                cancellationToken);
+
+        await _context.JourneyLocationRules
+            .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(rule => rule.JourneyId, (Guid?)null)
+                    .SetProperty(rule => rule.UpdatedAt, now),
+                cancellationToken);
+    }
 
     private Task<List<JourneySnapshot>> LoadSnapshotsAsync(Guid deviceRowId, CancellationToken cancellationToken) =>
         _context.Journeys
@@ -352,18 +393,21 @@ internal sealed class JourneyService : IJourneyService
             .ToListAsync(cancellationToken);
 
     // The flat list with direct and rolled-up trip counts. One query for the journeys and
-    // one for every trip's effective journey; the roll-up is done here, deepest first.
+    // one counting trips per effective journey in the database (the view decides each
+    // trip's journey); only the roll-up is done here, deepest first.
     private async Task<JourneyListDto> BuildListAsync(Guid deviceRowId, CancellationToken cancellationToken)
     {
         List<JourneySnapshot> journeys = await LoadSnapshotsAsync(deviceRowId, cancellationToken);
-        List<Guid?> effective = await TripQueries.Rows(_context, deviceRowId)
-            .Select(row => row.EffectiveJourneyId)
+        List<JourneyTripCount> counts = await TripQueries.Rows(_context, deviceRowId)
+            .GroupBy(row => row.EffectiveJourneyId)
+            .Select(group => new JourneyTripCount(group.Key, group.Count()))
             .ToListAsync(cancellationToken);
 
-        Dictionary<Guid, int> direct = effective
-            .Where(id => id is not null)
-            .GroupBy(id => id!.Value)
-            .ToDictionary(group => group.Key, group => group.Count());
+        Dictionary<Guid, int> direct = counts
+            .Where(count => count.JourneyId is not null)
+            .ToDictionary(count => count.JourneyId!.Value, count => count.TripCount);
+        int allTrips = counts.Sum(count => count.TripCount);
+        int unassignedTrips = counts.Where(count => count.JourneyId is null).Sum(count => count.TripCount);
 
         Dictionary<Guid, JourneySnapshot> byId = journeys.ToDictionary(journey => journey.Id);
         Dictionary<Guid, int> total = journeys.ToDictionary(journey => journey.Id, journey => direct.GetValueOrDefault(journey.Id));
@@ -387,7 +431,7 @@ internal sealed class JourneyService : IJourneyService
                 total[journey.Id]))
             .ToList();
 
-        return new JourneyListDto(dtos, effective.Count, effective.Count(id => id is null));
+        return new JourneyListDto(dtos, allTrips, unassignedTrips);
     }
 
     private static OperationResult<T> Forbidden<T>() =>

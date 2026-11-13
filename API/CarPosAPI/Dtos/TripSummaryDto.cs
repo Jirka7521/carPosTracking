@@ -1,9 +1,9 @@
 namespace CarPosAPI.Dtos;
 
 /// <summary>
-/// One trip as the Trips tab shows it. Only <paramref name="Id"/>,
-/// <paramref name="StartTime"/> and the user's organisation are stored; everything else
-/// is recomputed from the device's positions for this response.
+/// One trip as the Trips tab shows it. Only <paramref name="Id"/>, the start and end
+/// times and the user's organisation are stored; the figures are recomputed from the
+/// device's positions for this response, and the journey is decided by the database.
 /// </summary>
 /// <param name="Id">Stable trip id — survives recomputation; the detail page's URL key.</param>
 /// <param name="StartTime">The trip's first moving fix (UTC) — the stored start and the list's order.</param>
@@ -23,10 +23,17 @@ namespace CarPosAPI.Dtos;
 /// <param name="HasGap">True when the trip bridges a data gap across which the car moved.</param>
 /// <param name="PointCount">Fixes in the trip. Null while pending.</param>
 /// <param name="JourneyId">
-/// The journey the trip is in right now — chosen by hand, or by the innermost journey
-/// whose date range holds the start — or null for none.
+/// The journey the trip is in right now — chosen by hand, by a location rule matching
+/// where it started or ended, or by the innermost journey whose date range holds the
+/// start — or null for none.
 /// </param>
-/// <param name="JourneyPinned">True when the user placed the trip by hand; ranges then never move it.</param>
+/// <param name="JourneyPinned">True when the user placed the trip by hand; rules and ranges then never move it.</param>
+/// <param name="JourneySource">How the trip got its journey: one of <see cref="TripJourneySources"/>, or null.</param>
+/// <param name="LocationRuleId">The location rule that placed the trip, or null.</param>
+/// <param name="LocationRuleAtEnd">
+/// True when that rule matched where the trip ended, false for where it started; null
+/// without a rule.
+/// </param>
 /// <param name="Name">The user's name for the trip, or null.</param>
 /// <param name="StatsPending">
 /// True when the statistics could not be computed in this response (the per-request
@@ -49,5 +56,8 @@ public sealed record TripSummaryDto(
     int? PointCount,
     Guid? JourneyId,
     bool JourneyPinned,
+    string? JourneySource,
+    Guid? LocationRuleId,
+    bool? LocationRuleAtEnd,
     string? Name,
     bool StatsPending);

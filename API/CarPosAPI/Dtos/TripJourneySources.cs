@@ -2,7 +2,7 @@ namespace CarPosAPI.Dtos;
 
 /// <summary>
 /// How a trip came to be in its journey — the wire values of
-/// <c>TripSummaryDto.JourneySource</c>, produced as-is by the
+/// <see cref="TripSummaryDto.JourneySource"/>, produced as-is by the
 /// <c>trip_effective_journeys</c> view. Listed in order of precedence.
 /// </summary>
 public static class TripJourneySources

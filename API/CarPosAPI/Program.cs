@@ -379,6 +379,7 @@ builder.Services.AddScoped<ITripStatsCalculator, TripStatsCalculator>();
 builder.Services.AddScoped<ITripReadService, TripReadService>();
 builder.Services.AddScoped<ITripAssignmentService, TripAssignmentService>();
 builder.Services.AddScoped<IJourneyService, JourneyService>();
+builder.Services.AddScoped<ILocationRuleService, LocationRuleService>();
 builder.Services.AddScoped<ITripSettingsService, TripSettingsService>();
 builder.Services.AddSingleton<TripWorkerState>();
 builder.Services.AddHostedService<TripDetectionWorker>();

@@ -35,8 +35,8 @@ public sealed class JourneyLocationRule
     public Guid DeviceId { get; set; }
 
     /// <summary>
-    /// The journey matching trips join. Null only after the journey was deleted at the top
-    /// level, which also ended the rule.
+    /// The journey matching trips join. Null only on an ended rule whose journey was
+    /// deleted at the top level (a rule still in force was ended by that deletion).
     /// </summary>
     public Guid? JourneyId { get; set; }
 

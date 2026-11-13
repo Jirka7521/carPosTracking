@@ -74,6 +74,55 @@ public sealed class TripQueryTranslationTests
     }
 
     [Fact]
+    public void JourneyTripCounts_AreGroupedInTheDatabase()
+    {
+        // The sidebar's counts: one row per effective journey, not one per trip.
+        using CarPosDbContext context = CreateContext();
+
+        string sql = TripQueries.Rows(context, Guid.NewGuid())
+            .GroupBy(row => row.EffectiveJourneyId)
+            .Select(group => new JourneyTripCount(group.Key, group.Count()))
+            .ToQueryString();
+
+        Assert.Contains("trip_effective_journeys", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("count(*)", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LocationRulePreview_IsCountedAndSearchedInTheDatabase()
+    {
+        using CarPosDbContext context = CreateContext();
+        LocationRulePreviewQuery query = new LocationRulePreviewQuery(
+            50.08804,
+            14.42076,
+            200,
+            MatchStart: true,
+            MatchEnd: true,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            ExcludeRuleId: null);
+
+        string counts = LocationRuleService.BuildPreviewCountsQuery(context, Guid.NewGuid(), query).ToQueryString();
+        string points = LocationRuleService.BuildPreviewPointsQuery(context, Guid.NewGuid(), query, 250).ToQueryString();
+
+        foreach (string sql in new[] { counts, points })
+        {
+            // The same place test the journey rule uses, over the view, for one device
+            // and the trips since the valid-from date — PostGIS, not a client-side filter.
+            Assert.Contains("trip_effective_journeys", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("trip_near(", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("ST_MakePoint(", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("v.device_id =", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("v.start_time >=", sql, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Totals are aggregated by the database; points are capped there.
+        Assert.Contains("count(*) FILTER", counts, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ST_DWithin(", points, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LIMIT", points, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void FixReadsAreFilteredOrderedAndCappedInSql()
     {
         using CarPosDbContext context = CreateContext();

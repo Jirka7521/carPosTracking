@@ -175,6 +175,9 @@ function keepKnownStats(fresh: TripSummaryDto, previous: TripSummaryDto | undefi
     ...previous,
     journeyId: fresh.journeyId,
     journeyPinned: fresh.journeyPinned,
+    journeySource: fresh.journeySource,
+    locationRuleId: fresh.locationRuleId,
+    locationRuleAtEnd: fresh.locationRuleAtEnd,
     name: fresh.name,
   }
 }

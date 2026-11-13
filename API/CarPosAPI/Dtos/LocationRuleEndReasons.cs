@@ -2,7 +2,7 @@ namespace CarPosAPI.Dtos;
 
 /// <summary>
 /// Why a location rule stopped being in force — the wire values of
-/// <c>LocationRuleDto.EndReason</c>, stored as-is in
+/// <see cref="LocationRuleDto.EndReason"/>, stored as-is in
 /// <c>journey_location_rules.end_reason</c> (and CHECK-constrained there).
 /// </summary>
 public static class LocationRuleEndReasons
