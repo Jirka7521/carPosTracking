@@ -38,6 +38,7 @@ import type {
   DeviceEventDto,
   DeviceEventSeverity,
   DeviceProvisioningDto,
+  DeviceReportIntervalDto,
   DeviceScheduleStateDto,
   ImportAckKeyRequestDto,
   JourneyDto,
@@ -457,6 +458,12 @@ export async function updateDeviceAlias(deviceId: string, alias: string): Promis
 
 export async function fetchDeviceConfig(deviceId: string): Promise<DeviceConfigStateDto> {
   return request<DeviceConfigStateDto>('GET', `/devices/${segment(deviceId)}/config`)
+}
+
+// How often the device should be reporting right now, for the map's overdue pin.
+// Unlike the settings themselves, any viewer of the device may read this.
+export async function fetchReportInterval(deviceId: string): Promise<DeviceReportIntervalDto> {
+  return request<DeviceReportIntervalDto>('GET', `/devices/${segment(deviceId)}/report-interval`)
 }
 
 // Past revisions, newest first. The server clamps `limit` to its own ceiling, so

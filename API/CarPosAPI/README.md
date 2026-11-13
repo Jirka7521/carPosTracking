@@ -598,6 +598,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `GET /api/devices/{deviceId}/config/history?limit=` | past revisions, newest first (default 20, max 100) |
 | `PUT /api/devices/{deviceId}/config` | replace the settings — new revision, published retained |
 | `POST /api/devices/{deviceId}/config/republish` | re-send the current revision (204; 503 if the broker is down) |
+| `GET /api/devices/{deviceId}/report-interval` | `{ maxIntervalSeconds, overdueAfterSeconds }` for the map's overdue pin; **any grant** may read it (the settings themselves need `CanModifySettings`). The interval is the longest any settings set that may be in force allows. With a schedule in force (enabled, no live override), that means the plan active now and the plan the device last reported. Otherwise it means the desired and applied revisions. Within a set it is the standby interval, or the moving one if that is longer and motion wake is on. `overdueAfterSeconds` = 2 × that. Both are null for a retired device or one with no stored settings |
 | `GET /api/devices/{deviceId}/schedule` | profiles, rules, what is in force now, next switch, any override |
 | `PUT /api/devices/{deviceId}/schedule` | enable/disable and set the fallback profile |
 | `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/schedule/profiles[/{profileId}]` | profile CRUD (409 while a rule or the fallback references it) |
@@ -634,7 +635,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `POST /api/shares/{shareId}/reissue` | mint a **new** link and code for an existing share, keeping its window, scope, label and redeem history. The previous pair stops working at once. 409 on a revoked link |
 | `DELETE /api/shares/{shareId}` | revoke a share link (204). Takes effect on the visitor's next request |
 | `POST /api/shares/redeem` | **unauthenticated**: open a link with its code. Token in the **body**, never the URL. Sets the `carpos_share` cookie |
-| `GET /api/shares/view?from=&to=` | the shared positions. Share-token scheme only; range clamped to the window |
+| `GET /api/shares/view?from=&to=` | the shared positions. Share-token scheme only; range clamped to the window. `overdueAfter` is the instant the newest returned fix becomes overdue (its time + the device's `overdueAfterSeconds`), or null. The settings are not sent, but the threshold can be worked out by subtracting the newest fix's time. That is accepted: the pin turning red reveals it too |
 | `POST /api/shares/leave` | **unauthenticated**: clear the share cookie (204) |
 | `GET /health` | health (unauthenticated). From outside the container just `{ "status" }`; the full report, one entry per dependency, only over loopback or from the container's own address — see [The health endpoint](#the-health-endpoint) |
 

@@ -389,6 +389,20 @@ export type DeviceConfigStateDto = {
   lastSeenAt: string | null
 }
 
+// GET /api/devices/{deviceId}/report-interval — how often the device should be
+// reporting under the plan in force now, for the map's overdue pin. Worked out by
+// the server because it needs the settings and the schedule, which only
+// canModifySettings may read, while every viewer of the map needs the answer.
+export type DeviceReportIntervalDto = {
+  // The longest the device may stay quiet between reports under any settings that
+  // may be in force (the current plan's standby interval, as a rule). Null when the
+  // device is retired or has no stored settings.
+  maxIntervalSeconds: number | null
+  // How old the latest fix may get before it counts as overdue — a fixed multiple
+  // of the interval, chosen by the server. Null whenever the interval is.
+  overdueAfterSeconds: number | null
+}
+
 // PUT /api/devices/{deviceId}/config — a full replacement, not a patch. Sending
 // the values already in force is a no-op that adds no revision.
 //
@@ -759,6 +773,10 @@ export interface SharedPositionDto {
 export interface SharedViewDto {
   share: ShareSessionDto
   positions: SharedPositionDto[]
+  // When the newest fix above stops being current and the map's pin turns red.
+  // Null with no fixes or an unknown reporting interval. The settings behind it
+  // are not sent (the threshold can be worked out from the newest fix's time).
+  overdueAfter: string | null
 }
 
 // PUT /api/shares/{shareId} — a full replacement of the editable fields, not a

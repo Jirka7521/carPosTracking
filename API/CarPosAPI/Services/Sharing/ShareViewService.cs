@@ -2,6 +2,7 @@ using CarPosAPI.Data;
 using CarPosAPI.Data.Entities;
 using CarPosAPI.Dtos;
 using CarPosAPI.Services.Common;
+using CarPosAPI.Services.Devices;
 using Microsoft.EntityFrameworkCore;
 
 namespace CarPosAPI.Services.Sharing;
@@ -29,12 +30,15 @@ internal sealed class ShareViewService : IShareViewService
     private const int MaxPositionsPerQuery = 1000;
 
     private readonly CarPosDbContext _context;
+    private readonly IDeviceReportIntervalService _reportInterval;
 
     /// <summary>Creates the service.</summary>
     /// <param name="context">Scoped database context.</param>
-    public ShareViewService(CarPosDbContext context)
+    /// <param name="reportInterval">Works out when the newest fix becomes overdue.</param>
+    public ShareViewService(CarPosDbContext context, IDeviceReportIntervalService reportInterval)
     {
         _context = context;
+        _reportInterval = reportInterval;
     }
 
     /// <inheritdoc />
@@ -83,7 +87,22 @@ internal sealed class ShareViewService : IShareViewService
 
         List<SharedPositionDto> positions = await QueryAsync(link, fromUtc, toUtc, cancellationToken);
 
-        return OperationResult<SharedViewDto>.Success(new SharedViewDto(session, positions));
+        // Worked out here, from the newest fix the visitor is actually shown. The
+        // visitor gets the instant the pin turns red, not the settings behind it.
+        DateTime? overdueAfter = null;
+        if (positions.Count > 0)
+        {
+            int? overdueAfterSeconds =
+                await _reportInterval.GetOverdueAfterSecondsAsync(link.DeviceId, cancellationToken);
+
+            if (overdueAfterSeconds is not null)
+            {
+                // Newest first, so the first row is the one wearing the pin.
+                overdueAfter = positions[0].Timestamp.AddSeconds(overdueAfterSeconds.Value);
+            }
+        }
+
+        return OperationResult<SharedViewDto>.Success(new SharedViewDto(session, positions, overdueAfter));
     }
 
     /// <summary>

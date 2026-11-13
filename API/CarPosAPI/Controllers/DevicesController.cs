@@ -41,22 +41,26 @@ public sealed class DevicesController : ApiControllerBase
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IDeviceService _devices;
     private readonly IDeviceConfigService _deviceConfig;
+    private readonly IDeviceReportIntervalService _reportInterval;
     private readonly IPositionErasureService _positionErasure;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="currentUser">Supplies the caller's id.</param>
     /// <param name="devices">Does the device work and authorises each call.</param>
     /// <param name="deviceConfig">Reads and changes remote settings, and publishes them.</param>
+    /// <param name="reportInterval">Works out how often the device should be reporting.</param>
     /// <param name="positionErasure">Erases a device's stored position history.</param>
     public DevicesController(
         ICurrentUserAccessor currentUser,
         IDeviceService devices,
         IDeviceConfigService deviceConfig,
+        IDeviceReportIntervalService reportInterval,
         IPositionErasureService positionErasure)
     {
         _currentUser = currentUser;
         _devices = devices;
         _deviceConfig = deviceConfig;
+        _reportInterval = reportInterval;
         _positionErasure = positionErasure;
     }
 
@@ -232,6 +236,28 @@ public sealed class DevicesController : ApiControllerBase
 
         OperationResult<DeviceConfigStateDto> result =
             await _deviceConfig.GetStateAsync(userId, deviceId, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : Failure(result);
+    }
+
+    /// <summary>
+    /// Returns how long the device may stay quiet under the settings in force now, and
+    /// how old its latest fix may get before the map shows it as overdue.
+    /// </summary>
+    /// <param name="deviceId">The device's MQTT identity.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with the interval (nulls when unknown) for any grant, 404 when not visible.</returns>
+    [HttpGet("{deviceId}/report-interval")]
+    [ProducesResponseType(typeof(DeviceReportIntervalDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DeviceReportIntervalDto>> GetReportIntervalAsync(
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        int userId = RequireUserId(_currentUser);
+
+        OperationResult<DeviceReportIntervalDto> result =
+            await _reportInterval.GetAsync(userId, deviceId, cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : Failure(result);
     }

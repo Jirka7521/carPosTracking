@@ -359,6 +359,10 @@ builder.Services.AddScoped<IDeviceConfigRevisionWriter, DeviceConfigRevisionWrit
 builder.Services.AddScoped<IDeviceScheduleResolver, DeviceScheduleResolver>();
 builder.Services.AddScoped<IDeviceConfigScheduleService, DeviceConfigScheduleService>();
 builder.Services.AddScoped<IScheduleReconciler, ScheduleReconciler>();
+// The map's overdue pin: how long a device may stay quiet under the plan in force.
+// The arithmetic is pure and shared like the evaluator; the loader is scoped.
+builder.Services.AddSingleton<ReportIntervalCalculator>();
+builder.Services.AddScoped<IDeviceReportIntervalService, DeviceReportIntervalService>();
 // Shared between the worker and its health check, exactly as MqttConnectionState is
 // above: the worker swallows its failures by design, so this is the only way one
 // becomes visible from outside the log.
