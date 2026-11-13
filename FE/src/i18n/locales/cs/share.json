@@ -93,6 +93,8 @@
     "latestOnly": "Zobrazuje se pouze aktuální poloha.",
     "fullTrack": "Zobrazuje se zaznamenaná trasa za toto období.",
     "noPositions": "Za toto období zatím nejsou zaznamenané žádné polohy.",
+    "legendLatest": "Poslední poloha",
+    "legendOverdue": "Poslední poloha, zpožděná: sledovač se neozval déle, než měl",
     "loadFailed": "Sdílené polohy se nepodařilo načíst.",
     "leave": "Zavřít sdílení",
     "mapsConsentRevoke": "Přestat načítat mapy automaticky",

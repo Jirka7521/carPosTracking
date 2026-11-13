@@ -69,6 +69,9 @@ export function SharePage() {
   const [stage, setStage] = useState<ShareStage>('locked')
   const [share, setShare] = useState<ShareSessionDto | null>(null)
   const [positions, setPositions] = useState<SharedPositionDto[]>([])
+  // When the newest fix stops being current and the pin turns red, as the server
+  // worked it out. The visitor gets this instant, not the settings behind it.
+  const [overdueAfter, setOverdueAfter] = useState<string | null>(null)
   const [passphrase, setPassphrase] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -131,6 +134,9 @@ export function SharePage() {
         }
         setShare(view.share)
         setPositions(view.positions)
+        // `?? null`: an API older than this page sends no field at all, and an
+        // undefined here would show the red legend entry for a pin that never turns red.
+        setOverdueAfter(view.overdueAfter ?? null)
         setStage('open')
         setError(null)
       } catch (caught) {
@@ -203,6 +209,7 @@ export function SharePage() {
     setStage('locked')
     setShare(null)
     setPositions([])
+    setOverdueAfter(null)
     // Back to "do not read", so an auto-refresh tick that is still running does
     // not quietly reopen the share the visitor just closed.
     setLoadToken(0)
@@ -366,6 +373,7 @@ export function SharePage() {
             positions={positions}
             apiKey={runtimeConfig.googleMapsApiKey}
             fitToken={0}
+            overdueAfter={overdueAfter === null ? null : parseApiTimestamp(overdueAfter)}
             hasStandingConsent={hasStandingMapsConsent}
             onGrantStandingConsent={handleGrantMapsConsent}
             consentScope="browser"
@@ -375,6 +383,30 @@ export function SharePage() {
             <p>{t('device:map.noApiKey')}</p>
           </div>
         )}
+
+        {/* What the pin's colours mean. The red entry gives no duration: the
+            tracker's reporting rhythm is a setting, and a visitor asking "where is
+            it" needs to know only whether this position is current. */}
+        {positions.length > 0 && hasGoogleMapsKey() ? (
+          <div className="map-legend" aria-label={t('device:map.legend')}>
+            <div className="map-legend-item">
+              <span className="legend-dot legend-dot--latest" aria-hidden="true" />
+              {t('share:visitor.legendLatest')}
+            </div>
+            {overdueAfter !== null ? (
+              <div className="map-legend-item">
+                <span className="legend-dot legend-dot--overdue" aria-hidden="true" />
+                {t('share:visitor.legendOverdue')}
+              </div>
+            ) : null}
+            {share.scope === 'fullTrack' ? (
+              <div className="map-legend-item">
+                <span className="legend-line" aria-hidden="true" />
+                {t('device:map.legendTrack')}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <p className="share-privacy-note">{t('share:visitor.privacyNote')}</p>
       </section>

@@ -9,7 +9,9 @@
 //
 // Keyed by trip, so moving to another trip starts a fresh map that frames the
 // new route instead of staying parked over the previous one. The newest fix
-// wears the blue pin — on a finished trip, that is where it ended.
+// wears the pin — on a finished trip, that is where it ended — and the rest is
+// the line. The pin is never shown as overdue here: it marks the end of a trip,
+// not where the car is now, and on a finished trip it would always be "late".
 // ============================================================
 
 import { useState } from 'react'
@@ -75,8 +77,8 @@ export function TripRouteMap({ tripId, positions }: TripRouteMapProps) {
           {t('trips:detail.map.legendEnd')}
         </div>
         <div className="map-legend-item">
-          <span className="legend-dot legend-dot--history" aria-hidden="true" />
-          {t('trips:detail.map.legendOther')}
+          <span className="legend-line" aria-hidden="true" />
+          {t('trips:detail.map.legendRoute')}
         </div>
       </div>
     </section>

@@ -140,9 +140,11 @@
       "speed": "Rychlost",
       "title": "Poloha"
     },
+    "latestTitle": "Poslední poloha — klikněte pro podrobnosti",
     "legend": "Legenda mapy",
-    "legendHistory": "Historické polohy",
     "legendLatest": "Poslední poloha",
+    "legendOverdue": "Poslední poloha, zpožděná — bez aktualizace déle než {{duration}}",
+    "legendTrack": "Zaznamenaná trasa — kliknutím zobrazíte podrobnosti nejbližší polohy",
     "loaded_one": "Načtena {{value}} poloha.",
     "loaded_few": "Načteny {{value}} polohy.",
     "loaded_many": "Načteno {{value}} polohy.",
@@ -156,6 +158,7 @@
     "noApiKey": "Mapu nelze zobrazit: pro toto nasazení není nastaven klíč k Google Maps API.",
     "noPositions": "Pro tento časový rozsah nebyly nalezeny žádné polohy.",
     "notConfigured": "Mapa není nastavena. <br/>Zapnete ji nastavením <code>CARPOS_GOOGLE_MAPS_API_KEY</code> na kontejneru frontendu.",
+    "overdueTitle": "Poslední poloha, zpožděná: sledovač se už měl znovu ozvat — klikněte pro podrobnosti",
     "reachedCap": "Načteno nejnovějších {{value}} poloh — tento rozsah obsahuje víc, než dokáže jedno načtení stáhnout, takže trasa začíná později než v čase „Od“, který jste zvolili."
   },
   "mapsConsent": {

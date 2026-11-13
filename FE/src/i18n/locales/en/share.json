@@ -90,6 +90,8 @@
     "latestOnly": "Showing the current position only.",
     "fullTrack": "Showing the recorded track for this period.",
     "noPositions": "No positions recorded for this period yet.",
+    "legendLatest": "Latest position",
+    "legendOverdue": "Latest position, overdue: the tracker has not reported for longer than expected",
     "loadFailed": "Could not load the shared positions.",
     "leave": "Close this share",
     "mapsConsentRevoke": "Stop loading maps automatically",

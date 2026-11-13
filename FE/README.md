@@ -220,7 +220,7 @@ FE/
 │   │   ├── AppLayout.tsx          Sticky navigation bar shell
 │   │   ├── LanguageMenu.tsx       The 🌐 language picker — header, plus the login and register pages
 │   │   ├── SessionLoading.tsx     Spinner shown while the session probe runs
-│   │   ├── DeviceMap.tsx          Google Maps component with position markers
+│   │   ├── DeviceMap.tsx          Google Maps component: the track as a line, one pin on the latest position
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit; optional dashed marker lines
 │   │   ├── SeriesPicker.tsx       The chart's series checkboxes, which double as its legend (Charts tab, trip page)
 │   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
@@ -276,6 +276,7 @@ FE/
 │       ├── dates.ts               Date/time formatting helpers
 │       ├── devices.ts             Device label fallback (customName → displayName → deviceId)
 │       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
+│       ├── overdue.ts             When the map's latest-position pin turns red
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
 │       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges
 │       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
@@ -447,6 +448,34 @@ Both store the prompt's version (`MAPS_CONSENT_VERSION`); bump it when the
 prompt's wording changes materially and everyone is asked again. The old
 per-browser `carpos.mapsConsent` localStorage key is deleted at start-up and not
 carried over — it was given for one browser, not for an account.
+
+### One pin, and when it turns red
+
+The map draws the track as a line with a single pin on the **latest** position.
+Older fixes have no pins of their own. Clicking anywhere on the line opens the
+details of the recorded fix nearest to the click.
+
+The pin is blue, and turns **red** once the latest fix is older than
+`overdueAfterSeconds`. That is twice the longest reporting interval the device
+may be running: the current schedule plan's standby interval, as a rule. The API
+works it out (`GET /api/devices/{id}/report-interval`) because it needs the
+settings and the schedule, which only `canModifySettings` may read, while every
+viewer needs the answer. [`utils/overdue.ts`](src/utils/overdue.ts) adds it to
+the newest drawn fix's GNSS time, not to `lastSeenAt`. `DeviceMap` arms a timer
+for that instant, so the pin turns red without a reload.
+
+- **Map tab:** re-reads the interval on every refresh, and the legend shows the
+  threshold.
+- **Share page:** gets the finished instant in `SharedViewDto.overdueAfter`. No
+  setting is sent, though the threshold can be worked out from that instant and
+  the newest fix's time.
+- **Trip page:** passes nothing, so the pin stays blue. It marks where the trip
+  ended, not where the car is.
+
+This is not the device badge's **Overdue** ([Online, offline, and
+why](#online-offline-and-why)). The badge is about a planned sleep that ran past
+its wake time. The pin is about how old the latest fix is, against twice the
+reporting interval.
 
 ---
 

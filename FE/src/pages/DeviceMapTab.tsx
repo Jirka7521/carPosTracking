@@ -12,16 +12,19 @@
 //   • "Refresh now" button for an instant manual reload
 //   • "Fit to positions" button — the only control that moves the map after
 //     the first load
-//   • Positions rendered on Google Maps via the DeviceMap component
-//   • Newest position shown with a BLUE marker; all older positions use RED
+//   • Positions rendered on Google Maps via the DeviceMap component: one pin
+//     on the newest position, the rest as a line
+//   • The pin is BLUE, and RED once the newest fix is older than the API says
+//     it may get (twice the longest reporting interval of the plan in force —
+//     GET /api/devices/{id}/report-interval, re-read on every refresh)
 //   • Status line ("Loaded N positions", "No positions found", etc.)
-//   • Map legend explaining the marker colors
+//   • Map legend explaining the pin's colours and the line
 //
 // The device is received from DevicePage via React Router outlet context;
 // no extra API call for the device itself is needed here.
 // ============================================================
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import DeviceMap from '../components/DeviceMap'
@@ -29,11 +32,22 @@ import RangeToolbar from '../components/RangeToolbar'
 import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import type { DevicePageContext } from './DevicePage'
 import type { PositionDto } from '../services/apiTypes'
+import { fetchReportInterval } from '../services/apiClient'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import { datetimeLocalToIso } from '../utils/dates'
+import { describeSeconds } from '../utils/deviceConfig'
+import { overdueAfter } from '../utils/overdue'
 import { formatInteger } from '../i18n/format'
 import { describeError } from '../utils/errors'
 import { hasGoogleMapsKey, runtimeConfig } from '../services/runtimeConfig'
+
+// The API's answer for one device. Remembered with the device it belongs to, so
+// switching trackers can never paint the new one's pin with the old one's
+// threshold while the new answer is on its way.
+type LoadedReportInterval = {
+  deviceId: string
+  overdueAfterSeconds: number | null
+}
 
 // Ceiling on one full load — fifty sequential requests at the API's 1000 rows
 // per answer. The track is drawn whole rather than thinned: a decimated
@@ -84,6 +98,42 @@ export function DeviceMapTab() {
 
   // Whether this account already said "always load maps" — on any device.
   const mapsConsent = useAccountMapsConsent()
+
+  // How old the newest fix may get before its pin turns red. Re-read on the same
+  // refresh tick as the positions, because a schedule switching plans changes it.
+  const [reportInterval, setReportInterval] = useState<LoadedReportInterval | null>(null)
+
+  useEffect(() => {
+    let canceled = false
+    const deviceId: string = device.deviceId
+
+    fetchReportInterval(deviceId)
+      .then((result) => {
+        if (!canceled) {
+          setReportInterval({ deviceId, overdueAfterSeconds: result.overdueAfterSeconds })
+        }
+      })
+      .catch(() => {
+        // Keep the last answer. A momentary failure must not flip the pin's
+        // colour, and without any answer the pin simply stays blue.
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [device.deviceId, refresh.token])
+
+  const overdueAfterSeconds: number | null =
+    reportInterval !== null && reportInterval.deviceId === device.deviceId
+      ? reportInterval.overdueAfterSeconds
+      : null
+
+  // Memoised: finding the newest of up to fifty thousand fixes is not worth
+  // repeating on every status-line update.
+  const pinOverdueAfter: Date | null = useMemo(
+    () => overdueAfter(positions, overdueAfterSeconds),
+    [positions, overdueAfterSeconds],
+  )
 
   // ---- Position loader ----
   // Called on mount, when dateRange changes, and when a refresh is triggered.
@@ -254,6 +304,7 @@ export function DeviceMapTab() {
             positions={positions}
             apiKey={apiKey}
             fitToken={fitToken}
+            overdueAfter={pinOverdueAfter}
             hasStandingConsent={mapsConsent.isStanding}
             onGrantStandingConsent={() => {
               // A failed save is not worth an error banner over a map that is
@@ -266,15 +317,22 @@ export function DeviceMapTab() {
         )}
       </div>
 
-      {/* Legend explaining the two marker colors */}
+      {/* Legend: the pin's two colours and the line. The red entry is shown
+          only when the threshold is known — without one the pin never turns red. */}
       <div className="map-legend" aria-label={t('device:map.legend')}>
         <div className="map-legend-item">
           <span className="legend-dot legend-dot--latest" aria-hidden="true" />
           {t('device:map.legendLatest')}
         </div>
+        {overdueAfterSeconds !== null ? (
+          <div className="map-legend-item">
+            <span className="legend-dot legend-dot--overdue" aria-hidden="true" />
+            {t('device:map.legendOverdue', { duration: describeSeconds(overdueAfterSeconds) })}
+          </div>
+        ) : null}
         <div className="map-legend-item">
-          <span className="legend-dot legend-dot--history" aria-hidden="true" />
-          {t('device:map.legendHistory')}
+          <span className="legend-line" aria-hidden="true" />
+          {t('device:map.legendTrack')}
         </div>
       </div>
     </div>

@@ -35,7 +35,7 @@
     "loadingProgress_other": "Loading positions… {{value}} so far",
     "map": {
       "legendEnd": "Where the trip ended (while it is still going: the latest position)",
-      "legendOther": "Its other positions",
+      "legendRoute": "Its recorded route — click it for the nearest position's details",
       "title": "Route"
     },
     "move": "Move…",

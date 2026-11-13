@@ -126,9 +126,11 @@
       "speed": "Speed",
       "title": "Position"
     },
+    "latestTitle": "Latest position — click for details",
     "legend": "Map legend",
-    "legendHistory": "Historical positions",
     "legendLatest": "Latest position",
+    "legendOverdue": "Latest position, overdue — no update for over {{duration}}",
+    "legendTrack": "Recorded track — click it for the nearest position's details",
     "loaded_one": "Loaded {{value}} position.",
     "loaded_other": "Loaded {{value}} positions.",
     "loadFailed": "Could not load Google Maps: {{error}}",
@@ -138,6 +140,7 @@
     "noApiKey": "The map cannot be displayed: no Google Maps API key is configured for this deployment.",
     "noPositions": "No positions found for this time range.",
     "notConfigured": "Map not configured. <br/>Set <code>CARPOS_GOOGLE_MAPS_API_KEY</code> on the frontend container to enable it.",
+    "overdueTitle": "Latest position, overdue: the tracker should have reported again by now — click for details",
     "reachedCap": "Loaded the newest {{value}} positions — this range holds more than one load can fetch, so the track starts later than the “From” you chose."
   },
   "mapsConsent": {

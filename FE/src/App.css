@@ -1083,7 +1083,7 @@
   gap: 12px;
 }
 
-/* Small legend below the map explaining marker colors */
+/* Small legend below the map explaining the pin's colours and the line */
 .map-legend {
   display: flex;
   gap: 20px;
@@ -1113,8 +1113,18 @@
   background: #0065BD; /* Blue — latest/current position */
 }
 
-.legend-dot--history {
-  background: #E31E24; /* Red — historical positions */
+.legend-dot--overdue {
+  background: #E31E24; /* Red — latest position, but the tracker is overdue */
+}
+
+/* A short bar matching the track polyline's colour and weight */
+.legend-line {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: #0065BD;
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 
 /* ================================================================

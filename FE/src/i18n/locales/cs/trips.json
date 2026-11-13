@@ -45,7 +45,7 @@
     "loadingProgress_other": "Načítám polohy… zatím {{value}}",
     "map": {
       "legendEnd": "Kde jízda skončila (dokud probíhá: poslední poloha)",
-      "legendOther": "Její ostatní polohy",
+      "legendRoute": "Její zaznamenaná trasa — kliknutím zobrazíte podrobnosti nejbližší polohy",
       "title": "Trasa"
     },
     "move": "Přesunout…",
