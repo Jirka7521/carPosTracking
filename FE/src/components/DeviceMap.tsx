@@ -14,7 +14,8 @@
 //     red once the caller's `overdueAfter` instant passes — the tracker should
 //     have reported again by then. Older positions get no pin of their own: a
 //     day's track used to bury the map under hundreds of them.
-//   • A blue polyline connects the positions in chronological order
+//   • A red polyline connects the positions in chronological order — red
+//     whatever the pin's colour, so the route always reads as the route
 //   • Clicking the pin, or anywhere on the line, opens an info window with the
 //     nearest recorded fix's coordinates, readings and timestamp
 //   • The map frames all positions on the FIRST load that has data and never
@@ -282,6 +283,11 @@ const PIN_PATH =
 const LATEST_PIN  = { color: '#0065BD', scale: 1.2 }
 const OVERDUE_PIN = { color: '#E31E24', scale: 1.2 }
 
+// The route is always red, the same red the older positions' pins used to be.
+// An overdue pin shares the colour but stays readable on it: it is larger than
+// the line is wide, and outlined in white.
+const TRACK_COLOR = '#E31E24'
+
 // setTimeout takes a signed 32-bit delay; anything longer fires at once.
 const MAX_TIMEOUT_MS = 2_147_483_647
 
@@ -520,7 +526,7 @@ function updateMapOverlays(state: MapState, positions: MapPosition[]): void {
     const polyline = new g.maps.Polyline({
       map:           state.map,
       path,
-      strokeColor:   '#0065BD',
+      strokeColor:   TRACK_COLOR,
       strokeOpacity: 0.85,
       strokeWeight:  4,
       clickable:     true,

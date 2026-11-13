@@ -1117,12 +1117,12 @@
   background: #E31E24; /* Red — latest position, but the tracker is overdue */
 }
 
-/* A short bar matching the track polyline's colour and weight */
+/* A short bar matching the track polyline's colour (always red) and weight */
 .legend-line {
   width: 18px;
   height: 4px;
   border-radius: 2px;
-  background: #0065BD;
+  background: #E31E24;
   opacity: 0.85;
   flex-shrink: 0;
 }

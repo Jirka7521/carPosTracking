@@ -451,7 +451,7 @@ carried over — it was given for one browser, not for an account.
 
 ### One pin, and when it turns red
 
-The map draws the track as a line with a single pin on the **latest** position.
+The map draws the track as a red line with a single pin on the **latest** position.
 Older fixes have no pins of their own. Clicking anywhere on the line opens the
 details of the recorded fix nearest to the click.
 
