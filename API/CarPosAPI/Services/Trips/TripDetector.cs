@@ -1,10 +1,11 @@
 namespace CarPosAPI.Services.Trips;
 
 /// <summary>
-/// Cuts a device's fixes into trips and returns <b>only their starts</b> — the one thing
-/// the database keeps. Ends and statistics are rebuilt on read by
-/// <see cref="TripSegmentAnalyzer"/> from these starts with the same
-/// <see cref="StopFinder"/> walk, so the two always agree.
+/// Cuts a device's fixes into trips and returns <b>only their start and end times</b> —
+/// the things the database keeps. Statistics are rebuilt on read by
+/// <see cref="TripSegmentAnalyzer"/> from the starts with the same
+/// <see cref="StopFinder"/> walk, so the two always agree (on the end too). The end is
+/// stored only so location rules can test the trip's last fix in SQL.
 ///
 /// <para>
 /// <b>The scan.</b> At each fix: if it anchors a stop, skip the whole stop; otherwise a
@@ -28,7 +29,7 @@ namespace CarPosAPI.Services.Trips;
 /// </summary>
 internal static class TripDetector
 {
-    /// <summary>Detects trip starts in a window of fixes.</summary>
+    /// <summary>Detects trips in a window of fixes.</summary>
     /// <param name="points">
     /// Fixes in ascending time order. To recompute part of a history, the first fix must be
     /// a restart point (or the very first fix of the device).
@@ -38,7 +39,7 @@ internal static class TripDetector
     /// True when the window was cut short and newer fixes exist beyond it; the scan then
     /// stops at the first question those fixes could change the answer to.
     /// </param>
-    /// <returns>The starts decided, and where to resume when the window was cut short.</returns>
+    /// <returns>The trips decided, and where to resume when the window was cut short.</returns>
     public static TripDetectionResult Detect(
         IReadOnlyList<TripPoint> points,
         TripDetectionSettings settings,
@@ -47,7 +48,7 @@ internal static class TripDetector
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(settings);
 
-        List<DateTime> starts = new List<DateTime>();
+        List<DetectedTrip> trips = new List<DetectedTrip>();
         DateTime? resumeFrom = null;
         int index = 0;
 
@@ -56,7 +57,7 @@ internal static class TripDetector
             StopProbe probe = StopFinder.ProbeStop(points, index, settings, nowUtc: null, moreDataAvailable, needExtent: true);
             if (probe.IsStop is null)
             {
-                return new TripDetectionResult(starts, resumeFrom, IsComplete: false);
+                return new TripDetectionResult(trips, resumeFrom, IsComplete: false);
             }
 
             if (probe.IsStop.Value)
@@ -67,7 +68,7 @@ internal static class TripDetector
                 // ends (and so where the next trip starts) is beyond what we can see.
                 if (probe.ReachedEnd && moreDataAvailable)
                 {
-                    return new TripDetectionResult(starts, resumeFrom, IsComplete: false);
+                    return new TripDetectionResult(trips, resumeFrom, IsComplete: false);
                 }
 
                 index = probe.LastIndex + 1;
@@ -77,14 +78,17 @@ internal static class TripDetector
             TripSegmentEnd? end = StopFinder.FindEnd(points, index, settings, nowUtc: null, moreDataAvailable);
             if (end is null)
             {
-                return new TripDetectionResult(starts, resumeFrom, IsComplete: false);
+                return new TripDetectionResult(trips, resumeFrom, IsComplete: false);
             }
 
             TripPoint? leadIn = index > 0 ? StopFinder.LeadIn(points[index - 1], points[index], settings) : null;
             TripSegmentStats stats = TripSegmentAnalyzer.Measure(leadIn, points, index, end.EndIndex, end.Kind, settings, nowUtc: null);
             if (stats.PointCount >= 2 && stats.DistanceMeters >= settings.MinTripDistanceMeters)
             {
-                starts.Add(points[index].FixTime);
+                // Without a clock an open end stays open: the reader may later call a
+                // still spell at the very end a stop, but only a stored fix can confirm it.
+                DateTime? endTime = end.Kind == TripEndKind.Open ? null : points[end.EndIndex].FixTime;
+                trips.Add(new DetectedTrip(points[index].FixTime, endTime));
             }
 
             switch (end.Kind)
@@ -105,6 +109,6 @@ internal static class TripDetector
             }
         }
 
-        return new TripDetectionResult(starts, resumeFrom, IsComplete: true);
+        return new TripDetectionResult(trips, resumeFrom, IsComplete: true);
     }
 }

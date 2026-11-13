@@ -878,6 +878,99 @@ namespace CarPosAPI.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CarPosAPI.Data.Entities.JourneyLocationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("end_reason");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<Guid?>("JourneyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journey_id");
+
+                    b.Property<double>("Latitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitude");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitude");
+
+                    b.Property<bool>("MatchEnd")
+                        .HasColumnType("boolean")
+                        .HasColumnName("match_end");
+
+                    b.Property<bool>("MatchStart")
+                        .HasColumnType("boolean")
+                        .HasColumnName("match_start");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("RadiusMeters")
+                        .HasColumnType("integer")
+                        .HasColumnName("radius_m");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ValidFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("valid_from");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JourneyId")
+                        .HasDatabaseName("ix_journey_location_rules_journey_id")
+                        .HasFilter("journey_id IS NOT NULL");
+
+                    b.HasIndex("DeviceId", "ValidFrom")
+                        .HasDatabaseName("ix_journey_location_rules_device_id_valid_from");
+
+                    b.ToTable("journey_location_rules", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_journey_location_rules_end", "(ended_at IS NULL AND end_reason IS NULL) OR (ended_at IS NOT NULL AND end_reason IN ('user', 'journeyDeleted'))");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_latitude", "latitude >= -90 AND latitude <= 90");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_longitude", "longitude >= -180 AND longitude <= 180");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_match", "match_start OR match_end");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_name_not_blank", "name IS NULL OR length(btrim(name)) > 0");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_radius_m", "radius_m BETWEEN 50 AND 10000");
+
+                            t.HasCheckConstraint("ck_journey_location_rules_target", "journey_id IS NOT NULL OR ended_at IS NOT NULL");
+                        });
+                });
+
             modelBuilder.Entity("CarPosAPI.Data.Entities.Position", b =>
                 {
                     b.Property<long>("Id")
@@ -1139,6 +1232,10 @@ namespace CarPosAPI.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("device_id");
 
+                    b.Property<DateTime?>("EndTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_time");
+
                     b.Property<Guid?>("JourneyId")
                         .HasColumnType("uuid")
                         .HasColumnName("journey_id");
@@ -1170,6 +1267,8 @@ namespace CarPosAPI.Data.Migrations
 
                     b.ToTable("trips", null, t =>
                         {
+                            t.HasCheckConstraint("ck_trips_end_after_start", "end_time IS NULL OR end_time >= start_time");
+
                             t.HasCheckConstraint("ck_trips_journey_pinned", "journey_pinned OR journey_id IS NULL");
 
                             t.HasCheckConstraint("ck_trips_name_not_blank", "name IS NULL OR length(btrim(name)) > 0");
@@ -1229,6 +1328,57 @@ namespace CarPosAPI.Data.Migrations
                         {
                             t.HasCheckConstraint("ck_trip_detection_state_epoch", "epoch >= 0");
                         });
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.TripEffectiveJourney", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<Guid?>("EffectiveJourneyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("effective_journey_id");
+
+                    b.Property<DateTime?>("EndTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("JourneyPinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("journey_pinned");
+
+                    b.Property<string>("JourneySource")
+                        .HasColumnType("text")
+                        .HasColumnName("journey_source");
+
+                    b.Property<bool?>("LocationRuleAtEnd")
+                        .HasColumnType("boolean")
+                        .HasColumnName("location_rule_at_end");
+
+                    b.Property<Guid?>("LocationRuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("location_rule_id");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime?>("NextStart")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_start");
+
+                    b.Property<DateTime>("StartTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_time");
+
+                    b.Property<long>("TripId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("trip_id");
+
+                    b.ToTable((string)null);
+
+                    b.ToView("trip_effective_journeys", (string)null);
                 });
 
             modelBuilder.Entity("CarPosAPI.Data.Entities.User", b =>
@@ -1442,6 +1592,20 @@ namespace CarPosAPI.Data.Migrations
                     b.HasOne("CarPosAPI.Data.Entities.Journey", null)
                         .WithMany()
                         .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CarPosAPI.Data.Entities.JourneyLocationRule", b =>
+                {
+                    b.HasOne("CarPosAPI.Data.Entities.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CarPosAPI.Data.Entities.Journey", null)
+                        .WithMany()
+                        .HasForeignKey("JourneyId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

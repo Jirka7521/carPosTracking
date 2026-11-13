@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace CarPosAPI.Services.Trips;
 
 /// <summary>
-/// Implements <see cref="ITripDetectionPass"/>: brings stored trip starts in line with
-/// stored positions.
+/// Implements <see cref="ITripDetectionPass"/>: brings stored trip starts and ends in line
+/// with stored positions.
 ///
 /// <para>
 /// <b>1. Find what is new.</b> Positions above the cursor are summarised per device and
@@ -306,12 +306,12 @@ internal sealed class TripDetectionPass : ITripDetectionPass
             TripDetectionResult result = TripDetector.Detect(points, settings, moreDataAvailable);
             if (result.IsComplete)
             {
-                return new TripWindow(restart, result.Starts, null, IsComplete: true);
+                return new TripWindow(restart, result.Trips, null, IsComplete: true);
             }
 
             if (result.ResumeFrom is DateTime resume && (restart is null || resume > restart.Value))
             {
-                return new TripWindow(restart, result.Starts, resume, IsComplete: false);
+                return new TripWindow(restart, result.Trips, resume, IsComplete: false);
             }
 
             if (budget >= MaxWindowFixes)
@@ -360,19 +360,25 @@ internal sealed class TripDetectionPass : ITripDetectionPass
                 List<StoredTripSnapshot> snapshots = existing
                     .Select(trip => new StoredTripSnapshot(trip.Id, trip.StartTime, trip.JourneyId, trip.JourneyPinned, trip.Name))
                     .ToList();
-                TripMatchResult match = TripMetadataMatcher.Match(snapshots, window.Starts);
+                // The matcher pairs on starts alone; each start's end rides along with it.
+                // Starts are distinct within one detection run.
+                Dictionary<DateTime, DateTime?> endByStart = window.Trips
+                    .ToDictionary(trip => trip.Start, trip => trip.End);
+                TripMatchResult match = TripMetadataMatcher.Match(snapshots, window.Trips.Select(trip => trip.Start).ToList());
 
                 Dictionary<long, Trip> byId = existing.ToDictionary(trip => trip.Id);
                 int changed = 0;
 
                 foreach (TripMatch tripMatch in match.Matches)
                 {
+                    DateTime? endTime = endByStart[tripMatch.StartTime];
                     if (tripMatch.ExistingTripId is long existingId)
                     {
                         Trip row = byId[existingId];
-                        if (row.StartTime != tripMatch.StartTime)
+                        if (row.StartTime != tripMatch.StartTime || row.EndTime != endTime)
                         {
                             row.StartTime = tripMatch.StartTime;
+                            row.EndTime = endTime;
                             row.ComputedAt = utcNow;
                             changed++;
                         }
@@ -383,6 +389,7 @@ internal sealed class TripDetectionPass : ITripDetectionPass
                         {
                             DeviceId = deviceRowId,
                             StartTime = tripMatch.StartTime,
+                            EndTime = endTime,
                             ComputedAt = utcNow,
                         });
                         changed++;

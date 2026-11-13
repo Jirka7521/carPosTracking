@@ -101,4 +101,29 @@ public static class TripRules
 
     /// <summary>Most trips one assign request may move.</summary>
     public const int MaxTripsPerAssign = 500;
+
+    /// <summary>
+    /// Smallest location-rule radius. A trip's start and end are fixes that can sit up to
+    /// the stop radius from where the car actually parked, plus GNSS jitter, so a tighter
+    /// circle would miss trips that plainly ended "there".
+    /// </summary>
+    public const int MinLocationRuleRadiusMeters = 50;
+
+    /// <summary>Largest location-rule radius: 10 km, a whole small town.</summary>
+    public const int MaxLocationRuleRadiusMeters = 10_000;
+
+    /// <summary>Radius a new location rule starts with: about one car park and its street.</summary>
+    public const int DefaultLocationRuleRadiusMeters = 200;
+
+    /// <summary>
+    /// Most rules one car may have in force at once. Every unpinned trip is tested against
+    /// the rules valid at its start, so this bounds the work of every trip read.
+    /// </summary>
+    public const int MaxActiveLocationRulesPerDevice = 100;
+
+    /// <summary>Most rules one car may have in all, ended ones (the history) included.</summary>
+    public const int MaxLocationRulesPerDevice = 1_000;
+
+    /// <summary>Most matched trip points a location-rule preview returns for the map.</summary>
+    public const int MaxLocationRulePreviewPoints = 500;
 }

@@ -54,15 +54,18 @@ public sealed class TripQueryTranslationTests
             .Where(row => row.EffectiveJourneyId == journeyId);
         string sql = TripQueries.Page(rows, new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), 51).ToQueryString();
 
-        // Pinned → stored journey, else the innermost containing range: a CASE over a
-        // correlated, ordered, LIMIT 1 subquery on journeys — not a client-side lookup.
-        Assert.Contains("CASE", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("journeys", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("range_from <=", sql, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("range_from DESC", sql, StringComparison.OrdinalIgnoreCase);
+        // Pinned → stored journey, else a location rule, else the innermost containing
+        // range: all decided by the database view (PostGIS for the places), which the
+        // query filters on — never a client-side lookup.
+        Assert.Contains("trip_effective_journeys", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("effective_journey_id =", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("device_id =", sql, StringComparison.OrdinalIgnoreCase);
 
-        // The successor's start, for bounding each trip's rebuild.
-        Assert.Contains("min(", sql, StringComparison.OrdinalIgnoreCase);
+        // The successor's start (for bounding each trip's rebuild) and how the trip got
+        // its journey come straight from the view.
+        Assert.Contains("next_start", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("journey_source", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("location_rule_id", sql, StringComparison.OrdinalIgnoreCase);
 
         // Keyset paging on the start, newest first, capped.
         Assert.Contains("start_time <", sql, StringComparison.OrdinalIgnoreCase);

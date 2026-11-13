@@ -1,15 +1,17 @@
 namespace CarPosAPI.Data.Entities;
 
 /// <summary>
-/// One detected trip of a device — deliberately reduced to <b>its start and the
-/// user's organisation of it</b>.
+/// One detected trip of a device — deliberately reduced to <b>its start and end time
+/// and the user's organisation of it</b>.
 ///
 /// <para>
-/// The trip's end, distance, duration and speeds are never stored: they are derived
-/// from <see cref="Position"/> rows on every read by
-/// <c>Services.Trips.TripSegmentAnalyzer</c>, using the same stop-finding code that
-/// detected the start. That keeps derived personal data to a minimum, means a change
-/// to how a statistic is computed needs no recomputation, and lets nothing go stale.
+/// The trip's distance, duration and speeds are never stored: they are derived from
+/// <see cref="Position"/> rows on every read by <c>Services.Trips.TripSegmentAnalyzer</c>,
+/// using the same stop-finding code that detected the trip. That keeps derived personal
+/// data to a minimum, means a change to how a statistic is computed needs no
+/// recomputation, and lets nothing go stale. The end <em>time</em> is the one exception:
+/// location rules ask "did this trip end here?" in SQL, which needs to know which fix
+/// ended it (see <see cref="EndTime"/>).
 /// </para>
 ///
 /// <para>
@@ -35,16 +37,25 @@ public sealed class Trip
     public DateTime StartTime { get; set; }
 
     /// <summary>
+    /// Fix time (UTC) of the trip's last fix: the first fix of the stop that ended it, or
+    /// the last fix before a data gap the car moved across. Null while the end is not yet
+    /// decided — the newest trip, until the next fix confirms the stop. Written by the
+    /// detector together with <see cref="StartTime"/>; the database looks the fix up by
+    /// (device, fix time) to test it against location rules.
+    /// </summary>
+    public DateTime? EndTime { get; set; }
+
+    /// <summary>
     /// The journey the user placed this trip in by hand, or null. Only meaningful when
     /// <see cref="JourneyPinned"/> is true — an unpinned trip's journey is computed from
-    /// the journeys' date ranges at query time and never stored.
+    /// location rules and date ranges at query time and never stored.
     /// </summary>
     public Guid? JourneyId { get; set; }
 
     /// <summary>
     /// True when the user decided this trip's placement by hand (including "not in any
-    /// journey", stored as a null <see cref="JourneyId"/>). Date ranges never move a
-    /// pinned trip. CHECK: a journey may only be stored on a pinned trip.
+    /// journey", stored as a null <see cref="JourneyId"/>). Location rules and date ranges
+    /// never move a pinned trip. CHECK: a journey may only be stored on a pinned trip.
     /// </summary>
     public bool JourneyPinned { get; set; }
 
