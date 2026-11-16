@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-11-09`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-11-16`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -61,23 +61,29 @@ sealed messages and its MQTT Last Will. On the tracker, events said out of range
 card (`events.jsonl`) as **ciphertext only**, like queued fixes, until the broker acknowledges
 them.
 
-### `trips` — derived trip starts
+### `trips` — derived trip start and end times
 
 | Column | | Note | On account deletion |
 |---|---|---|---|
 | `device_id` | p | links to a device and thence to a person | — |
 | `start_time` | **P** | when a trip began — derived from `positions` by the trip worker | deleted with the device if solely owned |
+| `end_time` | **P** | when it ended (the fix where the vehicle parked, or the last fix before a long silence); null while the newest trip's stop is not yet confirmed | as above |
 | `journey_id`, `journey_pinned` | p | a user's manual placement of the trip in a journey | as above |
 | `name` | **P** | free text a user gave the trip | as above |
 | `computed_at` | · | when the worker last wrote the row | as above |
 
-**Deliberately minimal:** only each trip's start is stored. Its end, distance, duration and
-speeds are recomputed from `positions` on every read and never kept, so erasing positions
-erases them too. No location is stored here — but, like `device_events`, a timetable of when
-the vehicle was driven, so it is treated like `positions`: **never auto-deleted**, trips
-starting inside a range erased by `DELETE /api/devices/{deviceId}/positions` go with it (the
-worker then rebuilds whatever the remaining fixes support), and they are deleted with the
-device on account deletion.
+**Deliberately minimal:** only each trip's start and end **times** are stored. The end time
+is kept so the database can tell whether a trip ended inside a place rule's circle (below).
+Its route, distance, duration and speeds are recomputed from `positions` on every read and never kept,
+so erasing positions erases them too. No location is stored here — but, like `device_events`,
+a timetable of when the vehicle was driven, so it is treated like `positions`: **never
+auto-deleted**, trips starting inside a range erased by `DELETE /api/devices/{deviceId}/positions`
+go with it (the worker then rebuilds whatever the remaining fixes support), and they are
+deleted with the device on account deletion.
+
+The journey a trip is shown in is not stored for automatic placements: the view
+`trip_effective_journeys` decides it live. The order is: a manual placement, then a place
+rule, then a journey's date range. The view stores nothing.
 
 ### `journeys` and `device_trip_settings`
 
@@ -87,6 +93,30 @@ device on account deletion.
 | `journeys.range_from`, `range_to` | p | the dates a user grouped as one journey — often a holiday | as above |
 | `journeys.parent_id`, `created_at`, `updated_at` | · | nesting and bookkeeping | as above |
 | `device_trip_settings.*` | · | the device's trip detection thresholds | as above |
+
+### `journey_location_rules` — place rules
+
+A user picks a point and a radius. Every trip that starts or ends inside that circle, from
+a chosen date on, joins a chosen journey.
+
+| Column | | Note | On account deletion |
+|---|---|---|---|
+| `latitude`, `longitude`, `center` | **P** | a place the user chose, often home or work. `center` is a generated PostGIS copy of the two columns. | deleted with the device if solely owned |
+| `radius_m` | p | the circle's size, 50–10 000 m | as above |
+| `name` | **P** | free text — "Office", "Grandma's" | as above |
+| `journey_id`, `match_start`, `match_end`, `valid_from` | p | which journey, which trip ends to match, and from when | as above |
+| `ended_at`, `end_reason` | p | when it stopped applying, and whether a user ended it (`user`) or its journey was deleted (`journeyDeleted`) | as above |
+| `device_id`, `created_at`, `updated_at` | · | owner device and bookkeeping | as above |
+
+- **No author.** Rows hold no user id; anyone with the settings permission on the device can
+  manage them.
+- **History, not deletion.** An ended rule is kept as history: there is no delete endpoint.
+  Rules go with the device (cascade) and are erased explicitly on account deletion, before
+  the journeys.
+- **Position erase.** A position erase leaves rules alone. They are user input, not derived
+  from positions.
+- **Logs.** Coordinates and names are never logged. The API logs ids only (user,
+  device, rule).
 
 `trip_detection_state` holds per-device worker bookkeeping only (a fix time to recompute
 from, a counter, a timestamp) and is deleted with the device; `trip_detection_cursor` is a
@@ -247,9 +277,10 @@ created (`invitationsMade`, without any part of the link), metadata for every
 readable device, authored configuration profiles/rules/revisions, and **the complete position
 history and device history (`statusEvents`: offline, restarts, wakes, motion steps) of every
 readable device** — uncapped. Each readable device also carries its `tripDetectionSettings`
-(null while it uses the defaults), its `journeys`, and its `trips` — each trip as stored:
-start time, name, and the journey it was placed in by hand. Trip ends and figures are not
-stored, so they are not in the file; they follow from the positions beside them.
+(null while it uses the defaults), its `journeys`, its `locationRules` (active and ended,
+with their point and radius), and its `trips`. Each trip is exported as stored: start and
+end time, name, and the journey it was placed in by hand. A trip's figures are not stored,
+so they are not in the file; they follow from the positions beside them.
 
 It must never contain `password_hash`, `private_key_ciphertext`, JWT signing material, the
 device-key master key, or any of a share link's three secret columns. `DataExportShapeTests` pins that shape down against the serialised

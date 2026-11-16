@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-11-09`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-11-16`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle
@@ -55,14 +55,14 @@
 
 | | |
 |---|---|
-| **Purpose** | Show a vehicle's history as trips (from one stop to the next) with their distance, duration and speeds, and let users group trips into named journeys — "Croatia 2026" — that can collect every trip between two dates on their own |
+| **Purpose** | Show a vehicle's history as trips (from one stop to the next) with their distance, duration and speeds. Let users group trips into named journeys ("Croatia 2026"). A journey can collect trips on its own: every trip between two dates, or, through a place rule, every trip that starts or ends near a chosen point. |
 | **Data subjects** | As activity B: the account holder and anyone driving or travelling in the vehicle; the users who name trips and journeys |
-| **Categories of data** | **Derived:** the start time of each detected trip (`trips.start_time`), worked out from the positions by a background job using per-device thresholds (`device_trip_settings`: minimum stop, stop radius, shortest trip). **Nothing else derived is stored** — a trip's end, route, distance, duration and speeds are recomputed from the positions on every read. **User-entered:** trip names; journeys (name, nesting, an optional date range); which trips a user placed in a journey by hand. No coordinates are stored by this activity. |
+| **Categories of data** | **Derived:** the start and end time of each detected trip (`trips.start_time`, `trips.end_time`). A background job works them out from the positions, using per-device thresholds (`device_trip_settings`: minimum stop, stop radius, shortest trip). **Nothing else derived is stored**: a trip's route, distance, duration and speeds are recomputed from the positions on every read. **User-entered:** trip names; journeys (name, nesting, an optional date range); which trips a user placed in a journey by hand; place rules (`journey_location_rules`: a point the user chose, often home or work, a radius, a name, the target journey, and the period the rule applied). The place rules are the only coordinates this activity stores. |
 | **Legal basis** | Art. 6(1)(b) contract — organising and summarising the location history the account holder keeps is part of the same service as activity B |
-| **Recipients** | Users granted access to that device, who see its trips and journeys (organising them needs the settings permission). Not shown through temporary share links. |
+| **Recipients** | Users granted access to that device, who see its trips, journeys and place rules (organising them needs the settings permission). Not shown through temporary share links. |
 | **Third-country transfers** | As activity B, for the route map only (Google, after consent); Cloudflare as TLS terminator |
-| **Retention** | Follows the positions it is derived from: no automatic deletion; erasing positions erases the trips that started in the erased range; deleting the device with the account deletes its trips, journeys and thresholds. Journeys survive a position erase, empty, until a user deletes them. |
-| **Safeguards** | Data minimisation by design: only trip start times are kept, so erasing positions leaves no stored trace of the routes. The job logs counts only, never coordinates. Trips and journeys are in the Art. 15/20 export. |
+| **Retention** | Follows the positions it is derived from, with no automatic deletion. Erasing positions erases the trips that started in the erased range. Deleting the device with the account deletes its trips, journeys, place rules and thresholds. Journeys survive a position erase, empty, until a user deletes them. Place rules also survive a position erase. A user can end a rule but not delete it: an ended rule stays as history until the device or the account is deleted. |
+| **Safeguards** | Data minimisation by design: only trip start and end times are kept, so erasing positions leaves no stored trace of the routes. The job and the API log counts and ids only, never coordinates. Trips, journeys and place rules are in the Art. 15/20 export. |
 
 ### C. Device sharing and access control
 

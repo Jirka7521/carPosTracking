@@ -221,6 +221,8 @@ FE/
 │   │   ├── LanguageMenu.tsx       The 🌐 language picker — header, plus the login and register pages
 │   │   ├── SessionLoading.tsx     Spinner shown while the session probe runs
 │   │   ├── DeviceMap.tsx          Google Maps component: the track as a line, one pin on the latest position
+│   │   ├── MapsConsentPrompt.tsx  "Load the map once / always" — the consent gate DeviceMap and the picker share
+│   │   ├── LocationPickerMap.tsx  Click a point, drag/resize a circle; draws the trip starts and ends a rule would catch
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit; optional dashed marker lines
 │   │   ├── SeriesPicker.tsx       The chart's series checkboxes, which double as its legend (Charts tab, trip page)
 │   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
@@ -238,13 +240,17 @@ FE/
 │   │   ├── CapabilityCheckboxes.tsx  Permission flag checkboxes (Delete / Share / Settings)
 │   │   ├── JourneySidebar.tsx     Trips tab's left column: All / Not in a journey / the journey tree + search
 │   │   ├── JourneyTreeItem.tsx    One journey in that tree; children drawn only while it is open
-│   │   ├── JourneyOverview.tsx    An open journey's header: path, date rule, totals, sub-journeys
+│   │   ├── JourneyOverview.tsx    An open journey's header: path, date rule, place rules, totals, sub-journeys
+│   │   ├── LocationRuleDialog.tsx Create / edit a place rule: map, radius, starts/ends, journey, valid from, live preview
+│   │   ├── LocationRuleEndDialog.tsx  Confirms ending a rule — its trips stay, the rule stays as history
+│   │   ├── LocationRuleList.tsx   Place rules as rows: radius, which ends, period, status, trip count
+│   │   ├── LocationRulesView.tsx  The ?view=rules pane: every rule of the car, active first, then the history
 │   │   ├── JourneyDialog.tsx      Create / edit a journey, with the live date-range preview
 │   │   ├── JourneyDeleteDialog.tsx  Confirms a delete and says where the contents go
 │   │   ├── JourneyMoveDialog.tsx  "Move N trips to…" around a JourneyPicker
 │   │   ├── JourneyPicker.tsx      Search box over the journey list — for thousands of journeys
 │   │   ├── TripDayGroup.tsx       One day of the trip list with its totals
-│   │   ├── TripRow.tsx            One trip: times, distance, duration, average speed
+│   │   ├── TripRow.tsx            One trip: times, distance, duration, average speed; 📌 placed by hand, 📍 by a place rule
 │   │   ├── TripFigure.tsx         A computed figure: the value, "…" while pending, or —
 │   │   ├── TripListEmpty.tsx      What an empty trip list says, per view
 │   │   ├── TripSelectionBar.tsx   Sticky bar for selected trips: move, remove, back to automatic
@@ -278,7 +284,8 @@ FE/
 │       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── overdue.ts             When the map's latest-position pin turns red
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
-│       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges
+│       ├── googleMapsLoader.ts    Loads the Maps JS API once, for every map on the page
+│       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges, place-rule limits
 │       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
 │       ├── tripTelemetry.ts       A trip's fixes → altitude range, climb, battery at both ends, gaps
 │       ├── configSecrets.ts       Splices your secrets into the rendered Config.h — in the browser
@@ -317,8 +324,8 @@ FE/
 | `/invite/:token` | protected | An invitation to share someone's device: shows the offer and lets the signed-in visitor accept or decline. Signing in first brings them back here. nginx redacts `/invite/` paths in its access log |
 | `/device/:deviceId/map` | protected | Live map for a device |
 | `/device/:deviceId/positions` | protected | Position history table |
-| `/device/:deviceId/trips` | protected | Trips the server detected, newest first and grouped by day, and the journeys they are organised into. `?journey=all` (default), `none` (in no journey) or a journey id picks the view, so it survives a reload and Back. Organising needs `canModifySettings`; reading needs any grant. Ignores the shared date range — older trips are paged in |
-| `/device/:deviceId/trips/:tripId` | protected | One trip: its figures, its route on the map (behind the usual maps consent) and its readings in the same chart as the Charts tab (same series picker, same ticked series), with the average speed as a dashed line. Keeps the list's `?journey=` for "← Trips"; "Show on the Map tab" sets the shared date range to the trip |
+| `/device/:deviceId/trips` | protected | Trips the server detected, newest first and grouped by day, and the journeys they are organised into. `?journey=all` (default), `none` (in no journey) or a journey id picks the view, so it survives a reload and Back. `?view=rules` shows the car's place rules (active, then the history). `?newRuleAt=<lat>,<lon>` (optionally with `&newRuleJourney=<id>`) opens the place-rule dialog on that spot for a reader with `canModifySettings`. For anyone, it is then replaced by `?view=rules`. Organising needs `canModifySettings`; reading needs any grant. Ignores the shared date range — older trips are paged in |
+| `/device/:deviceId/trips/:tripId` | protected | One trip: its figures, its route on the map (behind the usual maps consent) and its readings in the same chart as the Charts tab (same series picker, same ticked series), with the average speed as a dashed line. Keeps the list's `?journey=` for "← Trips"; "Show on the Map tab" sets the shared date range to the trip. "📍 Place rule from where it started / ended" opens the list's place-rule dialog on that fix (`?newRuleAt=`) |
 | `/device/:deviceId/charts` | protected | Telemetry charts — speed, altitude, battery, acceleration over time |
 | `/device/:deviceId/events` | protected | Device history — every time the tracker went offline and why, notable restarts, every wake and motion step; filter to alerts and errors. Expert mode only: in Normal mode the tab is hidden and the route redirects to `map` |
 | `/device/:deviceId/settings` | protected | Device settings (info, alias, firmware config and trip detection in Expert mode, sharing, erase position history, delete) |
@@ -425,14 +432,16 @@ token in the path rather than the fragment.
 
 ### The map asks before it loads
 
-[`components/DeviceMap.tsx`](src/components/DeviceMap.tsx) does not contact
-`maps.googleapis.com` until the viewer agrees. Loading the Maps API tells Google
+[`components/DeviceMap.tsx`](src/components/DeviceMap.tsx) and the place-rule
+picker [`components/LocationPickerMap.tsx`](src/components/LocationPickerMap.tsx)
+do not contact `maps.googleapis.com` until the viewer agrees. Both show the same
+[`MapsConsentPrompt`](src/components/MapsConsentPrompt.tsx). Loading the Maps API tells Google
 the viewer's IP, browser and — through the viewport — roughly where the tracked
 vehicle is, so the tab shows a placeholder with "load once" and "always load"
 until somebody chooses. The prompt links the Google Maps Additional Terms of
 Service and Google's Privacy Policy, which the Maps Platform requires end users
 to be pointed to. "Load once" stores nothing. Where "always" is remembered
-depends on who is looking — the caller decides and hands `DeviceMap` the answer
+depends on who is looking — the caller decides and hands the map the answer
 (`hasStandingConsent`, `onGrantStandingConsent`, `consentScope`):
 
 - **Signed in** — on the account, through `GET`/`PUT`/`DELETE /api/me/maps-consent`
