@@ -21,7 +21,9 @@
 // widened to whole minutes because the range pickers have minute resolution
 // and the API's bounds are inclusive.
 //
-// Organising (name, journey) needs CanModifySettings, as on the list.
+// Organising (name, journey) needs CanModifySettings, as on the list. So do
+// "📍 Place rule from where it started / ended", which open the Trips tab's
+// place-rule dialog on that fix (?newRuleAt=) with this trip's journey picked.
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -29,11 +31,12 @@ import { Link, useLocation, useNavigate, useOutletContext, useParams } from 'rea
 import { useTranslation } from 'react-i18next'
 import { formatInteger, formatTime, formatWeekdayDate } from '../i18n/format'
 import type { DevicePageContext } from './DevicePage'
-import { ApiError, assignTrips, fetchJourneys, fetchTrip } from '../services/apiClient'
-import type { JourneyListDto, PositionDto, TripSummaryDto } from '../services/apiTypes'
+import { ApiError, assignTrips, fetchJourneys, fetchLocationRules, fetchTrip } from '../services/apiClient'
+import type { JourneyListDto, LocationRuleDto, PositionDto, TripSummaryDto } from '../services/apiTypes'
 import { fetchAllPositions, fetchPositionChunk, mergeNewest } from '../services/positionPager'
 import { RefreshToolbar } from '../components/RefreshToolbar'
 import { JourneyMoveDialog } from '../components/JourneyMoveDialog'
+import type { PickedPoint } from '../components/LocationPickerMap'
 import { TripCharts } from '../components/TripCharts'
 import { TripNameEditor } from '../components/TripNameEditor'
 import { TripRouteMap } from '../components/TripRouteMap'
@@ -44,7 +47,7 @@ import type { JourneyTree } from '../utils/journeyTree'
 import { buildJourneyTree, journeyPathLabel } from '../utils/journeyTree'
 import type { TripFixSummary } from '../utils/tripTelemetry'
 import { summarizeTripFixes } from '../utils/tripTelemetry'
-import { describeTripTimes, tripShownStart } from '../utils/trips'
+import { describeTripTimes, locationRuleLabel, tripShownStart } from '../utils/trips'
 
 // Ceiling on one trip's positions, as on the Charts tab: fifty requests at most.
 const MAX_TRIP_ROWS: number = 50_000
@@ -53,6 +56,9 @@ const MAX_TRIP_ROWS: number = 50_000
 const MAX_LISTED_GAPS: number = 5
 
 const MINUTE_MS: number = 60_000
+
+// Decimals of a ?newRuleAt= coordinate: about 10 cm, finer than any fix.
+const COORDINATE_DECIMALS: number = 6
 
 type LoadedPositions = {
   key: string
@@ -85,6 +91,7 @@ export function DeviceTripDetailTab() {
   const [isLoadingTrip, setIsLoadingTrip] = useState<boolean>(false)
 
   const [journeyList, setJourneyList] = useState<{ deviceId: string; value: JourneyListDto } | null>(null)
+  const [ruleList, setRuleList] = useState<{ deviceId: string; value: LocationRuleDto[] } | null>(null)
 
   const [positions, setPositions] = useState<LoadedPositions | null>(null)
   const positionsRef = useRef<LoadedPositions | null>(null)
@@ -151,11 +158,30 @@ export function DeviceTripDetailTab() {
     }
   }, [device.deviceId, changeToken])
 
+  // ---- The place rules (only the name behind the 📍 marker) ----
+  useEffect(() => {
+    let canceled = false
+    fetchLocationRules(device.deviceId)
+      .then((value) => {
+        if (!canceled) {
+          setRuleList({ deviceId: device.deviceId, value })
+        }
+      })
+      .catch(() => {
+        // The marker then goes without its tooltip; nothing else needs them.
+      })
+    return () => {
+      canceled = true
+    }
+  }, [device.deviceId, changeToken])
+
   const shownTrip: TripSummaryDto | null = trip !== null && trip.key === tripKey ? trip.value : null
   const shownError = tripError !== null && tripError.key === tripKey ? tripError : null
 
   const journeys: JourneyListDto | null =
     journeyList !== null && journeyList.deviceId === device.deviceId ? journeyList.value : null
+  const rules: LocationRuleDto[] | null =
+    ruleList !== null && ruleList.deviceId === device.deviceId ? ruleList.value : null
   const tree: JourneyTree = useMemo(() => buildJourneyTree(journeys?.journeys ?? []), [journeys])
 
   // ---- The trip's positions ----
@@ -272,6 +298,20 @@ export function DeviceTripDetailTab() {
     void navigate('../../map', { relative: 'path' })
   }
 
+  // Opens the Trips tab's place-rule dialog centred on `point`, with this
+  // trip's journey as the target; the list drops the parameters once read.
+  function createRuleAt(point: PickedPoint): void {
+    const params: URLSearchParams = new URLSearchParams()
+    params.set(
+      'newRuleAt',
+      `${point.latitude.toFixed(COORDINATE_DECIMALS)},${point.longitude.toFixed(COORDINATE_DECIMALS)}`,
+    )
+    if (shownTrip?.journeyId != null) {
+      params.set('newRuleJourney', shownTrip.journeyId)
+    }
+    void navigate({ pathname: '..', search: `?${params.toString()}` }, { relative: 'path' })
+  }
+
   // ---- Rendering ----
   const backLink = (
     <Link to={{ pathname: '..', search: location.search }} relative="path" className="trip-detail-back">
@@ -317,6 +357,32 @@ export function DeviceTripDetailTab() {
   const journeyId: string | null = shownTrip.journeyId
   const journeyLabel: string | null =
     journeyId !== null && tree.byId.has(journeyId) ? journeyPathLabel(tree, journeyId) : null
+
+  // The rule that put the trip in its journey, named in the 📍 marker's tooltip.
+  const placingRule: LocationRuleDto | null =
+    shownTrip.journeySource === 'locationRule' && shownTrip.locationRuleId !== null
+      ? (rules?.find((rule) => rule.id === shownTrip.locationRuleId) ?? null)
+      : null
+  const ruleTitle: string | null =
+    placingRule === null
+      ? null
+      : shownTrip.locationRuleAtEnd === true
+        ? t('trips:row.ruleEndTitle', { name: locationRuleLabel(placingRule) })
+        : t('trips:row.ruleStartTitle', { name: locationRuleLabel(placingRule) })
+
+  // The fixes a place rule can be made from. Rows are newest first: the oldest
+  // is where the car left (the parked fix, when there is one) — unless the walk
+  // stopped at its cap before reaching it — and a finished trip's newest is its
+  // end. A trip still being driven has no end yet.
+  const hasAllFixes: boolean = positions !== null && positions.key === positionsKey && !positions.reachedCap
+  const startPoint: PickedPoint | null =
+    hasAllFixes && shownPositions !== null && shownPositions.length > 0
+      ? toPickedPoint(shownPositions[shownPositions.length - 1])
+      : null
+  const endPoint: PickedPoint | null =
+    !shownTrip.inProgress && shownTrip.endTime !== null && shownPositions !== null && shownPositions.length > 0
+      ? toPickedPoint(shownPositions[0])
+      : null
 
   const gaps = fixSummary?.gaps ?? []
   const gapText: string = gaps
@@ -393,6 +459,11 @@ export function DeviceTripDetailTab() {
               {' '}📌
             </span>
           ) : null}
+          {ruleTitle !== null ? (
+            <span className="trip-row-marker" role="img" title={ruleTitle} aria-label={ruleTitle}>
+              {' '}📍
+            </span>
+          ) : null}
         </span>
         {canManage ? (
           <span className="trip-detail-journey-actions">
@@ -426,6 +497,26 @@ export function DeviceTripDetailTab() {
                 title={t('trips:selection.automaticTitle')}
               >
                 {t('trips:selection.automatic')}
+              </button>
+            ) : null}
+            {startPoint !== null ? (
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => createRuleAt(startPoint)}
+                title={t('trips:detail.ruleFromTitle')}
+              >
+                📍 {t('trips:detail.ruleFromStart')}
+              </button>
+            ) : null}
+            {endPoint !== null ? (
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => createRuleAt(endPoint)}
+                title={t('trips:detail.ruleFromTitle')}
+              >
+                📍 {t('trips:detail.ruleFromEnd')}
               </button>
             ) : null}
           </span>
@@ -519,6 +610,10 @@ export function DeviceTripDetailTab() {
       ) : null}
     </div>
   )
+}
+
+function toPickedPoint(position: PositionDto): PickedPoint {
+  return { latitude: position.latitude, longitude: position.longitude }
 }
 
 // The :tripId segment as a trip id, or null when it is not a positive integer.

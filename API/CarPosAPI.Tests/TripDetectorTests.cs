@@ -164,6 +164,56 @@ public sealed class TripDetectorTests
     }
 
     [Fact]
+    public void DriveStillGoing_HasNoStoredEndYet()
+    {
+        TripTrack track = new TripTrack(Morning).Park(TimeSpan.FromMinutes(30)).Drive(3_000, 40);
+
+        DetectedTrip trip = Assert.Single(TripDetector.Detect(track.Points, Defaults, moreDataAvailable: false).Trips);
+
+        Assert.Null(trip.End);
+    }
+
+    [Fact]
+    public void LongSilenceAcrossWhichTheCarMoved_EndsTheFirstTripAtTheLastFixBeforeIt()
+    {
+        TripTrack track = new TripTrack(Morning).Park(TimeSpan.FromMinutes(30));
+        track.Drive(5_000, 60).Silence(TimeSpan.FromHours(3)).MoveUnseen(50_000);
+        int afterGap = track.Points.Count;
+        track.Drive(5_000, 60).Park(TimeSpan.FromMinutes(30));
+
+        TripDetectionResult result = TripDetector.Detect(track.Points, Defaults, moreDataAvailable: false);
+
+        Assert.Equal(track.Points[afterGap - 1].FixTime, result.Trips[0].End);
+    }
+
+    [Fact]
+    public void StoredEnd_IsTheEndTheReadPathFinds_ForEveryDecidedTrip()
+    {
+        // The end is stored so location rules can test it in SQL; it must be the very fix
+        // the dashboard shows as the trip's end, or a rule would judge a different place.
+        IReadOnlyList<TripPoint> points = BusyDay().Points;
+        IReadOnlyList<DetectedTrip> trips = TripDetector.Detect(points, Defaults, moreDataAvailable: false).Trips;
+        IReadOnlyList<DateTime> starts = trips.Select(trip => trip.Start).ToList();
+
+        Assert.Contains(trips, trip => trip.End is null);
+        for (int trip = 0; trip < trips.Count; trip++)
+        {
+            if (trips[trip].End is DateTime storedEnd)
+            {
+                TripSegmentStats stats = AnalyzeTrip(points, starts, trip);
+                Assert.NotEqual(TripEndKind.Open, stats.EndKind);
+                Assert.Equal(stats.End, storedEnd);
+                Assert.True(storedEnd > trips[trip].Start);
+            }
+            else
+            {
+                // Only the newest trip can still be open.
+                Assert.Equal(trips.Count - 1, trip);
+            }
+        }
+    }
+
+    [Fact]
     public void HistoryStartingMidDrive_StartsATripAtTheFirstFix()
     {
         TripTrack track = new TripTrack(Morning).Drive(5_000, 50).Park(TimeSpan.FromMinutes(30));
@@ -177,13 +227,14 @@ public sealed class TripDetectorTests
     public void RestartingFromAnyTripsPrecedingStop_ReproducesTheSameStarts()
     {
         IReadOnlyList<TripPoint> points = BusyDay().Points;
-        IReadOnlyList<DateTime> full = TripDetector.Detect(points, Defaults, moreDataAvailable: false).Starts;
+        IReadOnlyList<DetectedTrip> fullTrips = TripDetector.Detect(points, Defaults, moreDataAvailable: false).Trips;
+        IReadOnlyList<DateTime> full = fullTrips.Select(trip => trip.Start).ToList();
         Assert.True(full.Count >= 5, "the scenario should produce several trips");
 
         // For each trip after the first, restart where the previous trip ended: at the
         // arrival (the first fix of the stop) after a stop, or at the first fix after the
-        // silence after a hard gap. Re-running from there must find exactly the starts
-        // from this trip onward.
+        // silence after a hard gap. Re-running from there must find exactly the trips —
+        // starts and stored ends — from this trip onward.
         Assert.Contains(
             Enumerable.Range(0, full.Count).Select(trip => AnalyzeTrip(points, full, trip).EndKind),
             kind => kind == TripEndKind.Gap);
@@ -194,9 +245,9 @@ public sealed class TripDetectorTests
 
             int restartIndex = IndexOf(points, previous.End) + (previous.EndKind == TripEndKind.Gap ? 1 : 0);
             List<TripPoint> window = points.Skip(restartIndex).ToList();
-            IReadOnlyList<DateTime> restarted = TripDetector.Detect(window, Defaults, moreDataAvailable: false).Starts;
+            IReadOnlyList<DetectedTrip> restarted = TripDetector.Detect(window, Defaults, moreDataAvailable: false).Trips;
 
-            Assert.Equal(full.Skip(trip), restarted);
+            Assert.Equal(fullTrips.Skip(trip), restarted);
         }
     }
 
@@ -204,26 +255,28 @@ public sealed class TripDetectorTests
     public void WindowCutShort_DecidesOnlyWhatTheMissingFixesCannotChange_AndResumesExactly()
     {
         IReadOnlyList<TripPoint> points = BusyDay().Points;
-        IReadOnlyList<DateTime> full = TripDetector.Detect(points, Defaults, moreDataAvailable: false).Starts;
+        IReadOnlyList<DetectedTrip> full = TripDetector.Detect(points, Defaults, moreDataAvailable: false).Trips;
 
         for (int cut = 1; cut < points.Count; cut += 7)
         {
             List<TripPoint> prefix = points.Take(cut).ToList();
             TripDetectionResult partial = TripDetector.Detect(prefix, Defaults, moreDataAvailable: true);
 
-            List<DateTime> combined = new List<DateTime>(partial.Starts);
+            // Starts and ends alike: a cut-short window never stores an end the missing
+            // fixes could still move.
+            List<DetectedTrip> combined = new List<DetectedTrip>(partial.Trips);
             if (!partial.IsComplete)
             {
                 if (partial.ResumeFrom is not DateTime resumeAt)
                 {
                     // Nothing confirmed yet: nothing may have been decided either.
-                    Assert.Empty(partial.Starts);
+                    Assert.Empty(partial.Trips);
                     continue;
                 }
 
                 Assert.All(partial.Starts, start => Assert.True(start < resumeAt));
                 List<TripPoint> rest = points.Skip(IndexOf(points, resumeAt)).ToList();
-                combined.AddRange(TripDetector.Detect(rest, Defaults, moreDataAvailable: false).Starts);
+                combined.AddRange(TripDetector.Detect(rest, Defaults, moreDataAvailable: false).Trips);
             }
 
             Assert.Equal(full, combined);

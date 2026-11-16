@@ -197,7 +197,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-11-09` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-11-16` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -426,8 +426,8 @@ PostgreSQL 18 + PostGIS 3.6 from [`../../Container/Postgres/`](../../Container/P
 and `BE` (runtime; SELECT/INSERT/UPDATE/DELETE only, granted automatically on
 future tables).
 
-Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
-`AddBatteryAndAccel`, `AddTemperature`, `AddDeviceAckPublicKey`):
+Schema (from `InitialCreate` up to the latest, `SpeedUpLocationRuleMatching`; the
+full list is in [`Data/Migrations/`](Data/Migrations/)):
 
 - **devices** — `id` (uuid PK), `device_id` (unique MQTT identity, e.g.
   `GNSS01`), `display_name`, `public_key_pem`, `private_key_ciphertext`
@@ -477,21 +477,51 @@ Schema (migrations `InitialCreate`, `AddUsersAccessesAndDeviceAliases`,
   should run), `config_applied_version` and `config_applied_at` (what it last
   confirmed). Keeping the values in exactly one place is why the two can never
   disagree.
-- **trips** (migration `AddTrips`) — one row per detected trip **start** and
-  nothing derived: `id` (bigint identity, kept stable across recomputes),
-  `device_id` (FK, delete restricted), `start_time` (the trip's first moving
-  fix), and the user's organisation of it — `journey_id` + `journey_pinned`
-  (CHECK: a journey is only stored on a trip the user placed by hand) and an
-  optional `name`. The end, distance, duration and speeds are recomputed from
-  `positions` on every read with the same stop-finding code that detected the
-  start (`Services/Trips/`), so nothing can go stale. The `(device_id,
-  start_time DESC)` index is deliberately not unique: the detector updates
-  starts in place inside one transaction.
+- **trips** (migration `AddTrips`) — one row per detected trip, holding only its
+  times and the user's organisation of it:
+  - `id` (bigint identity, kept stable across recomputes);
+  - `device_id` (FK, delete restricted);
+  - `start_time` (the trip's first moving fix);
+  - `end_time` (since `AddJourneyLocationRules`), the fix where it parked or the
+    last fix before a long silence. It is NULL while the newest trip's stop is
+    unconfirmed. CHECK `end_time IS NULL OR end_time >= start_time`;
+  - `journey_id` + `journey_pinned` (CHECK: a journey is only stored on a trip
+    the user placed by hand);
+  - an optional `name`.
+
+  Distance, duration and speeds are recomputed from `positions` on every read,
+  using the same stop-finding code that detected the start and end
+  (`Services/Trips/`), so nothing can go stale. The stored end exists so SQL can
+  match place rules on it. The `(device_id, start_time DESC)` index is
+  deliberately not unique: the detector updates starts in place inside one
+  transaction.
 - **journeys** — nested (`parent_id`, delete restricted), per-device groups of
-  trips with an optional live date range `[range_from, range_to)`. An unpinned
-  trip belongs to the innermost journey whose range contains its start —
-  computed at query time, never written onto the trip. Names are unique among
-  siblings (`NULLS NOT DISTINCT`, so top-level journeys cannot share a name).
+  trips with an optional live date range `[range_from, range_to)`. Names are
+  unique among siblings (`NULLS NOT DISTINCT`, so top-level journeys cannot share
+  a name).
+- **journey_location_rules** — place rules: a point (`latitude`, `longitude`), a
+  `radius_m` (50–10 000), `match_start` / `match_end`, the target `journey_id`
+  (FK, delete restricted), `valid_from`, and, once ended, `ended_at` +
+  `end_reason` (`user` / `journeyDeleted`).
+  - `center geography(Point,4326)` is a **generated** column added by raw SQL,
+    like `positions.location`, and is not in the EF model.
+  - An ended rule is kept as history; there is no delete.
+  - `journey_id` is NULL only on a rule ended because its top-level journey was
+    deleted.
+- **trip_effective_journeys** (view) + **trip_points** / **trip_near** (SQL
+  functions) — the single definition of which journey a trip is in. Nothing is
+  written onto the trip: every trip list, detail and summary read goes through the
+  view (`TripQueries.Rows`, a keyless EF entity mapped with `ToView`). The
+  detector, the export and the erasure paths use `trips` directly.
+  - `trip_points` finds a trip's start, parking and end fixes (`positions.location`
+    and latitude), each one index probe on `(device_id, fix_time)`.
+  - `trip_near` says whether those points lie within a radius: PostGIS
+    `ST_DWithin`, behind a latitude test that only skips points that cannot match.
+  - The view looks a trip's points up once and tests every rule against them, so
+    index probes grow with the number of trips, not trips × rules; each rule
+    adds only a comparison.
+  - The view applies manual pin → place rule → date range.
+  - SchemaSync ignores all three, since they are not tables.
 - **device_trip_settings** — a device's trip detection thresholds (minimum
   stop, stop radius, minimum trip distance), CHECK-bounded from
   [`Dtos/TripRules.cs`](Dtos/TripRules.cs). Server-side only — never sent to the
@@ -607,14 +637,18 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `GET /api/positions?deviceId=&from=&to=` | positions, newest first, **max 1000** |
 | `GET /api/devices/{deviceId}/events?from=&to=&minSeverity=&limit=` | the device's history (offline reasons, notable restarts, wakes, motion steps), newest first. `minSeverity` = `normal`/`alert`/`error` keeps that and worse (anything else → 400); `limit` default 200, max 1000; `from`/`to` bound the event's time (`occurredAt`) |
 | `DELETE /api/devices/{deviceId}/positions?from=&to=` | **permanently erase** a device's positions **and its connection events** over the same range; needs `CanDelete`. Trips that started in the range go too, and the range is recomputed. Returns `{ deletedCount, deletedEventCount }` |
-| `GET /api/devices/{deviceId}/trips?journey=all\|none\|{journeyId}&before=&limit=` | the device's trips, newest first, keyset-paged (`before` = the previous page's `nextCursor`; `limit` default 50, max 100). `journey` filters to trips in no journey, or directly in one. Only each trip's start is stored: end, distance, duration and speeds are **rebuilt from the positions per response**, within a fix budget — trips it does not reach come back `statsPending`. `isRecalculating` while older trips are being recomputed |
+| `GET /api/devices/{deviceId}/trips?journey=all\|none\|{journeyId}&before=&limit=` | the device's trips, newest first, keyset-paged (`before` = the previous page's `nextCursor`; `limit` default 50, max 100). `journey` filters to trips in no journey, or directly in one. Only each trip's start and end times are stored: distance, duration and speeds are **rebuilt from the positions per response**, within a fix budget — trips it does not reach come back `statsPending`. Each trip says why it is in its journey: `journeySource` = `manual` / `locationRule` / `dateRange` / null, plus `locationRuleId` and `locationRuleAtEnd` for a place rule. `isRecalculating` while older trips are being recomputed |
 | `GET /api/devices/{deviceId}/trips/{tripId}` | one trip, rebuilt the same way (404 `noSuchTrip` — a recompute may have merged it) |
 | `PUT /api/devices/{deviceId}/trips/{tripId}` | name a trip; an empty name clears it (204). Needs `CanModifySettings` |
-| `POST /api/devices/{deviceId}/trips/assign` | body `{ tripIds, journeyId, automatic }`: pin up to 500 trips to a journey (`journeyId` null = to no journey), or `automatic: true` to hand them back to the date ranges. Needs `CanModifySettings`. Returns `{ moved }` |
+| `POST /api/devices/{deviceId}/trips/assign` | body `{ tripIds, journeyId, automatic }`: pin up to 500 trips to a journey (`journeyId` null = to no journey), or `automatic: true` to hand them back to the place rules and date ranges. Needs `CanModifySettings`. Returns `{ moved }` |
 | `GET /api/devices/{deviceId}/trips/summary?from=&to=&journeyId=` | what a date range holds — trip count, how many were placed by hand elsewhere, total distance and duration — for the journey dialog's preview |
 | `GET /api/devices/{deviceId}/journeys` | every journey, flat (`parentId`), with direct and rolled-up trip counts, plus `allTripCount` and `unassignedTripCount` |
 | `GET /api/devices/{deviceId}/journeys/{journeyId}/summary` | a journey's totals including sub-journeys, computed from the positions on request |
-| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/journeys[/{journeyId}]` | journey CRUD; needs `CanModifySettings`. Body `{ name, parentId, rangeFrom, rangeTo, includePinned }`. Names are unique among siblings (**409** `duplicateJourneyName`), nesting is at most 5 deep (`journeyTooDeep`), ranges must be disjoint or nested (**409** `journeyRangeOverlap`), at most 10 000 per device. A range is a **live rule** — trips starting in it are in the journey unless placed by hand; `includePinned` also hands the ones placed by hand elsewhere back to it. DELETE moves sub-journeys and trips up one level (204) |
+| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/journeys[/{journeyId}]` | journey CRUD; needs `CanModifySettings`. Body `{ name, parentId, rangeFrom, rangeTo, includePinned, place?, endPlaceRuleId? }`. `place` `{ ruleId, name, latitude, longitude, radiusMeters, matchStart, matchEnd, validFrom }` adds a place rule for this journey (`ruleId: null`) or replaces one of its own rules in force; `endPlaceRuleId` ends one of them instead. Either is saved in the **same transaction** as the journey, so a refused place (`tooManyLocationRules`, `locationRuleInvalid`, **404** `noSuchLocationRule`, **409** `locationRuleEnded`) saves nothing; both absent leaves the rules alone. Names are unique among siblings (**409** `duplicateJourneyName`), nesting is at most 5 deep (`journeyTooDeep`), ranges must be disjoint or nested (**409** `journeyRangeOverlap`), at most 10 000 per device. A range is a **live rule** — trips starting in it are in the journey unless placed by hand; `includePinned` also hands the ones placed by hand elsewhere back to it. DELETE moves sub-journeys, trips and place rules up one level; at the top level its rules end (`journeyDeleted`) (204) |
+| `GET /api/devices/{deviceId}/location-rules` | every place rule of the device, active first, then ended (history), each with `tripCount` — the trips it places now |
+| `GET /api/devices/{deviceId}/location-rules/preview?latitude=&longitude=&radiusMeters=&matchStart=&matchEnd=&validFrom=&excludeRuleId=` | what a rule would catch, computed in SQL: `tripCount`, `startCount`, `endCount`, `pinnedCount` (placed by hand, so not moved), `otherRuleCount` (placed by another rule now; precedence decides which keeps them), plus up to 500 start/end `points` to draw (`pointsTruncated` past that). `excludeRuleId` leaves out the rule being edited |
+| `POST /api/devices/{deviceId}/location-rules`, `PUT …/{ruleId}` | create or edit a place rule; needs `CanModifySettings`. Body `{ journeyId, name, latitude, longitude, radiusMeters, matchStart, matchEnd, validFrom }`. Radius 50–10 000 m; at least one of `matchStart` / `matchEnd` (**400** `locationRuleInvalid`). At most 100 active and 1 000 in all per device (**409** `tooManyLocationRules`, `max`). An unknown journey is **404** `noSuchJourney`. Only an active rule can be edited (**409** `locationRuleEnded`). Changes apply live, to past trips too |
+| `POST /api/devices/{deviceId}/location-rules/{ruleId}/end` | end a rule now; needs `CanModifySettings`. The trips it placed (those starting before now) stay in the journey; the rule stays as history (**409** `locationRuleEnded` if already ended, **404** `noSuchLocationRule`) |
 | `GET /api/devices/{deviceId}/trip-settings`, `PUT …` | trip detection thresholds `{ minStopSeconds, stopRadiusMeters, minTripDistanceMeters }` (+ `isDefault` on GET). Server-side only — never sent to the tracker. Saving changed values recomputes every trip of the device; PUT needs `CanModifySettings` |
 | `GET /api/privacy/policy` | the privacy-policy version in force + controller contact (**unauthenticated** — the registration form needs it before anyone has an account) |
 | `GET /api/me/export` | streams **everything** held about the caller as a JSON download (GDPR Art. 15/20). Uncapped: the 1000-row read limit does not apply. Rate-limited per account (5 / 5 min) |
@@ -937,14 +971,17 @@ from.
 by the same two paths, and over the same range by `DELETE …/positions` — it records
 when the vehicle was in use just as surely as the trail does.
 
-Trips are derived data kept to a minimum: only each trip's start time is stored
-(see [Trips and journeys](#trips-and-journeys)), so erasing positions leaves no
-stored trace of a route. `DELETE …/positions` deletes the trips that started in the
+Trips are derived data kept to a minimum: only each trip's start and end times are
+stored (see [Trips and journeys](#trips-and-journeys)), so erasing positions leaves
+no stored trace of a route. `DELETE …/positions` deletes the trips that started in the
 erased range, names and manual placements included, and marks the range for
-recomputation; journeys survive it, without those trips, until a user deletes them. Deleting a
-device with the account deletes its trips, journeys and thresholds. The export
+recomputation. Journeys and place rules survive it, the journeys without those
+trips. Place rules are user input, not derived data. A user ends a rule but never
+deletes it, so a rule's point stays until the device goes. Deleting a device with
+the account deletes its trips, place rules, journeys and thresholds. The export
 carries, per device, `tripDetectionSettings` (null while the defaults apply),
-`journeys[]` and `trips[]`, through the same `*ExportRow` records.
+`journeys[]`, `locationRules[]` and `trips[]` (with `endTimeUtc`), through the same
+`*ExportRow` records.
 
 Positions are **never** deleted automatically. There is no retention job and no
 TTL; `DELETE /api/devices/{deviceId}/positions` is the only thing that ever ends
@@ -1567,11 +1604,13 @@ in `device_trip_settings` uses the defaults:
 | Stop radius | 150 m | 20 – 1000 m |
 | Shortest trip kept | 500 m | 0 – 20 km |
 
-**Only starts are stored.** A `trips` row is a start time plus what the user did
-with it (name, journey). The end, distance, duration and speeds are rebuilt from
-`positions` on every read by `TripSegmentAnalyzer`, which walks the fixes with the
-same `StopFinder` the detector used — so the end a read finds is the end the
-detector meant, and nothing derived can go stale. Reads are bounded: one list page
+**Only times are stored.** A `trips` row is a start and an end time plus what the
+user did with it (name, journey). The detector stores the end only so SQL can match
+place rules on it. Distance, duration and speeds are rebuilt from `positions` on
+every read by `TripSegmentAnalyzer`, which walks the fixes with the same
+`StopFinder` the detector used, so the end a read finds is the end the detector
+stored (`TripDetectorTests` pins that down) and nothing derived can go stale. The
+newest trip has no stored end until the stop after it is confirmed. Reads are bounded: one list page
 or one trip reads at most 100,000 fixes, and trips past that budget come back with
 `statsPending: true` for the dashboard to fetch one at a time; a range or journey
 summary reads at most 500,000.
@@ -1602,22 +1641,67 @@ device, names unique among siblings. A trip is in
 
 1. the journey a user put it in by hand (`journey_pinned`; pinned to no journey
    means "taken out by hand"), otherwise
-2. the innermost journey whose date range `[range_from, range_to)` contains its
-   start — evaluated at query time, so a range keeps collecting trips that are
-   detected later — otherwise
-3. no journey.
+2. the journey of a place rule that catches it (below), otherwise
+3. the innermost journey whose date range `[range_from, range_to)` contains its
+   start, otherwise
+4. no journey.
+
+Steps 2 and 3 are evaluated at query time, in the view `trip_effective_journeys`.
+A rule or a range therefore keeps collecting trips that are detected later, or
+whose fixes arrive late.
 
 Ranges on one device must be disjoint or nested (`journeyRangeOverlap`), which is
 what keeps "innermost" unique. Saving a journey never rewrites trips, except that
 `includePinned: true` hands the trips in its range that were placed elsewhere by
-hand back to the range rule. Deleting a journey moves its sub-journeys up a level
-and pins its trips to the parent (at the top level they go back to automatic);
-trips are never deleted with a journey.
+hand back to the automatic rules.
 
-**Who may do what.** Any access grant reads a device's trips, journeys and
-thresholds; organising them — names, journeys, moves, thresholds — needs
-`CanModifySettings` (403 `noPermissionManageTrips`). Temporary share links do not
-expose trips.
+Deleting a journey moves its sub-journeys and its place rules up a level and pins
+its trips to the parent. At the top level there is no parent: the trips go back to
+automatic and the journey's active place rules end with
+`end_reason = 'journeyDeleted'`. Trips are
+never deleted with a journey.
+
+**Place rules** (`journey_location_rules`, `LocationRuleService`). A user picks a
+point, a radius (50–10 000 m), a journey and a start date. Every trip that starts
+or ends inside the circle then joins that journey. Each rule has a checkbox for
+each end ("starts here", "ends here"). All matching is SQL, in `trip_points` (which
+fixes) and `trip_near` (which are inside):
+
+- **Starts there:** the trip's first fix is within the radius, **or** its parking
+  fix is. The parking fix is the last fix before the start, counted only when it
+  lies after the previous trip's `end_time`. After a sleep, the first moving fix
+  can already be hundreds of metres from the parking spot.
+- **Ends there:** the fix at `end_time` is within the radius.
+- **Period:** a rule covers trips that start in `[valid_from, ended_at)`.
+  `valid_from` may be in the past, so a rule works retroactively. Editing a rule
+  applies at once, to past trips too.
+- **Several rules:** a match on the trip's end beats a match on its start, then
+  the smaller radius wins, then the newer rule.
+
+A journey's dialog can also set one place with the journey: the journey's
+`place` / `endPlaceRuleId` fields add a rule, replace or end one of the journey's
+own rules in force, in the journey's own transaction. Both paths write through
+`LocationRuleWriter`, so they check the same values and caps and refuse with the
+same codes.
+
+Ending a rule (`POST …/end`) keeps the trips it placed, because they started
+before `ended_at`. The rule stays, read-only, as history. There is no delete.
+Rule and journey writes on one device take the same advisory lock
+(`TripOrganisationLock`), so a journey delete cannot race a rule save. The
+preview (`…/location-rules/preview`) counts and samples matches with raw SQL
+(`Database.SqlQuery`) over the same view and functions. The API logs ids only
+(user, device, rule), never coordinates or names.
+
+Applying `AddJourneyLocationRules` marks every device for recomputation, so the
+first worker pass afterwards recomputes all trips once to fill `end_time`. The
+Trips tab shows its "Recalculating trips…" banner meanwhile. Trip ids, names and
+manual placements are kept. `SpeedUpLocationRuleMatching` only replaces the view
+and the functions (same columns, same results) and needs no recompute.
+
+**Who may do what.** Any access grant reads a device's trips, journeys, place
+rules and thresholds. Organising them (names, journeys, moves, rules,
+thresholds) needs `CanModifySettings` (403 `noPermissionManageTrips`). Temporary
+share links do not expose trips.
 
 ## Build, test, run
 

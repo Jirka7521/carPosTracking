@@ -7,8 +7,8 @@ namespace CarPosAPI.Data.Configurations;
 
 /// <summary>
 /// EF mapping for <see cref="Trip"/>. Snake_case names spelled out like every other
-/// configuration. The table holds only trip starts and the user's placement of them;
-/// see the entity for why nothing derived is stored.
+/// configuration. The table holds only trip start and end times and the user's placement
+/// of them; see the entity for why nothing else derived is stored.
 /// </summary>
 public sealed class TripConfiguration : IEntityTypeConfiguration<Trip>
 {
@@ -25,6 +25,10 @@ public sealed class TripConfiguration : IEntityTypeConfiguration<Trip>
 
             // "No name" has one representation: NULL, never a blank string.
             table.HasCheckConstraint("ck_trips_name_not_blank", "name IS NULL OR length(btrim(name)) > 0");
+
+            // A trip ends at or after its first fix (the detector keeps only trips of two
+            // fixes or more, so in practice strictly after).
+            table.HasCheckConstraint("ck_trips_end_after_start", "end_time IS NULL OR end_time >= start_time");
         });
 
         builder.HasKey(trip => trip.Id);
@@ -47,6 +51,11 @@ public sealed class TripConfiguration : IEntityTypeConfiguration<Trip>
         builder.Property(trip => trip.StartTime)
             .HasColumnName("start_time")
             .IsRequired();
+
+        // No index: it is only ever used to look its fix up in positions, through
+        // ux_positions_device_id_fix_time.
+        builder.Property(trip => trip.EndTime)
+            .HasColumnName("end_time");
 
         builder.Property(trip => trip.JourneyId)
             .HasColumnName("journey_id");

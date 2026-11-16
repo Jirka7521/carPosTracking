@@ -107,8 +107,10 @@ internal sealed class DataExportService : IDataExportService
             "Everything carPosTracking holds about this account, exported under GDPR Art. 15 and 20. "
             + "The position history and each device's event history (when it went offline and "
             + "why, woke up, started or stopped moving) are complete and uncapped. Each device's "
-            + "trips are listed by their start, name and journey only: their ends, distances and "
-            + "speeds are worked out from the positions and are not stored. Secrets - the "
+            + "trips are listed by their start and end time, name and journey only: their "
+            + "distances and speeds are worked out from the positions and are not stored. Each "
+            + "device's location rules (places whose trips join a journey) are listed in full, "
+            + "ended ones included. Secrets - the "
             + "password hash and device "
             + "private keys - are deliberately excluded: they are not personal data to port, and "
             + "copying them out of the system would only weaken it.");
@@ -660,16 +662,17 @@ internal sealed class DataExportService : IDataExportService
 
     /// <summary>
     /// Writes what is stored about one device's trips into the open object: its
-    /// trip-detection thresholds when they differ from the defaults, its journeys, and
-    /// its trips — each trip only as its start, its name and where it was placed by
-    /// hand. A trip's end and figures are derived from the positions above and are not
-    /// stored, so there is nothing more to hand over. Trips are streamed and flushed
-    /// like the positions: a long history holds thousands.
+    /// trip-detection thresholds when they differ from the defaults, its journeys, its
+    /// location rules (ended ones included), and its trips — each trip only as its start
+    /// and end time, its name and where it was placed by hand. A trip's figures are
+    /// derived from the positions above and are not stored, so there is nothing more to
+    /// hand over. Trips are streamed and flushed like the positions: a long history holds
+    /// thousands.
     /// </summary>
     /// <param name="writer">The open JSON writer, positioned inside a device object.</param>
     /// <param name="deviceRowId">Internal device id to filter on.</param>
     /// <param name="cancellationToken">Cancels the queries and the write.</param>
-    /// <returns>Completes when the three properties are written.</returns>
+    /// <returns>Completes when the four properties are written.</returns>
     private async Task WriteTripsAsync(
         Utf8JsonWriter writer,
         Guid deviceRowId,
@@ -730,6 +733,49 @@ internal sealed class DataExportService : IDataExportService
 
         writer.WriteEndArray();
 
+        List<LocationRuleExportRow> rules = await _context.JourneyLocationRules
+            .AsNoTracking()
+            .Where(rule => rule.DeviceId == deviceRowId)
+            .OrderBy(rule => rule.CreatedAt)
+            .Select(rule => new LocationRuleExportRow(
+                rule.Id,
+                rule.JourneyId,
+                rule.Name,
+                rule.Latitude,
+                rule.Longitude,
+                rule.RadiusMeters,
+                rule.MatchStart,
+                rule.MatchEnd,
+                rule.ValidFrom,
+                rule.EndedAt,
+                rule.EndReason,
+                rule.CreatedAt,
+                rule.UpdatedAt))
+            .ToListAsync(cancellationToken);
+
+        writer.WriteStartArray("locationRules");
+
+        foreach (LocationRuleExportRow rule in rules)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", rule.Id);
+            WriteNullableGuid(writer, "journeyId", rule.JourneyId);
+            writer.WriteString("name", rule.Name);
+            writer.WriteNumber("latitude", rule.Latitude);
+            writer.WriteNumber("longitude", rule.Longitude);
+            writer.WriteNumber("radiusMeters", rule.RadiusMeters);
+            writer.WriteBoolean("matchStart", rule.MatchStart);
+            writer.WriteBoolean("matchEnd", rule.MatchEnd);
+            writer.WriteString("validFromUtc", rule.ValidFrom);
+            WriteNullableDateTime(writer, "endedAtUtc", rule.EndedAt);
+            writer.WriteString("endReason", rule.EndReason);
+            writer.WriteString("createdAtUtc", rule.CreatedAt);
+            writer.WriteString("updatedAtUtc", rule.UpdatedAt);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+
         long written = 0;
 
         writer.WriteStartArray("trips");
@@ -738,7 +784,7 @@ internal sealed class DataExportService : IDataExportService
             .AsNoTracking()
             .Where(trip => trip.DeviceId == deviceRowId)
             .OrderBy(trip => trip.StartTime)
-            .Select(trip => new TripExportRow(trip.Id, trip.StartTime, trip.JourneyId, trip.JourneyPinned, trip.Name))
+            .Select(trip => new TripExportRow(trip.Id, trip.StartTime, trip.EndTime, trip.JourneyId, trip.JourneyPinned, trip.Name))
             .AsAsyncEnumerable();
 
         await foreach (TripExportRow trip in stream.WithCancellation(cancellationToken))
@@ -746,6 +792,7 @@ internal sealed class DataExportService : IDataExportService
             writer.WriteStartObject();
             writer.WriteNumber("id", trip.Id);
             writer.WriteString("startTimeUtc", trip.StartTime);
+            WriteNullableDateTime(writer, "endTimeUtc", trip.EndTime);
             WriteNullableGuid(writer, "journeyId", trip.JourneyId);
             writer.WriteBoolean("journeyPlacedByHand", trip.JourneyPinned);
             writer.WriteString("name", trip.Name);

@@ -253,6 +253,21 @@ public static class ErrorCodes
     /// <summary>The device already has as many journeys as allowed. Params: <c>max</c>.</summary>
     public const string TooManyJourneys = "tooManyJourneys";
 
+    /// <summary>The location rule does not exist on this device.</summary>
+    public const string NoSuchLocationRule = "noSuchLocationRule";
+
+    /// <summary>Editing or ending a location rule that has already ended; ended rules are history.</summary>
+    public const string LocationRuleEnded = "locationRuleEnded";
+
+    /// <summary>
+    /// The device already has as many location rules as allowed — in force at once, or in
+    /// all including ended ones. Params: <c>max</c>.
+    /// </summary>
+    public const string TooManyLocationRules = "tooManyLocationRules";
+
+    /// <summary>A location rule that matches neither where trips start nor where they end.</summary>
+    public const string LocationRuleInvalid = "locationRuleInvalid";
+
     // ----- Share links -----
 
     /// <summary>The share link does not exist, or is not the caller's to manage.</summary>

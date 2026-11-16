@@ -299,6 +299,9 @@ internal sealed class TripReadService : ITripReadService
                 null,
                 row.EffectiveJourneyId,
                 row.JourneyPinned,
+                row.JourneySource,
+                row.LocationRuleId,
+                row.LocationRuleAtEnd,
                 row.Name,
                 StatsPending: true)
             : new TripSummaryDto(
@@ -318,6 +321,9 @@ internal sealed class TripReadService : ITripReadService
                 stats.PointCount,
                 row.EffectiveJourneyId,
                 row.JourneyPinned,
+                row.JourneySource,
+                row.LocationRuleId,
+                row.LocationRuleAtEnd,
                 row.Name,
                 StatsPending: false);
 

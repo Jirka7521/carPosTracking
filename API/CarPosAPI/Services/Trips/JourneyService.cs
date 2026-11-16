@@ -27,9 +27,18 @@ namespace CarPosAPI.Services.Trips;
 /// </para>
 ///
 /// <para>
-/// <b>Deleting moves everything up one level</b>: sub-journeys to the parent, and the
-/// journey's trips pinned to the parent — or, at the top level, back to the date ranges.
-/// No trip is ever deleted here.
+/// <b>A journey's place is saved with it.</b> The dialog may send one place — a location
+/// rule added for this journey, or one of its own rules in force replaced or ended — and
+/// it is written by <see cref="LocationRuleWriter"/> in the same transaction, under the
+/// same lock: if the place is refused (the per-device cap, an ended rule), the journey is
+/// not saved either.
+/// </para>
+///
+/// <para>
+/// <b>Deleting moves everything up one level</b>: sub-journeys to the parent, the
+/// journey's trips pinned to the parent — or, at the top level, back to the rules and date
+/// ranges — and its location rules retargeted to the parent (ended, at the top level).
+/// No trip or rule is ever deleted here.
 /// </para>
 ///
 /// Scoped.
@@ -146,6 +155,8 @@ internal sealed class JourneyService : IJourneyService
                             .SetProperty(trip => trip.JourneyPinned, pinToParent),
                         attemptToken);
 
+                await RetargetLocationRulesAsync(deviceRowId, journeyId, parentId, attemptToken);
+
                 await _context.Journeys
                     .Where(journey => journey.DeviceId == deviceRowId && journey.ParentId == journeyId)
                     .ExecuteUpdateAsync(setters => setters.SetProperty(journey => journey.ParentId, parentId), attemptToken);
@@ -208,7 +219,41 @@ internal sealed class JourneyService : IJourneyService
             return OperationResult<JourneyDto>.Invalid(ErrorCodes.JourneyRangeInvalid, "The range must end after it starts.");
         }
 
+        if (request.Place is not null && request.EndPlaceRuleId is not null)
+        {
+            return OperationResult<JourneyDto>.Invalid(
+                ErrorCodes.ValidationFailed,
+                "Send a place to set or a place rule to end, not both.");
+        }
+
+        LocationRuleWriter.RuleValues? placeValues = null;
+        if (request.Place is JourneyPlaceDto place)
+        {
+            // [Required], but a nested body is checked here too rather than trusted.
+            if (place.ValidFrom is not DateTime validFrom)
+            {
+                return OperationResult<JourneyDto>.Invalid(
+                    ErrorCodes.LocationRuleInvalid,
+                    "A place needs the day it applies from.");
+            }
+
+            placeValues = new LocationRuleWriter.RuleValues(
+                place.Name,
+                place.Latitude,
+                place.Longitude,
+                place.RadiusMeters,
+                place.MatchStart,
+                place.MatchEnd,
+                validFrom);
+            OperationResult<JourneyLocationRule>? invalid = LocationRuleWriter.Check(placeValues);
+            if (invalid is not null)
+            {
+                return LocationRuleWriter.Relay<JourneyDto>(invalid);
+            }
+        }
+
         Guid deviceRowId = access.DeviceRowId;
+        Guid? placeRuleId = null;
         IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
         OperationResult<Guid> saved = await strategy.ExecuteAsync(
@@ -277,6 +322,26 @@ internal sealed class JourneyService : IJourneyService
                             attemptToken);
                 }
 
+                // The journey's place, in the same transaction: refused, it takes the
+                // journey down with it (returning here leaves the transaction uncommitted).
+                placeRuleId = null;
+                OperationResult<JourneyLocationRule>? place = await SavePlaceAsync(
+                    deviceRowId,
+                    entity.Id,
+                    request,
+                    placeValues,
+                    attemptToken);
+                if (place is not null)
+                {
+                    if (!place.IsSuccess)
+                    {
+                        return LocationRuleWriter.Relay<Guid>(place);
+                    }
+
+                    await _context.SaveChangesAsync(attemptToken);
+                    placeRuleId = place.Value!.Id;
+                }
+
                 await transaction.CommitAsync(attemptToken);
                 return OperationResult<Guid>.Success(entity.Id);
             },
@@ -287,6 +352,17 @@ internal sealed class JourneyService : IJourneyService
             return OperationResult<JourneyDto>.Failed(
                 saved.Outcome,
                 new ServiceError(saved.Code ?? ErrorCodes.ValidationFailed, saved.Detail ?? string.Empty, saved.Parameters));
+        }
+
+        if (placeRuleId is Guid changedRuleId)
+        {
+            _logger.LogInformation(
+                "User {UserId} {Action} location rule {RuleId} with journey {JourneyId} on device {DeviceId}",
+                userId,
+                request.EndPlaceRuleId is not null ? "ended" : request.Place?.RuleId is null ? "created" : "updated",
+                changedRuleId,
+                saved.Value,
+                access.DeviceId);
         }
 
         JourneyListDto list = await BuildListAsync(deviceRowId, cancellationToken);
@@ -338,11 +414,84 @@ internal sealed class JourneyService : IJourneyService
         return null;
     }
 
-    // Serialises journey writes per device for the length of the transaction.
+    // The place the journey dialog sent: a rule added or one of the journey's own rules
+    // replaced, or one of them ended. Null when the request leaves the rules alone. The
+    // rule is tracked, not saved; the caller saves it with the journey.
+    private async Task<OperationResult<JourneyLocationRule>?> SavePlaceAsync(
+        Guid deviceRowId,
+        Guid savedJourneyId,
+        JourneySaveRequestDto request,
+        LocationRuleWriter.RuleValues? placeValues,
+        CancellationToken cancellationToken)
+    {
+        if (request.EndPlaceRuleId is Guid endRuleId)
+        {
+            return await LocationRuleWriter.EndAsync(
+                _context,
+                deviceRowId,
+                endRuleId,
+                onlyInJourney: savedJourneyId,
+                cancellationToken);
+        }
+
+        if (request.Place is JourneyPlaceDto place && placeValues is not null)
+        {
+            return await LocationRuleWriter.SetAsync(
+                _context,
+                deviceRowId,
+                place.RuleId,
+                savedJourneyId,
+                onlyInJourney: savedJourneyId,
+                placeValues,
+                cancellationToken);
+        }
+
+        return null;
+    }
+
+    // Serialises journey and location-rule writes per device for the length of the transaction.
     private Task<int> LockDeviceJourneysAsync(Guid deviceRowId, CancellationToken cancellationToken) =>
-        _context.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({deviceRowId.ToString()}, 0))",
-            cancellationToken);
+        TripOrganisationLock.AcquireAsync(_context, deviceRowId, cancellationToken);
+
+    // A deleted journey's location rules move up with its contents: to the parent, where
+    // they keep placing trips. At the top level there is nowhere left to put trips, so a
+    // rule in force ends there and then; every rule (ended ones included) keeps its row as
+    // history with no journey. The trips the rules had placed were pinned up by the caller.
+    private async Task RetargetLocationRulesAsync(
+        Guid deviceRowId,
+        Guid journeyId,
+        Guid? parentId,
+        CancellationToken cancellationToken)
+    {
+        DateTime now = DateTime.UtcNow;
+        if (parentId is not null)
+        {
+            await _context.JourneyLocationRules
+                .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(rule => rule.JourneyId, parentId)
+                        .SetProperty(rule => rule.UpdatedAt, now),
+                    cancellationToken);
+            return;
+        }
+
+        await _context.JourneyLocationRules
+            .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId && rule.EndedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(rule => rule.EndedAt, now)
+                    .SetProperty(rule => rule.EndReason, LocationRuleEndReasons.JourneyDeleted),
+                cancellationToken);
+
+        await _context.JourneyLocationRules
+            .Where(rule => rule.DeviceId == deviceRowId && rule.JourneyId == journeyId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(rule => rule.JourneyId, (Guid?)null)
+                    .SetProperty(rule => rule.UpdatedAt, now),
+                cancellationToken);
+    }
 
     private Task<List<JourneySnapshot>> LoadSnapshotsAsync(Guid deviceRowId, CancellationToken cancellationToken) =>
         _context.Journeys
@@ -352,18 +501,21 @@ internal sealed class JourneyService : IJourneyService
             .ToListAsync(cancellationToken);
 
     // The flat list with direct and rolled-up trip counts. One query for the journeys and
-    // one for every trip's effective journey; the roll-up is done here, deepest first.
+    // one counting trips per effective journey in the database (the view decides each
+    // trip's journey); only the roll-up is done here, deepest first.
     private async Task<JourneyListDto> BuildListAsync(Guid deviceRowId, CancellationToken cancellationToken)
     {
         List<JourneySnapshot> journeys = await LoadSnapshotsAsync(deviceRowId, cancellationToken);
-        List<Guid?> effective = await TripQueries.Rows(_context, deviceRowId)
-            .Select(row => row.EffectiveJourneyId)
+        List<JourneyTripCount> counts = await TripQueries.Rows(_context, deviceRowId)
+            .GroupBy(row => row.EffectiveJourneyId)
+            .Select(group => new JourneyTripCount(group.Key, group.Count()))
             .ToListAsync(cancellationToken);
 
-        Dictionary<Guid, int> direct = effective
-            .Where(id => id is not null)
-            .GroupBy(id => id!.Value)
-            .ToDictionary(group => group.Key, group => group.Count());
+        Dictionary<Guid, int> direct = counts
+            .Where(count => count.JourneyId is not null)
+            .ToDictionary(count => count.JourneyId!.Value, count => count.TripCount);
+        int allTrips = counts.Sum(count => count.TripCount);
+        int unassignedTrips = counts.Where(count => count.JourneyId is null).Sum(count => count.TripCount);
 
         Dictionary<Guid, JourneySnapshot> byId = journeys.ToDictionary(journey => journey.Id);
         Dictionary<Guid, int> total = journeys.ToDictionary(journey => journey.Id, journey => direct.GetValueOrDefault(journey.Id));
@@ -387,7 +539,7 @@ internal sealed class JourneyService : IJourneyService
                 total[journey.Id]))
             .ToList();
 
-        return new JourneyListDto(dtos, effective.Count, effective.Count(id => id is null));
+        return new JourneyListDto(dtos, allTrips, unassignedTrips);
     }
 
     private static OperationResult<T> Forbidden<T>() =>

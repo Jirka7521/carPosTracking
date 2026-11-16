@@ -8,13 +8,15 @@ namespace CarPosAPI.Services.Trips;
 /// journey a trip is in has exactly one definition.
 ///
 /// <para>
-/// <b>The journey rule, in SQL.</b> A pinned trip is in the journey stored on it. An
-/// unpinned one is in the innermost journey whose <c>[range_from, range_to)</c> holds its
-/// start — computed here, at query time, and never written back. Ranges on a device are
-/// disjoint or nested (enforced by <c>JourneyService</c>), so "innermost" is simply the
-/// containing range that starts latest; ties on the start are broken by the earlier end.
-/// That is why editing or deleting a range needs no background job: the next read already
-/// reflects it, for every trip, including those that arrive later.
+/// <b>The journey rule lives in the database.</b> It reads the
+/// <c>trip_effective_journeys</c> view (see <see cref="Data.Entities.TripEffectiveJourney"/>):
+/// a pinned trip is in the journey stored on it; otherwise the best location rule in force
+/// at its start whose circle holds its start or end wins; otherwise the innermost journey
+/// whose <c>[range_from, range_to)</c> holds its start. Location matching is PostGIS
+/// <c>ST_DWithin</c> on the trip's fixes, which EF cannot express without a spatial
+/// dependency — so the whole rule is SQL, and this method only filters and projects it.
+/// Nothing is ever written back: editing a rule or a range needs no background job, and
+/// the next read reflects it for every trip, including those that arrive later.
 /// </para>
 /// </summary>
 internal static class TripQueries
@@ -24,28 +26,20 @@ internal static class TripQueries
     /// <param name="deviceRowId">The device's internal id.</param>
     /// <returns>A composable, untracked query.</returns>
     public static IQueryable<TripRow> Rows(CarPosDbContext context, Guid deviceRowId) =>
-        context.Trips
+        context.TripEffectiveJourneys
             .AsNoTracking()
-            .Where(trip => trip.DeviceId == deviceRowId)
-            .Select(trip => new TripRow
+            .Where(row => row.DeviceId == deviceRowId)
+            .Select(row => new TripRow
             {
-                Id = trip.Id,
-                StartTime = trip.StartTime,
-                NextStart = context.Trips
-                    .Where(other => other.DeviceId == trip.DeviceId && other.StartTime > trip.StartTime)
-                    .Min(other => (DateTime?)other.StartTime),
-                EffectiveJourneyId = trip.JourneyPinned
-                    ? trip.JourneyId
-                    : context.Journeys
-                        .Where(journey => journey.DeviceId == trip.DeviceId
-                            && journey.RangeFrom <= trip.StartTime
-                            && trip.StartTime < journey.RangeTo)
-                        .OrderByDescending(journey => journey.RangeFrom)
-                        .ThenBy(journey => journey.RangeTo)
-                        .Select(journey => (Guid?)journey.Id)
-                        .FirstOrDefault(),
-                JourneyPinned = trip.JourneyPinned,
-                Name = trip.Name,
+                Id = row.TripId,
+                StartTime = row.StartTime,
+                NextStart = row.NextStart,
+                EffectiveJourneyId = row.EffectiveJourneyId,
+                JourneySource = row.JourneySource,
+                LocationRuleId = row.LocationRuleId,
+                LocationRuleAtEnd = row.LocationRuleAtEnd,
+                JourneyPinned = row.JourneyPinned,
+                Name = row.Name,
             });
 
     /// <summary>

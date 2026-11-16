@@ -1,13 +1,9 @@
 // ============================================================
 // DeviceMap — Google Maps integration for rendering GPS positions.
 //
-// Loading strategy:
-//   • Inject the Maps JS API script with the marker library preloaded
-//     via `&libraries=marker` — this loads everything synchronously so
-//     google.maps.Map, google.maps.Marker, etc. are available immediately
-//     once the script's `load` event fires.
-//   • A module-level singleton promise (googleMapsLoader) prevents the
-//     script from being injected more than once across re-mounts / HMR.
+// Loading strategy: utils/googleMapsLoader injects the Maps JS API once per
+// page, and only after the viewer passed the consent gate
+// (components/MapsConsentPrompt).
 //
 // Rendering:
 //   • ONE pin, on the latest position (newest timestamp). It is blue, and red
@@ -30,7 +26,8 @@ import { Trans, useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { formatCoordinate, formatDateTime, formatInteger, formatNumber } from '../i18n/format'
 import { parseApiTimestamp } from '../utils/dates'
-import { GOOGLE_MAPS_TERMS_URL, GOOGLE_PRIVACY_POLICY_URL } from '../utils/mapsConsent'
+import { loadGoogleMaps } from '../utils/googleMapsLoader'
+import { MapsConsentPrompt } from './MapsConsentPrompt'
 
 // What this map needs from a fix, which is less than a PositionDto carries.
 //
@@ -184,95 +181,6 @@ function buildInfoContent(position: MapPosition): HTMLElement {
   container.appendChild(recorded)
 
   return container
-}
-
-// ---- Script loader (singleton) ----
-
-let googleMapsLoader: Promise<void> | null = null
-
-function loadGoogleMaps(apiKey: string): Promise<void> {
-  // Already loaded? Resolve immediately.
-  const w = window as unknown as { google?: typeof google }
-  if (w.google?.maps?.Map) {
-    return Promise.resolve()
-  }
-
-  if (googleMapsLoader) {
-    return googleMapsLoader
-  }
-
-  googleMapsLoader = new Promise<void>((resolve, reject) => {
-    // Reuse an existing tag if one was injected in a previous (now-discarded)
-    // module instance — avoids duplicate-load warnings during HMR.
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-google-maps-loader]',
-    )
-
-    const onReady = (script: HTMLScriptElement): void => {
-      // After the script load event fires we still need to verify the API
-      // actually populated `google.maps.Map`. If not, we treat it as a failure.
-      const check = (): void => {
-        if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
-          resolve()
-        } else {
-          reject(new Error('Google Maps script loaded but google.maps.Map is missing.'))
-        }
-      }
-      if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
-        check()
-      } else {
-        script.addEventListener('load', check, { once: true })
-      }
-    }
-
-    if (existing) {
-      onReady(existing)
-      return
-    }
-
-    const script = document.createElement('script')
-    script.dataset.googleMapsLoader = 'true'
-    script.async = true
-    script.defer = true
-
-    // `loading=async` is what Google asks for, and without it the console warns
-    // about suboptimal performance on every load. It does change the contract:
-    // the script's own `load` event now fires BEFORE the API has bootstrapped,
-    // so google.maps.X is not populated yet at that point. The `callback`
-    // parameter is the supported answer — it runs once the API *and* every
-    // library named in `libraries=` are ready, so direct `new google.maps.Map()`
-    // usage below still works. (What genuinely does not survive is the inline
-    // bootstrap-loader form, where only importLibrary() is guaranteed.)
-    //
-    // `libraries=marker` ensures the marker classes ship with that bootstrap.
-    const callbackName = '__carposGoogleMapsReady'
-    const globalScope = window as unknown as Record<string, unknown>
-    globalScope[callbackName] = (): void => {
-      delete globalScope[callbackName]
-      resolve()
-    }
-
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}` +
-      `&v=weekly&libraries=marker&loading=async&callback=${callbackName}`
-
-    script.addEventListener('error', () => {
-      delete globalScope[callbackName]
-      reject(new Error('Failed to load Google Maps script.'))
-    })
-    // Belt and braces: if the API somehow finished before the callback was
-    // wired up, resolving twice is a no-op. Note there is deliberately no
-    // "loaded but google.maps.Map is missing" rejection here any more — under
-    // loading=async that is the normal state at `load` time, not a failure.
-    script.addEventListener('load', () => {
-      if ((window as unknown as { google?: typeof google }).google?.maps?.Map) {
-        resolve()
-      }
-    })
-    document.head.appendChild(script)
-  })
-
-  return googleMapsLoader
 }
 
 // Classic teardrop pin shape — tip anchored at (0,0), body extends upward.
@@ -648,52 +556,19 @@ function DeviceMap({
     )
   }
 
-  // The gate. Nothing has been sent to Google at this point, and the text says
-  // exactly what pressing either button will send, whose terms the map comes
-  // under, and how far "always" reaches.
+  // The gate. Nothing has been sent to Google at this point.
   if (!hasConsented) {
     return (
-      <div className="map-placeholder map-consent">
-        <span style={{ fontSize: '2rem' }} aria-hidden="true">🗺</span>
-        <h3 className="map-consent-title">{t('mapsConsent.title')}</h3>
-        <p>{t('mapsConsent.body')}</p>
-        <p>
-          <Trans
-            i18nKey="mapsConsent.googleTerms"
-            ns="device"
-            components={{
-              terms: <a href={GOOGLE_MAPS_TERMS_URL} target="_blank" rel="noopener noreferrer" />,
-              privacy: <a href={GOOGLE_PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" />,
-            }}
-          />
-        </p>
-
-        <div className="map-consent-actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setHasConsented(true)}
-          >
-            {t('mapsConsent.once')}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              // The map loads now whatever happens to the save: the consent given
-              // in this moment is real, and only remembering it can fail.
-              onGrantStandingConsent()
-              setHasConsented(true)
-            }}
-          >
-            {t('mapsConsent.always')}
-          </button>
-        </div>
-
-        <p className="map-consent-hint">
-          {consentScope === 'account' ? t('mapsConsent.hintAccount') : t('mapsConsent.hintBrowser')}
-        </p>
-      </div>
+      <MapsConsentPrompt
+        onOnce={() => setHasConsented(true)}
+        onAlways={() => {
+          // The map loads now whatever happens to the save: the consent given
+          // in this moment is real, and only remembering it can fail.
+          onGrantStandingConsent()
+          setHasConsented(true)
+        }}
+        consentScope={consentScope}
+      />
     )
   }
 

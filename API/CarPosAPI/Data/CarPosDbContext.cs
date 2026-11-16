@@ -59,11 +59,17 @@ public sealed class CarPosDbContext : DbContext
     /// <summary>Weekly UTC time windows binding a profile to a stretch of the week.</summary>
     public DbSet<DeviceConfigScheduleRule> DeviceConfigScheduleRules => Set<DeviceConfigScheduleRule>();
 
-    /// <summary>Detected trip starts and the user's placement of them; ends and stats are derived on read.</summary>
+    /// <summary>Detected trip start and end times and the user's placement of them; stats are derived on read.</summary>
     public DbSet<Trip> Trips => Set<Trip>();
 
     /// <summary>Nested, per-device groups of trips, optionally with a live date range.</summary>
     public DbSet<Journey> Journeys => Set<Journey>();
+
+    /// <summary>Place-based rules putting trips that start or end in a circle into a journey; kept as history once ended.</summary>
+    public DbSet<JourneyLocationRule> JourneyLocationRules => Set<JourneyLocationRule>();
+
+    /// <summary>Read-only view: every trip with the journey it is in right now, decided in SQL.</summary>
+    public DbSet<TripEffectiveJourney> TripEffectiveJourneys => Set<TripEffectiveJourney>();
 
     /// <summary>Per-device trip detection thresholds (absent row = defaults).</summary>
     public DbSet<DeviceTripSettings> DeviceTripSettings => Set<DeviceTripSettings>();

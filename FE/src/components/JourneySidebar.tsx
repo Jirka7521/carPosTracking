@@ -1,6 +1,7 @@
 // ============================================================
 // JourneySidebar — the Trips tab's left column: "All trips", "Not in a
-// journey", the car's journeys as a tree, a search over them, and "New journey".
+// journey", "Place rules", the car's journeys as a tree, a search over them,
+// and "New journey".
 //
 // Every entry is a link that changes only the ?journey= part of the address, so
 // the view is bookmarkable, the browser's Back button steps between views, and
@@ -40,6 +41,11 @@ export type JourneySidebarProps = {
   currentLabel: string
   canManage: boolean
   onNewJourney: () => void
+  // The "Place rules" view: where it lives, whether it is open, and how many
+  // rules are in force.
+  rulesLink: To
+  isRulesView: boolean
+  activeRuleCount: number
 }
 
 export function JourneySidebar({
@@ -51,6 +57,9 @@ export function JourneySidebar({
   currentLabel,
   canManage,
   onNewJourney,
+  rulesLink,
+  isRulesView,
+  activeRuleCount,
 }: JourneySidebarProps) {
   const { t } = useTranslation('trips')
 
@@ -148,11 +157,13 @@ export function JourneySidebar({
           <>
             <ul className="journey-tree journey-tree--fixed">
               <li className="journey-tree-item">
-                <div className={`journey-tree-row${filter === 'all' ? ' journey-tree-row--active' : ''}`}>
+                <div
+                  className={`journey-tree-row${filter === 'all' && !isRulesView ? ' journey-tree-row--active' : ''}`}
+                >
                   <Link
                     to={linkFor('all')}
                     className="journey-tree-link"
-                    aria-current={filter === 'all' ? 'page' : undefined}
+                    aria-current={filter === 'all' && !isRulesView ? 'page' : undefined}
                     onClick={closeOnPhone}
                   >
                     <span className="journey-tree-name">
@@ -176,6 +187,22 @@ export function JourneySidebar({
                       {t('sidebar.noJourney')}
                     </span>
                     <span className="journey-tree-count">{formatInteger(unassignedTripCount)}</span>
+                  </Link>
+                </div>
+              </li>
+              <li className="journey-tree-item">
+                <div className={`journey-tree-row${isRulesView ? ' journey-tree-row--active' : ''}`}>
+                  <Link
+                    to={rulesLink}
+                    className="journey-tree-link"
+                    aria-current={isRulesView ? 'page' : undefined}
+                    onClick={closeOnPhone}
+                  >
+                    <span className="journey-tree-name">
+                      <span aria-hidden="true">📍 </span>
+                      {t('locationRule.sidebar')}
+                    </span>
+                    <span className="journey-tree-count">{formatInteger(activeRuleCount)}</span>
                   </Link>
                 </div>
               </li>

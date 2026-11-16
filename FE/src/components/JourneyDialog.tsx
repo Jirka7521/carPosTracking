@@ -16,9 +16,20 @@
 // explicitly. It starts ticked for a new journey; when editing it starts clear,
 // so renaming a journey can never quietly undo moves made by hand.
 //
+// Next to the days, the journey can collect trips by PLACE: one place rule (a
+// point, a radius, trips starting and/or ending there, from a chosen day) set
+// right here, with the same map, preview and dots as the place-rule dialog
+// (LocationPlaceFields). It is saved in the same request and the same database
+// transaction as the journey, so a refused place leaves nothing half-saved.
+// Editing a journey that already has one place rule in force shows and edits
+// that rule; unticking ends it (the trips it placed stay). A journey with more
+// than one place rule keeps them in the journey's overview, where further
+// places are added too.
+//
 // The dialog sends the request itself, so the server's refusals (a duplicate
-// name, a range that partly overlaps another journey's, too deep) appear right
-// under the form that caused them, in the reader's language.
+// name, a range that partly overlaps another journey's, too deep, too many
+// place rules) appear right under the form that caused them, in the reader's
+// language.
 // ============================================================
 
 import { useEffect, useId, useRef, useState } from 'react'
@@ -26,18 +37,28 @@ import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDistance, formatInteger } from '../i18n/format'
 import { createJourney, fetchTripRangeSummary, updateJourney } from '../services/apiClient'
-import type { JourneyDto, JourneySaveRequestDto, TripRangeSummaryDto } from '../services/apiTypes'
+import type {
+  JourneyDto,
+  JourneyPlaceDto,
+  JourneySaveRequestDto,
+  LocationRuleDto,
+  TripRangeSummaryDto,
+} from '../services/apiTypes'
 import { describeError } from '../utils/errors'
 import type { JourneyTree } from '../utils/journeyTree'
 import { MAX_JOURNEY_DEPTH, canPlaceUnder, journeyPathLabel } from '../utils/journeyTree'
 import {
   dateInputToRangeEnd,
   dateInputToRangeStart,
+  locationRuleLabel,
   rangeEndToDateInput,
   rangeStartToDateInput,
   todayDateInput,
 } from '../utils/trips'
 import { JourneyPicker } from './JourneyPicker'
+import { LocationPlaceFields } from './LocationPlaceFields'
+import { placeDiffersFrom, placeDraftInitial, placeValues, usePlaceDraft } from '../hooks/usePlaceDraft'
+import type { PlaceDraft, PlaceValues } from '../hooks/usePlaceDraft'
 
 // Mirrors TripRules.MaxNameLength on the API.
 const MAX_NAME_LENGTH: number = 100
@@ -54,6 +75,9 @@ export type JourneyDialogProps = {
   deviceId: string
   tree: JourneyTree
   mode: JourneyDialogMode
+  // The device's place rules (every journey's); an edited journey's own rule in
+  // force is shown and edited here.
+  rules: readonly LocationRuleDto[]
   onSaved: (journey: JourneyDto) => void
   onCancel: () => void
 }
@@ -62,7 +86,7 @@ type Preview =
   | { rangeKey: string; state: 'ready'; summary: TripRangeSummaryDto }
   | { rangeKey: string; state: 'error' }
 
-export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: JourneyDialogProps) {
+export function JourneyDialog({ deviceId, tree, mode, rules, onSaved, onCancel }: JourneyDialogProps) {
   const { t } = useTranslation(['trips', 'common', 'errors'])
   const titleId: string = useId()
   const nameId: string = useId()
@@ -93,6 +117,16 @@ export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: Journ
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [errorMessage, setErrorMessage] = useState<string>('')
 
+  // The journey's place rules in force, as they were when the dialog opened. One
+  // is edited here; with more than one, the overview is where they are managed.
+  const [ownActiveRules] = useState<readonly LocationRuleDto[]>(() =>
+    editId === null ? [] : rules.filter((rule) => rule.journeyId === editId && rule.endedAt === null),
+  )
+  const placeRule: LocationRuleDto | null = ownActiveRules.length === 1 ? (ownActiveRules[0] ?? null) : null
+  const placeEditable: boolean = ownActiveRules.length <= 1
+  const [hasPlace, setHasPlace] = useState<boolean>(placeRule !== null)
+  const draft: PlaceDraft = usePlaceDraft(placeDraftInitial(placeRule))
+
   const fromIso: string | undefined = hasRange ? dateInputToRangeStart(fromDay) : undefined
   const toIso: string | undefined = hasRange ? dateInputToRangeEnd(toDay) : undefined
   const rangeValid: boolean = fromIso !== undefined && toIso !== undefined && fromIso < toIso
@@ -102,8 +136,13 @@ export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: Journ
 
   const trimmedName: string = name.trim()
   const parentAllowed: boolean = canPlaceUnder(tree, editId, parentId)
+  const usesPlace: boolean = placeEditable && hasPlace
   const canSave: boolean =
-    trimmedName.length > 0 && (!hasRange || rangeValid) && parentAllowed && !isSaving
+    trimmedName.length > 0
+    && (!hasRange || rangeValid)
+    && (!usesPlace || draft.isComplete)
+    && parentAllowed
+    && !isSaving
 
   useEffect(() => {
     nameRef.current?.focus()
@@ -158,12 +197,23 @@ export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: Journ
       return
     }
 
+    // The place goes along only when it says something new: a rule to add, or the
+    // journey's rule changed. Unticking the journey's rule ends it.
+    const values: PlaceValues | null = usesPlace ? placeValues(draft) : null
+    const place: JourneyPlaceDto | null =
+      values !== null && (placeRule === null || placeDiffersFrom(values, placeRule))
+        ? { ruleId: placeRule?.id ?? null, ...values }
+        : null
+    const endPlaceRuleId: string | null = placeEditable && !hasPlace && placeRule !== null ? placeRule.id : null
+
     const payload: JourneySaveRequestDto = {
       name: trimmedName,
       parentId,
       rangeFrom: hasRange ? (fromIso ?? null) : null,
       rangeTo: hasRange ? (toIso ?? null) : null,
       includePinned: hasRange && includePinned && pinnedElsewhere > 0,
+      place,
+      endPlaceRuleId,
     }
 
     setIsSaving(true)
@@ -195,7 +245,7 @@ export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: Journ
       }}
     >
       <div
-        className="modal-panel journey-dialog"
+        className={usesPlace ? 'modal-panel modal-panel--wide journey-dialog' : 'modal-panel journey-dialog'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -338,6 +388,41 @@ export function JourneyDialog({ deviceId, tree, mode, onSaved, onCancel }: Journ
               ) : null}
             </div>
           ) : null}
+
+          {placeEditable ? (
+            <>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={hasPlace}
+                  onChange={(e) => setHasPlace(e.target.checked)}
+                  disabled={isSaving}
+                />
+                <span>{t('trips:dialog.autoIncludePlace')}</span>
+              </label>
+
+              {hasPlace ? (
+                <div className="journey-dialog-range">
+                  <p className="hint">{t('trips:dialog.placeHint')}</p>
+                  <LocationPlaceFields
+                    deviceId={deviceId}
+                    draft={draft}
+                    excludeRuleId={placeRule?.id}
+                    disabled={isSaving}
+                  />
+                </div>
+              ) : placeRule !== null ? (
+                <p className="hint">{t('trips:dialog.placeEnds', { name: locationRuleLabel(placeRule) })}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="hint">
+              {t('trips:dialog.placeMany', {
+                count: ownActiveRules.length,
+                value: formatInteger(ownActiveRules.length),
+              })}
+            </p>
+          )}
 
           {errorMessage.length > 0 ? (
             <p className="form-message form-message--error" role="alert">

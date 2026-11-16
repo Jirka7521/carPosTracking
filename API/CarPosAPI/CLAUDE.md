@@ -17,7 +17,9 @@ One application does everything server-side:
   schedule bundles.
 - **Trip detection** — a hosted service (`Services/Trips/TripDetectionWorker`) woken by
   each position save (`ITripDetectionSignal`, raised by `PositionWriter`), never by a
-  timer. It stores only trip start times; ends and statistics are recomputed on read.
+  timer. It stores each trip's start and end time only; distance, duration and speeds
+  are recomputed on read. Which journey a trip is in is decided live by the SQL view
+  `trip_effective_journeys` (manual pin → place rule → date range).
 - **REST API** over PostgreSQL for users, devices, positions, trips and journeys, sharing
   and share links, schedules, device events and GDPR rights.
 

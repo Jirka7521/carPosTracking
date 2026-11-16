@@ -45,6 +45,9 @@ import type {
   JourneyListDto,
   JourneySaveRequestDto,
   JourneySummaryDto,
+  LocationRuleDto,
+  LocationRulePreviewDto,
+  LocationRuleSaveRequestDto,
   MapsConsentDto,
   MapsConsentGrantRequestDto,
   PositionDto,
@@ -632,8 +635,9 @@ export async function fetchDeviceEvents(
 
 // ----- Trips and journeys -----
 //
-// The server detects trips and keeps only each one's start; everything else in a
-// TripSummaryDto is rebuilt from the positions for every answer. Reading needs any
+// The server detects trips and keeps only each one's start and end time; the
+// figures in a TripSummaryDto are rebuilt from the positions for every answer,
+// and its journey is decided by the database. Reading needs any
 // grant; organising (journeys, moves, names) needs CanModifySettings.
 
 // Which trips a list page holds: every trip, the ones in no journey, or the ones
@@ -732,6 +736,76 @@ export async function updateJourney(
 // Trips themselves are never deleted.
 export async function deleteJourney(deviceId: string, journeyId: string): Promise<void> {
   await request<null>('DELETE', `/devices/${segment(deviceId)}/journeys/${segment(journeyId)}`)
+}
+
+// ----- Location rules -----
+//
+// A rule puts every trip that starts or ends within a circle into a journey,
+// from a valid-from day until it is ended — live, like a journey's dates, so it
+// reaches back to older trips and forward to late-arriving ones. Rules are never
+// deleted: ending one keeps the trips it placed and leaves it as history.
+
+// Every rule of the device: in force first, then ended ones, with trip counts.
+export async function fetchLocationRules(deviceId: string): Promise<LocationRuleDto[]> {
+  return request<LocationRuleDto[]>('GET', `/devices/${segment(deviceId)}/location-rules`)
+}
+
+export type LocationRulePreviewQuery = {
+  latitude: number
+  longitude: number
+  radiusMeters: number
+  matchStart: boolean
+  matchEnd: boolean
+  validFrom: string
+  // The rule being edited, so its own trips do not count as another rule's.
+  excludeRuleId?: string
+}
+
+// What a rule drawn so far would catch — counted, and the matched starts and
+// ends as points for the map — computed by the database.
+export async function previewLocationRule(
+  deviceId: string,
+  query: LocationRulePreviewQuery,
+): Promise<LocationRulePreviewDto> {
+  return request<LocationRulePreviewDto>('GET', `/devices/${segment(deviceId)}/location-rules/preview`, {
+    query: {
+      latitude: query.latitude,
+      longitude: query.longitude,
+      radiusMeters: query.radiusMeters,
+      matchStart: query.matchStart,
+      matchEnd: query.matchEnd,
+      validFrom: query.validFrom,
+      excludeRuleId: query.excludeRuleId,
+    },
+  })
+}
+
+export async function createLocationRule(
+  deviceId: string,
+  payload: LocationRuleSaveRequestDto,
+): Promise<LocationRuleDto> {
+  return request<LocationRuleDto>('POST', `/devices/${segment(deviceId)}/location-rules`, { body: payload })
+}
+
+// Only while the rule is in force; the change applies to past trips too.
+export async function updateLocationRule(
+  deviceId: string,
+  ruleId: string,
+  payload: LocationRuleSaveRequestDto,
+): Promise<LocationRuleDto> {
+  return request<LocationRuleDto>(
+    'PUT',
+    `/devices/${segment(deviceId)}/location-rules/${segment(ruleId)}`,
+    { body: payload },
+  )
+}
+
+// Ends a rule now. The trips it placed so far stay in its journey.
+export async function endLocationRule(deviceId: string, ruleId: string): Promise<LocationRuleDto> {
+  return request<LocationRuleDto>(
+    'POST',
+    `/devices/${segment(deviceId)}/location-rules/${segment(ruleId)}/end`,
+  )
 }
 
 // The thresholds trip detection uses for this device — server-side only; the

@@ -58,6 +58,7 @@ public sealed class DataExportShapeTests
         typeof(AccessInvitationExportRow),
         typeof(TripExportRow),
         typeof(JourneyExportRow),
+        typeof(LocationRuleExportRow),
         typeof(TripSettingsExportRow),
     ];
 
@@ -130,9 +131,25 @@ public sealed class DataExportShapeTests
         TripExportRow trip = new TripExportRow(
             42,
             new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 9, 30, 0, DateTimeKind.Utc),
             Guid.NewGuid(),
             true,
             "To the coast");
+
+        LocationRuleExportRow locationRule = new LocationRuleExportRow(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Office",
+            50.08804,
+            14.42076,
+            200,
+            true,
+            true,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            null,
+            null,
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
         JourneyExportRow journey = new JourneyExportRow(
             Guid.NewGuid(),
@@ -156,6 +173,7 @@ public sealed class DataExportShapeTests
             JsonSerializer.Serialize(invitation),
             JsonSerializer.Serialize(trip),
             JsonSerializer.Serialize(journey),
+            JsonSerializer.Serialize(locationRule),
             JsonSerializer.Serialize(tripSettings));
 
         foreach (string fragment in ForbiddenFragments)

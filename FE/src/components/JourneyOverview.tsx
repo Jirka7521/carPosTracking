@@ -12,6 +12,9 @@
 //
 // The list below this header shows the trips DIRECTLY in the journey; the trips
 // of its sub-journeys are one click away on the chips, which carry their counts.
+//
+// Under the date rule sit the journey's place rules: those in force, and the
+// ended ones folded away as history.
 // ============================================================
 
 import { useEffect, useState } from 'react'
@@ -20,11 +23,12 @@ import type { To } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatDate, formatDistance, formatDuration, formatInteger, formatSpeed } from '../i18n/format'
 import { fetchJourneySummary } from '../services/apiClient'
-import type { JourneyDto, JourneySummaryDto } from '../services/apiTypes'
+import type { JourneyDto, JourneySummaryDto, LocationRuleDto } from '../services/apiTypes'
 import { parseApiTimestamp } from '../utils/dates'
 import type { JourneyTree } from '../utils/journeyTree'
 import { MAX_JOURNEY_DEPTH, childrenOf, journeyPath } from '../utils/journeyTree'
 import { rangeEndLastDay } from '../utils/trips'
+import { LocationRuleList } from './LocationRuleList'
 import { TripFigure } from './TripFigure'
 
 export type JourneyOverviewProps = {
@@ -39,6 +43,11 @@ export type JourneyOverviewProps = {
   onEdit: () => void
   onDelete: () => void
   onAddSubJourney: () => void
+  // The device's place rules (every journey's); this header shows its own.
+  rules: readonly LocationRuleDto[]
+  onAddRule: () => void
+  onEditRule: (rule: LocationRuleDto) => void
+  onEndRule: (rule: LocationRuleDto) => void
 }
 
 export function JourneyOverview({
@@ -51,6 +60,10 @@ export function JourneyOverview({
   onEdit,
   onDelete,
   onAddSubJourney,
+  rules,
+  onAddRule,
+  onEditRule,
+  onEndRule,
 }: JourneyOverviewProps) {
   const { t } = useTranslation('trips')
 
@@ -86,6 +99,10 @@ export function JourneyOverview({
   const ancestors: JourneyDto[] = path.slice(0, -1)
   const subJourneys: readonly JourneyDto[] = childrenOf(tree, journey.id)
   const canNestDeeper: boolean = path.length < MAX_JOURNEY_DEPTH
+
+  const ownRules: LocationRuleDto[] = rules.filter((rule) => rule.journeyId === journey.id)
+  const activeRules: LocationRuleDto[] = ownRules.filter((rule) => rule.endedAt === null)
+  const endedRules: LocationRuleDto[] = ownRules.filter((rule) => rule.endedAt !== null)
 
   const rangeFrom: Date | null = journey.rangeFrom === null ? null : parseApiTimestamp(journey.rangeFrom)
   const rangeLastDay: Date | null = journey.rangeTo === null ? null : rangeEndLastDay(journey.rangeTo)
@@ -141,6 +158,49 @@ export function JourneyOverview({
           t('journey.noRange')
         )}
       </p>
+
+      {ownRules.length > 0 || canManage ? (
+        <div className="journey-overview-rules">
+          <div className="journey-overview-rules-head">
+            <span className="journey-overview-children-label">
+              <span aria-hidden="true">📍 </span>
+              {t('locationRule.sidebar')}
+            </span>
+            {canManage ? (
+              <button type="button" className="btn btn-quiet btn-sm" onClick={onAddRule}>
+                ＋ {t('locationRule.addForJourney')}
+              </button>
+            ) : null}
+          </div>
+          {activeRules.length > 0 ? (
+            <LocationRuleList
+              rules={activeRules}
+              tree={tree}
+              canManage={canManage}
+              showJourney={false}
+              linkFor={linkFor}
+              onEdit={onEditRule}
+              onEnd={onEndRule}
+            />
+          ) : null}
+          {endedRules.length > 0 ? (
+            <details className="journey-overview-rules-history">
+              <summary>
+                {t('locationRule.history', { count: endedRules.length, value: formatInteger(endedRules.length) })}
+              </summary>
+              <LocationRuleList
+                rules={endedRules}
+                tree={tree}
+                canManage={canManage}
+                showJourney={false}
+                linkFor={linkFor}
+                onEdit={onEditRule}
+                onEnd={onEndRule}
+              />
+            </details>
+          ) : null}
+        </div>
+      ) : null}
 
       <dl className="journey-overview-tiles">
         <div className="journey-tile">

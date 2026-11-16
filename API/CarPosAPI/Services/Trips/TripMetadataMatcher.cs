@@ -13,7 +13,9 @@ namespace CarPosAPI.Services.Trips;
 ///
 /// <para>
 /// <b>Spans.</b> A trip's span is <c>[start, next start)</c>: the trip plus the stop after
-/// it, the stretch of history it "owns". Ends are not stored, so this is the honest proxy.
+/// it, the stretch of history it "owns". Spans use starts alone — the newest trip's end is
+/// still open, and a stored end simply moves with its start — so the caller carries each
+/// start's end across by itself.
 /// The last span of each list ends at a <b>common horizon</b> just past the latest start
 /// of either list. With open-ended last spans a newly arrived trip would overlap the
 /// previous latest trip by more than that trip's own successor does, and steal its row.
