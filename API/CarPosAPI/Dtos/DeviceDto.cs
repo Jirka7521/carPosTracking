@@ -35,6 +35,11 @@ namespace CarPosAPI.Dtos;
 /// "charging" sentinel, which the dashboard renders as charging. This lets the
 /// device grid show a battery level at a glance without loading its positions.
 /// </param>
+/// <param name="LastPosition">
+/// Where this device's most recent fix was, or null when it has never reported — so
+/// the device grid and the device header can show the address without loading its
+/// positions.
+/// </param>
 /// <param name="LastOnlineAt">
 /// When the device last announced a new broker connection (UTC), or null when it
 /// never has (firmware without status messages). Together with
@@ -60,6 +65,7 @@ public sealed record DeviceDto(
     DateTime? DeactivatedAt,
     DateTime? LastSeenAt,
     int? LastBatteryPct,
+    DeviceLastPositionDto? LastPosition,
     DateTime? LastOnlineAt,
     DeviceOfflineEventDto? LastOfflineEvent,
     DeviceAccessCountsDto AccessCounts,

@@ -92,6 +92,14 @@ internal sealed class DeviceService : IDeviceService
                     .OrderByDescending(position => position.FixTime)
                     .Select(position => position.BatteryPct)
                     .FirstOrDefault(),
+                // Where that most recent fix was, for the address line on the card and
+                // in the device header — the same kind of correlated subquery, served by
+                // the (device_id, fix_time) index.
+                _context.Positions
+                    .Where(position => position.DeviceId == access.DeviceId)
+                    .OrderByDescending(position => position.FixTime)
+                    .Select(position => new DeviceLastPositionDto(position.Latitude, position.Longitude, position.FixTime))
+                    .FirstOrDefault(),
                 access.Device.LastOnlineAt,
                 // The most recent time this device went offline and why, for the
                 // status badge - another correlated subquery, so the list stays one
@@ -273,10 +281,11 @@ internal sealed class DeviceService : IDeviceService
                     provisioning.Device.DisplayName,
                     // A brand-new device has no alias and has never reported, so these are
                     // known without asking the database again (no last-seen, no battery,
-                    // never online, never offline).
+                    // no position, never online, never offline).
                     null,
                     true,
                     DateTime.UtcNow,
+                    null,
                     null,
                     null,
                     null,
