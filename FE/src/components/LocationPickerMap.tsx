@@ -7,6 +7,12 @@
 //   • `points` — the trip starts and ends the rule would catch, from the
 //     server's preview — are drawn as small dots, so the radius can be tuned
 //     by eye. Green dots are starts, blue ones ends.
+//   • Above the map, PlaceSearchBox finds a place by address or name; picking
+//     one moves the centre there (the radius stays) and zooms to the circle.
+//     Its short name goes to `onPlaceName`, so an unnamed rule can take it.
+//
+// Renders its own `.map-frame`, with the search outside it: the frame clips
+// its content, and the suggestions must be able to overlap the map.
 //
 // Behind the same consent gate as every other map (MapsConsentPrompt): nothing
 // is requested from Google until this viewer has agreed. The parent must not
@@ -24,6 +30,7 @@ import { useTranslation } from 'react-i18next'
 import type { LocationRulePreviewPointDto } from '../services/apiTypes'
 import { googleApi, loadGoogleMaps } from '../utils/googleMapsLoader'
 import { MapsConsentPrompt } from './MapsConsentPrompt'
+import { PlaceSearchBox } from './PlaceSearchBox'
 
 export type PickedPoint = {
   latitude: number
@@ -41,6 +48,8 @@ export type LocationPickerMapProps = {
   initialView: PickedPoint | null
   points: readonly LocationRulePreviewPointDto[]
   onChange: (center: PickedPoint, radiusMeters: number) => void
+  // A place was picked in the search: its short name ("Lidl", "Chlumecká 765").
+  onPlaceName?: (name: string) => void
   hasStandingConsent: boolean
   onGrantStandingConsent: () => void
 }
@@ -57,6 +66,9 @@ const END_DOT_COLOR: string = '#0065BD'
 
 // Six decimals is about 10 cm — finer than any GNSS fix, coarser than float noise.
 const COORDINATE_DECIMALS = 6
+
+// Metres in one degree of latitude, near enough for framing a circle.
+const METERS_PER_DEGREE: number = 111_320
 
 type PickerState = {
   map: google.maps.Map | null
@@ -99,6 +111,28 @@ function report(state: PickerState, latLng: google.maps.LatLng, radiusMeters: nu
   state.lastReported = center
   state.radiusMeters = radius
   state.onChange(center, radius)
+}
+
+// A place picked in the search: the centre moves there, the radius stays, and
+// the map zooms to the circle. Reported like a click, so the parent's inputs
+// and preview follow; framed here because syncCircle only frames changes that
+// did not come from the map itself.
+function pickPlace(state: PickerState, point: PickedPoint): void {
+  const g = googleApi()
+  if (!g?.maps || !state.map) {
+    return
+  }
+  report(state, new g.maps.LatLng(point.latitude, point.longitude), state.radiusMeters)
+
+  const latitudeDelta: number = state.radiusMeters / METERS_PER_DEGREE
+  const longitudeDelta: number = state.radiusMeters
+    / (METERS_PER_DEGREE * Math.max(Math.cos((point.latitude * Math.PI) / 180), 0.01))
+  state.map.fitBounds({
+    north: point.latitude + latitudeDelta,
+    south: point.latitude - latitudeDelta,
+    east: point.longitude + longitudeDelta,
+    west: point.longitude - longitudeDelta,
+  })
 }
 
 // Creates the circle on first use and keeps it in step with the props.
@@ -211,6 +245,7 @@ export function LocationPickerMap({
   initialView,
   points,
   onChange,
+  onPlaceName,
   hasStandingConsent,
   onGrantStandingConsent,
 }: LocationPickerMapProps) {
@@ -310,33 +345,50 @@ export function LocationPickerMap({
 
   if (!hasConsented) {
     return (
-      <MapsConsentPrompt
-        onOnce={() => setHasConsented(true)}
-        onAlways={() => {
-          // As on the Map tab: the map loads now whatever happens to the save.
-          onGrantStandingConsent()
-          setHasConsented(true)
-        }}
-        consentScope="account"
-      />
+      <div className="map-frame location-picker-frame">
+        <MapsConsentPrompt
+          onOnce={() => setHasConsented(true)}
+          onAlways={() => {
+            // As on the Map tab: the map loads now whatever happens to the save.
+            onGrantStandingConsent()
+            setHasConsented(true)
+          }}
+          consentScope="account"
+        />
+      </div>
     )
   }
 
   if (loadError) {
     return (
-      <div className="map-placeholder">
-        <span style={{ fontSize: '2rem' }} aria-hidden="true">⚠️</span>
-        <p>{t('device:map.loadFailed', { error: loadError })}</p>
+      <div className="map-frame location-picker-frame">
+        <div className="map-placeholder">
+          <span style={{ fontSize: '2rem' }} aria-hidden="true">⚠️</span>
+          <p>{t('device:map.loadFailed', { error: loadError })}</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div
-      className="map-canvas location-picker-map"
-      ref={containerRef}
-      aria-label={t('trips:locationRule.map.label')}
-    />
+    <>
+      <PlaceSearchBox
+        apiKey={apiKey}
+        getLocationBias={() => state.map?.getBounds() ?? null}
+        onPick={(point: PickedPoint, name: string) => {
+          pickPlace(state, point)
+          onPlaceName?.(name)
+        }}
+        disabled={!isReady}
+      />
+      <div className="map-frame location-picker-frame">
+        <div
+          className="map-canvas location-picker-map"
+          ref={containerRef}
+          aria-label={t('trips:locationRule.map.label')}
+        />
+      </div>
+    </>
   )
 }
 

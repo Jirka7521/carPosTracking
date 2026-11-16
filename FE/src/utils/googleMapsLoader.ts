@@ -10,6 +10,9 @@
 //     once the API's ready callback fires.
 //   • A module-level singleton promise prevents the script from being injected
 //     more than once across re-mounts / HMR.
+//   • The Places and Geocoding libraries (place search, device address) are
+//     not in that bootstrap; loadPlacesLibrary / loadGeocodingLibrary fetch
+//     them on first use, behind the same consent.
 // ============================================================
 
 let googleMapsLoader: Promise<void> | null = null
@@ -101,4 +104,44 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
   })
 
   return googleMapsLoader
+}
+
+let placesLibrary: Promise<google.maps.PlacesLibrary> | null = null
+let geocodingLibrary: Promise<google.maps.GeocodingLibrary> | null = null
+
+// The Places library (place search: AutocompleteSuggestion, Place), fetched on
+// first use through importLibrary — the bootstrap above ships only the core and
+// the marker library. Same rule as loadGoogleMaps: only after consent.
+export function loadPlacesLibrary(apiKey: string): Promise<google.maps.PlacesLibrary> {
+  if (placesLibrary === null) {
+    placesLibrary = loadGoogleMaps(apiKey)
+      .then(() => importLibrary<google.maps.PlacesLibrary>('places'))
+    // A failure (offline, API not enabled for the key) is not cached, so the
+    // next search tries again.
+    placesLibrary.catch(() => {
+      placesLibrary = null
+    })
+  }
+  return placesLibrary
+}
+
+// The Geocoding library (google.maps.Geocoder — the device address). Only after
+// a STANDING maps consent; see hooks/useDeviceAddress.ts.
+export function loadGeocodingLibrary(apiKey: string): Promise<google.maps.GeocodingLibrary> {
+  if (geocodingLibrary === null) {
+    geocodingLibrary = loadGoogleMaps(apiKey)
+      .then(() => importLibrary<google.maps.GeocodingLibrary>('geocoding'))
+    geocodingLibrary.catch(() => {
+      geocodingLibrary = null
+    })
+  }
+  return geocodingLibrary
+}
+
+function importLibrary<T>(name: string): Promise<T> {
+  const g = googleApi()
+  if (!g?.maps?.importLibrary) {
+    return Promise.reject(new Error('Google Maps importLibrary is not available.'))
+  }
+  return g.maps.importLibrary(name) as Promise<T>
 }

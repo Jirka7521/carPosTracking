@@ -223,6 +223,7 @@ FE/
 │   │   ├── DeviceMap.tsx          Google Maps component: the track as a line, one pin on the latest position
 │   │   ├── MapsConsentPrompt.tsx  "Load the map once / always" — the consent gate DeviceMap and the picker share
 │   │   ├── LocationPickerMap.tsx  Click a point, drag/resize a circle; draws the trip starts and ends a rule would catch
+│   │   ├── PlaceSearchBox.tsx     "Find a place" above that map — Google Places Autocomplete, 1.2 s after typing or on Enter
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit; optional dashed marker lines
 │   │   ├── SeriesPicker.tsx       The chart's series checkboxes, which double as its legend (Charts tab, trip page)
 │   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
@@ -778,6 +779,8 @@ See [`Container/App/.env.example`](../Container/App/.env.example) for the variab
 - caches `/assets/*` for a year (Vite fingerprints the filenames) and never caches `index.html` or `config.js`.
 
 The one deliberate CSP relaxation is `style-src 'unsafe-inline'`, which the Google Maps library requires for its own controls. `script-src` has no such exception.
+
+Google is allowed exactly where it is used: `maps.googleapis.com` (the Maps script, tiles, and the Geocoder behind the device address) and `places.googleapis.com` (the place search) in `connect-src`, plus Google's image hosts. All of it is reached only after the viewer's maps consent.
 
 ---
 
