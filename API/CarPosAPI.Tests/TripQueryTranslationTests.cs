@@ -110,15 +110,17 @@ public sealed class TripQueryTranslationTests
             // The same place test the journey rule uses, over the view, for one device
             // and the trips since the valid-from date — PostGIS, not a client-side filter.
             Assert.Contains("trip_effective_journeys", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("trip_points(", sql, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("trip_near(", sql, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("ST_MakePoint(", sql, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("v.device_id =", sql, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("v.start_time >=", sql, StringComparison.OrdinalIgnoreCase);
         }
 
-        // Totals are aggregated by the database; points are capped there.
+        // Totals are aggregated by the database; points come from the matched fixes and
+        // are capped there.
         Assert.Contains("count(*) FILTER", counts, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ST_DWithin(", points, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("n.start_match", points, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", points, StringComparison.OrdinalIgnoreCase);
     }
 

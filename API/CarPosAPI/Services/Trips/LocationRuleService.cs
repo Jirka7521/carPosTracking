@@ -18,10 +18,10 @@ namespace CarPosAPI.Services.Trips;
 /// </para>
 ///
 /// <para>
-/// <b>The preview runs in the database</b>: <c>trip_near</c> (PostGIS <c>ST_DWithin</c> on
-/// the trips' start, parking and end fixes) over the device's trips since the valid-from
-/// date — the same function the view uses, so the preview counts exactly what the rule
-/// will test.
+/// <b>The preview runs in the database</b>: <c>trip_points</c> (the trips' start, parking
+/// and end fixes) and <c>trip_near</c> (PostGIS <c>ST_DWithin</c> on them) over the
+/// device's trips since the valid-from date — the same functions the view uses, so the
+/// preview counts exactly what the rule will test.
 /// </para>
 ///
 /// <para>
@@ -80,7 +80,11 @@ internal sealed class LocationRuleService : ILocationRuleService
                                     AND v.location_rule_id <> {exclude})::int AS "OtherRuleCount"
              FROM trip_effective_journeys v
              CROSS JOIN (SELECT ST_SetSRID(ST_MakePoint({query.Longitude}, {query.Latitude}), 4326)::geography AS center) c
-             CROSS JOIN LATERAL trip_near(v.device_id, v.start_time, v.end_time, c.center, {radius}) n
+             CROSS JOIN LATERAL trip_points(v.device_id, v.start_time, v.end_time) p
+             CROSS JOIN LATERAL trip_near(p.start_location, p.start_latitude,
+                                          p.park_location, p.park_latitude,
+                                          p.end_location, p.end_latitude,
+                                          c.center, {query.Latitude}, {radius}) n
              CROSS JOIN LATERAL (SELECT ({query.MatchStart} AND n.at_start) AS by_start,
                                         ({query.MatchEnd} AND n.at_end) AS by_end) m
              WHERE v.device_id = {deviceRowId}
@@ -111,32 +115,19 @@ internal sealed class LocationRuleService : ILocationRuleService
             $"""
              SELECT
                  v.trip_id AS "TripId",
-                 CASE WHEN m.by_start THEN COALESCE(sp.latitude, pk.latitude) END AS "StartLatitude",
-                 CASE WHEN m.by_start THEN COALESCE(sp.longitude, pk.longitude) END AS "StartLongitude",
-                 CASE WHEN m.by_end THEN ep.latitude END AS "EndLatitude",
-                 CASE WHEN m.by_end THEN ep.longitude END AS "EndLongitude"
+                 CASE WHEN m.by_start THEN ST_Y(n.start_match::geometry) END AS "StartLatitude",
+                 CASE WHEN m.by_start THEN ST_X(n.start_match::geometry) END AS "StartLongitude",
+                 CASE WHEN m.by_end THEN ST_Y(p.end_location::geometry) END AS "EndLatitude",
+                 CASE WHEN m.by_end THEN ST_X(p.end_location::geometry) END AS "EndLongitude"
              FROM trip_effective_journeys v
              CROSS JOIN (SELECT ST_SetSRID(ST_MakePoint({query.Longitude}, {query.Latitude}), 4326)::geography AS center) c
-             CROSS JOIN LATERAL trip_near(v.device_id, v.start_time, v.end_time, c.center, {radius}) n
+             CROSS JOIN LATERAL trip_points(v.device_id, v.start_time, v.end_time) p
+             CROSS JOIN LATERAL trip_near(p.start_location, p.start_latitude,
+                                          p.park_location, p.park_latitude,
+                                          p.end_location, p.end_latitude,
+                                          c.center, {query.Latitude}, {radius}) n
              CROSS JOIN LATERAL (SELECT ({query.MatchStart} AND n.at_start) AS by_start,
                                         ({query.MatchEnd} AND n.at_end) AS by_end) m
-             LEFT JOIN positions sp
-                    ON m.by_start
-                   AND sp.device_id = v.device_id
-                   AND sp.fix_time = v.start_time
-                   AND ST_DWithin(sp.location, c.center, {radius})
-             LEFT JOIN LATERAL (
-                    SELECT pp.latitude, pp.longitude
-                    FROM positions pp
-                    WHERE m.by_start
-                      AND pp.device_id = v.device_id
-                      AND pp.fix_time < v.start_time
-                    ORDER BY pp.fix_time DESC
-                    LIMIT 1) pk ON true
-             LEFT JOIN positions ep
-                    ON m.by_end
-                   AND ep.device_id = v.device_id
-                   AND ep.fix_time = v.end_time
              WHERE v.device_id = {deviceRowId}
                AND v.start_time >= {query.ValidFrom}
                AND (m.by_start OR m.by_end)

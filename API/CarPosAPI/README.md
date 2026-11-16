@@ -426,8 +426,8 @@ PostgreSQL 18 + PostGIS 3.6 from [`../../Container/Postgres/`](../../Container/P
 and `BE` (runtime; SELECT/INSERT/UPDATE/DELETE only, granted automatically on
 future tables).
 
-Schema (from `InitialCreate` up to the latest, `AddJourneyLocationRules`; the full
-list is in [`Data/Migrations/`](Data/Migrations/)):
+Schema (from `InitialCreate` up to the latest, `SpeedUpLocationRuleMatching`; the
+full list is in [`Data/Migrations/`](Data/Migrations/)):
 
 - **devices** — `id` (uuid PK), `device_id` (unique MQTT identity, e.g.
   `GNSS01`), `display_name`, `public_key_pem`, `private_key_ciphertext`
@@ -508,15 +508,20 @@ list is in [`Data/Migrations/`](Data/Migrations/)):
   - An ended rule is kept as history; there is no delete.
   - `journey_id` is NULL only on a rule ended because its top-level journey was
     deleted.
-- **trip_effective_journeys** (view) + **trip_near** (SQL function) — the single
-  definition of which journey a trip is in. Nothing is written onto the trip:
-  every trip list, detail and summary read goes through the view
-  (`TripQueries.Rows`, a keyless EF entity mapped with `ToView`). The detector,
-  the export and the erasure paths use `trips` directly.
-  - `trip_near` says whether a trip starts or ends within a radius, using
-    PostGIS `ST_DWithin` on `positions.location` probed by `(device_id, fix_time)`.
+- **trip_effective_journeys** (view) + **trip_points** / **trip_near** (SQL
+  functions) — the single definition of which journey a trip is in. Nothing is
+  written onto the trip: every trip list, detail and summary read goes through the
+  view (`TripQueries.Rows`, a keyless EF entity mapped with `ToView`). The
+  detector, the export and the erasure paths use `trips` directly.
+  - `trip_points` finds a trip's start, parking and end fixes (`positions.location`
+    and latitude), each one index probe on `(device_id, fix_time)`.
+  - `trip_near` says whether those points lie within a radius: PostGIS
+    `ST_DWithin`, behind a latitude test that only skips points that cannot match.
+  - The view looks a trip's points up once and tests every rule against them, so
+    index probes grow with the number of trips, not trips × rules; each rule
+    adds only a comparison.
   - The view applies manual pin → place rule → date range.
-  - SchemaSync ignores both, since they are not tables.
+  - SchemaSync ignores all three, since they are not tables.
 - **device_trip_settings** — a device's trip detection thresholds (minimum
   stop, stop radius, minimum trip distance), CHECK-bounded from
   [`Dtos/TripRules.cs`](Dtos/TripRules.cs). Server-side only — never sent to the
@@ -1659,7 +1664,8 @@ never deleted with a journey.
 **Place rules** (`journey_location_rules`, `LocationRuleService`). A user picks a
 point, a radius (50–10 000 m), a journey and a start date. Every trip that starts
 or ends inside the circle then joins that journey. Each rule has a checkbox for
-each end ("starts here", "ends here"). All matching is SQL, in `trip_near`:
+each end ("starts here", "ends here"). All matching is SQL, in `trip_points` (which
+fixes) and `trip_near` (which are inside):
 
 - **Starts there:** the trip's first fix is within the radius, **or** its parking
   fix is. The parking fix is the last fix before the start, counted only when it
@@ -1677,13 +1683,14 @@ before `ended_at`. The rule stays, read-only, as history. There is no delete.
 Rule and journey writes on one device take the same advisory lock
 (`TripOrganisationLock`), so a journey delete cannot race a rule save. The
 preview (`…/location-rules/preview`) counts and samples matches with raw SQL
-(`Database.SqlQuery`) over the same view and function. The API logs ids only
+(`Database.SqlQuery`) over the same view and functions. The API logs ids only
 (user, device, rule), never coordinates or names.
 
 Applying `AddJourneyLocationRules` marks every device for recomputation, so the
 first worker pass afterwards recomputes all trips once to fill `end_time`. The
 Trips tab shows its "Recalculating trips…" banner meanwhile. Trip ids, names and
-manual placements are kept.
+manual placements are kept. `SpeedUpLocationRuleMatching` only replaces the view
+and the functions (same columns, same results) and needs no recompute.
 
 **Who may do what.** Any access grant reads a device's trips, journeys, place
 rules and thresholds. Organising them (names, journeys, moves, rules,

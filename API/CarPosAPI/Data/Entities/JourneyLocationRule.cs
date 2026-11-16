@@ -8,8 +8,9 @@ namespace CarPosAPI.Data.Entities;
 /// <para>
 /// Like a journey's date range this is a <b>live rule</b>: membership is computed at query
 /// time by the <c>trip_effective_journeys</c> view (PostGIS <c>ST_DWithin</c> against the
-/// trip's start, parking and end fixes, defined once in the <c>trip_near</c> SQL function)
-/// and never written onto the trips. It therefore applies to the past from
+/// trip's start, parking and end fixes; the fixes are defined once in the
+/// <c>trip_points</c> SQL function, the test in <c>trip_near</c>) and never written onto
+/// the trips. It therefore applies to the past from
 /// <see cref="ValidFrom"/>, and to trips whose data arrives late.
 /// </para>
 ///

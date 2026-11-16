@@ -2,7 +2,8 @@ namespace CarPosAPI.Dtos;
 
 /// <summary>
 /// What a location rule would catch, for the rule dialog's live preview — computed in
-/// the database with the same <c>trip_near</c> function the journey rule uses.
+/// the database with the same <c>trip_points</c> and <c>trip_near</c> functions the
+/// journey rule uses.
 /// </summary>
 /// <param name="TripCount">Trips since the valid-from date that start or end in the circle (per the ticked kinds).</param>
 /// <param name="StartCount">Of those, the trips that start there.</param>
