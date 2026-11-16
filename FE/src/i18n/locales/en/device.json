@@ -1,4 +1,7 @@
 {
+  "address": {
+    "tooltip": "Approximate address of the last position, from Google: {{address}}"
+  },
   "backToDevices": "← Back to devices",
   "breadcrumb": "Breadcrumb",
   "charts": {

@@ -558,6 +558,21 @@
   line-height: 1.5;
 }
 
+/* "📍 D1 · Průhonice" under a device (DeviceAddress): one line, cut with an
+   ellipsis rather than wrapped, so a long address cannot grow the card. The
+   full address is in the tooltip. */
+.device-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-page-address {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
 /* Right-side cluster in the card header: battery + status pills together.
  * Wraps because the device page reuses this beside a long monospace device id,
  * where three --lg pills and the title cannot share one line on a phone. The

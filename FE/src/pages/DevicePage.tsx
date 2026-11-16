@@ -56,6 +56,8 @@ import type { SeverityFilter } from './DeviceEventsTab'
 import { BatteryBadge } from '../components/BatteryBadge'
 import { AccessCountBadge } from '../components/AccessCountBadge'
 import { DeviceLinkBadge } from '../components/DeviceLinkBadge'
+import { DeviceAddress } from '../components/DeviceAddress'
+import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import type { AutoRefresh } from '../hooks/useAutoRefresh'
 import { useUiMode } from '../uiMode/useUiMode'
@@ -118,6 +120,10 @@ export function DevicePage() {
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // The header's address line needs a standing maps consent. Read here, before
+  // the early returns below, like every other hook of this page.
+  const mapsConsent = useAccountMapsConsent()
 
   // ---- View choices shared by the tabs ----
   // The range is computed once, when the device page opens — from then on only
@@ -256,6 +262,9 @@ export function DevicePage() {
                 {device.deviceId}
               </p>
             ) : null}
+            {/* Where the last fix was, in words. Follows the header's refresh,
+                but asks Google again only once the car has moved 100 m. */}
+            <DeviceAddress device={device} enabled={mapsConsent.isStanding} className="device-address device-page-address" />
           </div>
           <div className="device-card-badges">
             {/* Who can see this vehicle — accounts with a grant plus any live

@@ -1,4 +1,7 @@
 {
+  "address": {
+    "tooltip": "Přibližná adresa poslední polohy podle Googlu: {{address}}"
+  },
   "backToDevices": "← Zpět na zařízení",
   "breadcrumb": "Drobečková navigace",
   "charts": {

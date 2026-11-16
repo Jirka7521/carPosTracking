@@ -237,6 +237,7 @@ FE/
 │   │   ├── ScheduleModeSwitch.tsx One set of settings, or a schedule — radio cards, saved by the panel
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
+│   │   ├── DeviceAddress.tsx      "📍 D1 · Průhonice" under a device — its last fix in words (hooks/useDeviceAddress.ts)
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
 │   │   ├── CapabilityCheckboxes.tsx  Permission flag checkboxes (Delete / Share / Settings)
 │   │   ├── JourneySidebar.tsx     Trips tab's left column: All / Not in a journey / the journey tree + search
@@ -286,7 +287,8 @@ FE/
 │       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── overdue.ts             When the map's latest-position pin turns red
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
-│       ├── googleMapsLoader.ts    Loads the Maps JS API once, for every map on the page
+│       ├── googleMapsLoader.ts    Loads the Maps JS API once, for every map on the page; Places / Geocoding libraries on first use
+│       ├── addressLabel.ts        Reverse-geocoding answer → "Chlumecká 765/6, Praha 9" or "D1 · Průhonice"
 │       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges, place-rule limits
 │       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
 │       ├── tripTelemetry.ts       A trip's fixes → altitude range, climb, battery at both ends, gaps
