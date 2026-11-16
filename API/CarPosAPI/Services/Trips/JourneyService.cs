@@ -27,6 +27,14 @@ namespace CarPosAPI.Services.Trips;
 /// </para>
 ///
 /// <para>
+/// <b>A journey's place is saved with it.</b> The dialog may send one place — a location
+/// rule added for this journey, or one of its own rules in force replaced or ended — and
+/// it is written by <see cref="LocationRuleWriter"/> in the same transaction, under the
+/// same lock: if the place is refused (the per-device cap, an ended rule), the journey is
+/// not saved either.
+/// </para>
+///
+/// <para>
 /// <b>Deleting moves everything up one level</b>: sub-journeys to the parent, the
 /// journey's trips pinned to the parent — or, at the top level, back to the rules and date
 /// ranges — and its location rules retargeted to the parent (ended, at the top level).
@@ -211,7 +219,41 @@ internal sealed class JourneyService : IJourneyService
             return OperationResult<JourneyDto>.Invalid(ErrorCodes.JourneyRangeInvalid, "The range must end after it starts.");
         }
 
+        if (request.Place is not null && request.EndPlaceRuleId is not null)
+        {
+            return OperationResult<JourneyDto>.Invalid(
+                ErrorCodes.ValidationFailed,
+                "Send a place to set or a place rule to end, not both.");
+        }
+
+        LocationRuleWriter.RuleValues? placeValues = null;
+        if (request.Place is JourneyPlaceDto place)
+        {
+            // [Required], but a nested body is checked here too rather than trusted.
+            if (place.ValidFrom is not DateTime validFrom)
+            {
+                return OperationResult<JourneyDto>.Invalid(
+                    ErrorCodes.LocationRuleInvalid,
+                    "A place needs the day it applies from.");
+            }
+
+            placeValues = new LocationRuleWriter.RuleValues(
+                place.Name,
+                place.Latitude,
+                place.Longitude,
+                place.RadiusMeters,
+                place.MatchStart,
+                place.MatchEnd,
+                validFrom);
+            OperationResult<JourneyLocationRule>? invalid = LocationRuleWriter.Check(placeValues);
+            if (invalid is not null)
+            {
+                return LocationRuleWriter.Relay<JourneyDto>(invalid);
+            }
+        }
+
         Guid deviceRowId = access.DeviceRowId;
+        Guid? placeRuleId = null;
         IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
 
         OperationResult<Guid> saved = await strategy.ExecuteAsync(
@@ -280,6 +322,26 @@ internal sealed class JourneyService : IJourneyService
                             attemptToken);
                 }
 
+                // The journey's place, in the same transaction: refused, it takes the
+                // journey down with it (returning here leaves the transaction uncommitted).
+                placeRuleId = null;
+                OperationResult<JourneyLocationRule>? place = await SavePlaceAsync(
+                    deviceRowId,
+                    entity.Id,
+                    request,
+                    placeValues,
+                    attemptToken);
+                if (place is not null)
+                {
+                    if (!place.IsSuccess)
+                    {
+                        return LocationRuleWriter.Relay<Guid>(place);
+                    }
+
+                    await _context.SaveChangesAsync(attemptToken);
+                    placeRuleId = place.Value!.Id;
+                }
+
                 await transaction.CommitAsync(attemptToken);
                 return OperationResult<Guid>.Success(entity.Id);
             },
@@ -290,6 +352,17 @@ internal sealed class JourneyService : IJourneyService
             return OperationResult<JourneyDto>.Failed(
                 saved.Outcome,
                 new ServiceError(saved.Code ?? ErrorCodes.ValidationFailed, saved.Detail ?? string.Empty, saved.Parameters));
+        }
+
+        if (placeRuleId is Guid changedRuleId)
+        {
+            _logger.LogInformation(
+                "User {UserId} {Action} location rule {RuleId} with journey {JourneyId} on device {DeviceId}",
+                userId,
+                request.EndPlaceRuleId is not null ? "ended" : request.Place?.RuleId is null ? "created" : "updated",
+                changedRuleId,
+                saved.Value,
+                access.DeviceId);
         }
 
         JourneyListDto list = await BuildListAsync(deviceRowId, cancellationToken);
@@ -336,6 +409,41 @@ internal sealed class JourneyService : IJourneyService
                 ErrorCodes.JourneyRangeOverlap,
                 "The dates partly overlap another journey's dates.",
                 new Dictionary<string, object> { ["name"] = other.Name });
+        }
+
+        return null;
+    }
+
+    // The place the journey dialog sent: a rule added or one of the journey's own rules
+    // replaced, or one of them ended. Null when the request leaves the rules alone. The
+    // rule is tracked, not saved; the caller saves it with the journey.
+    private async Task<OperationResult<JourneyLocationRule>?> SavePlaceAsync(
+        Guid deviceRowId,
+        Guid savedJourneyId,
+        JourneySaveRequestDto request,
+        LocationRuleWriter.RuleValues? placeValues,
+        CancellationToken cancellationToken)
+    {
+        if (request.EndPlaceRuleId is Guid endRuleId)
+        {
+            return await LocationRuleWriter.EndAsync(
+                _context,
+                deviceRowId,
+                endRuleId,
+                onlyInJourney: savedJourneyId,
+                cancellationToken);
+        }
+
+        if (request.Place is JourneyPlaceDto place && placeValues is not null)
+        {
+            return await LocationRuleWriter.SetAsync(
+                _context,
+                deviceRowId,
+                place.RuleId,
+                savedJourneyId,
+                onlyInJourney: savedJourneyId,
+                placeValues,
+                cancellationToken);
         }
 
         return null;

@@ -17,6 +17,16 @@ namespace CarPosAPI.Dtos;
 /// True to also move trips in the range that the user had placed by hand elsewhere — the
 /// explicit "every trip between these dates goes here". Ignored without a range.
 /// </param>
+/// <param name="Place">
+/// A place whose trips join this journey — a location rule added, or one of this
+/// journey's rules in force replaced — saved in the same transaction: if the place is
+/// refused, the journey is not saved either. Null (or absent) leaves the journey's
+/// location rules as they are.
+/// </param>
+/// <param name="EndPlaceRuleId">
+/// One of this journey's rules in force to end, in the same transaction: it stops placing
+/// new trips and keeps the ones it placed. Not together with <paramref name="Place"/>.
+/// </param>
 public sealed record JourneySaveRequestDto(
     [Required]
     [StringLength(TripRules.MaxNameLength, MinimumLength = 1)]
@@ -24,4 +34,6 @@ public sealed record JourneySaveRequestDto(
     Guid? ParentId,
     DateTime? RangeFrom,
     DateTime? RangeTo,
-    bool IncludePinned);
+    bool IncludePinned,
+    JourneyPlaceDto? Place = null,
+    Guid? EndPlaceRuleId = null);

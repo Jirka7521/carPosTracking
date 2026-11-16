@@ -241,11 +241,12 @@ FE/
 │   │   ├── JourneySidebar.tsx     Trips tab's left column: All / Not in a journey / the journey tree + search
 │   │   ├── JourneyTreeItem.tsx    One journey in that tree; children drawn only while it is open
 │   │   ├── JourneyOverview.tsx    An open journey's header: path, date rule, place rules, totals, sub-journeys
-│   │   ├── LocationRuleDialog.tsx Create / edit a place rule: map, radius, starts/ends, journey, valid from, live preview
+│   │   ├── LocationRuleDialog.tsx Create / edit a place rule: LocationPlaceFields plus the journey picker
+│   │   ├── LocationPlaceFields.tsx  A rule's place: name, map, radius, starts/ends, valid from, live preview (state in hooks/usePlaceDraft.ts)
 │   │   ├── LocationRuleEndDialog.tsx  Confirms ending a rule — its trips stay, the rule stays as history
 │   │   ├── LocationRuleList.tsx   Place rules as rows: radius, which ends, period, status, trip count
 │   │   ├── LocationRulesView.tsx  The ?view=rules pane: every rule of the car, active first, then the history
-│   │   ├── JourneyDialog.tsx      Create / edit a journey, with the live date-range preview
+│   │   ├── JourneyDialog.tsx      Create / edit a journey: live date-range preview, and one place saved with the journey
 │   │   ├── JourneyDeleteDialog.tsx  Confirms a delete and says where the contents go
 │   │   ├── JourneyMoveDialog.tsx  "Move N trips to…" around a JourneyPicker
 │   │   ├── JourneyPicker.tsx      Search box over the journey list — for thousands of journeys

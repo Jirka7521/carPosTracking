@@ -906,6 +906,26 @@ export interface JourneySaveRequestDto {
   rangeTo: string | null
   // Also move trips in the range that were placed by hand elsewhere.
   includePinned: boolean
+  // A place whose trips join this journey, saved in the same transaction (a
+  // refused place keeps the journey from being saved too). Absent or null
+  // leaves the journey's place rules as they are.
+  place?: JourneyPlaceDto | null
+  // One of this journey's rules in force to end instead; not with `place`.
+  endPlaceRuleId?: string | null
+}
+
+// The place a journey's dialog sets: a location rule for this journey.
+export interface JourneyPlaceDto {
+  // The journey's own rule in force this replaces; null adds a new rule.
+  ruleId: string | null
+  name: string | null
+  latitude: number
+  longitude: number
+  radiusMeters: number
+  matchStart: boolean
+  matchEnd: boolean
+  // Local midnight of the first day, as UTC ISO.
+  validFrom: string
 }
 
 // GET /api/devices/{deviceId}/journeys/{journeyId}/summary — totals including

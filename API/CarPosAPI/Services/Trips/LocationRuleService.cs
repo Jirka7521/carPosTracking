@@ -265,27 +265,21 @@ internal sealed class LocationRuleService : ILocationRuleService
                 await using IDbContextTransaction transaction = await _context.Database.BeginTransactionAsync(attemptToken);
                 await TripOrganisationLock.AcquireAsync(_context, deviceRowId, attemptToken);
 
-                JourneyLocationRule? rule = await _context.JourneyLocationRules.SingleOrDefaultAsync(
-                    candidate => candidate.Id == ruleId && candidate.DeviceId == deviceRowId,
+                OperationResult<JourneyLocationRule> rule = await LocationRuleWriter.EndAsync(
+                    _context,
+                    deviceRowId,
+                    ruleId,
+                    onlyInJourney: null,
                     attemptToken);
-                if (rule is null)
+                if (!rule.IsSuccess)
                 {
-                    return NoSuchRule();
+                    return LocationRuleWriter.Relay<LocationRuleDto>(rule);
                 }
 
-                if (rule.EndedAt is not null)
-                {
-                    return AlreadyEnded();
-                }
-
-                DateTime now = DateTime.UtcNow;
-                rule.EndedAt = now;
-                rule.EndReason = LocationRuleEndReasons.User;
-                rule.UpdatedAt = now;
                 await _context.SaveChangesAsync(attemptToken);
                 await transaction.CommitAsync(attemptToken);
 
-                return OperationResult<LocationRuleDto>.Success(ToDto(rule, 0));
+                return OperationResult<LocationRuleDto>.Success(ToDto(rule.Value!, 0));
             },
             cancellationToken);
 
@@ -318,15 +312,22 @@ internal sealed class LocationRuleService : ILocationRuleService
             return Forbidden<LocationRuleDto>();
         }
 
-        if (!request.MatchStart && !request.MatchEnd)
-        {
-            return InvalidMatch<LocationRuleDto>();
-        }
-
         // [Required] on both, so the binder has already refused a missing value.
         Guid journeyId = request.JourneyId!.Value;
-        DateTime validFrom = AsUtc(request.ValidFrom!.Value);
-        string? name = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
+        LocationRuleWriter.RuleValues values = new LocationRuleWriter.RuleValues(
+            request.Name,
+            request.Latitude,
+            request.Longitude,
+            request.RadiusMeters,
+            request.MatchStart,
+            request.MatchEnd,
+            request.ValidFrom!.Value);
+
+        OperationResult<JourneyLocationRule>? invalid = LocationRuleWriter.Check(values);
+        if (invalid is not null)
+        {
+            return LocationRuleWriter.Relay<LocationRuleDto>(invalid);
+        }
 
         Guid deviceRowId = access.DeviceRowId;
         IExecutionStrategy strategy = _context.Database.CreateExecutionStrategy();
@@ -346,48 +347,23 @@ internal sealed class LocationRuleService : ILocationRuleService
                     return OperationResult<LocationRuleDto>.NotFound(ErrorCodes.NoSuchJourney, "No such journey.");
                 }
 
-                JourneyLocationRule? rule;
-                if (ruleId is Guid existingId)
+                OperationResult<JourneyLocationRule> rule = await LocationRuleWriter.SetAsync(
+                    _context,
+                    deviceRowId,
+                    ruleId,
+                    journeyId,
+                    onlyInJourney: null,
+                    values,
+                    attemptToken);
+                if (!rule.IsSuccess)
                 {
-                    rule = await _context.JourneyLocationRules.SingleOrDefaultAsync(
-                        candidate => candidate.Id == existingId && candidate.DeviceId == deviceRowId,
-                        attemptToken);
-                    if (rule is null)
-                    {
-                        return NoSuchRule();
-                    }
-
-                    if (rule.EndedAt is not null)
-                    {
-                        return AlreadyEnded();
-                    }
+                    return LocationRuleWriter.Relay<LocationRuleDto>(rule);
                 }
-                else
-                {
-                    OperationResult<LocationRuleDto>? full = await CheckCapsAsync(deviceRowId, attemptToken);
-                    if (full is not null)
-                    {
-                        return full;
-                    }
-
-                    rule = new JourneyLocationRule { DeviceId = deviceRowId, CreatedAt = DateTime.UtcNow };
-                    _context.JourneyLocationRules.Add(rule);
-                }
-
-                rule.JourneyId = journeyId;
-                rule.Name = name;
-                rule.Latitude = request.Latitude;
-                rule.Longitude = request.Longitude;
-                rule.RadiusMeters = request.RadiusMeters;
-                rule.MatchStart = request.MatchStart;
-                rule.MatchEnd = request.MatchEnd;
-                rule.ValidFrom = validFrom;
-                rule.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync(attemptToken);
                 await transaction.CommitAsync(attemptToken);
 
-                return OperationResult<LocationRuleDto>.Success(ToDto(rule, 0));
+                return OperationResult<LocationRuleDto>.Success(ToDto(rule.Value!, 0));
             },
             cancellationToken);
 
@@ -404,24 +380,6 @@ internal sealed class LocationRuleService : ILocationRuleService
             access.DeviceId);
 
         return await WithTripCountAsync(deviceRowId, saved.Value, cancellationToken);
-    }
-
-    // The per-device caps, checked under the lock: rules in force (they cost every trip
-    // read) and rules in all (the history must not grow without bound).
-    private async Task<OperationResult<LocationRuleDto>?> CheckCapsAsync(Guid deviceRowId, CancellationToken cancellationToken)
-    {
-        int total = await _context.JourneyLocationRules.CountAsync(rule => rule.DeviceId == deviceRowId, cancellationToken);
-        if (total >= TripRules.MaxLocationRulesPerDevice)
-        {
-            return TooMany(TripRules.MaxLocationRulesPerDevice);
-        }
-
-        int active = await _context.JourneyLocationRules.CountAsync(
-            rule => rule.DeviceId == deviceRowId && rule.EndedAt == null,
-            cancellationToken);
-        return active >= TripRules.MaxActiveLocationRulesPerDevice
-            ? TooMany(TripRules.MaxActiveLocationRulesPerDevice)
-            : null;
     }
 
     // Trips each rule places right now, counted by the database from the view. Null for
@@ -466,20 +424,6 @@ internal sealed class LocationRuleService : ILocationRuleService
             rule.CreatedAt,
             rule.UpdatedAt,
             tripCount);
-
-    private static OperationResult<LocationRuleDto> NoSuchRule() =>
-        OperationResult<LocationRuleDto>.NotFound(ErrorCodes.NoSuchLocationRule, "No such location rule.");
-
-    private static OperationResult<LocationRuleDto> AlreadyEnded() =>
-        OperationResult<LocationRuleDto>.Conflict(
-            ErrorCodes.LocationRuleEnded,
-            "This location rule has ended and is kept as history; create a new one instead.");
-
-    private static OperationResult<LocationRuleDto> TooMany(int max) =>
-        OperationResult<LocationRuleDto>.Conflict(
-            ErrorCodes.TooManyLocationRules,
-            "This device already has as many location rules as allowed.",
-            new Dictionary<string, object> { ["max"] = max });
 
     private static OperationResult<T> InvalidMatch<T>() =>
         OperationResult<T>.Invalid(

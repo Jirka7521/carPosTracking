@@ -644,7 +644,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `GET /api/devices/{deviceId}/trips/summary?from=&to=&journeyId=` | what a date range holds — trip count, how many were placed by hand elsewhere, total distance and duration — for the journey dialog's preview |
 | `GET /api/devices/{deviceId}/journeys` | every journey, flat (`parentId`), with direct and rolled-up trip counts, plus `allTripCount` and `unassignedTripCount` |
 | `GET /api/devices/{deviceId}/journeys/{journeyId}/summary` | a journey's totals including sub-journeys, computed from the positions on request |
-| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/journeys[/{journeyId}]` | journey CRUD; needs `CanModifySettings`. Body `{ name, parentId, rangeFrom, rangeTo, includePinned }`. Names are unique among siblings (**409** `duplicateJourneyName`), nesting is at most 5 deep (`journeyTooDeep`), ranges must be disjoint or nested (**409** `journeyRangeOverlap`), at most 10 000 per device. A range is a **live rule** — trips starting in it are in the journey unless placed by hand; `includePinned` also hands the ones placed by hand elsewhere back to it. DELETE moves sub-journeys, trips and place rules up one level; at the top level its rules end (`journeyDeleted`) (204) |
+| `POST`/`PUT`/`DELETE` `/api/devices/{deviceId}/journeys[/{journeyId}]` | journey CRUD; needs `CanModifySettings`. Body `{ name, parentId, rangeFrom, rangeTo, includePinned, place?, endPlaceRuleId? }`. `place` `{ ruleId, name, latitude, longitude, radiusMeters, matchStart, matchEnd, validFrom }` adds a place rule for this journey (`ruleId: null`) or replaces one of its own rules in force; `endPlaceRuleId` ends one of them instead. Either is saved in the **same transaction** as the journey, so a refused place (`tooManyLocationRules`, `locationRuleInvalid`, **404** `noSuchLocationRule`, **409** `locationRuleEnded`) saves nothing; both absent leaves the rules alone. Names are unique among siblings (**409** `duplicateJourneyName`), nesting is at most 5 deep (`journeyTooDeep`), ranges must be disjoint or nested (**409** `journeyRangeOverlap`), at most 10 000 per device. A range is a **live rule** — trips starting in it are in the journey unless placed by hand; `includePinned` also hands the ones placed by hand elsewhere back to it. DELETE moves sub-journeys, trips and place rules up one level; at the top level its rules end (`journeyDeleted`) (204) |
 | `GET /api/devices/{deviceId}/location-rules` | every place rule of the device, active first, then ended (history), each with `tripCount` — the trips it places now |
 | `GET /api/devices/{deviceId}/location-rules/preview?latitude=&longitude=&radiusMeters=&matchStart=&matchEnd=&validFrom=&excludeRuleId=` | what a rule would catch, computed in SQL: `tripCount`, `startCount`, `endCount`, `pinnedCount` (placed by hand, so not moved), `otherRuleCount` (placed by another rule now; precedence decides which keeps them), plus up to 500 start/end `points` to draw (`pointsTruncated` past that). `excludeRuleId` leaves out the rule being edited |
 | `POST /api/devices/{deviceId}/location-rules`, `PUT …/{ruleId}` | create or edit a place rule; needs `CanModifySettings`. Body `{ journeyId, name, latitude, longitude, radiusMeters, matchStart, matchEnd, validFrom }`. Radius 50–10 000 m; at least one of `matchStart` / `matchEnd` (**400** `locationRuleInvalid`). At most 100 active and 1 000 in all per device (**409** `tooManyLocationRules`, `max`). An unknown journey is **404** `noSuchJourney`. Only an active rule can be edited (**409** `locationRuleEnded`). Changes apply live, to past trips too |
@@ -1677,6 +1677,12 @@ fixes) and `trip_near` (which are inside):
   applies at once, to past trips too.
 - **Several rules:** a match on the trip's end beats a match on its start, then
   the smaller radius wins, then the newer rule.
+
+A journey's dialog can also set one place with the journey: the journey's
+`place` / `endPlaceRuleId` fields add a rule, replace or end one of the journey's
+own rules in force, in the journey's own transaction. Both paths write through
+`LocationRuleWriter`, so they check the same values and caps and refuse with the
+same codes.
 
 Ending a rule (`POST …/end`) keeps the trips it placed, because they started
 before `ended_at`. The rule stays, read-only, as history. There is no delete.

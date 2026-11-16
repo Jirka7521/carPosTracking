@@ -70,6 +70,7 @@
   },
   "dialog": {
     "autoInclude": "Automatically include trips between these days",
+    "autoIncludePlace": "Automatically include trips by place",
     "changeParent": "Change",
     "create": "Create journey",
     "createTitle": "New journey",
@@ -80,6 +81,10 @@
     "name": "Name",
     "namePlaceholder": "e.g. Croatia 2026",
     "parent": "Inside",
+    "placeEnds": "The place rule “{{name}}” ends when you save. Trips it has placed stay in this journey; new ones are no longer placed by it.",
+    "placeHint": "Trips that start or end in the circle join this journey on their own — earlier ones from the chosen day too, and ones whose data arrives later. A place wins over the journey's days; a trip you moved by hand stays where it is.",
+    "placeMany_one": "This journey has {{value}} place rule; manage it in the journey's overview.",
+    "placeMany_other": "This journey has {{value}} place rules; manage them in the journey's overview.",
     "preview_one": "{{value}} trip starts on these days",
     "preview_other": "{{value}} trips start on these days",
     "previewFailed": "Could not count the trips on these days.",

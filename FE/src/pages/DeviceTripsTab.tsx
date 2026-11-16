@@ -92,6 +92,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 const NO_SELECTION: ReadonlySet<number> = new Set<number>()
 const NO_TRIPS: readonly TripSummaryDto[] = []
+const NO_RULES: readonly LocationRuleDto[] = []
 
 // The loaded list, tagged with the device and view it belongs to, so a list
 // still on screen from the previous view is never mistaken for this one's.
@@ -736,6 +737,7 @@ export function DeviceTripsTab() {
           deviceId={device.deviceId}
           tree={tree}
           mode={dialog.mode}
+          rules={rules ?? NO_RULES}
           onSaved={(saved) => handleJourneySaved(saved, dialog.mode.kind === 'create')}
           onCancel={() => setDialog(null)}
         />
