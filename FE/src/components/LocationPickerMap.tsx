@@ -47,11 +47,13 @@ export type LocationPickerMapProps = {
 
 // Prague, the app's default when nothing better is known (as in DeviceMap).
 const DEFAULT_VIEW: PickedPoint = { latitude: 50.0755, longitude: 14.4378 }
-const DEFAULT_ZOOM = 12
+const DEFAULT_ZOOM: number = 12
 
-const CIRCLE_COLOR = '#0065BD'
-const START_DOT_COLOR = '#1E8E3E'
-const END_DOT_COLOR = '#0065BD'
+// Purple, so the blue end dots stay visible inside the circle. The legend in
+// App.css (.legend-ring, .legend-dot--start/--end) uses the same colours.
+const CIRCLE_COLOR: string = '#8E24AA'
+const START_DOT_COLOR: string = '#1E8E3E'
+const END_DOT_COLOR: string = '#0065BD'
 
 // Six decimals is about 10 cm — finer than any GNSS fix, coarser than float noise.
 const COORDINATE_DECIMALS = 6

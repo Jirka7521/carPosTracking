@@ -1127,6 +1127,26 @@
   flex-shrink: 0;
 }
 
+/* The place-rule picker's dots: where caught trips started and ended. The
+   colours match START_DOT_COLOR / END_DOT_COLOR in LocationPickerMap. */
+.legend-dot--start {
+  background: #1E8E3E; /* Green — a trip starts here */
+}
+
+.legend-dot--end {
+  background: #0065BD; /* Blue — a trip ends here */
+}
+
+/* The rule's circle, matching CIRCLE_COLOR in LocationPickerMap. */
+.legend-ring {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #8E24AA;
+  border-radius: 50%;
+  background: rgba(142, 36, 170, 0.12);
+  flex-shrink: 0;
+}
+
 /* ================================================================
  * 6. POSITION LIST TAB
  *    A paginated table of GPS positions, newest first.
@@ -3312,6 +3332,11 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
 
+/* For a dialog with a map in it, which is cramped at 520px. */
+.modal-panel--wide {
+  max-width: 760px;
+}
+
 .modal-title {
   margin: 0 0 10px;
   color: var(--text-h);
@@ -4686,6 +4711,183 @@
   .journey-dialog-dates {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---- Place rules ---- */
+
+/* The picker map in the rule dialog is shorter than the Map tab's, so the
+   form around it stays in view. Two classes beat the .map-frame /
+   .map-canvas floors, including the phone-width ones. */
+.map-frame.location-picker-frame {
+  min-height: 0;
+  box-shadow: none;
+}
+
+.map-canvas.location-picker-map {
+  height: 320px;
+}
+
+.location-picker-frame .map-placeholder {
+  min-height: 200px;
+}
+
+@media (max-width: 768px) {
+  .map-canvas.location-picker-map {
+    height: 260px;
+  }
+}
+
+.location-rule-legend {
+  margin-top: -6px;
+}
+
+.location-rule-coords {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.location-rule-match {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.location-rule-date {
+  max-width: 220px;
+}
+
+@media (max-width: 480px) {
+  .location-rule-coords {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .location-rule-date {
+    max-width: none;
+  }
+}
+
+.location-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.location-rule-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.location-rule-item--ended {
+  background: var(--gray-50);
+}
+
+.location-rule-item--ended .location-rule-title {
+  color: var(--text-muted);
+}
+
+.location-rule-main {
+  min-width: 0;
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.location-rule-title {
+  font-weight: 600;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.location-rule-meta,
+.location-rule-journey {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.location-rule-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.location-rule-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.location-rule-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* The rules in an open journey's header, under its date line. */
+.journey-overview-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.journey-overview-rules-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.journey-overview-rules-history summary {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.journey-overview-rules-history[open] summary {
+  margin-bottom: 8px;
+}
+
+/* The ?view=rules pane: every place rule of the car, active ones first. */
+.location-rules-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.location-rules-head .trips-view-title {
+  margin-bottom: 0;
+}
+
+.location-rules-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 18px 0 8px;
+}
+
+.location-rules-history-title {
+  font-size: 1rem;
 }
 
 /* ---- Trip page ---- */
