@@ -197,7 +197,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-11-16` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-11-16.2` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 

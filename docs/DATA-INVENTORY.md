@@ -1,6 +1,6 @@
 # Data inventory — every place personal data lives
 
-**carPosTracking**, version `2026-11-16`. Companion to the policy served at `/privacy` and
+**carPosTracking**, version `2026-11-16.2`. Companion to the policy served at `/privacy` and
 [RECORD-OF-PROCESSING.md](RECORD-OF-PROCESSING.md). This is the engineering-level list:
 every column, file and log line that holds personal data, and what happens to it when a user
 exercises their rights.
@@ -232,7 +232,7 @@ password, MQTT device credentials, the device's ack private key, the backend's p
 | Tracker → broker | **ciphertext only**; the topic name (`devices/<id>`, and `devices/<id>/status` for the status messages — connection, wake, motion — and the Last Will) and the client IP are visible — so the broker can see *that* a tracker reported or sent a status, never what it said |
 | Broker → API | same ciphertext; the API connects as the `dashboard` broker account |
 | API → browser | plaintext JSON over TLS — but Cloudflare terminates that TLS and therefore sees it |
-| Browser → Google | on map load only, after consent: IP, user-agent, referrer, and the viewport (hence the vehicle's area) |
+| Browser → Google | after consent only. On map load: IP, user-agent, referrer, and the viewport (hence the vehicle's area). In the signed-in dashboard also the text typed into the place search (Places API) and — with **standing** consent only — each visible device's exact last position, reverse-geocoded (Geocoding API) to the address on its card and page header. The address is kept in page memory only, never stored |
 
 The broker keeps **retained** `devices/<id>/config` and `/schedule` messages, so its
 `mosquitto_data` volume persistently holds each device's tracking policy. Account deletion

@@ -7,6 +7,12 @@
 // fixes — roughly where the tracked vehicle is. That is a transfer of personal
 // data to a third country, so nothing reaches Google until somebody chooses.
 //
+// In the signed-in dashboard the same answer also covers two lookups that send
+// Google more than a viewport: the place search in the place-rule map (the text
+// typed into it — components/PlaceSearchBox.tsx) and, on a STANDING answer
+// only, the address of each device's exact last position
+// (hooks/useDeviceAddress.ts). The prompt says so to signed-in users.
+//
 // "Always" is remembered in one of two places, depending on who is looking:
 //
 //   * A signed-in user — on the ACCOUNT (PUT /api/me/maps-consent, read through
@@ -35,7 +41,7 @@
 
 import { BASE_PATH } from '../services/runtimeConfig'
 
-export const MAPS_CONSENT_VERSION = '2026-10-09'
+export const MAPS_CONSENT_VERSION = '2026-11-16'
 
 // Google's own terms for people who use a map embedded through the Maps
 // Platform. The Platform terms require that end users are bound by the first and

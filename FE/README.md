@@ -454,6 +454,20 @@ depends on who is looking — the caller decides and hands the map the answer
   `<base>/share` so it never rides along on `/api` calls. Revocable on the share
   page itself, since a visitor has no profile.
 
+For signed-in users the same answer covers two lookups that send Google more than
+a viewport, and the prompt adds a paragraph saying so (share visitors see neither):
+
+- **Place search** in the place-rule map
+  ([`PlaceSearchBox`](src/components/PlaceSearchBox.tsx), Places Autocomplete (New)):
+  the text typed into it. It appears once the map has loaded, whether "once" or
+  "always".
+- **Device address** on the Home cards and the device header
+  ([`hooks/useDeviceAddress.ts`](src/hooks/useDeviceAddress.ts), the Maps JS
+  `Geocoder`): each visible device's exact last position, reverse-geocoded. Only
+  on a **standing** ("always") answer, since there is no map on those pages to say
+  "once" to. The address is kept in page memory and never stored — Google's terms
+  do not allow caching it.
+
 Both store the prompt's version (`MAPS_CONSENT_VERSION`); bump it when the
 prompt's wording changes materially and everyone is asked again. The old
 per-browser `carpos.mapsConsent` localStorage key is deleted at start-up and not

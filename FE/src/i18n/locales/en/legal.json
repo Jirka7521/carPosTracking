@@ -45,7 +45,7 @@
         "title": "Ending it"
       },
       "thirdParty": {
-        "p1": "The dashboard draws maps with the Google Maps JavaScript API, which is loaded only after you agree to it. Once it loads, your use of the map is also subject to the <terms>Google Maps Additional Terms of Service</terms> and the <privacy>Google Privacy Policy</privacy>. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
+        "p1": "The dashboard draws maps, finds places by address and shows the address of each device's last position with the Google Maps JavaScript API, which is loaded only after you agree to it. Once it loads, your use of these features is also subject to the <terms>Google Maps Additional Terms of Service</terms> and the <privacy>Google Privacy Policy</privacy>. Traffic reaches the self-hosted server through Cloudflare. Both are described in the privacy policy.",
         "p2": "The rest is open-source software used under its own licences.",
         "title": "Third-party components"
       },
@@ -102,7 +102,7 @@
       "legalBasis": {
         "p1": "Everything this system does for you rests on performing the contract you entered into by accepting the terms of use and creating an account (Art. 6(1)(b)): running your account, signing you in, storing and displaying the position history of a tracker you operate, and sharing a device with the people you choose.",
         "p2": "Security measures, meaning password hashing, CSRF protection and rate-limiting sign-ins, exports and erasures, rest on the legitimate interest of keeping other people out of your data (Art. 6(1)(f)).",
-        "p3": "The one thing that runs on consent (Art. 6(1)(a)) is loading the Google map, which is why the dashboard asks for it separately. If you choose to always load it, that answer is saved to your account and applies on every device you sign in on; a visitor using a share link has it remembered in a cookie on their own browser instead. You can withdraw it at any time, in your profile or on the share page, and it costs you only the map.",
+        "p3": "The one thing that runs on consent (Art. 6(1)(a)) is loading the Google map, together with the place search and the device address that come with it, which is why the dashboard asks for it separately. If you choose to always load it, that answer is saved to your account and applies on every device you sign in on; a visitor using a share link has it remembered in a cookie on their own browser instead. You can withdraw it at any time, in your profile or on the share page, and it costs you only the map and those two features.",
         "title": "Why, and on what legal basis"
       },
       "locationData": {
@@ -124,7 +124,7 @@
       },
       "recipients": {
         "p1": "People you share a device with see that device’s positions, telemetry, trips, journeys and place rules, plus your name and email address. Somebody you send a temporary share link to sees only what that link exposes, and nothing about you. You granted both, and you can revoke either at any time in the device’s settings.",
-        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. The dashboard shows a placeholder and asks first; declining costs you only the map, and the choice is revocable in your profile, or on the share page if you are viewing a share link. Once loaded, the map is provided under the <terms>Google Maps Additional Terms of Service</terms>, and Google handles what it receives under the <privacy>Google Privacy Policy</privacy>. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
+        "p2": "Google LLC receives your IP address, browser details, referrer and, through the map viewport, the area the tracked vehicle is in, but only once you agree to load the map. If you are signed in, it also receives the text you type into the place search and, if you chose to always load the map, the exact last position of each device you can see, so that it can return that position's address. The address is only shown to you and is never stored. The dashboard shows a placeholder and asks first; declining costs you only the map and these features, and the choice is revocable in your profile, or on the share page if you are viewing a share link. Once loaded, the map is provided under the <terms>Google Maps Additional Terms of Service</terms>, and Google handles what it receives under the <privacy>Google Privacy Policy</privacy>. Google is in the United States, and the transfer relies on its certification under the EU-US Data Privacy Framework.",
         "p3": "Cloudflare, Inc. terminates TLS for the tunnel that makes this self-hosted server reachable, and therefore sees all traffic in the clear, including sign-ins and position data. It is likewise in the United States and likewise certified under the EU-US Data Privacy Framework. There are no other recipients. Nothing is sold.",
         "title": "Who else sees the data"
       },
