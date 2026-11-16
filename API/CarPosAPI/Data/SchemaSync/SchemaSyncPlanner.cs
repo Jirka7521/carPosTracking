@@ -67,6 +67,17 @@ internal static class SchemaSyncPlanner
             List<string> covered = new List<string>();
             foreach (SchemaDifference difference in differences)
             {
+                // A source-owned object (a generated column made by migration SQL) is
+                // already what the source wants; it is reported as a note below, never
+                // as something a migration fixes. Matched textually it would land under
+                // any migration whose SQL merely contains the word — "location" in
+                // start_location, "center" in p_center — and make a migration that
+                // only replaces a view look like a repair of those columns.
+                if (difference.IsSourceOwned)
+                {
+                    continue;
+                }
+
                 string key = $"{difference.Table}.{difference.Column ?? "*"}";
                 if (coveredIdentifiers.Contains(key))
                 {
