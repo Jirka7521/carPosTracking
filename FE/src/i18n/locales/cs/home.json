@@ -21,8 +21,7 @@
     "deactivated": "Deaktivováno {{date}}",
     "lastFix": "Poslední poloha: {{when}}",
     "open": "Otevřít zařízení {{label}}",
-    "openCta": "Otevřít →",
-    "registered": "Zaregistrováno {{date}}"
+    "openCta": "Otevřít →"
   },
   "empty": {
     "addFirst": "+ Přidat první zařízení",

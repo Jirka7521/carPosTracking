@@ -35,7 +35,6 @@ type DeviceCardProps = {
 export function DeviceCard({ device, showAddress }: DeviceCardProps) {
   const { t } = useTranslation(['home', 'common'])
 
-  const registeredDate = formatDate(new Date(device.createdAt))
   const deactivatedDate = device.deactivatedAt
     ? formatDate(new Date(device.deactivatedAt))
     : null
@@ -86,12 +85,14 @@ export function DeviceCard({ device, showAddress }: DeviceCardProps) {
         </div>
       ) : null}
 
-      {/* Registration / deactivation date */}
-      <div className="device-card-meta">
-        {device.isActive
-          ? t('home:card.registered', { date: registeredDate })
-          : t('home:card.deactivated', { date: deactivatedDate ?? '' })}
-      </div>
+      {/* When a retired device was retired. An active one shows no date: when it
+          was registered says nothing about the car today, and the device's
+          Settings tab still has it. */}
+      {device.isActive ? null : (
+        <div className="device-card-meta">
+          {t('home:card.deactivated', { date: deactivatedDate ?? '' })}
+        </div>
+      )}
 
       {/* Liveness by fix. This only moves when a real fix arrives — "never
           reported" usually means the firmware has not been flashed with this

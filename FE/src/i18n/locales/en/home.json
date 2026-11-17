@@ -21,8 +21,7 @@
     "deactivated": "Deactivated {{date}}",
     "lastFix": "Last fix: {{when}}",
     "open": "Open device {{label}}",
-    "openCta": "Open →",
-    "registered": "Registered {{date}}"
+    "openCta": "Open →"
   },
   "empty": {
     "addFirst": "+ Add your first device",
