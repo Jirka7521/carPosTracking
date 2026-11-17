@@ -1,6 +1,6 @@
 # Record of Processing Activities (GDPR Art. 30)
 
-**carPosTracking** — a non-commercial personal test project. Version `2026-11-16`.
+**carPosTracking** — a non-commercial personal test project. Version `2026-11-16.2`.
 
 > Art. 30(5) exempts organisations under 250 people from keeping this record *unless* the
 > processing is "not occasional" or involves data on a large scale. Continuous vehicle
@@ -46,7 +46,7 @@
 | **Categories of data** | Latitude, longitude, speed, three-axis acceleration, altitude, GNSS fix time, receive time, battery percentage, device identifier — **precise geolocation and behavioural data**. Also the tracker's **device history** (`device_events`, `devices.last_online_at`): when it went offline and why (sleep, sleep because parked, switched off, low battery, fault, connection lost), notable restarts, every wake and its cause (timer, accelerometer, power switch), every motion-wake step (checking, moving, parked, stopped), and when it last connected — no location, but a detailed record of when the vehicle was driven and parked. Kept, exported and erased exactly like the positions. |
 | **Special categories (Art. 9)** | None intended. A location history can incidentally reveal e.g. visits to a place of worship or a clinic; the system does not seek or derive such inferences. |
 | **Legal basis** | Art. 6(1)(b) contract — storing and displaying a location history is the service the account holder accepted the terms of use to obtain. **Not** consent: consent bundled into a policy acknowledgement is not freely given or specific (Recital 43), and a basis that collapses under scrutiny would make the whole processing unlawful. |
-| **Recipients** | Users granted access to that device. Google LLC receives IP, browser data and — through the map viewport — the approximate area, **only after the viewer consents to loading the map.** Cloudflare as TLS terminator. |
+| **Recipients** | Users granted access to that device. Google LLC receives IP, browser data and — through the map viewport — the approximate area, **only after the viewer consents to loading the map.** With that consent a signed-in user's browser also sends Google the text typed into the place search and — with standing consent only — the exact last position of each device they can see, to show its address (shown, never stored). Cloudflare as TLS terminator. |
 | **Third-country transfers** | Google LLC and Cloudflare, Inc. (USA) — EU–US Data Privacy Framework |
 | **Retention** | **Indefinite.** No automatic deletion. Erased on user request: per device (`DELETE /api/devices/{id}/positions`, which takes the connection history over the same range with it) or by account deletion. Retention is bounded by purpose rather than by a timer: reviewing history is the purpose, so it is kept while the account holder wants it, and the erasure controls are immediate and unconditional. Stated in the policy at `/privacy`. |
 | **Security measures** | End-to-end encryption device→backend (RSA-3072-OAEP-SHA256 + AES-256-GCM per message); device private keys encrypted at rest under a master key; coordinates never logged; per-request re-authorisation against the caller's access grant; invisible devices answer 404 not 403 |
@@ -60,7 +60,7 @@
 | **Categories of data** | **Derived:** the start and end time of each detected trip (`trips.start_time`, `trips.end_time`). A background job works them out from the positions, using per-device thresholds (`device_trip_settings`: minimum stop, stop radius, shortest trip). **Nothing else derived is stored**: a trip's route, distance, duration and speeds are recomputed from the positions on every read. **User-entered:** trip names; journeys (name, nesting, an optional date range); which trips a user placed in a journey by hand; place rules (`journey_location_rules`: a point the user chose, often home or work, a radius, a name, the target journey, and the period the rule applied). The place rules are the only coordinates this activity stores. |
 | **Legal basis** | Art. 6(1)(b) contract — organising and summarising the location history the account holder keeps is part of the same service as activity B |
 | **Recipients** | Users granted access to that device, who see its trips, journeys and place rules (organising them needs the settings permission). Not shown through temporary share links. |
-| **Third-country transfers** | As activity B, for the route map only (Google, after consent); Cloudflare as TLS terminator |
+| **Third-country transfers** | As activity B, for the route map and the place search in the place-rule map only (Google, after consent); Cloudflare as TLS terminator |
 | **Retention** | Follows the positions it is derived from, with no automatic deletion. Erasing positions erases the trips that started in the erased range. Deleting the device with the account deletes its trips, journeys, place rules and thresholds. Journeys survive a position erase, empty, until a user deletes them. Place rules also survive a position erase. A user can end a rule but not delete it: an ended rule stays as history until the device or the account is deleted. |
 | **Safeguards** | Data minimisation by design: only trip start and end times are kept, so erasing positions leaves no stored trace of the routes. The job and the API log counts and ids only, never coordinates. Trips, journeys and place rules are in the Art. 15/20 export. |
 
@@ -115,7 +115,7 @@
 | Processor | Role | Safeguard |
 |---|---|---|
 | Cloudflare, Inc. | Tunnel and TLS termination — sees all traffic in the clear | EU–US Data Privacy Framework; Cloudflare's standard DPA |
-| Google LLC | Google Maps JavaScript API, loaded in the viewer's browser only after consent | EU–US Data Privacy Framework |
+| Google LLC | Google Maps JavaScript API — maps, place search (Places API) and device address (Geocoding API) — loaded in the viewer's browser only after consent | EU–US Data Privacy Framework |
 
 No other processors. The database, the API and the MQTT broker are self-hosted on hardware in
 the controller's possession.

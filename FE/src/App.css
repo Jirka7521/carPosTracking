@@ -558,6 +558,21 @@
   line-height: 1.5;
 }
 
+/* "📍 D1 · Průhonice" under a device (DeviceAddress): one line, cut with an
+   ellipsis rather than wrapped, so a long address cannot grow the card. The
+   full address is in the tooltip. */
+.device-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-page-address {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
 /* Right-side cluster in the card header: battery + status pills together.
  * Wraps because the device page reuses this beside a long monospace device id,
  * where three --lg pills and the title cannot share one line on a phone. The
@@ -4739,6 +4754,97 @@
 
 .location-rule-legend {
   margin-top: -6px;
+}
+
+/* Place search above the picker map (PlaceSearchBox). The suggestions open over
+   the map, which is why the search sits outside .map-frame: the frame clips. */
+.place-search-control {
+  position: relative;
+}
+
+.place-search-control .form-input {
+  width: 100%;
+  padding-right: 36px;
+}
+
+.place-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  padding: 4px 7px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.place-search-clear:hover {
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
+.place-search-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.place-search-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.place-search-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.place-search-option[aria-selected='true'] {
+  background: var(--accent-bg);
+}
+
+.place-search-main {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.place-search-secondary {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-search-status {
+  margin: 0;
+  padding: 7px 10px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.place-search-attribution {
+  margin: 4px 0 0;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: right;
 }
 
 .location-rule-coords {

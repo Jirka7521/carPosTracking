@@ -223,6 +223,7 @@ FE/
 │   │   ├── DeviceMap.tsx          Google Maps component: the track as a line, one pin on the latest position
 │   │   ├── MapsConsentPrompt.tsx  "Load the map once / always" — the consent gate DeviceMap and the picker share
 │   │   ├── LocationPickerMap.tsx  Click a point, drag/resize a circle; draws the trip starts and ends a rule would catch
+│   │   ├── PlaceSearchBox.tsx     "Find a place" above that map — Google Places Autocomplete, 1.2 s after typing or on Enter
 │   │   ├── TelemetryChart.tsx     Recharts line chart — one Y axis per unit; optional dashed marker lines
 │   │   ├── SeriesPicker.tsx       The chart's series checkboxes, which double as its legend (Charts tab, trip page)
 │   │   ├── ProvisioningPanel.tsx  Complete Config.h for a device: secrets typed in here, ack key generated here
@@ -236,6 +237,7 @@ FE/
 │   │   ├── ScheduleModeSwitch.tsx One set of settings, or a schedule — radio cards, saved by the panel
 │   │   ├── RefreshToolbar.tsx     Auto-refresh toggle, countdown pill and the manual Refresh button
 │   │   ├── DeviceCard.tsx         One card in the device grid on the Home page
+│   │   ├── DeviceAddress.tsx      "📍 D1 · Průhonice" under a device — its last fix in words (hooks/useDeviceAddress.ts)
 │   │   ├── SharedUserCard.tsx     One row in the "People with access" list
 │   │   ├── CapabilityCheckboxes.tsx  Permission flag checkboxes (Delete / Share / Settings)
 │   │   ├── JourneySidebar.tsx     Trips tab's left column: All / Not in a journey / the journey tree + search
@@ -285,7 +287,8 @@ FE/
 │       ├── deviceEvents.ts        Online / offline / overdue resolution + the event label tables
 │       ├── overdue.ts             When the map's latest-position pin turns red
 │       ├── telemetry.ts           Plottable series table + PositionDto → chart rows
-│       ├── googleMapsLoader.ts    Loads the Maps JS API once, for every map on the page
+│       ├── googleMapsLoader.ts    Loads the Maps JS API once, for every map on the page; Places / Geocoding libraries on first use
+│       ├── addressLabel.ts        Reverse-geocoding answer → "Chlumecká 765/6, Praha 9" or "D1 · Průhonice"
 │       ├── trips.ts               Trip list by day, refresh merging, whole-day journey ranges, place-rule limits
 │       ├── journeyTree.ts         Flat journey list → tree; paths, search, the 5-level placement rule
 │       ├── tripTelemetry.ts       A trip's fixes → altitude range, climb, battery at both ends, gaps
@@ -453,6 +456,20 @@ depends on who is looking — the caller decides and hands the map the answer
   ([`utils/mapsConsent.ts`](src/utils/mapsConsent.ts)): 180 days, scoped to
   `<base>/share` so it never rides along on `/api` calls. Revocable on the share
   page itself, since a visitor has no profile.
+
+For signed-in users the same answer covers two lookups that send Google more than
+a viewport, and the prompt adds a paragraph saying so (share visitors see neither):
+
+- **Place search** in the place-rule map
+  ([`PlaceSearchBox`](src/components/PlaceSearchBox.tsx), Places Autocomplete (New)):
+  the text typed into it. It appears once the map has loaded, whether "once" or
+  "always".
+- **Device address** on the Home cards and the device header
+  ([`hooks/useDeviceAddress.ts`](src/hooks/useDeviceAddress.ts), the Maps JS
+  `Geocoder`): each visible device's exact last position, reverse-geocoded. Only
+  on a **standing** ("always") answer, since there is no map on those pages to say
+  "once" to. The address is kept in page memory and never stored — Google's terms
+  do not allow caching it.
 
 Both store the prompt's version (`MAPS_CONSENT_VERSION`); bump it when the
 prompt's wording changes materially and everyone is asked again. The old
@@ -764,6 +781,8 @@ See [`Container/App/.env.example`](../Container/App/.env.example) for the variab
 - caches `/assets/*` for a year (Vite fingerprints the filenames) and never caches `index.html` or `config.js`.
 
 The one deliberate CSP relaxation is `style-src 'unsafe-inline'`, which the Google Maps library requires for its own controls. `script-src` has no such exception.
+
+Google is allowed exactly where it is used: `maps.googleapis.com` (the Maps script, tiles, and the Geocoder behind the device address) and `places.googleapis.com` (the place search) in `connect-src`, plus Google's image hosts. All of it is reached only after the viewer's maps consent.
 
 ---
 

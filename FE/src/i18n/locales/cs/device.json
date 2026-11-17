@@ -1,4 +1,7 @@
 {
+  "address": {
+    "tooltip": "Přibližná adresa poslední polohy podle Googlu: {{address}}"
+  },
   "backToDevices": "← Zpět na zařízení",
   "breadcrumb": "Drobečková navigace",
   "charts": {
@@ -165,6 +168,7 @@
   "mapsConsent": {
     "always": "Načítat mapy vždy",
     "body": "Načtením se vyžádají mapové dlaždice od Googlu, čímž se společnosti Google LLC prozradí vaše IP adresa, údaje o prohlížeči a ze zobrazené oblasti i přibližná poloha tohoto vozidla. Dokud se nerozhodnete, neodešle se nic.",
+    "bodyAccount": "V aplikaci Google dostane také text, který zadáte do hledání místa, a pokud zvolíte „vždy“, i přesnou poslední polohu každého zařízení, které vidíte, aby mohl ukázat jeho adresu.",
     "googleTerms": "Načtením mapy souhlasíte s <terms>Dodatečnými smluvními podmínkami Map Google</terms> a berete na vědomí <privacy>Zásady ochrany soukromí Google</privacy>.",
     "hintAccount": "Volba „vždy“ se uloží k vašemu účtu, takže se vás už nezeptáme na žádném zařízení, kde se přihlásíte. Odvolat ji můžete v Profilu, v sekci Soukromí.",
     "hintBrowser": "Volba „vždy“ se uloží do cookie v tomto prohlížeči na šest měsíců. Odvolat ji můžete kdykoli na této stránce.",

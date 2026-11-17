@@ -31,7 +31,9 @@ function translateCode(code: string, params: Record<string, unknown>): string | 
   if (!i18n.exists(key, params)) {
     return null
   }
-  return (i18n.t as (key: string, options?: Record<string, unknown>) => string)(key, params)
+  // Through unknown: since i18next 27 the typed t() and this plain signature no
+  // longer overlap enough for a direct cast, though the call is the same at runtime.
+  return (i18n.t as unknown as (key: string, options?: Record<string, unknown>) => string)(key, params)
 }
 
 // The API's translated message when it sent a known code; otherwise any Error's

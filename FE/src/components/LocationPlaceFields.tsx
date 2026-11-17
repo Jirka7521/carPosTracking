@@ -12,7 +12,8 @@
 // itself uses, and the map shows the matched starts and ends as dots, so the
 // radius can be tuned by eye. The map is optional: without a Maps key or the
 // reader's consent the coordinates are typed in. The inputs and the map edit
-// the same values.
+// the same values. With the map comes a place search; a place picked there
+// also names the rule, if it has no name yet.
 // ============================================================
 
 import { useCallback, useEffect, useId, useState } from 'react'
@@ -168,32 +169,40 @@ export function LocationPlaceFields({
         />
       </div>
 
-      <div className="map-frame location-picker-frame">
-        {!hasGoogleMapsKey() ? (
+      {!hasGoogleMapsKey() ? (
+        <div className="map-frame location-picker-frame">
           <div className="map-placeholder">
             <p>{t('trips:locationRule.map.noKey')}</p>
           </div>
-        ) : mapsConsent.status === 'loading' ? (
+        </div>
+      ) : mapsConsent.status === 'loading' ? (
+        <div className="map-frame location-picker-frame">
           <div className="map-placeholder">
             <p>{t('common:states.loading')}</p>
           </div>
-        ) : (
-          <LocationPickerMap
-            apiKey={runtimeConfig.googleMapsApiKey}
-            center={draft.center}
-            radiusMeters={radiusForMap}
-            minRadiusMeters={LOCATION_RULE_RADIUS.min}
-            maxRadiusMeters={LOCATION_RULE_RADIUS.max}
-            initialView={initialView}
-            points={currentPreview?.state === 'ready' ? currentPreview.value.points : NO_POINTS}
-            onChange={handleMapChange}
-            hasStandingConsent={mapsConsent.isStanding}
-            onGrantStandingConsent={() => {
-              mapsConsent.grant().catch(() => undefined)
-            }}
-          />
-        )}
-      </div>
+        </div>
+      ) : (
+        <LocationPickerMap
+          apiKey={runtimeConfig.googleMapsApiKey}
+          center={draft.center}
+          radiusMeters={radiusForMap}
+          minRadiusMeters={LOCATION_RULE_RADIUS.min}
+          maxRadiusMeters={LOCATION_RULE_RADIUS.max}
+          initialView={initialView}
+          points={currentPreview?.state === 'ready' ? currentPreview.value.points : NO_POINTS}
+          onChange={handleMapChange}
+          onPlaceName={(placeName: string) => {
+            // Only into an empty name: one the user typed is theirs.
+            if (draft.name.trim() === '') {
+              draft.setName(placeName.slice(0, MAX_NAME_LENGTH))
+            }
+          }}
+          hasStandingConsent={mapsConsent.isStanding}
+          onGrantStandingConsent={() => {
+            mapsConsent.grant().catch(() => undefined)
+          }}
+        />
+      )}
       <div className="map-legend location-rule-legend">
         <div className="map-legend-item">
           <span className="legend-ring" aria-hidden="true" />

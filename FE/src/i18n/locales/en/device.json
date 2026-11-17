@@ -1,4 +1,7 @@
 {
+  "address": {
+    "tooltip": "Approximate address of the last position, from Google: {{address}}"
+  },
   "backToDevices": "← Back to devices",
   "breadcrumb": "Breadcrumb",
   "charts": {
@@ -147,6 +150,7 @@
   "mapsConsent": {
     "always": "Always load maps",
     "body": "Loading it asks Google for the map tiles, which tells Google LLC your IP address, your browser details, and — from the area shown — roughly where this vehicle is. Nothing is sent until you choose.",
+    "bodyAccount": "In the app, Google also receives the text you type into a place search and, if you choose “Always”, the exact last position of each device you can see, so that it can show its address.",
     "googleTerms": "By loading the map you agree to the <terms>Google Maps Additional Terms of Service</terms> and acknowledge the <privacy>Google Privacy Policy</privacy>.",
     "hintAccount": "“Always” is saved to your account, so you will not be asked again on any device you sign in on. You can withdraw it under Profile, Privacy.",
     "hintBrowser": "“Always” is remembered in a cookie on this browser for six months. You can withdraw it on this page at any time.",

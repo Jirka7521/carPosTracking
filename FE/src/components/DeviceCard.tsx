@@ -19,20 +19,22 @@ import { PermissionBadges } from './PermissionBadges'
 import { BatteryBadge } from './BatteryBadge'
 import { AccessCountBadge } from './AccessCountBadge'
 import { DeviceLinkBadge } from './DeviceLinkBadge'
+import { DeviceAddress } from './DeviceAddress'
 import type { DeviceDto } from '../services/apiTypes'
 import { deviceLabel, hasDistinctLabel } from '../utils/devices'
 import { formatRelativeTime } from '../utils/dates'
 import { formatDate } from '../i18n/format'
 
-// Props match DeviceDto directly — the parent passes a full device object.
+// The parent passes a full device object, and whether the viewer has a standing
+// maps consent — read once for the whole grid — which the address line needs.
 type DeviceCardProps = {
   device: DeviceDto
+  showAddress: boolean
 }
 
-export function DeviceCard({ device }: DeviceCardProps) {
+export function DeviceCard({ device, showAddress }: DeviceCardProps) {
   const { t } = useTranslation(['home', 'common'])
 
-  const registeredDate = formatDate(new Date(device.createdAt))
   const deactivatedDate = device.deactivatedAt
     ? formatDate(new Date(device.deactivatedAt))
     : null
@@ -83,12 +85,14 @@ export function DeviceCard({ device }: DeviceCardProps) {
         </div>
       ) : null}
 
-      {/* Registration / deactivation date */}
-      <div className="device-card-meta">
-        {device.isActive
-          ? t('home:card.registered', { date: registeredDate })
-          : t('home:card.deactivated', { date: deactivatedDate ?? '' })}
-      </div>
+      {/* When a retired device was retired. An active one shows no date: when it
+          was registered says nothing about the car today, and the device's
+          Settings tab still has it. */}
+      {device.isActive ? null : (
+        <div className="device-card-meta">
+          {t('home:card.deactivated', { date: deactivatedDate ?? '' })}
+        </div>
+      )}
 
       {/* Liveness by fix. This only moves when a real fix arrives — "never
           reported" usually means the firmware has not been flashed with this
@@ -97,6 +101,12 @@ export function DeviceCard({ device }: DeviceCardProps) {
         <div className="device-card-meta">
           {t('home:card.lastFix', { when: formatRelativeTime(device.lastSeenAt) })}
         </div>
+      ) : null}
+
+      {/* Where that fix was, in words — only with a standing maps consent,
+          since the position goes to Google for it. */}
+      {device.isActive ? (
+        <DeviceAddress device={device} enabled={showAddress} className="device-card-meta device-address" />
       ) : null}
 
       {/* What the current user is allowed to do on this device */}

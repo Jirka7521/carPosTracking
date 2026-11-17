@@ -52,6 +52,14 @@ export type DeviceAccessCountsDto = {
   activeLinks: number
 }
 
+// Where a device's most recent fix was — see DeviceDto.lastPosition.
+export type DeviceLastPositionDto = {
+  latitude: number
+  longitude: number
+  // When the fix was taken (UTC ISO string).
+  fixTime: string
+}
+
 export type DeviceDto = {
   // MQTT identity and primary key on the wire.
   deviceId: string
@@ -71,6 +79,10 @@ export type DeviceDto = {
   // UI shows it as charging rather than as a flat battery. Lets the device grid
   // display a battery level without loading positions.
   lastBatteryPct: number | null
+  // Where the most recent fix was, or null when the device has never reported.
+  // Lets the device grid and the device header show an address (looked up in
+  // the browser, only with standing maps consent) without loading positions.
+  lastPosition: DeviceLastPositionDto | null
   // When the device last announced a new broker connection, or null when it
   // never has (firmware without status messages). Unlike lastSeenAt it moves even
   // when no fix follows — a tracker in a garage is still online.

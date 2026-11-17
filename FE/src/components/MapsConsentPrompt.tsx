@@ -5,6 +5,8 @@
 // exactly what pressing either button will send, whose terms the map comes
 // under, and how far "always" reaches. Shared by DeviceMap and
 // LocationPickerMap so every map asks the same question in the same words.
+// Signed-in users get one more paragraph: in the dashboard the same answer also
+// covers the place search and the device address, which share visitors never see.
 // ============================================================
 
 import { Trans, useTranslation } from 'react-i18next'
@@ -28,6 +30,7 @@ export function MapsConsentPrompt({ onOnce, onAlways, consentScope }: MapsConsen
       <span style={{ fontSize: '2rem' }} aria-hidden="true">🗺</span>
       <h3 className="map-consent-title">{t('mapsConsent.title')}</h3>
       <p>{t('mapsConsent.body')}</p>
+      {consentScope === 'account' && <p>{t('mapsConsent.bodyAccount')}</p>}
       <p>
         <Trans
           i18nKey="mapsConsent.googleTerms"

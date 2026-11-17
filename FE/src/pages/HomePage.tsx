@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { DeviceCard } from '../components/DeviceCard'
 import { ProvisioningPanel } from '../components/ProvisioningPanel'
 import { RefreshToolbar } from '../components/RefreshToolbar'
+import { useAccountMapsConsent } from '../hooks/useAccountMapsConsent'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { createDevice, fetchMyDevices } from '../services/apiClient'
 import type { DeviceDto, DeviceProvisioningDto } from '../services/apiTypes'
@@ -51,6 +52,10 @@ export function HomePage() {
   const [loadError, setLoadError] = useState<string>('')
 
   const refresh = useAutoRefresh(AUTO_REFRESH_SEC)
+
+  // Read once for the whole grid: each card's address line needs a standing
+  // maps consent, and a request per card would ask the same question N times.
+  const mapsConsent = useAccountMapsConsent()
 
   // False until the grid has rendered once. After that a reload is a refresh:
   // it must not swap the grid for a spinner, and it must not swap it for an
@@ -383,7 +388,7 @@ export function HomePage() {
         /* Device grid */
         <div className="device-grid">
           {visibleDevices.map((device) => (
-            <DeviceCard key={device.deviceId} device={device} />
+            <DeviceCard key={device.deviceId} device={device} showAddress={mapsConsent.isStanding} />
           ))}
         </div>
       )}

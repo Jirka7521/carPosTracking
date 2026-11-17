@@ -197,7 +197,7 @@ holds, and which privacy-policy version is in force. None of it is secret:
 |---|---|---|
 | `Privacy:ControllerName` | `Jiri Majer` | The controller, as published in the privacy policy and the Art. 30 record. |
 | `Privacy:ControllerContactEmail` | `SET-CONTROLLER-CONTACT-EMAIL` | Where data-subject requests go. **The API refuses to start outside Development while this is still the placeholder** — a published policy naming no reachable contact is worse than no policy, because it looks like an answer. |
-| `Privacy:PolicyVersion` | `2026-11-16` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
+| `Privacy:PolicyVersion` | `2026-11-16.2` | Versions the terms of use **and** the privacy policy together — one acceptance covers both. Stamped on every account that accepts it at registration, and required to match on register. Bump it whenever either changes materially; the text lives in `FE/src/i18n/locales/{en,cs}/legal.json`. |
 
 The `Sharing` section caps temporary share links. Neither key is secret:
 
@@ -616,7 +616,7 @@ came in over HTTPS ([`Middleware/SecurityHeadersMiddleware.cs`](Middleware/Secur
 | `POST /api/auth/register`, `POST /api/auth/login` | returns `{ user }`, sets the session cookies. Register needs `inviteCode` while `Registration:Mode` is `InviteOnly`. The code is checked **first**, so without a usable one the only answer is **400** `inviteCodeInvalid` (one code for missing, unknown, used or expired), not even `emailTaken`. `Closed` answers **403** `registrationClosed`. The code is claimed in the same transaction as the account insert, so a refused registration (e.g. email taken) leaves it unused |
 | `POST /api/auth/logout` | expires them |
 | `GET /api/me` | the caller's profile — also the frontend's session probe |
-| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
+| `GET /api/me/devices` | the caller's devices, each with `customName`, `permissions`, `accessCounts`, `lastPosition` (`{ latitude, longitude, fixTime }` of the newest fix or null — the dashboard turns it into an address in the browser, only with standing maps consent), `lastOnlineAt` and `lastOfflineEvent` (`{ reason, severity, receivedAt, sleepSeconds }` or null — drives the status badge) |
 | `PUT /api/me/devices/{deviceId}/alias` | set/clear the caller's private device name (204) |
 | `GET /api/users/{id}` | fetch a user's profile — only yourself, or somebody you share a device with; anyone else answers 404 |
 | `PUT /api/users/{id}`, `PUT /api/users/{id}/password` | update own names; change own password |
@@ -1023,6 +1023,7 @@ of `constexpr` lines for
     "deactivatedAt": null,
     "lastSeenAt": null,
     "lastBatteryPct": null,
+    "lastPosition": null,
     "lastOnlineAt": null,
     "lastOfflineEvent": null,
     "accessCounts": { "people": 1, "activeLinks": 0 },
